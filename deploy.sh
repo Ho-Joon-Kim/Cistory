@@ -29,7 +29,7 @@ echo "♻️  Restarting PM2 process..."
 if pm2 describe $APP_NAME > /dev/null 2>&1; then
     pm2 restart $APP_NAME
 else
-    pm2 start yarn --name $APP_NAME -- start --port $PORT
+    pm2 start yarn --name $APP_NAME -- start --hostname 0.0.0.0 --port $PORT
 fi
 
 # 6. Save PM2 process list
