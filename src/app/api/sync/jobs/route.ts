@@ -1,0 +1,156 @@
+/**
+ * Sync Jobs History API Route
+ *
+ * GET /api/sync/jobs - 동기화 작업 이력 조회
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { getRequestContext } from "@cloudflare/next-on-pages";
+import { createDb } from "@/db";
+import { createAuth } from "@/lib/auth";
+import { syncJobs } from "@/db/schema";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
+
+export const runtime = "edge";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { env } = getRequestContext();
+    const db = createDb(env.DB);
+
+    const auth = createAuth({
+      DB: env.DB,
+      GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID,
+      GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
+      BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
+      BETTER_AUTH_URL: env.BETTER_AUTH_URL,
+    });
+
+    const session = await auth.api.getSession({ headers: request.headers });
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
+    const offset = parseInt(searchParams.get("offset") || "0");
+    const status = searchParams.get("status"); // completed, failed, all
+    const syncType = searchParams.get("syncType"); // events, search, initial
+    const days = parseInt(searchParams.get("days") || "7"); // 기본 7일
+
+    // 기간 필터
+    const daysAgo = new Date();
+    daysAgo.setDate(daysAgo.getDate() - days);
+    const sinceDate = daysAgo.toISOString();
+
+    // 쿼리 조건 구성
+    const conditions = [
+      eq(syncJobs.userId, session.user.id),
+      gte(syncJobs.createdAt, sinceDate),
+    ];
+
+    if (status && status !== "all") {
+      conditions.push(eq(syncJobs.status, status as "completed" | "failed" | "fetching" | "summarizing"));
+    }
+
+    if (syncType) {
+      conditions.push(eq(syncJobs.syncType, syncType));
+    }
+
+    // 작업 목록 조회
+    const jobs = await db
+      .select({
+        id: syncJobs.id,
+        syncType: syncJobs.syncType,
+        status: syncJobs.status,
+        triggerType: syncJobs.triggerType,
+        totalCommits: syncJobs.totalCommits,
+        processedCommits: syncJobs.processedCommits,
+        errorMessage: syncJobs.errorMessage,
+        startedAt: syncJobs.startedAt,
+        completedAt: syncJobs.completedAt,
+        createdAt: syncJobs.createdAt,
+      })
+      .from(syncJobs)
+      .where(and(...conditions))
+      .orderBy(desc(syncJobs.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // 총 개수 조회
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(syncJobs)
+      .where(and(...conditions));
+
+    const total = countResult[0]?.count || 0;
+
+    // 통계 계산
+    const statsResult = await db
+      .select({
+        status: syncJobs.status,
+        count: sql<number>`count(*)`,
+        totalCommits: sql<number>`sum(${syncJobs.totalCommits})`,
+      })
+      .from(syncJobs)
+      .where(
+        and(
+          eq(syncJobs.userId, session.user.id),
+          gte(syncJobs.createdAt, sinceDate)
+        )
+      )
+      .groupBy(syncJobs.status);
+
+    const stats = {
+      total: 0,
+      completed: 0,
+      failed: 0,
+      inProgress: 0,
+      totalCommitsSynced: 0,
+    };
+
+    for (const row of statsResult) {
+      stats.total += Number(row.count);
+      if (row.status === "completed") {
+        stats.completed = Number(row.count);
+        stats.totalCommitsSynced = Number(row.totalCommits) || 0;
+      } else if (row.status === "failed") {
+        stats.failed = Number(row.count);
+      } else if (row.status === "fetching" || row.status === "summarizing") {
+        stats.inProgress += Number(row.count);
+      }
+    }
+
+    return NextResponse.json({
+      jobs: jobs.map((job) => ({
+        ...job,
+        duration:
+          job.startedAt && job.completedAt
+            ? Math.round(
+                (new Date(job.completedAt).getTime() -
+                  new Date(job.startedAt).getTime()) /
+                  1000
+              )
+            : null,
+      })),
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore: offset + jobs.length < total,
+      },
+      stats,
+      period: {
+        days,
+        since: sinceDate,
+      },
+    });
+  } catch (error) {
+    console.error("Get sync jobs error:", error);
+    return NextResponse.json(
+      { error: "Failed to get sync jobs" },
+      { status: 500 }
+    );
+  }
+}

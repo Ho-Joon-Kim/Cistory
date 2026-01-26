@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/wrangler.json",
+  "name": "cistory",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cistory",
+      "database_id": "4facf9ea-e66c-4833-8e7a-9e93048cf5ba"
+    }
+  ]
+}
