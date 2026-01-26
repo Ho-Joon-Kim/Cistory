@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
-    "preview": "next start",
+    "build:worker": "next build --turbopack && npx @opennextjs/cloudflare",
+    "preview": "npx wrangler dev",
     "start": "next start",
     "lint": "biome lint ./src",
     "lint:fix": "biome lint --write ./src",
