@@ -5,26 +5,15 @@
  */
 
 import { NextRequest } from "next/server";
-import { getRequestContext } from "@cloudflare/next-on-pages";
-import { createDb } from "@/db";
-import { createAuth } from "@/lib/auth";
+import { getDb, type Database } from "@/db";
+import { getAuth } from "@/lib/auth";
 import { syncJobs } from "@/db/schema";
 import { eq, desc, and, inArray } from "drizzle-orm";
 
-export const runtime = "edge";
-
 export async function GET(request: NextRequest) {
   try {
-    const { env } = getRequestContext();
-    const db = createDb(env.DB);
-
-    const auth = createAuth({
-      DB: env.DB,
-      GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID,
-      GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-      BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
-      BETTER_AUTH_URL: env.BETTER_AUTH_URL,
-    });
+    const db = getDb();
+    const auth = getAuth();
 
     const session = await auth.api.getSession({ headers: request.headers });
 
@@ -141,7 +130,7 @@ interface SyncStatus {
 }
 
 async function getSyncStatus(
-  db: ReturnType<typeof createDb>,
+  db: Database,
   userId: string
 ): Promise<SyncStatus> {
   // 활성 동기화 작업 조회 (fetching, summarizing 상태)

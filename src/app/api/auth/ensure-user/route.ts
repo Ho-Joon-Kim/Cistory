@@ -7,27 +7,16 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getRequestContext } from "@cloudflare/next-on-pages";
-import { createDb } from "@/db";
+import { getDb } from "@/db";
 import { account, users } from "@/db/schema";
-import { createAuth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import { now } from "@/lib/utils";
 
-export const runtime = "edge";
-
 export async function POST(request: NextRequest) {
   try {
-    const { env } = getRequestContext();
-    const db = createDb(env.DB);
-
-    const auth = createAuth({
-      DB: env.DB,
-      GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID,
-      GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-      BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
-      BETTER_AUTH_URL: env.BETTER_AUTH_URL,
-    });
+    const db = getDb();
+    const auth = getAuth();
 
     const session = await auth.api.getSession({ headers: request.headers });
 

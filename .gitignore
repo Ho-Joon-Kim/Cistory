@@ -32,17 +32,24 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
 
-# cloudflare
-.wrangler/
+# sqlite database
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# build output
 .open-next/
+.wrangler/
 .dev.vars
 
-# drizzle
-drizzle/meta/
+# drizzle (keep meta/ for migrations)
+drizzle/meta/_journal.json.bak
 
 # typescript
 *.tsbuildinfo

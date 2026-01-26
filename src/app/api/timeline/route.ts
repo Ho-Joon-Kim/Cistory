@@ -1,24 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRequestContext } from "@cloudflare/next-on-pages";
-import { createDb } from "@/db";
+import { getDb, type Database } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
-import { createAuth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
-
-export const runtime = "edge";
 
 export async function GET(request: NextRequest) {
   try {
-    const { env } = getRequestContext();
-    const db = createDb(env.DB);
-
-    const auth = createAuth({
-      DB: env.DB,
-      GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID,
-      GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-      BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
-      BETTER_AUTH_URL: env.BETTER_AUTH_URL,
-    });
+    const db = getDb();
+    const auth = getAuth();
 
     const session = await auth.api.getSession({ headers: request.headers });
 
@@ -136,7 +125,7 @@ export async function GET(request: NextRequest) {
 /**
  * GET /api/timeline/repos - Get unique repositories from commits
  */
-export async function getUniqueRepositories(userId: string, db: ReturnType<typeof createDb>) {
+export async function getUniqueRepositories(userId: string, db: Database) {
   const repos = await db
     .selectDistinct({
       repoFullName: commits.repoFullName,

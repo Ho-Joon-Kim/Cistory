@@ -5,28 +5,17 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getRequestContext } from "@cloudflare/next-on-pages";
-import { createDb } from "@/db";
+import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createAuth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { createSyncService } from "@/modules/sync/service";
 import { createSummaryService } from "@/modules/summary/service";
 
-export const runtime = "edge";
-
 export async function POST(request: NextRequest) {
   try {
-    const { env } = getRequestContext();
-    const db = createDb(env.DB);
-
-    const auth = createAuth({
-      DB: env.DB,
-      GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID,
-      GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-      BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
-      BETTER_AUTH_URL: env.BETTER_AUTH_URL,
-    });
+    const db = getDb();
+    const auth = getAuth();
 
     const session = await auth.api.getSession({ headers: request.headers });
 
@@ -66,31 +55,27 @@ export async function POST(request: NextRequest) {
     const syncService = createSyncService(db, accessToken);
     const summaryService = createSummaryService(
       db,
-      env.ANTHROPIC_API_KEY,
+      process.env.ANTHROPIC_API_KEY!,
       accessToken
     );
 
     // Execute sync in background (respond immediately)
-    const ctx = getRequestContext();
-
-    ctx.ctx.waitUntil(
-      (async () => {
-        try {
-          // If initial sync not completed, do initial sync with Search API
-          if (!initialSyncCompleted) {
-            await syncService.initialSync(session.user.id, githubLogin);
-          } else {
-            // Otherwise do regular sync with Events API
-            await syncService.syncUserCommits(session.user.id, githubLogin, "manual");
-          }
-
-          // Process pending summaries after sync
-          await summaryService.processPendingSummaries(10);
-        } catch (error) {
-          console.error("Sync failed:", error);
+    (async () => {
+      try {
+        // If initial sync not completed, do initial sync with Search API
+        if (!initialSyncCompleted) {
+          await syncService.initialSync(session.user.id, githubLogin);
+        } else {
+          // Otherwise do regular sync with Events API
+          await syncService.syncUserCommits(session.user.id, githubLogin, "manual");
         }
-      })()
-    );
+
+        // Process pending summaries after sync
+        await summaryService.processPendingSummaries(10);
+      } catch (error) {
+        console.error("Sync failed:", error);
+      }
+    })();
 
     return NextResponse.json(
       {
