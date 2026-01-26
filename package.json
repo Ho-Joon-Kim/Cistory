@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
-    "build:worker": "next build --turbopack && npx @opennextjs/cloudflare build",
-    "preview": "npx wrangler dev",
+    "build:pages": "npx @cloudflare/next-on-pages",
+    "preview": "npx wrangler pages dev .vercel/output/static",
+    "deploy": "npx wrangler pages deploy .vercel/output/static --project-name cistory",
     "start": "next start",
     "lint": "biome lint ./src",
     "lint:fix": "biome lint --write ./src",
@@ -45,7 +46,6 @@
   "devDependencies": {
     "@biomejs/biome": "^2.3.12",
     "@cloudflare/workers-types": "^4.20260124.0",
-    "@opennextjs/cloudflare": "^0.6.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
