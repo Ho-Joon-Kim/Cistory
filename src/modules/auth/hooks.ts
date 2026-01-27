@@ -10,6 +10,7 @@ interface User {
   email: string | null;
   image: string | null;
   githubId?: number;
+  githubUsername?: string;
   theme?: string;
   syncIntervalHours?: number;
 }
@@ -46,6 +47,7 @@ export function useAuth(): UseAuthReturn {
             name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
             email: user.email || null,
             image: user.user_metadata?.avatar_url || null,
+            githubUsername: user.user_metadata?.user_name || user.user_metadata?.preferred_username || undefined,
           },
           expiresAt: supabaseSession.expires_at
             ? new Date(supabaseSession.expires_at * 1000).toISOString()
@@ -75,6 +77,7 @@ export function useAuth(): UseAuthReturn {
             name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
             email: user.email || null,
             image: user.user_metadata?.avatar_url || null,
+            githubUsername: user.user_metadata?.user_name || user.user_metadata?.preferred_username || undefined,
           },
           expiresAt: session.expires_at
             ? new Date(session.expires_at * 1000).toISOString()

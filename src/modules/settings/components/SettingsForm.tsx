@@ -57,7 +57,7 @@ export function SettingsForm() {
     }
   };
 
-  const githubUsername = user?.user_metadata?.user_name || user?.user_metadata?.preferred_username;
+  const githubUsername = user?.githubUsername;
 
   return (
     <div className="space-y-6">
