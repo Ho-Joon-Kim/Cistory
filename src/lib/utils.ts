@@ -157,3 +157,18 @@ export function safeJsonParse<T>(json: string, fallback: T): T {
     return fallback;
   }
 }
+
+/**
+ * Get the application's public URL
+ * Uses NEXT_PUBLIC_APP_URL if available, otherwise falls back to window.location.origin
+ * This is important for OAuth redirects in reverse proxy environments
+ */
+export function getAppUrl(): string {
+  // Server-side: must use environment variable
+  if (!isBrowser()) {
+    return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  }
+
+  // Client-side: prefer environment variable, fallback to current origin
+  return process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+}

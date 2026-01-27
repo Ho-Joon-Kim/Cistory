@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getAppUrl } from "@/lib/utils";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface User {
@@ -99,7 +100,7 @@ export function useAuth(): UseAuthReturn {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'github',
         options: {
-          redirectTo: `${window.location.origin}/api/auth/callback`,
+          redirectTo: `${getAppUrl()}/api/auth/callback`,
           scopes: 'repo read:user',
         },
       });

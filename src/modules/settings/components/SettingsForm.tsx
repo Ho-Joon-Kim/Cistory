@@ -16,6 +16,7 @@ import {
 import { Loader2, Moon, Sun, Monitor, Github, ExternalLink, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { getAppUrl } from "@/lib/utils";
 
 export function SettingsForm() {
   const { settings, isLoading, isSaving, updateSettings } = useSettings();
@@ -48,7 +49,7 @@ export function SettingsForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "github",
       options: {
-        redirectTo: `${window.location.origin}/api/auth/callback?next=/settings`,
+        redirectTo: `${getAppUrl()}/api/auth/callback?next=/settings`,
         scopes: "repo read:user",
       },
     });

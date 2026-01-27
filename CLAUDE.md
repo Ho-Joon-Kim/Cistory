@@ -133,6 +133,9 @@ DATABASE_URL=postgresql://postgres:password@host:5432/postgres
 # Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 
+# Application URL (required for OAuth in reverse proxy environments)
+NEXT_PUBLIC_APP_URL=https://your-domain.com  # Use your public domain URL
+
 # Optional
 RUN_ON_START=true  # Run sync immediately on server start (useful for testing)
 ```
@@ -141,6 +144,8 @@ RUN_ON_START=true  # Run sync immediately on server start (useful for testing)
 1. Create Supabase project at https://supabase.com
 2. Get credentials from Project Settings → API
 3. Configure GitHub OAuth in Authentication → Providers
+   - Add your domain to "Redirect URLs" (e.g., `https://your-domain.com/api/auth/callback`)
+   - For local development, also add `http://localhost:3000/api/auth/callback`
 4. Run migrations: `yarn db:migrate`
 5. Apply RLS policies: Execute `supabase-rls-policies.sql` in Supabase SQL Editor
 
