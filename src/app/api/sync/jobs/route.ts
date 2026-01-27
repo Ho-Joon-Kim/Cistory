@@ -5,14 +5,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { syncJobs } from "@/db/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createRouteHandlerClient();
     const db = getDb();
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -31,12 +31,11 @@ export async function GET(request: NextRequest) {
     // 기간 필터
     const daysAgo = new Date();
     daysAgo.setDate(daysAgo.getDate() - days);
-    const sinceDate = daysAgo.toISOString();
 
     // 쿼리 조건 구성
     const conditions = [
       eq(syncJobs.userId, user.id),
-      gte(syncJobs.createdAt, sinceDate),
+      gte(syncJobs.createdAt, daysAgo),
     ];
 
     if (status && status !== "all") {
@@ -86,7 +85,7 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           eq(syncJobs.userId, user.id),
-          gte(syncJobs.createdAt, sinceDate)
+          gte(syncJobs.createdAt, daysAgo)
         )
       )
       .groupBy(syncJobs.status);
@@ -132,7 +131,7 @@ export async function GET(request: NextRequest) {
       stats,
       period: {
         days,
-        since: sinceDate,
+        since: daysAgo.toISOString(),
       },
     });
   } catch (error) {

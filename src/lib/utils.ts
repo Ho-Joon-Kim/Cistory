@@ -16,10 +16,11 @@ export function generateId(): string {
 }
 
 /**
- * Get current ISO 8601 timestamp
+ * Get current timestamp as Date object (for PostgreSQL)
+ * Use this for Drizzle ORM timestamp fields
  */
-export function now(): string {
-  return new Date().toISOString();
+export function now(): Date {
+  return new Date();
 }
 
 /**

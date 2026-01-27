@@ -17,7 +17,6 @@ yarn install
 
 # 3. Run database migrations
 echo "🛠️  Running database migrations..."
-mkdir -p data
 yarn db:migrate
 
 # 4. Build the application

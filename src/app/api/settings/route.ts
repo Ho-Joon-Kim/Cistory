@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createRouteHandlerClient();
     const db = getDb();
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -44,11 +44,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(DEFAULT_SETTINGS);
     }
 
-    const user = userResult[0];
+    const userSettings = userResult[0];
 
     return NextResponse.json({
-      theme: (user.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
-      syncIntervalHours: user.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
+      theme: (userSettings.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
+      syncIntervalHours: userSettings.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
     });
   } catch (error) {
     console.error("Get settings error:", error);
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createRouteHandlerClient();
     const db = getDb();
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -71,8 +71,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = (await request.json()) as Partial<UserSettings>;
-    const updates: Partial<{ theme: string; syncIntervalHours: number; updatedAt: string }> = {
-      updatedAt: new Date().toISOString(),
+    const updates: Partial<{ theme: string; syncIntervalHours: number; updatedAt: Date }> = {
+      updatedAt: new Date(),
     };
 
     // 유효성 검사
@@ -94,7 +94,7 @@ export async function PUT(request: NextRequest) {
       .where(eq(users.id, user.id));
 
     // 업데이트된 설정 반환
-    const userResult = await db
+    const updatedUserResult = await db
       .select({
         theme: users.theme,
         syncIntervalHours: users.syncIntervalHours,
@@ -102,11 +102,11 @@ export async function PUT(request: NextRequest) {
       .from(users)
       .where(eq(users.id, user.id));
 
-    const user = userResult[0];
+    const updatedSettings = updatedUserResult[0];
 
     return NextResponse.json({
-      theme: (user?.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
-      syncIntervalHours: user?.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
+      theme: (updatedSettings?.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
+      syncIntervalHours: updatedSettings?.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
     });
   } catch (error) {
     console.error("Update settings error:", error);

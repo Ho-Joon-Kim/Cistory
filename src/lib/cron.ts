@@ -5,7 +5,7 @@
  * Runs independently of user sessions - works even if users haven't logged in for months
  */
 
-import cron from 'node-cron';
+import * as cron from 'node-cron';
 import { getDb, users } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
 import { sql, or, isNull } from 'drizzle-orm';
@@ -74,7 +74,11 @@ async function syncAllUsers() {
         const syncService = createSyncService(db, user.githubAccessToken);
 
         // Sync commits (uses Search API for initial, Events API for regular)
-        await syncService.syncCommits(user.id, 'scheduled');
+        if (!user.initialSyncCompleted) {
+          await syncService.initialSync(user.id, user.githubLogin);
+        } else {
+          await syncService.syncUserCommits(user.id, user.githubLogin, 'scheduled');
+        }
 
         const duration = Date.now() - userStartTime;
         successCount++;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { commits, commitSummaries, users } from "@/db/schema";
 import { createSummaryService } from "@/modules/summary/service";
@@ -12,7 +12,7 @@ export async function POST(
 ) {
   try {
     const { commitId } = await params;
-    const supabase = await createClient();
+    const supabase = await createRouteHandlerClient();
     const db = getDb();
 
     const { data: { user } } = await supabase.auth.getUser();

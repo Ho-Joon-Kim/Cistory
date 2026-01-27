@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { commits } from "@/db/schema";
 import { eq, sql, desc } from "drizzle-orm";
@@ -9,7 +9,7 @@ import { eq, sql, desc } from "drizzle-orm";
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createRouteHandlerClient();
     const db = getDb();
 
     const { data: { user } } = await supabase.auth.getUser();

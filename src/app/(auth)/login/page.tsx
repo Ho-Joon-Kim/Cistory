@@ -3,39 +3,13 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Github, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useAuth } from "@/modules/auth/hooks";
 
 export default function LoginPage() {
-  const [isLoading, setIsLoading] = useState(false);
+  const { signIn, isLoading } = useAuth();
 
   const handleGitHubLogin = async () => {
-    setIsLoading(true);
-    try {
-      // Better Auth GitHub OAuth 시작
-      const response = await fetch("/api/auth/sign-in/social", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: "github",
-          callbackURL: "/callback",
-        }),
-      });
-
-      if (response.ok) {
-        const data = (await response.json()) as { url?: string };
-        if (data.url) {
-          window.location.href = data.url;
-        }
-      } else {
-        console.error("Login failed:", await response.text());
-        setIsLoading(false);
-      }
-    } catch (error) {
-      console.error("Login error:", error);
-      setIsLoading(false);
-    }
+    await signIn();
   };
 
   return (

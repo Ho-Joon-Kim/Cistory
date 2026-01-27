@@ -5,14 +5,14 @@
  */
 
 import { NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { getDb, type Database } from "@/db";
 import { syncJobs } from "@/db/schema";
 import { eq, desc, and, inArray } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createRouteHandlerClient();
     const db = getDb();
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -187,15 +187,15 @@ async function getSyncStatus(
           : 0,
       totalCommits: job.totalCommits ?? 0,
       processedCommits: job.processedCommits ?? 0,
-      startedAt: job.startedAt,
+      startedAt: job.startedAt ? job.startedAt.toISOString() : null,
     })),
     recentCompleted: recentCompletedResult.map((job) => ({
       id: job.id,
       syncType: job.syncType,
       status: job.status ?? "unknown",
       totalCommits: job.totalCommits ?? 0,
-      completedAt: job.completedAt,
+      completedAt: job.completedAt ? job.completedAt.toISOString() : null,
     })),
-    lastSyncTime: lastSync,
+    lastSyncTime: lastSync ? lastSync.toISOString() : null,
   };
 }

@@ -367,7 +367,7 @@ export class SyncService {
       authorName: searchCommit.authorName,
       authorEmail: searchCommit.authorEmail,
       authorAvatarUrl: searchCommit.authorAvatarUrl,
-      committedAt: searchCommit.committedAt,
+      committedAt: new Date(searchCommit.committedAt),
       additions: searchCommit.additions ?? 0,
       deletions: searchCommit.deletions ?? 0,
       changedFilesCount: searchCommit.changedFilesCount ?? 0,
@@ -416,7 +416,7 @@ export class SyncService {
       authorName: commit.authorName,
       authorEmail: commit.authorEmail,
       authorAvatarUrl: null, // Events API doesn't provide avatar URL
-      committedAt: commit.committedAt,
+      committedAt: new Date(commit.committedAt),
       additions: 0, // Events API doesn't provide stats
       deletions: 0,
       changedFilesCount: 0,

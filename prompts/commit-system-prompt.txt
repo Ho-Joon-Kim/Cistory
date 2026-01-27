@@ -73,5 +73,3 @@ chore(config): change timeout from 5000 to 10000
 ### User impact
 - Unable to determine from diff alone
 ```
-
-Output ONLY the commit message.

@@ -34,19 +34,6 @@ yarn-error.log*
 .env*
 !.env.example
 
-# vercel
-.vercel
-
-# sqlite database
-data/
-*.db
-*.db-shm
-*.db-wal
-
-# build output
-.open-next/
-.wrangler/
-
 # drizzle (keep meta/ for migrations)
 drizzle/meta/_journal.json.bak
 

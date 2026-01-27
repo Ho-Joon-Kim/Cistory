@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "./server";
+import { createRouteHandlerClient } from "./server";
 
 /**
  * Get authenticated user from Supabase session
  * Returns user ID if authenticated, or NextResponse with 401 error
  */
 export async function getAuthenticatedUser(request: NextRequest) {
-  const supabase = await createClient();
+  const supabase = await createRouteHandlerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
@@ -25,7 +25,7 @@ export async function getAuthenticatedUser(request: NextRequest) {
  * 2. Fallback to users.githubAccessToken (DB stored, for Cron)
  */
 export async function getGitHubToken(userId: string, db: any, usersTable: any) {
-  const supabase = await createClient();
+  const supabase = await createRouteHandlerClient();
   const { data: { session } } = await supabase.auth.getSession();
 
   // Try session first

@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -14,7 +14,7 @@ import { createSummaryService } from "@/modules/summary/service";
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createRouteHandlerClient();
     const db = getDb();
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -65,10 +65,10 @@ export async function POST(request: NextRequest) {
       try {
         // If initial sync not completed, do initial sync with Search API
         if (!initialSyncCompleted) {
-          await syncService.initialSync(session.user.id, githubLogin);
+          await syncService.initialSync(user.id, githubLogin);
         } else {
           // Otherwise do regular sync with Events API
-          await syncService.syncUserCommits(session.user.id, githubLogin, "manual");
+          await syncService.syncUserCommits(user.id, githubLogin, "manual");
         }
 
         // Process pending summaries after sync
