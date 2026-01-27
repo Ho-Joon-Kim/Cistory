@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { formatRelativeTime } from "@/lib/utils";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
 import type { TimelineCommit } from "../hooks";
 
 interface CommitStats {
@@ -27,9 +28,11 @@ interface CommitStats {
 interface CommitCardProps {
   commit: TimelineCommit;
   onStatsLoaded?: (commitId: string, stats: CommitStats) => void;
+  isNew?: boolean;
+  animationDelay?: number;
 }
 
-export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
+export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDelay = 0 }: CommitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [stats, setStats] = useState<CommitStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
@@ -143,7 +146,14 @@ export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
   }, [isExpanded, needsStatsLoad, commit.id, onStatsLoaded]);
 
   return (
-    <Card className="transition-shadow hover:shadow-md">
+    <Card
+      className={`
+        transition-all hover:shadow-md cursor-pointer
+        ${isNew ? "animate-slide-up-fade animate-highlight" : ""}
+      `}
+      style={isNew ? { animationDelay: `${animationDelay}ms` } : undefined}
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
       <CardContent className="px-3 py-2">
         {/* 헤더 */}
         <div className="flex items-start gap-2">
@@ -176,7 +186,7 @@ export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
 
             {/* AI 요약 (접힌 상태에서도 표시) */}
             {hasSummary && (
-              <p className="text-sm mt-1.5 text-muted-foreground line-clamp-2">
+              <p className={`text-sm mt-1.5 text-muted-foreground line-clamp-2 ${localSummary ? "animate-summary-reveal" : ""}`}>
                 {summary}
               </p>
             )}
@@ -215,15 +225,15 @@ export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
                 <>
                   <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
                     <Plus className="h-3 w-3" />
-                    {displayStats.additions}
+                    <AnimatedNumber value={displayStats.additions} />
                   </span>
                   <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
                     <Minus className="h-3 w-3" />
-                    {displayStats.deletions}
+                    <AnimatedNumber value={displayStats.deletions} />
                   </span>
                   <span className="inline-flex items-center gap-1">
                     <FileText className="h-3 w-3" />
-                    {displayStats.changedFilesCount}개 파일
+                    <AnimatedNumber value={displayStats.changedFilesCount} suffix="개 파일" />
                   </span>
                 </>
               )}
@@ -235,7 +245,10 @@ export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
             variant="ghost"
             size="sm"
             className="flex-shrink-0"
-            onClick={() => setIsExpanded(!isExpanded)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded(!isExpanded);
+            }}
           >
             {isExpanded ? (
               <ChevronUp className="h-4 w-4" />
@@ -247,7 +260,7 @@ export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
 
         {/* 확장 영역: AI 요약 */}
         {isExpanded && (
-          <div className="mt-4 pt-4 border-t">
+          <div className="mt-4 pt-4 border-t animate-in fade-in-0 slide-in-from-top-2 duration-200">
             <h4 className="text-xs font-medium text-muted-foreground mb-2">
               AI 요약
             </h4>
@@ -266,7 +279,9 @@ export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
             )}
 
             {hasSummary && (
-              <p className="text-sm leading-relaxed">{summary}</p>
+              <p className={`text-sm leading-relaxed ${localSummary ? "animate-summary-reveal" : ""}`}>
+                {summary}
+              </p>
             )}
 
             {!hasSummary && !isPending && !isProcessing && (

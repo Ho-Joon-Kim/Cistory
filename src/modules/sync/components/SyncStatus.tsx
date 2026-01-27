@@ -1,7 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { CheckCircle2, XCircle, Loader2, Clock, GitCommit } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { ProgressRing } from "@/components/ui/progress-ring";
 import {
   Popover,
   PopoverContent,
@@ -21,8 +23,41 @@ const syncTypeLabels: Record<string, string> = {
   initial: "초기 동기화",
 };
 
+// 다음 10분 cron까지 남은 시간 계산
+function useNextSyncProgress() {
+  const [progress, setProgress] = useState(0);
+  const [remainingMinutes, setRemainingMinutes] = useState<number | null>(null);
+
+  useEffect(() => {
+    const calculateProgress = () => {
+      const now = new Date();
+      const currentMinutes = now.getMinutes();
+      const currentSeconds = now.getSeconds();
+
+      // 다음 10분 단위 시간 계산 (예: 09:18 → 09:20, 09:20 → 09:30)
+      const minutesUntilNextCron = 10 - (currentMinutes % 10);
+      const secondsUntilNextCron = minutesUntilNextCron * 60 - currentSeconds;
+
+      // 0~10분 사이클에서 진행률 계산
+      const elapsedInCycle = (currentMinutes % 10) * 60 + currentSeconds;
+      const prog = (elapsedInCycle / 600) * 100; // 600초 = 10분
+
+      setProgress(prog);
+      setRemainingMinutes(Math.ceil(secondsUntilNextCron / 60));
+    };
+
+    calculateProgress();
+    const interval = setInterval(calculateProgress, 10000); // 10초마다 업데이트
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return { progress, remainingMinutes };
+}
+
 export function SyncStatus({ showDetails = true }: SyncStatusProps) {
   const { status, isConnected } = useSyncStatus();
+  const { progress: syncProgress, remainingMinutes } = useNextSyncProgress();
 
   if (!status) {
     return (
@@ -52,12 +87,13 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
   // 간단한 상태 표시 (활성 동기화가 있을 때)
   if (status.hasActiveSync) {
     const activeJob = status.activeJobs[0];
+    const progress = activeJob?.progress ?? 0;
 
     if (!showDetails) {
       return (
         <div className="flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          <span className="text-sm">동기화 중...</span>
+          <ProgressRing value={progress} size={16} />
+          <span className="text-sm">동기화 중... {progress > 0 && `${progress}%`}</span>
         </div>
       );
     }
@@ -66,8 +102,8 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
       <Popover>
         <PopoverTrigger asChild>
           <button className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            <span className="text-sm font-medium">동기화 중</span>
+            <ProgressRing value={progress} size={16} />
+            <span className="text-sm font-medium">동기화 중 {progress > 0 && `${progress}%`}</span>
             <Badge variant="secondary" className="text-xs">
               {status.activeJobs.length}
             </Badge>
@@ -107,13 +143,23 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
     );
   }
 
+  // 남은 시간 포맷
+  const formatRemaining = (minutes: number | null) => {
+    if (minutes === null) return "";
+    if (minutes === 0) return "곧 동기화";
+    if (minutes < 60) return `${minutes}분 후`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins > 0 ? `${hours}시간 ${mins}분 후` : `${hours}시간 후`;
+  };
+
   // 동기화가 없을 때
   if (!showDetails) {
     return (
       <div className="flex items-center gap-2">
-        <CheckCircle2 className="h-4 w-4 text-green-500" />
+        <ProgressRing value={syncProgress} size={16} />
         <span className="text-sm text-muted-foreground">
-          {formatTime(status.lastSyncTime)}
+          {formatRemaining(remainingMinutes)}
         </span>
       </div>
     );
@@ -123,9 +169,9 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
     <Popover>
       <PopoverTrigger asChild>
         <button className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent">
-          <CheckCircle2 className="h-4 w-4 text-green-500" />
+          <ProgressRing value={syncProgress} size={16} />
           <span className="text-sm text-muted-foreground">
-            마지막 동기화: {formatTime(status.lastSyncTime)}
+            {remainingMinutes === 0 ? "곧 동기화" : `다음 동기화: ${formatRemaining(remainingMinutes)}`}
           </span>
         </button>
       </PopoverTrigger>

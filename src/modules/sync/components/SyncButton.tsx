@@ -1,8 +1,10 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
+import { useState, useEffect } from "react";
+import { RefreshCw, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useSync } from "../hooks";
+import { SyncProgressRing } from "@/components/ui/progress-ring";
+import { useSync, useSyncStatus } from "../hooks";
 
 interface SyncButtonProps {
   variant?: "default" | "outline" | "ghost";
@@ -18,6 +20,22 @@ export function SyncButton({
   onSyncStarted,
 }: SyncButtonProps) {
   const { isSyncing, sync } = useSync();
+  const { status } = useSyncStatus();
+  const [showComplete, setShowComplete] = useState(false);
+  const [wasActive, setWasActive] = useState(false);
+
+  // Track sync completion for success animation
+  useEffect(() => {
+    if (status?.hasActiveSync) {
+      setWasActive(true);
+    } else if (wasActive && !status?.hasActiveSync) {
+      // Sync just completed
+      setShowComplete(true);
+      setWasActive(false);
+      const timer = setTimeout(() => setShowComplete(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [status?.hasActiveSync, wasActive]);
 
   const handleSync = async () => {
     const success = await sync();
@@ -26,20 +44,32 @@ export function SyncButton({
     }
   };
 
+  const isActive = status?.hasActiveSync || isSyncing;
+  const progress = status?.activeJobs?.[0]?.progress ?? 0;
+
   return (
     <Button
       variant={variant}
       size={size}
       onClick={handleSync}
-      disabled={isSyncing}
+      disabled={isActive}
       className={className}
     >
-      <RefreshCw
-        className={`h-4 w-4 ${size !== "icon" ? "mr-2" : ""} ${
-          isSyncing ? "animate-spin" : ""
-        }`}
-      />
-      {size !== "icon" && (isSyncing ? "동기화 중..." : "동기화")}
+      {showComplete ? (
+        <Check className={`h-4 w-4 text-green-500 animate-success-pulse ${size !== "icon" ? "mr-2" : ""}`} />
+      ) : isActive ? (
+        <SyncProgressRing
+          isSyncing={true}
+          progress={progress}
+          size={16}
+          className={size !== "icon" ? "mr-2" : ""}
+        />
+      ) : (
+        <RefreshCw className={`h-4 w-4 ${size !== "icon" ? "mr-2" : ""}`} />
+      )}
+      {size !== "icon" && (
+        showComplete ? "완료!" : isActive ? `동기화 중${progress > 0 ? ` ${progress}%` : "..."}` : "동기화"
+      )}
     </Button>
   );
 }

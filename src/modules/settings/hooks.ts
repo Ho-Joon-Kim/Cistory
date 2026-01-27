@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 export interface UserSettings {
   theme: "light" | "dark" | "system";
   syncIntervalHours: number;
+  lastSyncedAt: string | null;
 }
 
 export function useSettings() {

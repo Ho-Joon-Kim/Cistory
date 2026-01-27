@@ -14,11 +14,13 @@ import { eq } from "drizzle-orm";
 interface UserSettings {
   theme: "light" | "dark" | "system";
   syncIntervalHours: number;
+  lastSyncedAt: string | null;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
   theme: "system",
   syncIntervalHours: 1,
+  lastSyncedAt: null,
 };
 
 export async function GET(request: NextRequest) {
@@ -36,6 +38,7 @@ export async function GET(request: NextRequest) {
       .select({
         theme: users.theme,
         syncIntervalHours: users.syncIntervalHours,
+        lastSyncedAt: users.lastSyncedAt,
       })
       .from(users)
       .where(eq(users.id, user.id));
@@ -49,6 +52,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       theme: (userSettings.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
       syncIntervalHours: userSettings.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
+      lastSyncedAt: userSettings.lastSyncedAt?.toISOString() ?? null,
     });
   } catch (error) {
     console.error("Get settings error:", error);
@@ -98,6 +102,7 @@ export async function PUT(request: NextRequest) {
       .select({
         theme: users.theme,
         syncIntervalHours: users.syncIntervalHours,
+        lastSyncedAt: users.lastSyncedAt,
       })
       .from(users)
       .where(eq(users.id, user.id));
@@ -107,6 +112,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       theme: (updatedSettings?.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
       syncIntervalHours: updatedSettings?.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
+      lastSyncedAt: updatedSettings?.lastSyncedAt?.toISOString() ?? null,
     });
   } catch (error) {
     console.error("Update settings error:", error);

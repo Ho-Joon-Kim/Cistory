@@ -9,7 +9,7 @@ import * as cron from 'node-cron';
 import { getDb, users, commits, commitSummaries } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
 import { createSummaryService } from '@/modules/summary/service';
-import { sql, or, isNull, eq, and, gte, inArray } from 'drizzle-orm';
+import { sql, eq, and, gte, inArray } from 'drizzle-orm';
 
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
@@ -25,9 +25,7 @@ async function syncAllUsers() {
   const db = getDb();
 
   try {
-    // Find users who need syncing
-    // 1. Users who have never been synced (lastSyncedAt IS NULL)
-    // 2. Users whose last sync was longer ago than their sync interval
+    // Find all users with GitHub access token (sync every 10 minutes)
     const usersToSync = await db
       .select({
         id: users.id,
@@ -38,14 +36,7 @@ async function syncAllUsers() {
         initialSyncCompleted: users.initialSyncCompleted,
       })
       .from(users)
-      .where(
-        or(
-          // Never synced
-          isNull(users.lastSyncedAt),
-          // Last sync older than interval
-          sql`${users.lastSyncedAt} < NOW() - (${users.syncIntervalHours} || ' hours')::INTERVAL`
-        )
-      );
+      .where(sql`${users.githubAccessToken} IS NOT NULL`);
 
     console.log(`[Cron] Found ${usersToSync.length} user(s) requiring sync\n`);
 
@@ -105,7 +96,7 @@ async function syncAllUsers() {
                   inArray(commitSummaries.status, ['pending', 'failed'])
                 )
               )
-              .limit(30);
+              .limit(5);
 
             if (recentCommitsWithPendingSummaries.length > 0) {
               console.log(`[Cron] │  Found ${recentCommitsWithPendingSummaries.length} recent commits needing summaries`);
@@ -204,12 +195,12 @@ export function initializeCron() {
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 
-  // Schedule: Run every hour at :00
+  // Schedule: Run every 10 minutes
   // Cron format: minute hour day month weekday
-  // "0 * * * *" = Every hour at minute 0
-  const CRON_SCHEDULE = '0 * * * *';
+  // "*/10 * * * *" = Every 10 minutes
+  const CRON_SCHEDULE = '*/10 * * * *';
 
-  console.log(`Schedule:  ${CRON_SCHEDULE} (Every hour at :00)`);
+  console.log(`Schedule:  ${CRON_SCHEDULE} (Every 10 minutes)`);
   console.log(`Timezone:  ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
   console.log(`Started:   ${new Date().toISOString()}`);
   console.log('');
