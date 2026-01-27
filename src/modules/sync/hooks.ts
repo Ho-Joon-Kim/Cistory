@@ -58,8 +58,12 @@ export interface SyncStats {
 /**
  * SSE를 사용한 실시간 동기화 상태 훅
  * @param onSyncCompleted - 동기화 작업이 완료될 때 호출되는 콜백
+ * @param onAllSyncFinished - 모든 활성 작업(동기화+요약)이 완료될 때 호출되는 콜백
  */
-export function useSyncStatus(onSyncCompleted?: (job: RecentSyncJob) => void) {
+export function useSyncStatus(
+  onSyncCompleted?: (job: RecentSyncJob) => void,
+  onAllSyncFinished?: () => void
+) {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +73,8 @@ export function useSyncStatus(onSyncCompleted?: (job: RecentSyncJob) => void) {
   const processedCompletedJobsRef = useRef<Set<string>>(new Set());
   // 초기 로드 여부 - 첫 번째 status 이벤트에서는 콜백을 호출하지 않음
   const isInitialLoadRef = useRef(true);
+  // 이전 hasActiveSync 상태 추적 (활성 → 비활성 전환 감지용)
+  const prevHasActiveSyncRef = useRef<boolean | null>(null);
 
   const connect = useCallback(() => {
     // 기존 연결 정리
@@ -96,18 +102,32 @@ export function useSyncStatus(onSyncCompleted?: (job: RecentSyncJob) => void) {
             for (const job of data.recentCompleted) {
               processedCompletedJobsRef.current.add(job.id);
             }
+            // 초기 hasActiveSync 상태 저장
+            prevHasActiveSyncRef.current = data.hasActiveSync;
             isInitialLoadRef.current = false;
-          } else if (onSyncCompleted) {
+          } else {
             // 이후 업데이트: 새로 완료된 작업에 대해서만 콜백 호출
-            for (const job of data.recentCompleted) {
-              if (
-                job.status === "completed" &&
-                !processedCompletedJobsRef.current.has(job.id)
-              ) {
-                processedCompletedJobsRef.current.add(job.id);
-                onSyncCompleted(job);
+            if (onSyncCompleted) {
+              for (const job of data.recentCompleted) {
+                if (
+                  job.status === "completed" &&
+                  !processedCompletedJobsRef.current.has(job.id)
+                ) {
+                  processedCompletedJobsRef.current.add(job.id);
+                  onSyncCompleted(job);
+                }
               }
             }
+
+            // 모든 활성 작업 완료 감지 (활성 → 비활성 전환)
+            if (
+              onAllSyncFinished &&
+              prevHasActiveSyncRef.current === true &&
+              data.hasActiveSync === false
+            ) {
+              onAllSyncFinished();
+            }
+            prevHasActiveSyncRef.current = data.hasActiveSync;
           }
         }
       } catch (e) {
@@ -133,7 +153,7 @@ export function useSyncStatus(onSyncCompleted?: (job: RecentSyncJob) => void) {
       // 자동 재연결 (3초 후)
       reconnectTimeoutRef.current = setTimeout(connect, 3000);
     };
-  }, [onSyncCompleted]);
+  }, [onSyncCompleted, onAllSyncFinished]);
 
   const disconnect = useCallback(() => {
     if (eventSourceRef.current) {

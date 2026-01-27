@@ -7,10 +7,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
-import { users } from "@/db/schema";
+import { users, syncJobs } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createSyncService } from "@/modules/sync/service";
 import { createSummaryService } from "@/modules/summary/service";
+import { now } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -62,17 +63,37 @@ export async function POST(request: NextRequest) {
 
     // Execute sync in background (respond immediately)
     (async () => {
+      let syncJobId: string | null = null;
+
       try {
         // If initial sync not completed, do initial sync with Search API
         if (!initialSyncCompleted) {
-          await syncService.initialSync(user.id, githubLogin);
+          const result = await syncService.initialSync(user.id, githubLogin);
+          syncJobId = result.syncJobId;
         } else {
           // Otherwise do regular sync with Events API
-          await syncService.syncUserCommits(user.id, githubLogin, "manual");
+          const result = await syncService.syncUserCommits(user.id, githubLogin, "manual");
+          syncJobId = result.syncJobId;
+        }
+
+        // Update sync job status to 'summarizing' before processing summaries
+        if (syncJobId) {
+          await db
+            .update(syncJobs)
+            .set({ status: "summarizing" })
+            .where(eq(syncJobs.id, syncJobId));
         }
 
         // Process pending summaries after sync (up to 50)
         await summaryService.processPendingSummaries(50);
+
+        // Update sync job status to 'completed' after summaries are done
+        if (syncJobId) {
+          await db
+            .update(syncJobs)
+            .set({ status: "completed", completedAt: now() })
+            .where(eq(syncJobs.id, syncJobId));
+        }
       } catch (error) {
         console.error("Sync failed:", error);
       }
