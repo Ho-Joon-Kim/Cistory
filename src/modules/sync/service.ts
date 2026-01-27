@@ -134,19 +134,22 @@ export class SyncService {
         .set({ totalCommits: newSearchCommits.length })
         .where(eq(syncJobs.id, syncJobId));
 
-      // Save commits
+      // Save commits with stats
       let processed = 0;
       for (const searchCommit of newSearchCommits) {
-        await this.saveSearchCommit(userId, searchCommit);
+        onProgress?.({
+          status: "fetching",
+          message: `커밋 저장 및 통계 수집 중... (${processed + 1}/${newSearchCommits.length})`,
+          totalCommits: newSearchCommits.length,
+          processedCommits: processed,
+        });
+
+        await this.saveSearchCommit(userId, searchCommit, true);
         processed++;
 
-        if (processed % 10 === 0) {
-          onProgress?.({
-            status: "fetching",
-            message: `커밋 저장 중... (${processed}/${newSearchCommits.length})`,
-            totalCommits: newSearchCommits.length,
-            processedCommits: processed,
-          });
+        // Small delay to avoid rate limiting (GitHub allows 5000 requests/hour for authenticated users)
+        if (processed < newSearchCommits.length) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
 
@@ -306,19 +309,22 @@ export class SyncService {
         .set({ totalCommits: newSearchCommits.length })
         .where(eq(syncJobs.id, syncJobId));
 
-      // Save commits
+      // Save commits with stats
       let processed = 0;
       for (const searchCommit of newSearchCommits) {
-        await this.saveSearchCommit(userId, searchCommit);
+        onProgress?.({
+          status: "fetching",
+          message: `커밋 저장 및 통계 수집 중... (${processed + 1}/${newSearchCommits.length})`,
+          totalCommits: newSearchCommits.length,
+          processedCommits: processed,
+        });
+
+        await this.saveSearchCommit(userId, searchCommit, true);
         processed++;
 
-        if (processed % 10 === 0) {
-          onProgress?.({
-            status: "fetching",
-            message: `커밋 저장 중... (${processed}/${newSearchCommits.length})`,
-            totalCommits: newSearchCommits.length,
-            processedCommits: processed,
-          });
+        // Small delay to avoid rate limiting
+        if (processed < newSearchCommits.length) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
 
@@ -384,10 +390,29 @@ export class SyncService {
 
   private async saveSearchCommit(
     userId: string,
-    searchCommit: VCSSearchCommit
+    searchCommit: VCSSearchCommit,
+    fetchStats: boolean = true
   ): Promise<string> {
     const commitId = generateId();
     const timestamp = now();
+
+    // Fetch commit stats from GitHub API if requested
+    let additions = 0;
+    let deletions = 0;
+    let changedFilesCount = 0;
+
+    if (fetchStats) {
+      try {
+        const [owner, repo] = searchCommit.repoFullName.split("/");
+        const stats = await this.vcsAdapter.getCommitDetail(owner, repo, searchCommit.sha);
+        additions = stats.additions;
+        deletions = stats.deletions;
+        changedFilesCount = stats.changedFilesCount;
+      } catch (error) {
+        // If fetching stats fails, continue with zeros
+        console.warn(`[Sync] Failed to fetch stats for ${searchCommit.sha}:`, error);
+      }
+    }
 
     // Save commit
     await this.db.insert(commits).values({
@@ -399,9 +424,9 @@ export class SyncService {
       authorEmail: searchCommit.authorEmail,
       authorAvatarUrl: searchCommit.authorAvatarUrl,
       committedAt: new Date(searchCommit.committedAt),
-      additions: searchCommit.additions ?? 0,
-      deletions: searchCommit.deletions ?? 0,
-      changedFilesCount: searchCommit.changedFilesCount ?? 0,
+      additions,
+      deletions,
+      changedFilesCount,
       isMergeCommit: searchCommit.isMergeCommit,
       parentShas: JSON.stringify(searchCommit.parentShas),
       repoFullName: searchCommit.repoFullName,

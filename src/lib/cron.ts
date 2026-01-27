@@ -6,10 +6,10 @@
  */
 
 import * as cron from 'node-cron';
-import { getDb, users } from '@/db';
+import { getDb, users, commits, commitSummaries } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
 import { createSummaryService } from '@/modules/summary/service';
-import { sql, or, isNull } from 'drizzle-orm';
+import { sql, or, isNull, eq, and, gte, inArray } from 'drizzle-orm';
 
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
@@ -81,7 +81,7 @@ async function syncAllUsers() {
           await syncService.syncUserCommits(user.id, user.githubLogin, 'scheduled');
         }
 
-        // Process pending summaries for this user (up to 20 per cron run)
+        // Process pending summaries for recent commits (last 7 days)
         if (process.env.ANTHROPIC_API_KEY) {
           try {
             const summaryService = createSummaryService(
@@ -89,9 +89,42 @@ async function syncAllUsers() {
               process.env.ANTHROPIC_API_KEY,
               user.githubAccessToken
             );
-            const processedSummaries = await summaryService.processPendingSummaries(20);
-            if (processedSummaries > 0) {
-              console.log(`[Cron] │  Processed ${processedSummaries} pending summaries`);
+
+            // Find commits from last 7 days with pending/failed summaries
+            const oneWeekAgo = new Date();
+            oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+            const recentCommitsWithPendingSummaries = await db
+              .select({ commitId: commits.id })
+              .from(commits)
+              .innerJoin(commitSummaries, eq(commits.id, commitSummaries.commitId))
+              .where(
+                and(
+                  eq(commits.userId, user.id),
+                  gte(commits.committedAt, oneWeekAgo),
+                  inArray(commitSummaries.status, ['pending', 'failed'])
+                )
+              )
+              .limit(30);
+
+            if (recentCommitsWithPendingSummaries.length > 0) {
+              console.log(`[Cron] │  Found ${recentCommitsWithPendingSummaries.length} recent commits needing summaries`);
+
+              let processed = 0;
+              for (const { commitId } of recentCommitsWithPendingSummaries) {
+                try {
+                  await summaryService.generateSummary(commitId);
+                  processed++;
+                } catch (error) {
+                  // Continue with next commit even if one fails
+                }
+                // Rate limiting
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+
+              if (processed > 0) {
+                console.log(`[Cron] │  Processed ${processed} summaries for recent commits`);
+              }
             }
           } catch (summaryError) {
             console.error(`[Cron] │  Summary processing error: ${summaryError instanceof Error ? summaryError.message : summaryError}`);

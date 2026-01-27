@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
   Minus,
   FileText,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 import { formatRelativeTime } from "@/lib/utils";
 import type { TimelineCommit } from "../hooks";
@@ -32,11 +33,79 @@ export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [stats, setStats] = useState<CommitStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [summaryStatus, setSummaryStatus] = useState(commit.summary?.status);
+  const [localSummary, setLocalSummary] = useState<string | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const summary = commit.summary?.summary;
+  const summary = localSummary ?? commit.summary?.summary;
   const hasSummary = !!summary;
-  const isPending = commit.summary?.status === "pending";
-  const isProcessing = commit.summary?.status === "processing";
+  const isPending = summaryStatus === "pending";
+  const isProcessing = summaryStatus === "processing" || isGeneratingSummary;
+
+  // 폴링으로 요약 상태 확인
+  const pollSummaryStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/timeline/commits/${commit.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.summary?.status === "completed" && data.summary?.summary) {
+          setLocalSummary(data.summary.summary);
+          setSummaryStatus("completed");
+          // 폴링 중지
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+        } else if (data.summary?.status === "failed") {
+          setSummaryStatus("failed");
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Failed to poll summary status:", error);
+    }
+  }, [commit.id]);
+
+  // 컴포넌트 언마운트 시 폴링 정리
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
+
+  const handleGenerateSummary = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isGeneratingSummary) return;
+
+    setIsGeneratingSummary(true);
+    setSummaryStatus("processing");
+
+    try {
+      const response = await fetch(`/api/timeline/commits/${commit.id}/summary`, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        // 폴링 시작 (2초 간격으로 상태 확인)
+        pollingRef.current = setInterval(pollSummaryStatus, 2000);
+      } else {
+        const data = await response.json();
+        console.error("Summary generation failed:", data.error);
+        setSummaryStatus("pending");
+      }
+    } catch (error) {
+      console.error("Summary generation error:", error);
+      setSummaryStatus("pending");
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
 
   // 커밋 메시지 첫 줄
   const messageFirstLine = commit.message.split("\n")[0];
@@ -104,6 +173,34 @@ export function CommitCard({ commit, onStatsLoaded }: CommitCardProps) {
 
             {/* 커밋 메시지 */}
             <p className="text-sm mt-1 break-words">{messageFirstLine}</p>
+
+            {/* AI 요약 (접힌 상태에서도 표시) */}
+            {hasSummary && (
+              <p className="text-sm mt-1.5 text-muted-foreground line-clamp-2">
+                {summary}
+              </p>
+            )}
+            {(isPending || isProcessing) && (
+              <div className="flex items-center gap-2 mt-1.5">
+                {isPending && !isProcessing && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={handleGenerateSummary}
+                  >
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    요약 생성
+                  </Button>
+                )}
+                {isProcessing && (
+                  <p className="text-xs text-muted-foreground italic flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    요약 생성 중...
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* 변경 통계 */}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1 text-xs text-muted-foreground">

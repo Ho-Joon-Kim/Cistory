@@ -2,6 +2,7 @@
 
 import { useSettings } from "../hooks";
 import { useAuth } from "@/modules/auth/hooks";
+import { SummaryStats } from "./SummaryStats";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -216,6 +217,9 @@ export function SettingsForm() {
           </div>
         </CardContent>
       </Card>
+
+      {/* AI 요약 */}
+      <SummaryStats />
     </div>
   );
 }
