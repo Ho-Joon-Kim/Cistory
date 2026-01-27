@@ -45,11 +45,11 @@ export async function POST(
     const commit = commitResult[0];
 
     // 이미 stats가 있으면 바로 반환
-    if (commit.additions > 0 || commit.deletions > 0 || commit.changedFilesCount > 0) {
+    if ((commit.additions ?? 0) > 0 || (commit.deletions ?? 0) > 0 || (commit.changedFilesCount ?? 0) > 0) {
       return NextResponse.json({
-        additions: commit.additions,
-        deletions: commit.deletions,
-        changedFilesCount: commit.changedFilesCount,
+        additions: commit.additions ?? 0,
+        deletions: commit.deletions ?? 0,
+        changedFilesCount: commit.changedFilesCount ?? 0,
       });
     }
 
