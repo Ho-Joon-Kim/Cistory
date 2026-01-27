@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Calendar, Filter, X } from "lucide-react";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Calendar, X, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Repository {
   fullName: string;
@@ -22,8 +22,8 @@ interface Repository {
 
 interface FiltersProps {
   repositories: Repository[];
-  selectedRepoFullName?: string;
-  onRepoFullNameChange: (fullName?: string) => void;
+  selectedRepoFullNames: string[];
+  onRepoFullNamesChange: (fullNames: string[]) => void;
   dateFrom?: string;
   dateTo?: string;
   onDateRangeChange: (from?: string, to?: string) => void;
@@ -32,8 +32,8 @@ interface FiltersProps {
 
 export function Filters({
   repositories,
-  selectedRepoFullName,
-  onRepoFullNameChange,
+  selectedRepoFullNames,
+  onRepoFullNamesChange,
   dateFrom,
   dateTo,
   onDateRangeChange,
@@ -41,6 +41,7 @@ export function Filters({
 }: FiltersProps) {
   const [localFrom, setLocalFrom] = useState(dateFrom ?? "");
   const [localTo, setLocalTo] = useState(dateTo ?? "");
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     setLocalFrom(dateFrom ?? "");
@@ -51,87 +52,114 @@ export function Filters({
     onDateRangeChange(localFrom || undefined, localTo || undefined);
   };
 
-  const hasActiveFilters = selectedRepoFullName || dateFrom || dateTo;
+  const handleRepoToggle = (repoFullName: string) => {
+    if (selectedRepoFullNames.includes(repoFullName)) {
+      onRepoFullNamesChange(selectedRepoFullNames.filter((r) => r !== repoFullName));
+    } else {
+      onRepoFullNamesChange([...selectedRepoFullNames, repoFullName]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (selectedRepoFullNames.length === repositories.length) {
+      onRepoFullNamesChange([]);
+    } else {
+      onRepoFullNamesChange(repositories.map((r) => r.fullName));
+    }
+  };
+
+  const hasActiveFilters = selectedRepoFullNames.length > 0 || dateFrom || dateTo;
+
+  const getRepoButtonText = () => {
+    if (selectedRepoFullNames.length === 0) {
+      return "모든 레포지토리";
+    }
+    if (selectedRepoFullNames.length === 1) {
+      return selectedRepoFullNames[0];
+    }
+    return `${selectedRepoFullNames.length}개 레포지토리`;
+  };
 
   return (
-    <div className="space-y-4">
-      {/* First row: Repository filter */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        {/* Repository filter */}
-        <Select
-          value={selectedRepoFullName ?? "all"}
-          onValueChange={(value) => {
-            onRepoFullNameChange(value === "all" ? undefined : value);
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-[280px]">
-            <SelectValue placeholder="모든 레포지토리" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">모든 레포지토리</SelectItem>
-            {repositories.map((repo) => (
-              <SelectItem key={repo.fullName} value={repo.fullName}>
-                {repo.fullName} ({repo.commitCount})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Clear filters */}
-        {hasActiveFilters && (
+    <div className="flex flex-wrap items-center gap-3 mb-4">
+      {/* Repository filter */}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            onClick={onClearFilters}
-            className="text-muted-foreground w-fit"
-          >
-            <X className="h-4 w-4 mr-1" />
-            필터 초기화
-          </Button>
-        )}
-      </div>
-
-      {/* Second row: Date filter */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          <span className="text-sm text-muted-foreground">기간:</span>
-        </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-          <Input
-            type="date"
-            value={localFrom}
-            onChange={(e) => setLocalFrom(e.target.value)}
-            className="w-full sm:w-[140px]"
-            placeholder="시작일"
-          />
-          <span className="text-muted-foreground hidden sm:inline">~</span>
-          <Input
-            type="date"
-            value={localTo}
-            onChange={(e) => setLocalTo(e.target.value)}
-            className="w-full sm:w-[140px]"
-            placeholder="종료일"
-          />
-          <Button variant="outline" size="sm" onClick={handleDateApply} className="w-full sm:w-auto">
-            적용
-          </Button>
-        </div>
-      </div>
-
-      {/* Active filters display */}
-      {hasActiveFilters && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Filter className="h-4 w-4" />
-          <span>
-            필터 적용 중:
-            {selectedRepoFullName && (
-              <span className="ml-1">{selectedRepoFullName}</span>
+            className={cn(
+              "h-8 justify-between min-w-[180px] max-w-[280px]",
+              selectedRepoFullNames.length > 0 && "border-primary"
             )}
-            {dateFrom && <span className="ml-1">{dateFrom} 이후</span>}
-            {dateTo && <span className="ml-1">{dateTo} 이전</span>}
-          </span>
-        </div>
+          >
+            <span className="truncate">{getRepoButtonText()}</span>
+            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[280px] p-0" align="start">
+          <div className="p-2 border-b">
+            <label
+              className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm hover:bg-accent cursor-pointer"
+            >
+              <Checkbox
+                checked={selectedRepoFullNames.length === repositories.length && repositories.length > 0}
+                onCheckedChange={handleSelectAll}
+              />
+              <span className="text-sm">전체 선택</span>
+            </label>
+          </div>
+          <div className="max-h-[300px] overflow-y-auto p-2">
+            {repositories.map((repo) => (
+              <label
+                key={repo.fullName}
+                className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm hover:bg-accent cursor-pointer"
+              >
+                <Checkbox
+                  checked={selectedRepoFullNames.includes(repo.fullName)}
+                  onCheckedChange={() => handleRepoToggle(repo.fullName)}
+                  className="flex-shrink-0"
+                />
+                <span className="truncate flex-1 text-sm">{repo.fullName}</span>
+                <span className="text-xs text-muted-foreground">{repo.commitCount}</span>
+              </label>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      {/* Date filter */}
+      <div className="flex items-center gap-2">
+        <Calendar className="h-4 w-4 text-muted-foreground" />
+        <Input
+          type="date"
+          value={localFrom}
+          onChange={(e) => setLocalFrom(e.target.value)}
+          className="w-[130px] h-8 text-sm"
+        />
+        <span className="text-muted-foreground">~</span>
+        <Input
+          type="date"
+          value={localTo}
+          onChange={(e) => setLocalTo(e.target.value)}
+          className="w-[130px] h-8 text-sm"
+        />
+        <Button variant="outline" size="sm" onClick={handleDateApply} className="h-8">
+          적용
+        </Button>
+      </div>
+
+      {/* Clear filters */}
+      {hasActiveFilters && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClearFilters}
+          className="text-muted-foreground h-8"
+        >
+          <X className="h-4 w-4 mr-1" />
+          초기화
+        </Button>
       )}
     </div>
   );

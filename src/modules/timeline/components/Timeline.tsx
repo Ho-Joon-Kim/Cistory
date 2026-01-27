@@ -63,19 +63,19 @@ export function Timeline({
       {/* 타임라인 세로선 */}
       <div className="absolute left-4 md:left-6 top-0 bottom-0 w-px bg-border" />
 
-      <div className="space-y-8">
+      <div className="space-y-5">
         {Object.entries(groupedCommits).map(([date, dateCommits]) => (
           <div key={date}>
             {/* 날짜 헤더 */}
-            <div className="relative flex items-center mb-4">
-              <div className="absolute left-2 md:left-4 w-4 h-4 rounded-full bg-primary border-4 border-background" />
+            <div className="relative flex items-center mb-2">
+              <div className="absolute left-2 md:left-4 w-3 h-3 rounded-full bg-primary border-2 border-background" />
               <h3 className="ml-10 md:ml-14 text-sm font-medium text-muted-foreground">
                 {formatDateHeader(date)}
               </h3>
             </div>
 
             {/* 해당 날짜의 커밋들 */}
-            <div className="space-y-3 ml-10 md:ml-14">
+            <div className="space-y-1.5 ml-10 md:ml-14">
               {dateCommits.map((commit) => (
                 <CommitCard
                   key={commit.id}

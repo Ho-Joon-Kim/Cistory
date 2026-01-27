@@ -8,6 +8,7 @@
 import * as cron from 'node-cron';
 import { getDb, users } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
+import { createSummaryService } from '@/modules/summary/service';
 import { sql, or, isNull } from 'drizzle-orm';
 
 let isInitialized = false;
@@ -73,11 +74,28 @@ async function syncAllUsers() {
 
         const syncService = createSyncService(db, user.githubAccessToken);
 
-        // Sync commits (uses Search API for initial, Events API for regular)
+        // Sync commits (uses Search API for initial and regular)
         if (!user.initialSyncCompleted) {
           await syncService.initialSync(user.id, user.githubLogin);
         } else {
           await syncService.syncUserCommits(user.id, user.githubLogin, 'scheduled');
+        }
+
+        // Process pending summaries for this user (up to 20 per cron run)
+        if (process.env.ANTHROPIC_API_KEY) {
+          try {
+            const summaryService = createSummaryService(
+              db,
+              process.env.ANTHROPIC_API_KEY,
+              user.githubAccessToken
+            );
+            const processedSummaries = await summaryService.processPendingSummaries(20);
+            if (processedSummaries > 0) {
+              console.log(`[Cron] │  Processed ${processedSummaries} pending summaries`);
+            }
+          } catch (summaryError) {
+            console.error(`[Cron] │  Summary processing error: ${summaryError instanceof Error ? summaryError.message : summaryError}`);
+          }
         }
 
         const duration = Date.now() - userStartTime;

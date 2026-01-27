@@ -1,7 +1,9 @@
 "use client";
 
 import { useSettings } from "../hooks";
+import { useAuth } from "@/modules/auth/hooks";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -10,11 +12,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Moon, Sun, Monitor } from "lucide-react";
+import { Loader2, Moon, Sun, Monitor, Github, ExternalLink, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 
 export function SettingsForm() {
   const { settings, isLoading, isSaving, updateSettings } = useSettings();
+  const { user } = useAuth();
 
   if (isLoading || !settings) {
     return (
@@ -38,8 +42,94 @@ export function SettingsForm() {
     }
   };
 
+  const handleReconnectGithub = async () => {
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "github",
+      options: {
+        redirectTo: `${window.location.origin}/api/auth/callback?next=/settings`,
+        scopes: "repo read:user",
+      },
+    });
+    if (error) {
+      toast.error("GitHub 재연결에 실패했습니다");
+    }
+  };
+
+  const githubUsername = user?.user_metadata?.user_name || user?.user_metadata?.preferred_username;
+
   return (
     <div className="space-y-6">
+      {/* GitHub 연결 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">GitHub 연결</CardTitle>
+          <CardDescription>
+            GitHub 계정 연결 상태와 Organization 접근 권한을 관리합니다
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* 현재 연결 상태 */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-full bg-muted">
+                <Github className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-medium">{githubUsername || "연결됨"}</p>
+                <p className="text-sm text-muted-foreground">GitHub 계정</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReconnectGithub}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              재연결
+            </Button>
+          </div>
+
+          {/* Organization 권한 안내 */}
+          <div className="p-3 rounded-lg bg-muted/50 space-y-2">
+            <p className="text-sm font-medium">Organization 레포지토리가 안 보이나요?</p>
+            <p className="text-sm text-muted-foreground">
+              Organization 레포지토리에 접근하려면 해당 Organization에서 OAuth 앱 접근을 승인해야 합니다.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <a
+                  href="https://github.com/settings/applications"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  GitHub 앱 설정
+                </a>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <a
+                  href="https://docs.github.com/en/organizations/managing-oauth-access-to-your-organizations-data/approving-oauth-apps-for-your-organization"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  도움말
+                </a>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 외관 설정 */}
       <Card>
         <CardHeader>

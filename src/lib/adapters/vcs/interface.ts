@@ -125,6 +125,15 @@ export interface VCSAdapter {
   getCommitDiff(owner: string, repo: string, sha: string): Promise<VCSCommitDiff>;
 
   /**
+   * Get commit stats (additions, deletions, changed files count)
+   */
+  getCommitDetail(
+    owner: string,
+    repo: string,
+    sha: string
+  ): Promise<{ additions: number; deletions: number; changedFilesCount: number }>;
+
+  /**
    * Get file content from repository
    */
   getFileContent(

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { getDb, type Database } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
-import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql, inArray } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,15 +19,18 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") ?? "1", 10);
     const perPage = Math.min(parseInt(searchParams.get("per_page") ?? "20", 10), 50);
-    const repoFullName = searchParams.get("repo"); // Filter by repo full name
+    const reposParam = searchParams.get("repos"); // Filter by multiple repos (comma-separated)
     const fromDate = searchParams.get("from");
     const toDate = searchParams.get("to");
 
     // Build conditions
     const conditions = [eq(commits.userId, user.id)];
 
-    if (repoFullName) {
-      conditions.push(eq(commits.repoFullName, repoFullName));
+    if (reposParam) {
+      const repoNames = reposParam.split(",").filter(Boolean);
+      if (repoNames.length > 0) {
+        conditions.push(inArray(commits.repoFullName, repoNames));
+      }
     }
 
     if (fromDate) {

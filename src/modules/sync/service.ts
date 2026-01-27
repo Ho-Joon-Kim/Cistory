@@ -185,7 +185,7 @@ export class SyncService {
   }
 
   /**
-   * Regular sync using Events API - fetches recent push events
+   * Regular sync using Search API - fetches commits since last sync
    */
   async syncUserCommits(
     userId: string,
@@ -200,7 +200,7 @@ export class SyncService {
     await this.db.insert(syncJobs).values({
       id: syncJobId,
       userId,
-      syncType: "events",
+      syncType: "search",
       status: "fetching",
       triggerType,
       startedAt: timestamp,
@@ -209,50 +209,79 @@ export class SyncService {
 
     onProgress?.({
       status: "fetching",
-      message: "최근 이벤트를 가져오는 중...",
+      message: "새로운 커밋을 검색하는 중...",
       totalCommits: 0,
       processedCommits: 0,
     });
 
     try {
-      // Fetch push events via Events API
-      const pushEvents = await this.vcsAdapter.getUserEvents(username, 100);
+      // Get user's last sync time
+      const userResult = await this.db
+        .select({ lastSyncedAt: users.lastSyncedAt })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
 
-      // Flatten all commits from push events
-      const allCommits: Array<{
-        sha: string;
-        message: string;
-        authorName: string;
-        authorEmail: string | null;
-        committedAt: string;
-        repoFullName: string;
-        repoId: number;
-        repoIsPrivate: boolean;
-      }> = [];
+      // Default to 7 days ago if no lastSyncedAt
+      let sinceDate: string;
+      const lastSyncedAt = userResult[0]?.lastSyncedAt;
+      if (lastSyncedAt) {
+        // Convert Date to ISO string if needed
+        sinceDate = lastSyncedAt instanceof Date
+          ? lastSyncedAt.toISOString()
+          : String(lastSyncedAt);
+      } else {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        sinceDate = sevenDaysAgo.toISOString();
+      }
 
-      for (const event of pushEvents) {
-        for (const commit of event.commits) {
-          allCommits.push({
-            sha: commit.sha,
-            message: commit.message,
-            authorName: commit.authorName,
-            authorEmail: commit.authorEmail,
-            committedAt: commit.committedAt,
-            repoFullName: event.repoFullName,
-            repoId: event.repoId,
-            repoIsPrivate: event.repoIsPrivate,
-          });
+      console.log("[Sync] Searching commits since:", sinceDate, "for user:", username);
+
+      // Fetch commits via Search API (paginated)
+      const allSearchCommits: VCSSearchCommit[] = [];
+      let page = 1;
+      const perPage = 100;
+      let hasMore = true;
+
+      while (hasMore) {
+        const searchCommits = await this.vcsAdapter.searchUserCommits(username, {
+          since: sinceDate,
+          perPage,
+          page,
+        });
+
+        allSearchCommits.push(...searchCommits);
+
+        onProgress?.({
+          status: "fetching",
+          message: `커밋 검색 중... (${allSearchCommits.length}개 발견)`,
+          totalCommits: allSearchCommits.length,
+          processedCommits: 0,
+        });
+
+        // GitHub Search API returns max 1000 results
+        if (searchCommits.length < perPage || allSearchCommits.length >= 1000) {
+          hasMore = false;
+        } else {
+          page++;
         }
       }
+
+      console.log("[Sync] Found", allSearchCommits.length, "commits from Search API");
 
       // Filter out already existing commits
       const existingShas = await this.getExistingCommitShas(
         userId,
-        allCommits.map((c) => c.sha)
+        allSearchCommits.map((c) => c.sha)
       );
-      const newCommits = allCommits.filter((c) => !existingShas.has(c.sha));
+      const newSearchCommits = allSearchCommits.filter(
+        (c) => !existingShas.has(c.sha)
+      );
 
-      if (newCommits.length === 0) {
+      console.log("[Sync] After filtering:", newSearchCommits.length, "new commits (", existingShas.size, "already exist)");
+
+      if (newSearchCommits.length === 0) {
         await this.completeSyncJob(syncJobId, 0, 0);
 
         // Update last synced time even if no new commits
@@ -274,21 +303,23 @@ export class SyncService {
       // Update sync job with total count
       await this.db
         .update(syncJobs)
-        .set({ totalCommits: newCommits.length })
+        .set({ totalCommits: newSearchCommits.length })
         .where(eq(syncJobs.id, syncJobId));
 
       // Save commits
       let processed = 0;
-      for (const commit of newCommits) {
-        await this.saveEventCommit(userId, commit);
+      for (const searchCommit of newSearchCommits) {
+        await this.saveSearchCommit(userId, searchCommit);
         processed++;
 
-        onProgress?.({
-          status: "fetching",
-          message: `커밋 저장 중... (${processed}/${newCommits.length})`,
-          totalCommits: newCommits.length,
-          processedCommits: processed,
-        });
+        if (processed % 10 === 0) {
+          onProgress?.({
+            status: "fetching",
+            message: `커밋 저장 중... (${processed}/${newSearchCommits.length})`,
+            totalCommits: newSearchCommits.length,
+            processedCommits: processed,
+          });
+        }
       }
 
       // Update last synced time
@@ -298,16 +329,16 @@ export class SyncService {
         .where(eq(users.id, userId));
 
       // Complete sync job
-      await this.completeSyncJob(syncJobId, newCommits.length, processed);
+      await this.completeSyncJob(syncJobId, newSearchCommits.length, processed);
 
       onProgress?.({
         status: "completed",
-        message: `${newCommits.length}개의 새로운 커밋을 동기화했습니다`,
-        totalCommits: newCommits.length,
+        message: `${newSearchCommits.length}개의 새로운 커밋을 동기화했습니다`,
+        totalCommits: newSearchCommits.length,
         processedCommits: processed,
       });
 
-      return { newCommits: newCommits.length, syncJobId };
+      return { newCommits: newSearchCommits.length, syncJobId };
     } catch (error) {
       await this.failSyncJob(
         syncJobId,

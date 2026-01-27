@@ -180,6 +180,31 @@ export class GitHubAdapter implements VCSAdapter {
     };
   }
 
+  async getCommitDetail(
+    owner: string,
+    repo: string,
+    sha: string
+  ): Promise<{ additions: number; deletions: number; changedFilesCount: number }> {
+    interface GitHubCommitDetail {
+      stats: {
+        additions: number;
+        deletions: number;
+        total: number;
+      };
+      files: Array<{ filename: string }>;
+    }
+
+    const detail = await this.fetch<GitHubCommitDetail>(
+      `/repos/${owner}/${repo}/commits/${sha}`
+    );
+
+    return {
+      additions: detail.stats?.additions ?? 0,
+      deletions: detail.stats?.deletions ?? 0,
+      changedFilesCount: detail.files?.length ?? 0,
+    };
+  }
+
   private mapFileStatus(
     status: string
   ): "added" | "modified" | "removed" | "renamed" {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Timeline } from "@/modules/timeline/components/Timeline";
@@ -22,8 +22,14 @@ interface Repository {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isLoading: isAuthLoading, isAuthenticated } = useAuth();
-  const { filters, setRepoFullName, setDateRange, clearFilters } = useFilters();
+
+  // URL 쿼리 파라미터에서 repos 읽기 (초기값)
+  const initialRepos = searchParams.get("repos")?.split(",").filter(Boolean) ?? [];
+  const { filters, setRepoFullNames, setDateRange, clearFilters } = useFilters(
+    initialRepos.length > 0 ? initialRepos : undefined
+  );
 
   const {
     commits,
@@ -134,8 +140,8 @@ export default function DashboardPage() {
             {/* Filters */}
             <Filters
               repositories={repositories}
-              selectedRepoFullName={filters.repoFullName}
-              onRepoFullNameChange={setRepoFullName}
+              selectedRepoFullNames={filters.repoFullNames ?? []}
+              onRepoFullNamesChange={setRepoFullNames}
               dateFrom={filters.from}
               dateTo={filters.to}
               onDateRangeChange={setDateRange}

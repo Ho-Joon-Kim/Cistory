@@ -25,7 +25,7 @@ export interface TimelineCommit {
 }
 
 export interface TimelineFilters {
-  repoFullName?: string;
+  repoFullNames?: string[];
   from?: string;
   to?: string;
 }
@@ -70,8 +70,8 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
           per_page: String(perPage),
         });
 
-        if (filters?.repoFullName) {
-          params.set("repo", filters.repoFullName);
+        if (filters?.repoFullNames && filters.repoFullNames.length > 0) {
+          params.set("repos", filters.repoFullNames.join(","));
         }
         if (filters?.from) {
           params.set("from", filters.from);
@@ -154,16 +154,21 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
 
 interface UseFiltersReturn {
   filters: TimelineFilters;
-  setRepoFullName: (fullName?: string) => void;
+  setRepoFullNames: (fullNames: string[]) => void;
   setDateRange: (from?: string, to?: string) => void;
   clearFilters: () => void;
 }
 
-export function useFilters(): UseFiltersReturn {
-  const [filters, setFilters] = useState<TimelineFilters>({});
+export function useFilters(initialRepos?: string[]): UseFiltersReturn {
+  const [filters, setFilters] = useState<TimelineFilters>(() => ({
+    repoFullNames: initialRepos,
+  }));
 
-  const setRepoFullName = useCallback((fullName?: string) => {
-    setFilters((prev) => ({ ...prev, repoFullName: fullName }));
+  const setRepoFullNames = useCallback((fullNames: string[]) => {
+    setFilters((prev) => ({
+      ...prev,
+      repoFullNames: fullNames.length > 0 ? fullNames : undefined
+    }));
   }, []);
 
   const setDateRange = useCallback((from?: string, to?: string) => {
@@ -176,7 +181,7 @@ export function useFilters(): UseFiltersReturn {
 
   return {
     filters,
-    setRepoFullName,
+    setRepoFullNames,
     setDateRange,
     clearFilters,
   };

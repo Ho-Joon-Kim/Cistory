@@ -71,8 +71,8 @@ export async function POST(request: NextRequest) {
           await syncService.syncUserCommits(user.id, githubLogin, "manual");
         }
 
-        // Process pending summaries after sync
-        await summaryService.processPendingSummaries(10);
+        // Process pending summaries after sync (up to 50)
+        await summaryService.processPendingSummaries(50);
       } catch (error) {
         console.error("Sync failed:", error);
       }
