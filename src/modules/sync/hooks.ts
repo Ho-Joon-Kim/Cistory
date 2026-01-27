@@ -57,13 +57,18 @@ export interface SyncStats {
 
 /**
  * SSE를 사용한 실시간 동기화 상태 훅
+ * @param onSyncCompleted - 동기화 작업이 완료될 때 호출되는 콜백
  */
-export function useSyncStatus() {
+export function useSyncStatus(onSyncCompleted?: (job: RecentSyncJob) => void) {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // 이미 처리한 완료 작업 ID를 추적
+  const processedCompletedJobsRef = useRef<Set<string>>(new Set());
+  // 초기 로드 여부 - 첫 번째 status 이벤트에서는 콜백을 호출하지 않음
+  const isInitialLoadRef = useRef(true);
 
   const connect = useCallback(() => {
     // 기존 연결 정리
@@ -83,6 +88,28 @@ export function useSyncStatus() {
       try {
         const data = JSON.parse(event.data) as SyncStatus;
         setStatus(data);
+
+        // 완료된 작업 ID 추적 및 콜백 호출
+        if (data.recentCompleted) {
+          if (isInitialLoadRef.current) {
+            // 초기 로드: 기존 완료 작업 ID만 등록하고 콜백은 호출하지 않음
+            for (const job of data.recentCompleted) {
+              processedCompletedJobsRef.current.add(job.id);
+            }
+            isInitialLoadRef.current = false;
+          } else if (onSyncCompleted) {
+            // 이후 업데이트: 새로 완료된 작업에 대해서만 콜백 호출
+            for (const job of data.recentCompleted) {
+              if (
+                job.status === "completed" &&
+                !processedCompletedJobsRef.current.has(job.id)
+              ) {
+                processedCompletedJobsRef.current.add(job.id);
+                onSyncCompleted(job);
+              }
+            }
+          }
+        }
       } catch (e) {
         console.error("Failed to parse status:", e);
       }
@@ -106,7 +133,7 @@ export function useSyncStatus() {
       // 자동 재연결 (3초 후)
       reconnectTimeoutRef.current = setTimeout(connect, 3000);
     };
-  }, []);
+  }, [onSyncCompleted]);
 
   const disconnect = useCallback(() => {
     if (eventSourceRef.current) {

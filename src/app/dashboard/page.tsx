@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Timeline } from "@/modules/timeline/components/Timeline";
 import { Filters } from "@/modules/timeline/components/Filters";
 import { useTimeline, useFilters } from "@/modules/timeline/hooks";
 import { useAuth } from "@/modules/auth/hooks";
+import { useSyncStatus, type RecentSyncJob } from "@/modules/sync/hooks";
 import { Header } from "@/components/Layout/Header";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +43,27 @@ export default function DashboardPage() {
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [isLoadingRepos, setIsLoadingRepos] = useState(true);
 
+  // 동기화 완료 시 자동으로 타임라인 새로고침
+  const handleSyncCompleted = useCallback(
+    (job: RecentSyncJob) => {
+      if (job.totalCommits > 0) {
+        toast.success(`동기화 완료: ${job.totalCommits}개의 커밋이 추가되었습니다`);
+      } else {
+        toast.info("동기화 완료: 새로운 커밋이 없습니다");
+      }
+      // 타임라인과 레포지토리 목록 새로고침
+      refresh();
+      fetch("/api/timeline/repos")
+        .then((res) => res.json() as Promise<{ repositories: Repository[] }>)
+        .then((data) => setRepositories(data.repositories))
+        .catch(console.error);
+    },
+    [refresh]
+  );
+
+  // SSE로 동기화 상태 모니터링
+  useSyncStatus(handleSyncCompleted);
+
   // Auth check
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) {
@@ -73,15 +95,7 @@ export default function DashboardPage() {
 
   const handleSyncStarted = () => {
     toast.success("동기화가 시작되었습니다");
-    // Refresh timeline after a delay
-    setTimeout(() => {
-      refresh();
-      // Also refresh repos list
-      fetch("/api/timeline/repos")
-        .then((res) => res.json() as Promise<{ repositories: Repository[] }>)
-        .then((data) => setRepositories(data.repositories))
-        .catch(console.error);
-    }, 5000);
+    // 동기화 완료는 SSE를 통해 자동으로 감지되어 새로고침됨
   };
 
   if (isAuthLoading) {
@@ -120,13 +134,7 @@ export default function DashboardPage() {
                 fetch("/api/sync", { method: "POST" })
                   .then(() => {
                     toast.success("동기화가 시작되었습니다");
-                    setTimeout(() => {
-                      refresh();
-                      fetch("/api/timeline/repos")
-                        .then((res) => res.json() as Promise<{ repositories: Repository[] }>)
-                        .then((data) => setRepositories(data.repositories))
-                        .catch(console.error);
-                    }, 5000);
+                    // 동기화 완료는 SSE를 통해 자동으로 감지되어 새로고침됨
                   })
                   .catch(() => toast.error("동기화 시작에 실패했습니다"));
               }}>
