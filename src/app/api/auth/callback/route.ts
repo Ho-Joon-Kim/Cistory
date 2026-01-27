@@ -2,11 +2,15 @@ import { createRouteHandlerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/db'
 import { users } from '@/db/schema'
+import { getAppUrl } from '@/lib/utils'
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url)
+  const { searchParams } = new URL(request.url)
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/dashboard'
+
+  // Use configured app URL instead of request origin for reverse proxy support
+  const appUrl = getAppUrl()
 
   if (code) {
     const supabase = await createRouteHandlerClient()
@@ -15,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('[Auth Callback] Error exchanging code:', error.message)
-      return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(error.message)}`)
+      return NextResponse.redirect(`${appUrl}/login?error=${encodeURIComponent(error.message)}`)
     }
 
     // Ensure user record exists in our database
@@ -26,7 +30,7 @@ export async function GET(request: NextRequest) {
 
         if (!githubToken) {
           console.error('No provider token in session')
-          return NextResponse.redirect(`${origin}/login?error=no_token`)
+          return NextResponse.redirect(`${appUrl}/login?error=no_token`)
         }
 
         // Fetch GitHub user details
@@ -39,7 +43,7 @@ export async function GET(request: NextRequest) {
 
         if (!githubResponse.ok) {
           console.error('[Auth Callback] Failed to fetch GitHub user')
-          return NextResponse.redirect(`${origin}/login?error=github_fetch_failed`)
+          return NextResponse.redirect(`${appUrl}/login?error=github_fetch_failed`)
         }
 
         const githubUser = await githubResponse.json()
@@ -78,5 +82,5 @@ export async function GET(request: NextRequest) {
   }
 
   // URL to redirect to after sign in process completes
-  return NextResponse.redirect(`${origin}${next}`)
+  return NextResponse.redirect(`${appUrl}${next}`)
 }
