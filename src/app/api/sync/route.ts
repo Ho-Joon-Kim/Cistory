@@ -5,21 +5,20 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { getAuth } from "@/lib/auth";
 import { createSyncService } from "@/modules/sync/service";
 import { createSummaryService } from "@/modules/summary/service";
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
-
-    if (!session?.user) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -31,7 +30,7 @@ export async function POST(request: NextRequest) {
         initialSyncCompleted: users.initialSyncCompleted,
       })
       .from(users)
-      .where(eq(users.id, session.user.id))
+      .where(eq(users.id, user.id))
       .limit(1);
 
     if (!userResult[0]) {
@@ -43,14 +42,16 @@ export async function POST(request: NextRequest) {
 
     const { githubLogin, githubAccessToken, initialSyncCompleted } = userResult[0];
 
-    if (!githubAccessToken) {
+    // Try to get token from session first (hybrid approach)
+    const { data: { session } } = await supabase.auth.getSession();
+    const accessToken = session?.provider_token || githubAccessToken;
+
+    if (!accessToken) {
       return NextResponse.json(
         { error: "GitHub access token not found" },
         { status: 400 }
       );
     }
-
-    const accessToken = githubAccessToken;
 
     const syncService = createSyncService(db, accessToken);
     const summaryService = createSummaryService(

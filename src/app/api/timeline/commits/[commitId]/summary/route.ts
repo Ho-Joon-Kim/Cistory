@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { commits, commitSummaries, users } from "@/db/schema";
-import { getAuth } from "@/lib/auth";
 import { createSummaryService } from "@/modules/summary/service";
 import { eq, and } from "drizzle-orm";
 
@@ -12,12 +12,12 @@ export async function POST(
 ) {
   try {
     const { commitId } = await params;
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!session?.user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -25,7 +25,7 @@ export async function POST(
     const userResult = await db
       .select({ githubAccessToken: users.githubAccessToken })
       .from(users)
-      .where(eq(users.id, session.user.id))
+      .where(eq(users.id, user.id))
       .limit(1);
 
     const accessToken = userResult[0]?.githubAccessToken;
@@ -46,7 +46,7 @@ export async function POST(
       .from(commits)
       .leftJoin(commitSummaries, eq(commits.id, commitSummaries.commitId))
       .where(
-        and(eq(commits.id, commitId), eq(commits.userId, session.user.id))
+        and(eq(commits.id, commitId), eq(commits.userId, user.id))
       );
 
     if (commitResult.length === 0) {

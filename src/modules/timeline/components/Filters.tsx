@@ -10,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Toggle } from "@/components/ui/toggle";
 import { Calendar, Filter, X } from "lucide-react";
 
 interface Repository {
@@ -28,8 +27,6 @@ interface FiltersProps {
   dateFrom?: string;
   dateTo?: string;
   onDateRangeChange: (from?: string, to?: string) => void;
-  summaryMode: "technical" | "nonTechnical";
-  onSummaryModeChange: (mode: "technical" | "nonTechnical") => void;
   onClearFilters: () => void;
 }
 
@@ -40,8 +37,6 @@ export function Filters({
   dateFrom,
   dateTo,
   onDateRangeChange,
-  summaryMode,
-  onSummaryModeChange,
   onClearFilters,
 }: FiltersProps) {
   const [localFrom, setLocalFrom] = useState(dateFrom ?? "");
@@ -60,7 +55,7 @@ export function Filters({
 
   return (
     <div className="space-y-4">
-      {/* First row: Repository & Summary mode */}
+      {/* First row: Repository filter */}
       <div className="flex flex-col sm:flex-row gap-3">
         {/* Repository filter */}
         <Select
@@ -81,26 +76,6 @@ export function Filters({
             ))}
           </SelectContent>
         </Select>
-
-        {/* Summary mode toggle */}
-        <div className="flex items-center gap-1 border rounded-md p-1 w-fit">
-          <Toggle
-            pressed={summaryMode === "nonTechnical"}
-            onPressedChange={() => onSummaryModeChange("nonTechnical")}
-            size="sm"
-            className="text-xs"
-          >
-            비기술자
-          </Toggle>
-          <Toggle
-            pressed={summaryMode === "technical"}
-            onPressedChange={() => onSummaryModeChange("technical")}
-            size="sm"
-            className="text-xs"
-          >
-            기술자
-          </Toggle>
-        </div>
 
         {/* Clear filters */}
         {hasActiveFilters && (

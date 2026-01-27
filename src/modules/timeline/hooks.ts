@@ -20,8 +20,7 @@ export interface TimelineCommit {
   };
   summary: {
     status: string;
-    technicalSummary: string | null;
-    nonTechnicalSummary: string | null;
+    summary: string | null;
   } | null;
 }
 

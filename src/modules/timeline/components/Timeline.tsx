@@ -11,7 +11,6 @@ interface TimelineProps {
   isLoading: boolean;
   hasNext: boolean;
   onLoadMore: () => void;
-  summaryMode: "technical" | "nonTechnical";
 }
 
 export function Timeline({
@@ -19,7 +18,6 @@ export function Timeline({
   isLoading,
   hasNext,
   onLoadMore,
-  summaryMode,
 }: TimelineProps) {
   const observerTarget = useRef<HTMLDivElement>(null);
 
@@ -82,7 +80,6 @@ export function Timeline({
                 <CommitCard
                   key={commit.id}
                   commit={commit}
-                  summaryMode={summaryMode}
                 />
               ))}
             </div>

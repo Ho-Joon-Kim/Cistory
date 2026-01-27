@@ -1,25 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
-import { getAuth } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 
 export async function DELETE(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
-
-    if (!session?.user) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // 사용자 데이터 삭제 (CASCADE로 관련 데이터도 삭제됨)
-    await db.delete(users).where(eq(users.id, session.user.id));
+    await db.delete(users).where(eq(users.id, user.id));
 
     // 세션 종료
-    await auth.api.signOut({ headers: request.headers });
+    await supabase.auth.signOut();
 
     return NextResponse.json({
       success: true,

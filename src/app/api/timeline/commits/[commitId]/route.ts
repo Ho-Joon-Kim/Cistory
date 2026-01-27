@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
-import { getAuth } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
 
 export async function GET(
@@ -10,12 +10,12 @@ export async function GET(
 ) {
   try {
     const { commitId } = await params;
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!session?.user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -39,8 +39,7 @@ export async function GET(
         repoIsPrivate: commits.repoIsPrivate,
         summaryId: commitSummaries.id,
         summaryStatus: commitSummaries.status,
-        technicalSummary: commitSummaries.technicalSummary,
-        nonTechnicalSummary: commitSummaries.nonTechnicalSummary,
+        summary: commitSummaries.summary,
         retryCount: commitSummaries.retryCount,
       })
       .from(commits)
@@ -48,7 +47,7 @@ export async function GET(
       .where(
         and(
           eq(commits.id, commitId),
-          eq(commits.userId, session.user.id)
+          eq(commits.userId, user.id)
         )
       );
 
@@ -79,8 +78,7 @@ export async function GET(
       summary: commit.summaryId
         ? {
             status: commit.summaryStatus,
-            technicalSummary: commit.technicalSummary,
-            nonTechnicalSummary: commit.nonTechnicalSummary,
+            summary: commit.summary,
             retryCount: commit.retryCount,
           }
         : null,

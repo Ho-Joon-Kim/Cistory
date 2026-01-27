@@ -1,0 +1,3 @@
+Generate a commit message for these changes:
+
+{diff}

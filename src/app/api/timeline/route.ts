@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDb, type Database } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
-import { getAuth } from "@/lib/auth";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
-
-    if (!session?.user) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -24,7 +23,7 @@ export async function GET(request: NextRequest) {
     const toDate = searchParams.get("to");
 
     // Build conditions
-    const conditions = [eq(commits.userId, session.user.id)];
+    const conditions = [eq(commits.userId, user.id)];
 
     if (repoFullName) {
       conditions.push(eq(commits.repoFullName, repoFullName));
@@ -66,8 +65,7 @@ export async function GET(request: NextRequest) {
         repoIsPrivate: commits.repoIsPrivate,
         summaryId: commitSummaries.id,
         summaryStatus: commitSummaries.status,
-        technicalSummary: commitSummaries.technicalSummary,
-        nonTechnicalSummary: commitSummaries.nonTechnicalSummary,
+        summary: commitSummaries.summary,
       })
       .from(commits)
       .leftJoin(commitSummaries, eq(commits.id, commitSummaries.commitId))
@@ -96,8 +94,7 @@ export async function GET(request: NextRequest) {
       summary: c.summaryId
         ? {
             status: c.summaryStatus,
-            technicalSummary: c.technicalSummary,
-            nonTechnicalSummary: c.nonTechnicalSummary,
+            summary: c.summary,
           }
         : null,
     }));

@@ -1,17 +1,19 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "./schema";
 
-const DATABASE_PATH = process.env.DATABASE_URL || "./data/cistory.db";
+const DATABASE_URL = process.env.DATABASE_URL || "postgresql://localhost:5432/cistory";
 
 // Singleton database connection
 let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
+let pool: Pool | null = null;
 
 export function getDb() {
   if (!dbInstance) {
-    const sqlite = new Database(DATABASE_PATH);
-    sqlite.pragma("journal_mode = WAL");
-    dbInstance = drizzle(sqlite, { schema });
+    pool = new Pool({
+      connectionString: DATABASE_URL,
+    });
+    dbInstance = drizzle(pool, { schema });
   }
   return dbInstance;
 }

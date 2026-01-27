@@ -46,7 +46,6 @@ data/
 # build output
 .open-next/
 .wrangler/
-.dev.vars
 
 # drizzle (keep meta/ for migrations)
 drizzle/meta/_journal.json.bak

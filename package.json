@@ -13,7 +13,12 @@
     "check": "biome check --write ./src",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop cistory",
+    "pm2:restart": "pm2 restart cistory",
+    "pm2:logs": "pm2 logs cistory",
+    "pm2:status": "pm2 status"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
@@ -27,7 +32,8 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-toggle": "^1.1.10",
-    "better-auth": "^1.2.0",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.93.1",
     "better-sqlite3": "^12.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -35,6 +41,8 @@
     "lucide-react": "^0.511.0",
     "next": "16.1.4",
     "next-themes": "^0.4.6",
+    "node-cron": "^4.2.1",
+    "pg": "^8.17.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "sonner": "^2.0.7",
@@ -45,12 +53,16 @@
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^20",
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
     "eslint": "^9",
     "eslint-config-next": "16.1.4",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
     "typescript": "^5"
   }
 }

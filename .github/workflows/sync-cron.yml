@@ -1,0 +1,19 @@
+name: Sync Commits Cron
+
+on:
+  schedule:
+    # 매시간 실행 (UTC 기준)
+    - cron: '0 * * * *'
+
+  # 수동 실행 가능
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sync API
+        run: |
+          curl -X GET "${{ secrets.APP_URL }}/api/cron/sync-commits" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"

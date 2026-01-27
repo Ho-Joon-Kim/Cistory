@@ -7,24 +7,22 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/db";
-import { account, users } from "@/db/schema";
-import { getAuth } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import { getDb, users } from "@/db";
 import { eq } from "drizzle-orm";
-import { now } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
-
-    if (!session?.user) {
+    // Get authenticated user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = session.user.id;
+    const userId = user.id;
 
     // Check if user already exists in our users table
     const existingUser = await db
@@ -41,25 +39,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Get the account info (contains access token)
-    const accountResult = await db
-      .select()
-      .from(account)
-      .where(eq(account.userId, userId))
-      .limit(1);
+    // Get GitHub access token from session
+    const { data: { session } } = await supabase.auth.getSession();
+    const githubToken = session?.provider_token;
 
-    if (!accountResult[0]) {
-      return NextResponse.json(
-        { error: "Account not found" },
-        { status: 404 }
-      );
-    }
-
-    const accountRecord = accountResult[0];
-    const accessToken = accountRecord.accessToken;
-    const githubId = parseInt(accountRecord.accountId, 10);
-
-    if (!accessToken) {
+    if (!githubToken) {
       return NextResponse.json(
         { error: "GitHub access token not found" },
         { status: 400 }
@@ -69,7 +53,7 @@ export async function POST(request: NextRequest) {
     // Fetch GitHub user info
     const githubUserResponse = await fetch("https://api.github.com/user", {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${githubToken}`,
         Accept: "application/vnd.github+json",
       },
     });
@@ -82,19 +66,20 @@ export async function POST(request: NextRequest) {
     }
 
     const githubUser = (await githubUserResponse.json()) as {
+      id: number;
       login: string;
       avatar_url: string;
     };
 
-    const timestamp = now();
+    const timestamp = new Date();
 
     // Create new user record
     await db.insert(users).values({
       id: userId,
-      githubId,
+      githubId: githubUser.id,
       githubLogin: githubUser.login,
       githubAvatarUrl: githubUser.avatar_url,
-      githubAccessToken: accessToken,
+      githubAccessToken: githubToken, // Store for Cron jobs
       createdAt: timestamp,
       updatedAt: timestamp,
     });

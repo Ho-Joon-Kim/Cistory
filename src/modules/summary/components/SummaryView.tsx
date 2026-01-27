@@ -5,23 +5,17 @@ import { Button } from "@/components/ui/button";
 
 interface SummaryViewProps {
   status: string | null;
-  technicalSummary: string | null;
-  nonTechnicalSummary: string | null;
-  mode: "technical" | "nonTechnical";
+  summary: string | null;
   onRegenerate?: () => void;
   isRegenerating?: boolean;
 }
 
 export function SummaryView({
   status,
-  technicalSummary,
-  nonTechnicalSummary,
-  mode,
+  summary,
   onRegenerate,
   isRegenerating,
 }: SummaryViewProps) {
-  const summary = mode === "technical" ? technicalSummary : nonTechnicalSummary;
-  const modeLabel = mode === "technical" ? "기술자" : "비기술자";
 
   // 로딩 중
   if (status === "pending") {
@@ -98,7 +92,7 @@ export function SummaryView({
   // 요약 없음
   return (
     <div className="text-sm text-muted-foreground italic py-2">
-      {modeLabel} 관점의 요약을 생성할 수 없습니다
+      요약을 생성할 수 없습니다
     </div>
   );
 }

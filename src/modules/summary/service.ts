@@ -13,8 +13,7 @@ import { now, truncateDiff, parseRepoFullName } from "@/lib/utils";
 import {
   buildSystemPrompt,
   buildRecentContext,
-  buildNonTechnicalPrompt,
-  buildTechnicalPrompt,
+  buildSummaryPrompt,
   SIMPLE_SYSTEM_PROMPT,
   type RepoContext,
   type CommitContext,
@@ -24,8 +23,7 @@ import { fetchRepoContext, analyzeRecentCommits } from "./context";
 const MAX_RETRY_COUNT = 3;
 
 export interface SummaryResult {
-  technical: string;
-  nonTechnical: string;
+  summary: string;
 }
 
 export class SummaryService {
@@ -135,33 +133,23 @@ export class SummaryService {
         systemPrompt = SIMPLE_SYSTEM_PROMPT;
       }
 
-      // AI 요약 생성 (병렬)
-      const [technicalResult, nonTechnicalResult] = await Promise.all([
-        this.aiAdapter.generateText({
-          system: systemPrompt,
-          prompt: buildTechnicalPrompt(commitContext, recentContext),
-          maxTokens: 500,
-          temperature: 0.5,
-        }),
-        this.aiAdapter.generateText({
-          system: systemPrompt,
-          prompt: buildNonTechnicalPrompt(commitContext, recentContext),
-          maxTokens: 300,
-          temperature: 0.5,
-        }),
-      ]);
+      // AI 요약 생성
+      const summaryResult = await this.aiAdapter.generateText({
+        system: systemPrompt,
+        prompt: buildSummaryPrompt(commitContext, recentContext),
+        maxTokens: 300,
+        temperature: 0.5,
+      });
 
       const result: SummaryResult = {
-        technical: technicalResult.content,
-        nonTechnical: nonTechnicalResult.content,
+        summary: summaryResult.content,
       };
 
       // 요약 저장
       await this.db
         .update(commitSummaries)
         .set({
-          technicalSummary: result.technical,
-          nonTechnicalSummary: result.nonTechnical,
+          summary: result.summary,
           status: "completed",
           updatedAt: now(),
         })

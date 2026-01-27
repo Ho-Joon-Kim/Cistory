@@ -5,26 +5,26 @@
  */
 
 import { NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDb, type Database } from "@/db";
-import { getAuth } from "@/lib/auth";
 import { syncJobs } from "@/db/schema";
 import { eq, desc, and, inArray } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!session?.user) {
+    if (!user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    const userId = session.user.id;
+    const userId = user.id;
 
     // SSE 스트림 생성
     const encoder = new TextEncoder();

@@ -35,9 +35,6 @@ export default function DashboardPage() {
 
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [isLoadingRepos, setIsLoadingRepos] = useState(true);
-  const [summaryMode, setSummaryMode] = useState<"technical" | "nonTechnical">(
-    "nonTechnical"
-  );
 
   // Auth check
   useEffect(() => {
@@ -142,8 +139,6 @@ export default function DashboardPage() {
               dateFrom={filters.from}
               dateTo={filters.to}
               onDateRangeChange={setDateRange}
-              summaryMode={summaryMode}
-              onSummaryModeChange={setSummaryMode}
               onClearFilters={clearFilters}
             />
 
@@ -153,7 +148,6 @@ export default function DashboardPage() {
               isLoading={isLoading}
               hasNext={hasNext}
               onLoadMore={loadMore}
-              summaryMode={summaryMode}
             />
           </div>
         )}

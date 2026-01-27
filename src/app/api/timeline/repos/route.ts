@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
 import { commits } from "@/db/schema";
-import { getAuth } from "@/lib/auth";
 import { eq, sql, desc } from "drizzle-orm";
 
 /**
@@ -9,12 +9,12 @@ import { eq, sql, desc } from "drizzle-orm";
  */
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!session?.user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         lastCommitAt: sql<string>`max(${commits.committedAt})`.as("last_commit_at"),
       })
       .from(commits)
-      .where(eq(commits.userId, session.user.id))
+      .where(eq(commits.userId, user.id))
       .groupBy(commits.repoFullName, commits.repoId, commits.repoIsPrivate)
       .orderBy(desc(sql`last_commit_at`));
 

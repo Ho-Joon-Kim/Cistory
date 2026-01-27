@@ -5,19 +5,19 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDb } from "@/db";
-import { getAuth } from "@/lib/auth";
 import { syncJobs } from "@/db/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const db = getDb();
-    const auth = getAuth();
 
-    const session = await auth.api.getSession({ headers: request.headers });
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!session?.user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
 
     // 쿼리 조건 구성
     const conditions = [
-      eq(syncJobs.userId, session.user.id),
+      eq(syncJobs.userId, user.id),
       gte(syncJobs.createdAt, sinceDate),
     ];
 
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
       .from(syncJobs)
       .where(
         and(
-          eq(syncJobs.userId, session.user.id),
+          eq(syncJobs.userId, user.id),
           gte(syncJobs.createdAt, sinceDate)
         )
       )

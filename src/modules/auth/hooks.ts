@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface User {
   id: string;
@@ -22,7 +24,7 @@ interface UseAuthReturn {
   session: Session | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  signIn: () => void;
+  signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -30,63 +32,92 @@ interface UseAuthReturn {
 export function useAuth(): UseAuthReturn {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const supabase = createClient();
 
   const fetchSession = useCallback(async () => {
     try {
-      const response = await fetch("/api/auth/get-session", {
-        credentials: "include",
-      });
+      const { data: { session: supabaseSession } } = await supabase.auth.getSession();
 
-      if (response.ok) {
-        const data = (await response.json()) as Session;
-        setSession(data);
+      if (supabaseSession?.user) {
+        const user = supabaseSession.user;
+        setSession({
+          user: {
+            id: user.id,
+            name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+            email: user.email || null,
+            image: user.user_metadata?.avatar_url || null,
+          },
+          expiresAt: supabaseSession.expires_at
+            ? new Date(supabaseSession.expires_at * 1000).toISOString()
+            : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        });
       } else {
         setSession(null);
       }
-    } catch {
+    } catch (error) {
+      console.error("Fetch session error:", error);
       setSession(null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     fetchSession();
-  }, [fetchSession]);
 
-  const signIn = useCallback(async () => {
-    // Better Auth의 소셜 로그인 경로
-    const response = await fetch("/api/auth/sign-in/social", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        provider: "github",
-        callbackURL: "/callback",
-      }),
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const user = session.user;
+        setSession({
+          user: {
+            id: user.id,
+            name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+            email: user.email || null,
+            image: user.user_metadata?.avatar_url || null,
+          },
+          expiresAt: session.expires_at
+            ? new Date(session.expires_at * 1000).toISOString()
+            : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      } else {
+        setSession(null);
+      }
+      setIsLoading(false);
     });
 
-    if (response.ok) {
-      const data = (await response.json()) as { url?: string };
-      if (data.url) {
-        window.location.href = data.url;
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase, fetchSession]);
+
+  const signIn = useCallback(async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: `${window.location.origin}/callback`,
+          scopes: 'repo read:user',
+        },
+      });
+
+      if (error) {
+        console.error('Sign in error:', error);
       }
+    } catch (error) {
+      console.error('Sign in error:', error);
     }
-  }, []);
+  }, [supabase]);
 
   const signOut = useCallback(async () => {
     try {
-      await fetch("/api/auth/sign-out", {
-        method: "POST",
-        credentials: "include",
-      });
+      await supabase.auth.signOut();
       setSession(null);
       window.location.href = "/login";
     } catch (error) {
       console.error("Sign out error:", error);
     }
-  }, []);
+  }, [supabase]);
 
   const refresh = useCallback(async () => {
     await fetchSession();

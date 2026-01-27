@@ -19,17 +19,12 @@ import type { TimelineCommit } from "../hooks";
 
 interface CommitCardProps {
   commit: TimelineCommit;
-  summaryMode: "technical" | "nonTechnical";
 }
 
-export function CommitCard({ commit, summaryMode }: CommitCardProps) {
+export function CommitCard({ commit }: CommitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const summary =
-    summaryMode === "technical"
-      ? commit.summary?.technicalSummary
-      : commit.summary?.nonTechnicalSummary;
-
+  const summary = commit.summary?.summary;
   const hasSummary = !!summary;
   const isPending = commit.summary?.status === "pending";
   const isProcessing = commit.summary?.status === "processing";
@@ -114,7 +109,7 @@ export function CommitCard({ commit, summaryMode }: CommitCardProps) {
         {isExpanded && (
           <div className="mt-4 pt-4 border-t">
             <h4 className="text-xs font-medium text-muted-foreground mb-2">
-              AI 요약 ({summaryMode === "technical" ? "기술자" : "비기술자"} 관점)
+              AI 요약
             </h4>
 
             {isPending && (
