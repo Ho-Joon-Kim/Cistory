@@ -6,7 +6,7 @@ export function TimelineSkeleton() {
   return (
     <div className="relative space-y-4">
       {/* Continuous stepper line */}
-      <div className="absolute left-[13px] md:left-[21px] top-0 bottom-0 w-0.5 bg-muted-foreground/20 rounded-full" />
+      <div className="absolute left-[15px] md:left-[23px] top-0 bottom-0 w-0.5 bg-muted-foreground/20 rounded-full" />
 
       {/* Selected date group skeleton */}
       <div className="relative">

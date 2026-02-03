@@ -6,10 +6,10 @@
  */
 
 import * as cron from 'node-cron';
-import { getDb, users, commits, commitSummaries } from '@/db';
+import { getDb, users, commits, commitSummaries, syncJobs } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
 import { createSummaryService } from '@/modules/summary/service';
-import { sql, eq, and, gte, inArray } from 'drizzle-orm';
+import { sql, eq, and, gte, lt, inArray } from 'drizzle-orm';
 
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
@@ -171,6 +171,23 @@ async function syncAllUsers() {
           console.log(`  - ${r.user}: ${r.error}`);
         });
       console.log('');
+    }
+
+    // Cleanup old sync jobs (older than 7 days)
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const deleted = await db
+        .delete(syncJobs)
+        .where(lt(syncJobs.createdAt, sevenDaysAgo))
+        .returning({ id: syncJobs.id });
+
+      if (deleted.length > 0) {
+        console.log(`[Cron] Cleaned up ${deleted.length} old sync job(s)`);
+      }
+    } catch (error) {
+      console.error('[Cron] Failed to cleanup old sync jobs:', error);
     }
 
   } catch (error) {
