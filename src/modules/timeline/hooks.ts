@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface TimelineCommit {
   id: string;
@@ -45,6 +45,7 @@ interface UseTimelineReturn {
   hasPrev: boolean;
   loadMore: () => void;
   refresh: () => void;
+  fetchNew: () => void;
   goToPage: (page: number) => void;
 }
 
@@ -126,11 +127,47 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
     }
   }, [hasNext, isLoading, page, fetchTimeline]);
 
+  const commitsRef = useRef<TimelineCommit[]>([]);
+  commitsRef.current = commits;
+
   const refresh = useCallback(() => {
-    setCommits([]);
     setPage(1);
     fetchTimeline(1);
   }, [fetchTimeline]);
+
+  const fetchNew = useCallback(async () => {
+    const current = commitsRef.current;
+    if (current.length === 0) {
+      fetchTimeline(1);
+      return;
+    }
+
+    const latestCommittedAt = current[0].committedAt;
+    const params = new URLSearchParams({
+      after: latestCommittedAt,
+      per_page: "200",
+    });
+
+    if (filters?.repoFullNames && filters.repoFullNames.length > 0) {
+      params.set("repos", filters.repoFullNames.join(","));
+    }
+
+    try {
+      const response = await fetch(`/api/timeline?${params}`);
+      if (!response.ok) return;
+
+      const data = (await response.json()) as { commits: TimelineCommit[] };
+      if (data.commits.length > 0) {
+        setCommits((prev) => {
+          const existingIds = new Set(prev.map((c) => c.id));
+          const newCommits = data.commits.filter((c) => !existingIds.has(c.id));
+          return [...newCommits, ...prev];
+        });
+      }
+    } catch {
+      // silent fail
+    }
+  }, [filters, fetchTimeline]);
 
   const goToPage = useCallback(
     (newPage: number) => {
@@ -151,6 +188,7 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
     hasPrev,
     loadMore,
     refresh,
+    fetchNew,
     goToPage,
   };
 }

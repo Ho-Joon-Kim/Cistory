@@ -162,6 +162,15 @@ export interface VCSAdapter {
   ): Promise<VCSSearchCommit[]>;
 
   /**
+   * Get all commits authored by user across all repos via Repos API
+   * Uses /user/repos + /repos/:owner/:repo/commits instead of Search API
+   */
+  getAllRepoCommits(
+    username: string,
+    options?: SearchCommitsOptions
+  ): Promise<VCSSearchCommit[]>;
+
+  /**
    * Get authenticated user info
    */
   getAuthenticatedUser(): Promise<{ login: string; id: number; avatarUrl: string }>;

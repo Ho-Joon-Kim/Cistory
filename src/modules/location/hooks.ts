@@ -17,39 +17,55 @@ interface LocationsResponse {
   count: number;
 }
 
+const POLL_INTERVAL_MS = 60_000;
+
+function isToday(date: string): boolean {
+  return date === new Date().toISOString().slice(0, 10);
+}
+
 export function useLocations(date: string) {
   const [locations, setLocations] = useState<LocationData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cache = useRef<Map<string, LocationData[]>>(new Map());
 
-  const fetchLocations = useCallback(async (targetDate: string, signal: AbortSignal) => {
-    // Check cache first
-    const cached = cache.current.get(targetDate);
-    if (cached) {
-      setLocations(cached);
-      setIsLoading(false);
-      return;
-    }
+  const fetchLocations = useCallback(
+    async (targetDate: string, signal: AbortSignal, silent = false) => {
+      if (!silent) {
+        const cached = cache.current.get(targetDate);
+        if (cached) {
+          setLocations(cached);
+          setIsLoading(false);
+          return;
+        }
+      }
 
-    setIsLoading(true);
-    setError(null);
+      if (!silent) {
+        setIsLoading(true);
+      }
+      setError(null);
 
-    try {
-      const response = await fetch(`/api/timeline/locations?date=${targetDate}`, { signal });
-      if (!response.ok) throw new Error("Failed to fetch locations");
+      try {
+        const response = await fetch(`/api/timeline/locations?date=${targetDate}`, { signal });
+        if (!response.ok) throw new Error("Failed to fetch locations");
 
-      const data = (await response.json()) as LocationsResponse;
-      cache.current.set(targetDate, data.locations);
-      setLocations(data.locations);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return;
-      setError(e instanceof Error ? e.message : "Unknown error");
-      setLocations([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+        const data = (await response.json()) as LocationsResponse;
+        cache.current.set(targetDate, data.locations);
+        setLocations(data.locations);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!silent) {
+          setError(e instanceof Error ? e.message : "Unknown error");
+          setLocations([]);
+        }
+      } finally {
+        if (!silent) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!date) return;
@@ -57,7 +73,17 @@ export function useLocations(date: string) {
     const controller = new AbortController();
     fetchLocations(date, controller.signal);
 
-    return () => controller.abort();
+    // Poll every minute when viewing today
+    if (!isToday(date)) return () => controller.abort();
+
+    const interval = setInterval(() => {
+      fetchLocations(date, controller.signal, true);
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, [date, fetchLocations]);
 
   return { locations, isLoading, error };

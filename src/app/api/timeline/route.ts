@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
-import { eq, and, desc, gte, lte, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, gt, gte, lte, sql, inArray } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get("page") ?? "1", 10);
     const perPage = Math.min(parseInt(searchParams.get("per_page") ?? "20", 10), 50);
     const reposParam = searchParams.get("repos"); // Filter by multiple repos (comma-separated)
+    const afterDate = searchParams.get("after");
     const fromDate = searchParams.get("from");
     const toDate = searchParams.get("to");
 
@@ -26,6 +27,14 @@ export async function GET(request: NextRequest) {
       if (repoNames.length > 0) {
         conditions.push(inArray(commits.repoFullName, repoNames));
       }
+    }
+
+    if (afterDate) {
+      const parsed = new Date(afterDate);
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "Invalid 'after' date format" }, { status: 400 });
+      }
+      conditions.push(gt(commits.committedAt, parsed));
     }
 
     if (fromDate) {

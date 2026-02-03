@@ -417,6 +417,139 @@ export class GitHubAdapter implements VCSAdapter {
       parentShas: item.parents.map((p) => p.sha),
     }));
   }
+
+  /**
+   * Get all commits authored by user across all repos via Repos API.
+   * Uses /user/repos (sorted by pushed_at) + /repos/:owner/:repo/commits
+   * with early termination when repo's pushed_at < since date.
+   */
+  async getAllRepoCommits(
+    username: string,
+    options: SearchCommitsOptions = {}
+  ): Promise<VCSSearchCommit[]> {
+    const { since, until } = options;
+    const sinceDate = since ? new Date(since) : null;
+
+    // Determine if this is an initial sync (since > 60 days ago)
+    const isInitialSync =
+      sinceDate !== null &&
+      Date.now() - sinceDate.getTime() > 60 * 24 * 60 * 60 * 1000;
+
+    interface GitHubRepoRaw {
+      id: number;
+      full_name: string;
+      private: boolean;
+      pushed_at: string | null;
+    }
+
+    const allCommits: VCSSearchCommit[] = [];
+    let reposPage = 1;
+    const reposPerPage = 100;
+    let stopPagination = false;
+
+    while (!stopPagination) {
+      const params = new URLSearchParams({
+        sort: "pushed",
+        direction: "desc",
+        per_page: String(reposPerPage),
+        page: String(reposPage),
+      });
+
+      const repos = await this.fetch<GitHubRepoRaw[]>(`/user/repos?${params}`);
+
+      if (repos.length === 0) break;
+
+      for (const repo of repos) {
+        // Early termination: if repo hasn't been pushed since sinceDate,
+        // skip it and all subsequent repos (sorted by pushed desc).
+        // Skip this optimization for initial sync to ensure full coverage.
+        if (!isInitialSync && sinceDate && repo.pushed_at) {
+          const repoPushedAt = new Date(repo.pushed_at);
+          if (repoPushedAt < sinceDate) {
+            console.log(
+              `[Sync] Repo ${repo.full_name} pushed_at ${repo.pushed_at} < since ${since}, stopping`
+            );
+            stopPagination = true;
+            break;
+          }
+        }
+
+        // Fetch commits for this repo authored by the user
+        const [owner, repoName] = repo.full_name.split("/");
+        let commitsPage = 1;
+        let hasMoreCommits = true;
+
+        while (hasMoreCommits) {
+          const commitParams = new URLSearchParams({
+            author: username,
+            per_page: "100",
+            page: String(commitsPage),
+          });
+          if (since) commitParams.set("since", since);
+          if (until) commitParams.set("until", until);
+
+          interface GitHubCommitRaw {
+            sha: string;
+            commit: {
+              message: string;
+              author: {
+                name: string;
+                email: string;
+                date: string;
+              };
+            };
+            author: { avatar_url: string } | null;
+            parents: Array<{ sha: string }>;
+          }
+
+          try {
+            const repoCommits = await this.fetch<GitHubCommitRaw[]>(
+              `/repos/${owner}/${repoName}/commits?${commitParams}`
+            );
+
+            for (const c of repoCommits) {
+              allCommits.push({
+                sha: c.sha,
+                message: c.commit.message,
+                authorName: c.commit.author.name,
+                authorEmail: c.commit.author.email,
+                authorAvatarUrl: c.author?.avatar_url ?? null,
+                committedAt: c.commit.author.date,
+                repoFullName: repo.full_name,
+                repoId: repo.id,
+                repoIsPrivate: repo.private,
+                isMergeCommit: c.parents.length > 1,
+                parentShas: c.parents.map((p) => p.sha),
+              });
+            }
+
+            if (repoCommits.length < 100) {
+              hasMoreCommits = false;
+            } else {
+              commitsPage++;
+            }
+          } catch (error) {
+            // If fetching commits for a repo fails (e.g., permission issue), skip it
+            console.warn(
+              `[Sync] Failed to fetch commits for ${repo.full_name}:`,
+              error
+            );
+            hasMoreCommits = false;
+          }
+        }
+      }
+
+      if (repos.length < reposPerPage) {
+        break;
+      }
+      reposPage++;
+    }
+
+    console.log(
+      `[Sync] getAllRepoCommits found ${allCommits.length} commits across repos`
+    );
+    return allCommits;
+  }
 }
 
 export function createGitHubAdapter(accessToken: string): VCSAdapter {

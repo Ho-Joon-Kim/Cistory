@@ -148,36 +148,19 @@ export class SyncService {
     });
 
     try {
-      // Fetch commits via Search API (paginated)
-      const allSearchCommits: VCSSearchCommit[] = [];
-      let page = 1;
-      const perPage = 100;
-      let hasMore = true;
+      // Fetch commits via Repos API (iterates repos, fetches commits per repo)
+      const allSearchCommits = await this.vcsAdapter.getAllRepoCommits(username, {
+        since: sinceDate,
+      });
 
-      while (hasMore) {
-        const searchCommits = await this.vcsAdapter.searchUserCommits(username, {
-          since: sinceDate,
-          perPage,
-          page,
-        });
+      onProgress?.({
+        status: "fetching",
+        message: `커밋 검색 완료 (${allSearchCommits.length}개 발견)`,
+        totalCommits: allSearchCommits.length,
+        processedCommits: 0,
+      });
 
-        allSearchCommits.push(...searchCommits);
-
-        onProgress?.({
-          status: "fetching",
-          message: `커밋 검색 중... (${allSearchCommits.length}개 발견)`,
-          totalCommits: allSearchCommits.length,
-          processedCommits: 0,
-        });
-
-        if (searchCommits.length < perPage || allSearchCommits.length >= 1000) {
-          hasMore = false;
-        } else {
-          page++;
-        }
-      }
-
-      console.log("[Sync] Found", allSearchCommits.length, "commits from Search API");
+      console.log("[Sync] Found", allSearchCommits.length, "commits from Repos API");
 
       // Filter out already existing commits
       const existingShas = await this.getExistingCommitShas(

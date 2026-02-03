@@ -55,33 +55,33 @@ export default function DashboardPage() {
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [isLoadingRepos, setIsLoadingRepos] = useState(true);
 
-  // 타임라인과 레포지토리 목록 새로고침 함수
-  const refreshAll = useCallback(() => {
-    refresh();
+  // 레포지토리 목록만 새로고침
+  const refreshRepos = useCallback(() => {
     fetch("/api/timeline/repos")
       .then((res) => res.json() as Promise<{ repositories: Repository[] }>)
       .then((data) => setRepositories(data.repositories))
       .catch(console.error);
-  }, [refresh]);
+  }, []);
 
-  // 동기화 작업 완료 시 (커밋 fetch 완료)
+  // 동기화 작업 완료 시 — 신규 커밋 추가 + 전체 새로고침 fallback
   const handleSyncCompleted = useCallback(
     (job: RecentSyncJob) => {
       if (job.totalCommits > 0) {
         toast.success(`동기화 완료: ${job.totalCommits}개의 커밋이 추가되었습니다`);
+        refresh();
+        refreshRepos();
       } else {
         toast.info("동기화 완료: 새로운 커밋이 없습니다");
       }
-      refreshAll();
     },
-    [refreshAll]
+    [refresh, refreshRepos]
   );
 
-  // 모든 활성 작업 완료 시 (동기화 + 요약 모두 완료)
+  // 모든 활성 작업 완료 시 (동기화 + 요약 모두 완료) — 요약 반영을 위해 현재 데이터 갱신
   const handleAllSyncFinished = useCallback(() => {
     toast.success("AI 요약 생성이 완료되었습니다");
-    refreshAll();
-  }, [refreshAll]);
+    refresh();
+  }, [refresh]);
 
   // SSE로 동기화 상태 모니터링
   useSyncStatus(handleSyncCompleted, handleAllSyncFinished);
