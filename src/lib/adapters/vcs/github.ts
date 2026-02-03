@@ -420,7 +420,7 @@ export class GitHubAdapter implements VCSAdapter {
 
   /**
    * Get all commits authored by user across all repos via Repos API.
-   * Uses /user/repos (sorted by pushed_at) + /repos/:owner/:repo/commits
+   * Uses /user/repos (sorted by pushed_at) + per-branch commit listing
    * with early termination when repo's pushed_at < since date.
    */
   async getAllRepoCommits(
@@ -442,7 +442,26 @@ export class GitHubAdapter implements VCSAdapter {
       pushed_at: string | null;
     }
 
+    interface GitHubBranch {
+      name: string;
+    }
+
+    interface GitHubCommitRaw {
+      sha: string;
+      commit: {
+        message: string;
+        author: {
+          name: string;
+          email: string;
+          date: string;
+        };
+      };
+      author: { avatar_url: string } | null;
+      parents: Array<{ sha: string }>;
+    }
+
     const allCommits: VCSSearchCommit[] = [];
+    const seenShas = new Set<string>();
     let reposPage = 1;
     const reposPerPage = 100;
     let stopPagination = false;
@@ -474,67 +493,69 @@ export class GitHubAdapter implements VCSAdapter {
           }
         }
 
-        // Fetch commits for this repo authored by the user
         const [owner, repoName] = repo.full_name.split("/");
-        let commitsPage = 1;
-        let hasMoreCommits = true;
 
-        while (hasMoreCommits) {
-          const commitParams = new URLSearchParams({
-            author: username,
-            per_page: "100",
-            page: String(commitsPage),
-          });
-          if (since) commitParams.set("since", since);
-          if (until) commitParams.set("until", until);
+        // Get all branches for this repo
+        let branches: string[];
+        try {
+          const branchList = await this.fetch<GitHubBranch[]>(
+            `/repos/${owner}/${repoName}/branches?per_page=100`
+          );
+          branches = branchList.map((b) => b.name);
+        } catch {
+          console.warn(`[Sync] Failed to list branches for ${repo.full_name}, skipping`);
+          continue;
+        }
 
-          interface GitHubCommitRaw {
-            sha: string;
-            commit: {
-              message: string;
-              author: {
-                name: string;
-                email: string;
-                date: string;
-              };
-            };
-            author: { avatar_url: string } | null;
-            parents: Array<{ sha: string }>;
-          }
+        // Fetch commits for each branch
+        for (const branch of branches) {
+          let commitsPage = 1;
+          let hasMoreCommits = true;
 
-          try {
-            const repoCommits = await this.fetch<GitHubCommitRaw[]>(
-              `/repos/${owner}/${repoName}/commits?${commitParams}`
-            );
+          while (hasMoreCommits) {
+            const commitParams = new URLSearchParams({
+              author: username,
+              per_page: "100",
+              page: String(commitsPage),
+              sha: branch,
+            });
+            if (since) commitParams.set("since", since);
+            if (until) commitParams.set("until", until);
 
-            for (const c of repoCommits) {
-              allCommits.push({
-                sha: c.sha,
-                message: c.commit.message,
-                authorName: c.commit.author.name,
-                authorEmail: c.commit.author.email,
-                authorAvatarUrl: c.author?.avatar_url ?? null,
-                committedAt: c.commit.author.date,
-                repoFullName: repo.full_name,
-                repoId: repo.id,
-                repoIsPrivate: repo.private,
-                isMergeCommit: c.parents.length > 1,
-                parentShas: c.parents.map((p) => p.sha),
-              });
-            }
+            try {
+              const repoCommits = await this.fetch<GitHubCommitRaw[]>(
+                `/repos/${owner}/${repoName}/commits?${commitParams}`
+              );
 
-            if (repoCommits.length < 100) {
+              for (const c of repoCommits) {
+                // Deduplicate across branches (same commit may appear on multiple branches)
+                if (seenShas.has(c.sha)) continue;
+                seenShas.add(c.sha);
+
+                allCommits.push({
+                  sha: c.sha,
+                  message: c.commit.message,
+                  authorName: c.commit.author.name,
+                  authorEmail: c.commit.author.email,
+                  authorAvatarUrl: c.author?.avatar_url ?? null,
+                  committedAt: c.commit.author.date,
+                  repoFullName: repo.full_name,
+                  repoId: repo.id,
+                  repoIsPrivate: repo.private,
+                  isMergeCommit: c.parents.length > 1,
+                  parentShas: c.parents.map((p) => p.sha),
+                });
+              }
+
+              if (repoCommits.length < 100) {
+                hasMoreCommits = false;
+              } else {
+                commitsPage++;
+              }
+            } catch {
+              // If fetching commits for a branch fails, skip it
               hasMoreCommits = false;
-            } else {
-              commitsPage++;
             }
-          } catch (error) {
-            // If fetching commits for a repo fails (e.g., permission issue), skip it
-            console.warn(
-              `[Sync] Failed to fetch commits for ${repo.full_name}:`,
-              error
-            );
-            hasMoreCommits = false;
           }
         }
       }
