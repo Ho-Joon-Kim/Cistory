@@ -111,7 +111,7 @@ const DateGroupSection = memo(function DateGroupSection({
               block rounded-full transition-all duration-200
               ${isSelected
                 ? "w-3 h-3 bg-primary animate-pulse-glow"
-                : "w-2.5 h-2.5 bg-muted-foreground/40 hover:bg-muted-foreground/60"
+                : "w-2.5 h-2.5 bg-muted-foreground hover:bg-muted-foreground"
               }
             `}
           />

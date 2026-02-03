@@ -128,6 +128,24 @@ export const locationPoints = pgTable(
   ]
 );
 
+// ============ Place Cache (Geocoding) ============
+export const placeCache = pgTable(
+  "place_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    latKey: doublePrecision("lat_key").notNull(),
+    lonKey: doublePrecision("lon_key").notNull(),
+    placeName: text("place_name").notNull(),
+    address: text("address").notNull(),
+    category: text("category"),
+    provider: text("provider").notNull(), // 'kakao' | 'mapbox'
+    resolvedAt: timestamp("resolved_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_place_cache_lat_lon").on(table.latKey, table.lonKey),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -143,3 +161,6 @@ export type NewSyncJob = typeof syncJobs.$inferInsert;
 
 export type LocationPoint = typeof locationPoints.$inferSelect;
 export type NewLocationPoint = typeof locationPoints.$inferInsert;
+
+export type PlaceCache = typeof placeCache.$inferSelect;
+export type NewPlaceCache = typeof placeCache.$inferInsert;

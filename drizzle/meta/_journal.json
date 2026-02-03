@@ -15,6 +15,13 @@
       "when": 1770098694104,
       "tag": "0001_dashing_lilandra",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770134199851,
+      "tag": "0002_modern_living_lightning",
+      "breakpoints": true
     }
   ]
 }

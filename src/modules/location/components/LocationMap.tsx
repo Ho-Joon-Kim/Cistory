@@ -1,13 +1,13 @@
 "use client";
 
 import { useRef, useEffect, useState, useMemo } from "react";
-import Map, { Source, Layer, Marker, useMap } from "react-map-gl/mapbox";
+import Map, { Source, Layer, Marker, Popup, useMap } from "react-map-gl/mapbox";
 import type { LayerProps } from "react-map-gl/mapbox";
 import type { Position } from "geojson";
 import { useTheme } from "next-themes";
-import { useLocations, type LocationData } from "../hooks";
+import { useLocations, useStayPoints, type LocationData, type StayPointData } from "../hooks";
 import { MapSkeleton } from "./MapSkeleton";
-import { MapPin } from "lucide-react";
+import { MapPin, Clock, Navigation } from "lucide-react";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -145,11 +145,6 @@ function RouteAnimator({
     []
   );
 
-  const lastPoint =
-    showMarker && allCoords.length > 0
-      ? allCoords[allCoords.length - 1]
-      : null;
-
   return (
     <>
       {animatedCoords.length >= 2 && (
@@ -157,13 +152,88 @@ function RouteAnimator({
           <Layer {...lineLayer} />
         </Source>
       )}
-      {lastPoint && (
-        <Marker longitude={lastPoint[0]} latitude={lastPoint[1]} anchor="center">
-          <div className="location-marker-container animate-bounce-in">
-            <div className="location-marker-pulse" />
-            <div className="location-marker-dot" />
+      {animatedCoords.map((coord, i) => {
+        const isLast = showMarker && i === allCoords.length - 1;
+        return (
+          <Marker
+            key={`${coord[0]}-${coord[1]}-${i}`}
+            longitude={coord[0]}
+            latitude={coord[1]}
+            anchor="center"
+          >
+            <div className={`location-marker-container ${isLast ? "animate-bounce-in" : ""}`}>
+              {isLast && <div className="location-marker-pulse" />}
+              <div className="location-marker-dot" />
+            </div>
+          </Marker>
+        );
+      })}
+    </>
+  );
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes}분`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins > 0 ? `${hours}시간 ${mins}분` : `${hours}시간`;
+}
+
+function formatTime(isoString: string): string {
+  const d = new Date(isoString);
+  return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function StayPointMarkers({ stayPoints }: { stayPoints: StayPointData[] }) {
+  const [selectedPoint, setSelectedPoint] = useState<StayPointData | null>(null);
+
+  return (
+    <>
+      {stayPoints.map((sp, i) => (
+        <Marker
+          key={`stay-${sp.lat}-${sp.lon}-${i}`}
+          longitude={sp.lon}
+          latitude={sp.lat}
+          anchor="center"
+          onClick={(e) => {
+            e.originalEvent.stopPropagation();
+            setSelectedPoint(sp);
+          }}
+        >
+          <div className="stay-point-marker animate-bounce-in" title={sp.placeName ?? undefined}>
+            <Navigation className="h-3.5 w-3.5 text-white" />
           </div>
         </Marker>
+      ))}
+
+      {selectedPoint && (
+        <Popup
+          longitude={selectedPoint.lon}
+          latitude={selectedPoint.lat}
+          anchor="bottom"
+          offset={16}
+          closeOnClick={false}
+          onClose={() => setSelectedPoint(null)}
+          className="stay-point-popup"
+        >
+          <div className="stay-point-tooltip">
+            {selectedPoint.placeName && (
+              <p className="stay-point-tooltip-name">{selectedPoint.placeName}</p>
+            )}
+            {selectedPoint.address && selectedPoint.address !== selectedPoint.placeName && (
+              <p className="stay-point-tooltip-address">{selectedPoint.address}</p>
+            )}
+            <div className="stay-point-tooltip-time">
+              <Clock className="h-3 w-3" />
+              <span>
+                {formatTime(selectedPoint.startTime)} – {formatTime(selectedPoint.endTime)} ({formatDuration(selectedPoint.durationMinutes)})
+              </span>
+            </div>
+            {selectedPoint.category && (
+              <span className="stay-point-tooltip-category">{selectedPoint.category}</span>
+            )}
+          </div>
+        </Popup>
       )}
     </>
   );
@@ -172,6 +242,7 @@ function RouteAnimator({
 export function LocationMap({ date, className }: LocationMapProps) {
   const { resolvedTheme } = useTheme();
   const { locations, isLoading } = useLocations(date);
+  const { stayPoints } = useStayPoints(date);
   const [mapLoaded, setMapLoaded] = useState(false);
 
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
@@ -199,6 +270,9 @@ export function LocationMap({ date, className }: LocationMapProps) {
         reuseMaps
       >
         {mapLoaded && <RouteAnimator locations={locations} date={date} />}
+        {mapLoaded && stayPoints.length > 0 && (
+          <StayPointMarkers stayPoints={stayPoints} />
+        )}
       </Map>
 
       {/* Loading overlay */}

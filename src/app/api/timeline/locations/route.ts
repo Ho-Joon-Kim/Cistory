@@ -13,6 +13,19 @@ import { locationPoints } from "@/db/schema";
 import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";
 
 const MAX_POINTS = 500;
+const MIN_DISTANCE_M = 100;
+
+/** Haversine distance between two coordinates in metres */
+function distanceM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 6_371_000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -52,7 +65,20 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(asc(locationPoints.timestamp));
 
-    let locations = rows.map((r) => ({
+    // Filter out points within 50m of the previous accepted point
+    const filtered: typeof rows = [];
+    for (const row of rows) {
+      if (filtered.length === 0) {
+        filtered.push(row);
+      } else {
+        const prev = filtered[filtered.length - 1];
+        if (distanceM(prev.lat, prev.lon, row.lat, row.lon) >= MIN_DISTANCE_M) {
+          filtered.push(row);
+        }
+      }
+    }
+
+    let locations = filtered.map((r) => ({
       lat: r.lat,
       lon: r.lon,
       accuracy: r.accuracy,
