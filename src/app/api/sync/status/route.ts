@@ -5,24 +5,16 @@
  */
 
 import { NextRequest } from "next/server";
-import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb, type Database } from "@/db";
 import { syncJobs } from "@/db/schema";
 import { eq, desc, and, inArray } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
 
     const userId = user.id;
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser, getGitHubToken } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
 import { commits, users } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -11,14 +11,9 @@ export async function POST(
 ) {
   try {
     const { commitId } = await params;
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     // 커밋 조회
     const commitResult = await db
@@ -54,17 +49,13 @@ export async function POST(
     }
 
     // GitHub 토큰 가져오기
-    const userResult = await db
-      .select({ githubAccessToken: users.githubAccessToken })
-      .from(users)
-      .where(eq(users.id, user.id));
-
-    if (!userResult[0]?.githubAccessToken) {
+    const accessToken = await getGitHubToken(user.id, db, users);
+    if (!accessToken) {
       return NextResponse.json({ error: "GitHub token not found" }, { status: 400 });
     }
 
     // GitHub API로 커밋 상세 정보 가져오기
-    const github = createGitHubAdapter(userResult[0].githubAccessToken);
+    const github = createGitHubAdapter(accessToken);
     const [owner, repo] = commit.repoFullName.split("/");
 
     const commitDetail = await github.getCommitDetail(owner, repo, commit.sha);

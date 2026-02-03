@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import type { TimelineCommit } from "../hooks";
+import type { DateEntry } from "../utils";
 import { CommitCard } from "./CommitCard";
+import { CompactCommitCard } from "./CompactCommitCard";
 import { TimelineSkeleton } from "./TimelineSkeleton";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { Loader2 } from "lucide-react";
 import {
-  calculateDateGap,
+  fillDateRange,
   getRepoColor,
   groupCommitsByTimeOfDay,
 } from "../utils";
@@ -17,10 +19,12 @@ interface TimelineProps {
   isLoading: boolean;
   hasNext: boolean;
   onLoadMore: () => void;
+  selectedDate: string;
+  onSelectedDateChange: (date: string) => void;
 }
 
 // --- Viewport visibility hook for each date group ---
-function useDateGroupVisibility() {
+function useDateGroupVisibility(scrollRoot: React.RefObject<Element | null>) {
   const refs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [visibleGroups, setVisibleGroups] = useState<Set<string>>(new Set());
   const observersRef = useRef<Map<string, IntersectionObserver>>(new Map());
@@ -30,7 +34,6 @@ function useDateGroupVisibility() {
       if (el) {
         refs.current.set(key, el);
 
-        // Only observe if not already visible
         if (!visibleGroups.has(key) && !observersRef.current.has(key)) {
           const observer = new IntersectionObserver(
             (entries) => {
@@ -42,14 +45,14 @@ function useDateGroupVisibility() {
                 }
               }
             },
-            { threshold: 0.1 }
+            { threshold: 0.1, root: scrollRoot.current }
           );
           observer.observe(el);
           observersRef.current.set(key, observer);
         }
       }
     },
-    [visibleGroups]
+    [visibleGroups, scrollRoot]
   );
 
   useEffect(() => {
@@ -60,125 +63,155 @@ function useDateGroupVisibility() {
     };
   }, []);
 
-  return { setRef, visibleGroups };
-}
-
-// --- Period break divider ---
-function PeriodBreakDivider({ daysDiff }: { daysDiff: number }) {
-  return (
-    <div className="relative flex items-center ml-10 md:ml-14 py-2">
-      <div className="flex-1 overflow-hidden">
-        <div className="period-break-line border-t border-dashed border-muted-foreground/30" />
-      </div>
-      <span className="period-break-label px-3 text-xs text-muted-foreground/60 whitespace-nowrap">
-        {daysDiff}일 후
-      </span>
-      <div className="flex-1 overflow-hidden">
-        <div className="period-break-line border-t border-dashed border-muted-foreground/30" />
-      </div>
-    </div>
-  );
+  return { setRef, visibleGroups, refs };
 }
 
 // --- Date group section ---
 interface DateGroupSectionProps {
-  date: string;
-  dateCommits: TimelineCommit[];
+  entry: DateEntry;
+  isSelected: boolean;
   isVisible: boolean;
   setRef: (key: string) => (el: HTMLDivElement | null) => void;
   repoColorMap: Map<string, string>;
   newCommitIds: Set<string>;
+  onSelectDate: (date: string) => void;
 }
 
-function DateGroupSection({
-  date,
-  dateCommits,
+const DateGroupSection = memo(function DateGroupSection({
+  entry,
+  isSelected,
   isVisible,
   setRef,
   repoColorMap,
   newCommitIds,
+  onSelectDate,
 }: DateGroupSectionProps) {
+  const { date, commits: dateCommits, isEmpty } = entry;
   const { label, isToday } = formatDateHeader(date);
-  const subGroups = groupCommitsByTimeOfDay(dateCommits);
+  const subGroups = isSelected ? groupCommitsByTimeOfDay(dateCommits) : [];
 
   return (
     <div
       ref={setRef(date)}
-      className={`date-group-section ${isVisible ? "is-visible" : ""}`}
+      className={`date-group-section relative ${isVisible ? "is-visible" : ""}`}
     >
       {/* Date header */}
       <div className="relative flex items-center mb-2">
-        {/* Date marker - simple dot with pulse */}
-        <div
+        {/* Stepper dot as button */}
+        <button
+          type="button"
           className={`
-            date-marker absolute left-2 md:left-4 w-3 h-3 rounded-full border-2 border-background
-            ${isToday
-              ? "bg-primary animate-pulse-glow shadow-[0_0_8px_hsl(var(--primary)/0.6)]"
-              : "bg-primary"
-            }
+            stepper-dot absolute left-1 md:left-3 flex items-center justify-center w-6 h-6
           `}
-        />
+          onClick={() => onSelectDate(date)}
+          aria-label={`${label} 선택`}
+        >
+          <span
+            className={`
+              block rounded-full transition-all duration-200
+              ${isSelected
+                ? "w-3 h-3 bg-primary animate-pulse-glow"
+                : "w-2.5 h-2.5 bg-muted-foreground/40 hover:bg-muted-foreground/60"
+              }
+            `}
+          />
+        </button>
 
         <div className="ml-10 md:ml-14 flex items-center gap-2">
           <h3
-            className={`text-sm font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}
+            className={`text-sm font-medium transition-colors duration-200 ${
+              isSelected
+                ? isToday
+                  ? "text-primary"
+                  : "text-foreground"
+                : "text-muted-foreground/50"
+            }`}
           >
             {label}
           </h3>
-          {/* Commit count badge */}
-          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-muted text-muted-foreground text-[10px] font-medium">
+          <span
+            className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
+              isSelected
+                ? "bg-muted text-muted-foreground"
+                : "bg-muted/50 text-muted-foreground/50"
+            }`}
+          >
             <AnimatedNumber value={dateCommits.length} />
           </span>
         </div>
       </div>
 
-      {/* Commits with time-of-day sub-groups */}
-      <div className="ml-10 md:ml-14 space-y-1">
-        {subGroups.map((subGroup, sgIndex) => (
-          <div key={sgIndex}>
-            {/* Sub-group label */}
-            {subGroup.label && (
-              <div className="flex items-center gap-2 py-2">
-                <span className="text-[11px] text-muted-foreground/50 font-medium tracking-wide">
-                  {subGroup.label}
-                </span>
-                <div className="subgroup-divider h-px bg-muted-foreground/15 flex-1" />
-              </div>
-            )}
-
-            {/* Commits in sub-group */}
-            <div className="space-y-1">
-              {subGroup.commits.map((commit, index) => (
-                <div key={commit.id} className="relative commit-card-stagger">
-                  {/* Tick mark on stepper line */}
-                  <div className="timeline-tick absolute -left-[23px] md:-left-[31px] top-1/2 -translate-y-1/2" />
-                  <CommitCard
-                    commit={commit}
-                    isNew={newCommitIds.has(commit.id)}
-                    animationDelay={index * 50}
-                    repoColor={repoColorMap.get(commit.repository.fullName)}
-                  />
+      {/* Content */}
+      <div className="ml-10 md:ml-14">
+        {/* Selected date: full layout */}
+        {isSelected && !isEmpty && (
+          <div className="space-y-1">
+            {subGroups.map((subGroup, sgIndex) => (
+              <div key={sgIndex}>
+                {subGroup.label && (
+                  <div className="flex items-center gap-2 py-2">
+                    <span className="text-[11px] text-muted-foreground/50 font-medium tracking-wide">
+                      {subGroup.label}
+                    </span>
+                    <div className="subgroup-divider h-px bg-muted-foreground/15 flex-1" />
+                  </div>
+                )}
+                <div className="space-y-1">
+                  {subGroup.commits.map((commit, index) => (
+                    <div key={commit.id} className="relative commit-card-stagger">
+                      <div className="timeline-tick absolute -left-[23px] md:-left-[31px] top-1/2 -translate-y-1/2" />
+                      <CommitCard
+                        commit={commit}
+                        isNew={newCommitIds.has(commit.id)}
+                        animationDelay={index * 50}
+                        repoColor={repoColorMap.get(commit.repository.fullName)}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+
+        {/* Selected but empty */}
+        {isSelected && isEmpty && (
+          <p className="text-sm text-muted-foreground/60 py-2">
+            이 날의 커밋이 없습니다
+          </p>
+        )}
+
+        {/* Non-selected: compact commits */}
+        {!isSelected && !isEmpty && (
+          <div>
+            {dateCommits.map((commit) => (
+              <CompactCommitCard
+                key={commit.id}
+                commit={commit}
+                onSelectDate={() => onSelectDate(date)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
-}
+});
 
 export function Timeline({
   commits,
   isLoading,
   hasNext,
   onLoadMore,
+  selectedDate,
+  onSelectedDateChange,
 }: TimelineProps) {
   const observerTarget = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<Element | null>(null);
   const [seenCommitIds, setSeenCommitIds] = useState<Set<string>>(new Set());
   const [newCommitIds, setNewCommitIds] = useState<Set<string>>(new Set());
   const isFirstRender = useRef(true);
-  const { setRef, visibleGroups } = useDateGroupVisibility();
+  const { setRef, visibleGroups, refs } = useDateGroupVisibility(scrollContainerRef);
 
   // Track new commits for animation
   useEffect(() => {
@@ -242,6 +275,49 @@ export function Timeline({
     return map;
   }, [commits]);
 
+  // Group by date and fill range
+  const filledDates = useMemo(() => {
+    const grouped = groupCommitsByDate(commits);
+    return fillDateRange(grouped);
+  }, [commits]);
+
+  // Stepper line gradient position
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [glowY, setGlowY] = useState<number | null>(null);
+
+  // Resolve the scroll container once on mount
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el) {
+      scrollContainerRef.current = el.closest(".timeline-scroll-container") ?? null;
+    }
+  }, []);
+
+  // Compute glow position + scroll on selection
+  const isInitialScroll = useRef(true);
+  useEffect(() => {
+    const el = refs.current.get(selectedDate);
+    if (el) {
+      // Use offsetTop for stable position relative to containerRef (position:relative parent)
+      const dotY = el.offsetTop + 12;
+      setGlowY(dotY);
+    }
+
+    if (el) {
+      if (isInitialScroll.current) {
+        isInitialScroll.current = false;
+        return;
+      }
+      const sc = scrollContainerRef.current;
+      if (sc) {
+        const offset = el.offsetTop - 16;
+        sc.scrollTo({ top: Math.max(0, offset), behavior: "smooth" });
+      } else {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, [selectedDate, refs]);
+
   if (isLoading && commits.length === 0) {
     return <TimelineSkeleton />;
   }
@@ -257,46 +333,31 @@ export function Timeline({
     );
   }
 
-  // Group by date
-  const groupedCommits = groupCommitsByDate(commits);
-  const dateEntries = Object.entries(groupedCommits);
-
   return (
-    <div className="relative">
-      {/* Enhanced stepper line */}
-      <div className="absolute left-[14px] md:left-[22px] top-0 bottom-0 w-0.5 timeline-stepper-line rounded-full" />
+    <div ref={containerRef} className="relative">
+      {/* Continuous stepper line with gradient glow from selected date */}
+      <div
+        className="stepper-line absolute left-[15px] md:left-[23px] top-0 bottom-0 w-0.5 rounded-full"
+        style={
+          glowY !== null
+            ? { "--glow-y": `${glowY}px` } as React.CSSProperties
+            : undefined
+        }
+      />
 
-      <div>
-        {dateEntries.map(([date, dateCommits], groupIndex) => {
-          // Calculate dynamic gap from previous date group
-          let gapPx = 0;
-          let showPeriodBreak = false;
-          let daysDiff = 0;
-
-          if (groupIndex > 0) {
-            const prevDate = dateEntries[groupIndex - 1][0];
-            const gapResult = calculateDateGap(prevDate, date);
-            gapPx = gapResult.gapPx;
-            showPeriodBreak = gapResult.showPeriodBreak;
-            daysDiff = gapResult.daysDiff;
-          }
-
-          return (
-            <div key={date} style={groupIndex > 0 ? { marginTop: `${gapPx}px` } : undefined}>
-              {/* Period break divider */}
-              {showPeriodBreak && <PeriodBreakDivider daysDiff={daysDiff} />}
-
-              <DateGroupSection
-                date={date}
-                dateCommits={dateCommits}
-                isVisible={visibleGroups.has(date)}
-                setRef={setRef}
-                repoColorMap={repoColorMap}
-                newCommitIds={newCommitIds}
-              />
-            </div>
-          );
-        })}
+      <div className="space-y-4">
+        {filledDates.map((entry) => (
+          <DateGroupSection
+            key={entry.date}
+            entry={entry}
+            isSelected={entry.date === selectedDate}
+            isVisible={visibleGroups.has(entry.date)}
+            setRef={setRef}
+            repoColorMap={repoColorMap}
+            newCommitIds={newCommitIds}
+            onSelectDate={onSelectedDateChange}
+          />
+        ))}
       </div>
 
       {/* Loading indicator & Observer target */}
@@ -315,7 +376,7 @@ function groupCommitsByDate(
   const groups: Record<string, TimelineCommit[]> = {};
 
   for (const commit of commits) {
-    const date = commit.committedAt.split("T")[0]; // YYYY-MM-DD
+    const date = commit.committedAt.split("T")[0];
     if (!groups[date]) {
       groups[date] = [];
     }

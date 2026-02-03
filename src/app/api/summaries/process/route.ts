@@ -5,34 +5,25 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser, getGitHubToken } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
 import { users, commits, commitSummaries } from "@/db/schema";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { createSummaryService } from "@/modules/summary/service";
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     // Get limit from request body (default 50)
     const body = await request.json().catch(() => ({}));
     const limit = Math.min(body.limit ?? 50, 100); // Max 100
 
     // Get user's GitHub token
-    const userResult = await db
-      .select({ githubAccessToken: users.githubAccessToken })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .limit(1);
-
-    if (!userResult[0]?.githubAccessToken) {
+    const accessToken = await getGitHubToken(user.id, db, users);
+    if (!accessToken) {
       return NextResponse.json(
         { error: "GitHub access token not found" },
         { status: 400 }
@@ -42,7 +33,7 @@ export async function POST(request: NextRequest) {
     const summaryService = createSummaryService(
       db,
       process.env.ANTHROPIC_API_KEY!,
-      userResult[0].githubAccessToken
+      accessToken
     );
 
     // Process in background
@@ -74,13 +65,9 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     // Get user's commit IDs
     const userCommits = await db

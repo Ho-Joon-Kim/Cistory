@@ -60,7 +60,7 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
   const [hasPrev, setHasPrev] = useState(false);
 
   const fetchTimeline = useCallback(
-    async (pageNum: number, append: boolean = false) => {
+    async (pageNum: number, append: boolean = false, signal?: AbortSignal) => {
       setIsLoading(true);
       setError(null);
 
@@ -80,7 +80,7 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
           params.set("to", filters.to);
         }
 
-        const response = await fetch(`/api/timeline?${params}`);
+        const response = await fetch(`/api/timeline?${params}`, { signal });
 
         if (!response.ok) {
           throw new Error("Failed to fetch timeline");
@@ -104,6 +104,7 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
         setHasNext(data.pagination.hasNext);
         setHasPrev(data.pagination.hasPrev);
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
         setIsLoading(false);
@@ -113,8 +114,10 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
   );
 
   useEffect(() => {
+    const controller = new AbortController();
     setPage(1);
-    fetchTimeline(1);
+    fetchTimeline(1, false, controller.signal);
+    return () => controller.abort();
   }, [fetchTimeline]);
 
   const loadMore = useCallback(() => {

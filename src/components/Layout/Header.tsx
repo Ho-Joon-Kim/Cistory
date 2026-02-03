@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CommitHeatmap } from "@/components/CommitHeatmap";
@@ -10,11 +11,12 @@ import { SyncButton } from "@/modules/sync/components/SyncButton";
 interface HeaderProps {
   showSync?: boolean;
   onSyncStarted?: () => void;
+  actions?: ReactNode;
 }
 
-export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
+export function Header({ showSync = true, onSyncStarted, actions }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="shrink-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto px-4 h-14 flex items-center justify-between">
         {/* 로고 */}
         <div className="flex items-center gap-4">
@@ -29,6 +31,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
 
         {/* 액션 버튼들 */}
         <div className="flex items-center gap-2 sm:gap-4">
+          {actions}
           {showSync && (
             <>
               <div className="hidden sm:block">

@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   keywords: ["GitHub", "커밋", "타임라인", "AI 요약", "개발자 도구", "버전 관리"],
   authors: [{ name: "Cistory Team" }],
   creator: "Cistory",
-  metadataBase: new URL(process.env.BETTER_AUTH_URL || "http://localhost:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
   openGraph: {
     type: "website",
     locale: "ko_KR",

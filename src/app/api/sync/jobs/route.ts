@@ -5,21 +5,16 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
 import { syncJobs } from "@/db/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
@@ -38,8 +33,15 @@ export async function GET(request: NextRequest) {
       gte(syncJobs.createdAt, daysAgo),
     ];
 
+    const validStatuses = ["completed", "failed", "fetching", "summarizing"] as const;
     if (status && status !== "all") {
-      conditions.push(eq(syncJobs.status, status as "completed" | "failed" | "fetching" | "summarizing"));
+      if (!validStatuses.includes(status as (typeof validStatuses)[number])) {
+        return NextResponse.json(
+          { error: `Invalid status. Must be one of: ${validStatuses.join(", ")}, all` },
+          { status: 400 }
+        );
+      }
+      conditions.push(eq(syncJobs.status, status as (typeof validStatuses)[number]));
     }
 
     if (syncType) {

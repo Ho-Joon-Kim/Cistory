@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTheme } from "next-themes";
 
 export interface UserSettings {
   theme: "light" | "dark" | "system";
   syncIntervalHours: number;
   lastSyncedAt: string | null;
+  hasOwnTracksKey: boolean;
 }
 
 export function useSettings() {
@@ -89,5 +90,65 @@ export function useSettings() {
     error,
     updateSettings,
     refresh: fetchSettings,
+  };
+}
+
+export function useOwnTracksKey(hasKey: boolean) {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [hasOwnTracksKey, setHasOwnTracksKey] = useState(hasKey);
+  const prevHasKey = useRef(hasKey);
+
+  useEffect(() => {
+    if (prevHasKey.current !== hasKey) {
+      setHasOwnTracksKey(hasKey);
+      prevHasKey.current = hasKey;
+    }
+  }, [hasKey]);
+
+  const generate = useCallback(async () => {
+    setIsGenerating(true);
+    try {
+      const response = await fetch("/api/settings/owntracks-key", {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Failed to generate key");
+      const data = (await response.json()) as { apiKey: string };
+      setNewKey(data.apiKey);
+      setHasOwnTracksKey(true);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, []);
+
+  const revoke = useCallback(async () => {
+    setIsRevoking(true);
+    try {
+      const response = await fetch("/api/settings/owntracks-key", {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Failed to revoke key");
+      setNewKey(null);
+      setHasOwnTracksKey(false);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsRevoking(false);
+    }
+  }, []);
+
+  return {
+    hasOwnTracksKey,
+    newKey,
+    isGenerating,
+    isRevoking,
+    generate,
+    revoke,
+    clearNewKey: () => setNewKey(null),
   };
 }

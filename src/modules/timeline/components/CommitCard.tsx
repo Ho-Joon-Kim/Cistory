@@ -46,10 +46,14 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
   const isPending = summaryStatus === "pending";
   const isProcessing = summaryStatus === "processing" || isGeneratingSummary;
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // 폴링으로 요약 상태 확인
   const pollSummaryStatus = useCallback(async () => {
     try {
-      const response = await fetch(`/api/timeline/commits/${commit.id}`);
+      const response = await fetch(`/api/timeline/commits/${commit.id}`, {
+        signal: abortControllerRef.current?.signal,
+      });
       if (response.ok) {
         const data = await response.json();
         if (data.summary?.status === "completed" && data.summary?.summary) {
@@ -69,16 +73,19 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
         }
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       console.error("Failed to poll summary status:", error);
     }
   }, [commit.id]);
 
-  // 컴포넌트 언마운트 시 폴링 정리
+  // 컴포넌트 언마운트 시 폴링 및 진행 중 fetch 정리
   useEffect(() => {
+    abortControllerRef.current = new AbortController();
     return () => {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
       }
+      abortControllerRef.current?.abort();
     };
   }, []);
 
@@ -127,7 +134,10 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
   useEffect(() => {
     if (isExpanded && needsStatsLoad) {
       setIsLoadingStats(true);
-      fetch(`/api/timeline/commits/${commit.id}/stats`, { method: "POST" })
+      fetch(`/api/timeline/commits/${commit.id}/stats`, {
+        method: "POST",
+        signal: abortControllerRef.current?.signal,
+      })
         .then((res) => res.json())
         .then((data) => {
           if (data.additions !== undefined) {
@@ -140,7 +150,10 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
             onStatsLoaded?.(commit.id, newStats);
           }
         })
-        .catch(console.error)
+        .catch((err) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          console.error(err);
+        })
         .finally(() => setIsLoadingStats(false));
     }
   }, [isExpanded, needsStatsLoad, commit.id, onStatsLoaded]);
@@ -195,8 +208,11 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
                   머지
                 </span>
               )}
-              {hasSummary && summaryStatus === "completed" && (
+              {isProcessing && (
                 <Sparkles className="h-3 w-3 text-primary animate-sparkle" />
+              )}
+              {hasSummary && summaryStatus === "completed" && (
+                <Sparkles className="h-3 w-3 text-primary/60" />
               )}
               <span className="text-xs text-muted-foreground">
                 {commit.repository.fullName}

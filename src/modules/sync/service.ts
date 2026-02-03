@@ -44,147 +44,20 @@ export class SyncService {
     username: string,
     onProgress?: (progress: SyncProgress) => void
   ): Promise<{ newCommits: number; syncJobId: string }> {
-    // Create sync job
-    const syncJobId = generateId();
-    const timestamp = now();
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
-    await this.db.insert(syncJobs).values({
-      id: syncJobId,
+    return this._executeSyncCommits({
       userId,
+      username,
       syncType: "initial",
-      status: "fetching",
       triggerType: "login",
-      startedAt: timestamp,
-      createdAt: timestamp,
-    } satisfies NewSyncJob);
-
-    onProgress?.({
-      status: "fetching",
-      message: "최근 3개월 커밋을 검색하는 중...",
-      totalCommits: 0,
-      processedCommits: 0,
+      sinceDate: threeMonthsAgo.toISOString(),
+      markInitialComplete: true,
+      fetchingMessage: "최근 3개월 커밋을 검색하는 중...",
+      completedMessage: (count) => `${count}개의 커밋을 동기화했습니다`,
+      onProgress,
     });
-
-    try {
-      // Calculate 3 months ago
-      const threeMonthsAgo = new Date();
-      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-      const sinceDate = threeMonthsAgo.toISOString();
-
-      // Fetch commits via Search API (paginated)
-      const allSearchCommits: VCSSearchCommit[] = [];
-      let page = 1;
-      const perPage = 100;
-      let hasMore = true;
-
-      while (hasMore) {
-        const searchCommits = await this.vcsAdapter.searchUserCommits(username, {
-          since: sinceDate,
-          perPage,
-          page,
-        });
-
-        allSearchCommits.push(...searchCommits);
-
-        onProgress?.({
-          status: "fetching",
-          message: `커밋 검색 중... (${allSearchCommits.length}개 발견)`,
-          totalCommits: allSearchCommits.length,
-          processedCommits: 0,
-        });
-
-        // GitHub Search API returns max 1000 results
-        if (searchCommits.length < perPage || allSearchCommits.length >= 1000) {
-          hasMore = false;
-        } else {
-          page++;
-        }
-      }
-
-      // Filter out already existing commits
-      const existingShas = await this.getExistingCommitShas(
-        userId,
-        allSearchCommits.map((c) => c.sha)
-      );
-      const newSearchCommits = allSearchCommits.filter(
-        (c) => !existingShas.has(c.sha)
-      );
-
-      if (newSearchCommits.length === 0) {
-        await this.completeSyncJob(syncJobId, 0, 0);
-        onProgress?.({
-          status: "completed",
-          message: "새로운 커밋이 없습니다",
-          totalCommits: 0,
-          processedCommits: 0,
-        });
-
-        // Mark initial sync as completed
-        await this.db
-          .update(users)
-          .set({ initialSyncCompleted: true, lastSyncedAt: now(), updatedAt: now() })
-          .where(eq(users.id, userId));
-
-        return { newCommits: 0, syncJobId };
-      }
-
-      // Update sync job with total count
-      await this.db
-        .update(syncJobs)
-        .set({ totalCommits: newSearchCommits.length })
-        .where(eq(syncJobs.id, syncJobId));
-
-      // Save commits with stats
-      let processed = 0;
-      for (const searchCommit of newSearchCommits) {
-        onProgress?.({
-          status: "fetching",
-          message: `커밋 저장 및 통계 수집 중... (${processed + 1}/${newSearchCommits.length})`,
-          totalCommits: newSearchCommits.length,
-          processedCommits: processed,
-        });
-
-        await this.saveSearchCommit(userId, searchCommit, true);
-        processed++;
-
-        // Small delay to avoid rate limiting (GitHub allows 5000 requests/hour for authenticated users)
-        if (processed < newSearchCommits.length) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-      }
-
-      // Mark initial sync as completed
-      await this.db
-        .update(users)
-        .set({ initialSyncCompleted: true, lastSyncedAt: now(), updatedAt: now() })
-        .where(eq(users.id, userId));
-
-      // Complete sync job
-      await this.completeSyncJob(syncJobId, newSearchCommits.length, processed);
-
-      onProgress?.({
-        status: "completed",
-        message: `${newSearchCommits.length}개의 커밋을 동기화했습니다`,
-        totalCommits: newSearchCommits.length,
-        processedCommits: processed,
-      });
-
-      return { newCommits: newSearchCommits.length, syncJobId };
-    } catch (error) {
-      await this.failSyncJob(
-        syncJobId,
-        error instanceof Error ? error.message : "Unknown error"
-      );
-
-      onProgress?.({
-        status: "failed",
-        message: `동기화 실패: ${error instanceof Error ? error.message : "Unknown error"}`,
-        totalCommits: 0,
-        processedCommits: 0,
-      });
-
-      throw error;
-    }
   }
 
   /**
@@ -196,14 +69,71 @@ export class SyncService {
     triggerType: TriggerType = "manual",
     onProgress?: (progress: SyncProgress) => void
   ): Promise<{ newCommits: number; syncJobId: string }> {
-    // Create sync job
+    // Get user's last sync time
+    const userResult = await this.db
+      .select({ lastSyncedAt: users.lastSyncedAt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    // Default to 7 days ago if no lastSyncedAt
+    let sinceDate: string;
+    const lastSyncedAt = userResult[0]?.lastSyncedAt;
+    if (lastSyncedAt) {
+      sinceDate = lastSyncedAt instanceof Date
+        ? lastSyncedAt.toISOString()
+        : String(lastSyncedAt);
+    } else {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      sinceDate = sevenDaysAgo.toISOString();
+    }
+
+    console.log("[Sync] Searching commits since:", sinceDate, "for user:", username);
+
+    return this._executeSyncCommits({
+      userId,
+      username,
+      syncType: "search",
+      triggerType,
+      sinceDate,
+      markInitialComplete: false,
+      fetchingMessage: "새로운 커밋을 검색하는 중...",
+      completedMessage: (count) => `${count}개의 새로운 커밋을 동기화했습니다`,
+      onProgress,
+    });
+  }
+
+  private async _executeSyncCommits(options: {
+    userId: string;
+    username: string;
+    syncType: SyncType;
+    triggerType: TriggerType;
+    sinceDate: string;
+    markInitialComplete: boolean;
+    fetchingMessage: string;
+    completedMessage: (count: number) => string;
+    onProgress?: (progress: SyncProgress) => void;
+  }): Promise<{ newCommits: number; syncJobId: string }> {
+    const {
+      userId,
+      username,
+      syncType,
+      triggerType,
+      sinceDate,
+      markInitialComplete,
+      fetchingMessage,
+      completedMessage,
+      onProgress,
+    } = options;
+
     const syncJobId = generateId();
     const timestamp = now();
 
     await this.db.insert(syncJobs).values({
       id: syncJobId,
       userId,
-      syncType: "search",
+      syncType,
       status: "fetching",
       triggerType,
       startedAt: timestamp,
@@ -212,35 +142,12 @@ export class SyncService {
 
     onProgress?.({
       status: "fetching",
-      message: "새로운 커밋을 검색하는 중...",
+      message: fetchingMessage,
       totalCommits: 0,
       processedCommits: 0,
     });
 
     try {
-      // Get user's last sync time
-      const userResult = await this.db
-        .select({ lastSyncedAt: users.lastSyncedAt })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-
-      // Default to 7 days ago if no lastSyncedAt
-      let sinceDate: string;
-      const lastSyncedAt = userResult[0]?.lastSyncedAt;
-      if (lastSyncedAt) {
-        // Convert Date to ISO string if needed
-        sinceDate = lastSyncedAt instanceof Date
-          ? lastSyncedAt.toISOString()
-          : String(lastSyncedAt);
-      } else {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        sinceDate = sevenDaysAgo.toISOString();
-      }
-
-      console.log("[Sync] Searching commits since:", sinceDate, "for user:", username);
-
       // Fetch commits via Search API (paginated)
       const allSearchCommits: VCSSearchCommit[] = [];
       let page = 1;
@@ -263,7 +170,6 @@ export class SyncService {
           processedCommits: 0,
         });
 
-        // GitHub Search API returns max 1000 results
         if (searchCommits.length < perPage || allSearchCommits.length >= 1000) {
           hasMore = false;
         } else {
@@ -287,11 +193,9 @@ export class SyncService {
       if (newSearchCommits.length === 0) {
         await this.completeSyncJob(syncJobId, 0, 0);
 
-        // Update last synced time even if no new commits
-        await this.db
-          .update(users)
-          .set({ lastSyncedAt: now(), updatedAt: now() })
-          .where(eq(users.id, userId));
+        const userUpdate: Record<string, unknown> = { lastSyncedAt: now(), updatedAt: now() };
+        if (markInitialComplete) userUpdate.initialSyncCompleted = true;
+        await this.db.update(users).set(userUpdate).where(eq(users.id, userId));
 
         onProgress?.({
           status: "completed",
@@ -328,18 +232,17 @@ export class SyncService {
         }
       }
 
-      // Update last synced time
-      await this.db
-        .update(users)
-        .set({ lastSyncedAt: now(), updatedAt: now() })
-        .where(eq(users.id, userId));
+      // Update user sync state
+      const userUpdate: Record<string, unknown> = { lastSyncedAt: now(), updatedAt: now() };
+      if (markInitialComplete) userUpdate.initialSyncCompleted = true;
+      await this.db.update(users).set(userUpdate).where(eq(users.id, userId));
 
       // Complete sync job
       await this.completeSyncJob(syncJobId, newSearchCommits.length, processed);
 
       onProgress?.({
         status: "completed",
-        message: `${newSearchCommits.length}개의 새로운 커밋을 동기화했습니다`,
+        message: completedMessage(newSearchCommits.length),
         totalCommits: newSearchCommits.length,
         processedCommits: processed,
       });
@@ -369,8 +272,7 @@ export class SyncService {
     if (shas.length === 0) return new Set();
 
     // Batch query to avoid too large IN clause
-    // D1 has a limit of ~100 parameters per query
-    const batchSize = 50;
+    const batchSize = 500;
     const existingShas = new Set<string>();
 
     for (let i = 0; i < shas.length; i += batchSize) {

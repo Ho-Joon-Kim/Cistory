@@ -21,6 +21,16 @@ interface Session {
   expiresAt: string;
 }
 
+function transformSupabaseUser(user: SupabaseUser): User {
+  return {
+    id: user.id,
+    name: user.user_metadata?.name || user.email?.split("@")[0] || "User",
+    email: user.email || null,
+    image: user.user_metadata?.avatar_url || null,
+    githubUsername: user.user_metadata?.user_name || user.user_metadata?.preferred_username || undefined,
+  };
+}
+
 interface UseAuthReturn {
   user: User | null;
   session: Session | null;
@@ -41,15 +51,8 @@ export function useAuth(): UseAuthReturn {
       const { data: { session: supabaseSession } } = await supabase.auth.getSession();
 
       if (supabaseSession?.user) {
-        const user = supabaseSession.user;
         setSession({
-          user: {
-            id: user.id,
-            name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-            email: user.email || null,
-            image: user.user_metadata?.avatar_url || null,
-            githubUsername: user.user_metadata?.user_name || user.user_metadata?.preferred_username || undefined,
-          },
+          user: transformSupabaseUser(supabaseSession.user),
           expiresAt: supabaseSession.expires_at
             ? new Date(supabaseSession.expires_at * 1000).toISOString()
             : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -71,15 +74,8 @@ export function useAuth(): UseAuthReturn {
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        const user = session.user;
         setSession({
-          user: {
-            id: user.id,
-            name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-            email: user.email || null,
-            image: user.user_metadata?.avatar_url || null,
-            githubUsername: user.user_metadata?.user_name || user.user_metadata?.preferred_username || undefined,
-          },
+          user: transformSupabaseUser(session.user),
           expiresAt: session.expires_at
             ? new Date(session.expires_at * 1000).toISOString()
             : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),

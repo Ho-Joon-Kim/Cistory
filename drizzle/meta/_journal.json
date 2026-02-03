@@ -8,6 +8,13 @@
       "when": 1769480409025,
       "tag": "0000_massive_the_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1770098694104,
+      "tag": "0001_dashing_lilandra",
+      "breakpoints": true
     }
   ]
 }

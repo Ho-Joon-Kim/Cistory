@@ -4,27 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Features automatic background sync via Self-hosted Cron worker.
+Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Features automatic background sync via integrated Cron worker.
 
 ## Development Commands
 
-### Essential Commands
 ```bash
 # Start development server (with Turbopack, includes auto Cron)
 yarn dev
 
 # Build for production
 yarn build
-
-# Start production server (binds to 0.0.0.0, includes Cron)
-yarn start
-
-# Production with PM2 (process manager)
-yarn pm2:start         # Start with PM2
-yarn pm2:stop          # Stop PM2 process
-yarn pm2:restart       # Restart PM2 process
-yarn pm2:logs          # View logs
-yarn pm2:status        # Check status
 
 # Linting and formatting (uses Biome)
 yarn lint              # Check for lint errors
@@ -36,23 +25,27 @@ yarn check             # Check and fix all issues
 yarn db:generate       # Generate migrations from schema
 yarn db:migrate        # Run migrations
 yarn db:studio         # Open Drizzle Studio
+
+# Production
+yarn start             # Start production server (binds to 0.0.0.0, includes Cron)
+yarn pm2:start         # Start with PM2 process manager
 ```
 
-### Running Single Tests
-This project does not currently have test infrastructure configured.
+No test infrastructure is currently configured.
+
+Package manager is **Yarn 4** (Berry, via Corepack). Use `yarn` for all package operations.
 
 ## Architecture Overview
 
-### Core Technology Stack
-- **Next.js 16** (App Router) - React framework with Turbopack
-- **TypeScript 5** - Type-safe development
-- **Supabase** - Authentication, hosted PostgreSQL with Row Level Security
-- **Drizzle ORM** - Type-safe PostgreSQL database access
-- **Integrated Cron** - Automatic background sync via node-cron (runs within Next.js process)
+### Core Stack
+- **Next.js 16** (App Router) with Turbopack
+- **TypeScript 5** (strict mode)
+- **Supabase** - Authentication + hosted PostgreSQL with Row Level Security
+- **Drizzle ORM** - Type-safe PostgreSQL access via `pg.Pool` singleton
 - **Anthropic SDK** - Claude AI for commit summaries
-- **shadcn/ui** - Component library with Radix UI primitives
-- **Tailwind CSS v4** - Styling
-- **Biome** - Fast linter and formatter (replaces ESLint + Prettier)
+- **shadcn/ui** + **Tailwind CSS v4** - UI components and styling
+- **Biome** - Linter and formatter (replaces ESLint + Prettier)
+- **node-cron** - Background sync within Next.js process
 
 ### Project Structure
 
@@ -62,167 +55,106 @@ src/
 │   ├── (auth)/              # Auth route group (login, callback)
 │   ├── (dashboard)/         # Dashboard route group (settings)
 │   ├── api/                 # API routes
-│   │   ├── auth/           # Auth endpoints (callback, ensure-user, disconnect)
-│   │   ├── timeline/       # Timeline and commits endpoints
-│   │   ├── sync/           # Sync operations
-│   │   └── settings/       # User settings
-│   └── dashboard/          # Main dashboard page
-├── components/             # Shared components
-│   ├── Layout/            # Header, nav components
-│   └── ui/                # shadcn/ui components
+│   └── dashboard/           # Main dashboard page
+├── components/              # Shared components (Layout/, ui/)
 ├── db/
-│   ├── schema.ts          # Drizzle schema (users, commits, summaries, syncJobs)
-│   └── index.ts           # Database singleton
+│   ├── schema.ts            # Drizzle schema (users, commits, commitSummaries, syncJobs)
+│   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
-│   ├── adapters/          # Abstraction layer
-│   │   ├── ai/           # AI adapter (Claude, extensible to other LLMs)
-│   │   └── vcs/          # VCS adapter (GitHub, extensible to GitLab/Bitbucket)
-│   ├── supabase/         # Supabase client configuration
-│   │   ├── client.ts     # Browser client
-│   │   ├── server.ts     # Server client (API routes, Server Components)
-│   │   └── service.ts    # Service client (Cron worker, bypasses RLS)
-│   ├── cron.ts           # Cron service (auto-sync commits)
-│   └── utils.ts          # Shared utilities
-├── modules/              # Feature modules
-│   ├── auth/            # Auth hooks and components
-│   ├── github/          # GitHub service
-│   ├── settings/        # User settings
-│   ├── summary/         # AI commit summaries
-│   ├── sync/            # Commit sync service
-│   └── timeline/        # Timeline display
-instrumentation.ts          # Next.js instrumentation (initializes Cron on server boot, project root)
+│   ├── adapters/            # Adapter pattern interfaces + implementations
+│   │   ├── ai/             # AI adapter (interface.ts + claude.ts)
+│   │   └── vcs/            # VCS adapter (interface.ts + github.ts)
+│   ├── supabase/            # Client configs (client.ts, server.ts, service.ts, auth-helpers.ts)
+│   ├── cron.ts              # Cron service (auto-sync commits)
+│   └── utils.ts             # Shared utilities
+├── modules/                 # Feature modules (hooks.ts, service.ts, components/)
+│   ├── auth/               # Auth hooks (useAuth, useUser)
+│   ├── summary/            # AI commit summary service
+│   ├── sync/               # Commit sync service (SyncService class)
+│   └── timeline/           # Timeline display (hooks, CommitCard, Timeline)
+instrumentation.ts           # (project root) Initializes Cron on server boot (Node.js runtime only)
 ```
 
-### Key Architectural Patterns
+### Key Patterns
 
-**Adapter Pattern**: The codebase uses adapter interfaces for extensibility:
-- `lib/adapters/ai/interface.ts` - AI/LLM abstraction (current: Claude)
-- `lib/adapters/vcs/interface.ts` - VCS abstraction (current: GitHub)
-- Implementations: `ai/claude.ts`, `vcs/github.ts`
+**API Route Authentication**: All API routes use shared helpers from `src/lib/supabase/auth-helpers.ts`:
+```typescript
+// Auth-only routes (most routes)
+const { user, error } = await getAuthenticatedUser(request);
+if (error) return error;
 
-**Module Organization**: Features are organized in `src/modules/` with a mix of:
-- `hooks.ts` - React hooks for data fetching (auth, settings, sync, timeline)
-- `service.ts` - Business logic and data operations (github, summary, sync)
+// Routes that also need GitHub API access
+const accessToken = await getGitHubToken(user.id, db, users);
+```
+
+**Adapter Pattern**: Extensible interfaces in `lib/adapters/`:
+- `ai/interface.ts` - AI/LLM abstraction (implemented: `claude.ts`)
+- `vcs/interface.ts` - VCS abstraction (implemented: `github.ts`)
+
+**Module Organization**: Features in `src/modules/` follow:
+- `hooks.ts` - React hooks for client-side data fetching
+- `service.ts` - Server-side business logic and DB operations
 - `components/` - Feature-specific UI components
 
-**Database Schema**: Four main tables (see `src/db/schema.ts`):
-- `users` - Extended user data with GitHub tokens and sync settings (UUID primary key, references Supabase auth.users)
-- `commits` - Commit data from GitHub (sha, message, stats, repo info)
-- `commitSummaries` - AI-generated summaries (status: pending/completed/failed)
-- `syncJobs` - Sync operation tracking (status, progress, errors)
-
-**Note**: Supabase manages auth tables (`auth.users`, `auth.sessions`) in a separate schema. Application tables use RLS policies for security.
-
-**Sync Strategy** (`src/modules/sync/service.ts`):
-- Initial sync: Uses GitHub Search API to fetch last 3 months of commits
-- Regular sync: Uses GitHub Events API for recent push events
-- Deduplication: Checks existing SHAs before inserting
-- Progress tracking: Updates sync jobs with status and counts
-
-### Environment Setup
-
-Required environment variables (see `.env.example`):
-```bash
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...  # For Cron worker
-DATABASE_URL=postgresql://postgres:password@host:5432/postgres
-
-# Anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Application URL (required for OAuth in reverse proxy environments)
-NEXT_PUBLIC_APP_URL=https://your-domain.com  # Use your public domain URL
-
-# Optional
-RUN_ON_START=true  # Run sync immediately on server start (useful for testing)
+**Database Access**: `getDb()` from `src/db/index.ts` returns a lazy-initialized Drizzle ORM singleton over a `pg.Pool`. Import schema tables and types alongside it:
+```typescript
+import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
+const db = getDb();
 ```
 
-**Supabase Setup**:
-1. Create Supabase project at https://supabase.com
-2. Get credentials from Project Settings → API
-3. Configure GitHub OAuth in Authentication → Providers
-   - Add your domain to "Redirect URLs" (e.g., `https://your-domain.com/api/auth/callback`)
-   - For local development, also add `http://localhost:3000/api/auth/callback`
-4. Run migrations: `yarn db:migrate`
-5. Apply RLS policies: Execute `supabase-rls-policies.sql` in Supabase SQL Editor
+**Database Schema** (4 tables in `src/db/schema.ts`):
+- `users` - Extended user data with GitHub tokens (UUID PK, references Supabase `auth.users`)
+- `commits` - GitHub commit data (sha, message, stats, repo info)
+- `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
+- `syncJobs` - Sync tracking (status: fetching/summarizing/completed/failed)
 
-### Database Operations
+**Sync Strategy** (`src/modules/sync/service.ts`):
+- Initial sync: GitHub Search API for last 3 months of commits
+- Regular sync: GitHub Search API since `lastSyncedAt` (fallback: 7 days)
+- Both flows use shared `_executeSyncCommits()` private method
+- Deduplication via SHA batch lookup (batch size: 500)
+- Cron runs every 10 minutes, respects per-user `syncIntervalHours`
 
-**Creating Migrations**:
-1. Modify `src/db/schema.ts`
-2. Run `yarn db:generate` to create migration files in `drizzle/`
-3. Run `yarn db:migrate` to apply migrations to PostgreSQL
+**Session/Token Management**:
+- JWT sessions managed by Supabase with automatic refresh
+- Hybrid GitHub token strategy: prefer `session.provider_token` (short-lived), fallback to DB-stored `users.githubAccessToken` (for Cron worker)
+- Cron worker uses `SUPABASE_SERVICE_ROLE_KEY` to bypass RLS
 
-**Connection Management**:
-- Database uses connection pooling via `pg.Pool`
-- Singleton pattern ensures single connection pool instance
-- Connection string configured via `DATABASE_URL` environment variable
+**Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`. Set `RUN_ON_START=true` to trigger an immediate sync on boot.
 
 ### Authentication Flow
 
-1. User clicks "Sign in with GitHub" (Supabase Auth GitHub provider)
-2. GitHub OAuth redirects to Supabase Auth callback
-3. Supabase creates user record in `auth.users` and session in `auth.sessions`
-4. App redirects to `/callback` page which calls `/api/auth/ensure-user`
-5. Ensure-user endpoint creates extended user record in application `users` table
-6. GitHub access token stored in DB (`users.githubAccessToken`) for Cron worker access
+1. User signs in with GitHub via Supabase OAuth
+2. Callback redirects to `/callback` page which calls `/api/auth/ensure-user`
+3. Ensure-user creates/updates application `users` record with GitHub token
+4. GitHub access token stored in DB for Cron worker access
 
-**Session Management**:
-- JWT-based sessions managed by Supabase
-- Hybrid token strategy: Prefer `session.provider_token` (short-lived), fallback to DB-stored token (for Cron)
-- Automatic token refresh handled by Supabase client
+### Environment Setup
 
-### API Architecture
+Required env vars (in `.env.local`):
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...     # For Cron worker (bypasses RLS)
+DATABASE_URL=postgresql://...         # Required, no fallback
+ANTHROPIC_API_KEY=sk-ant-...
+NEXT_PUBLIC_APP_URL=https://your-domain.com  # For OAuth redirects
+```
 
-All API routes are in `src/app/api/`:
-- `/api/auth/callback` - OAuth callback handler (exchanges code for session)
-- `/api/auth/ensure-user` - Creates/updates application user record after Supabase auth
-- `/api/auth/disconnect` - Delete user data and sign out
-- `/api/timeline` - Get commits with optional filtering (pagination, date range, repo)
-- `/api/timeline/repos` - List user's repositories with commit counts
-- `/api/timeline/commits/[commitId]` - Get commit details
-- `/api/timeline/commits/[commitId]/summary` - Generate AI summary (POST, async)
-- `/api/timeline/commits/[commitId]/stats` - Fetch commit file stats from GitHub (POST)
-- `/api/timeline/stats` - Daily commit counts for last 30 days (heatmap data)
-- `/api/summaries/process` - Batch process pending summaries (POST)
-- `/api/sync` - Trigger sync operations (manual sync)
-- `/api/sync/status` - SSE stream for real-time sync progress
-- `/api/sync/jobs` - Get sync job history with statistics
-- `/api/settings` - User preferences (theme, sync interval)
+### Database Operations
 
-### Important Implementation Notes
+1. Modify `src/db/schema.ts`
+2. `yarn db:generate` to create migration files in `drizzle/`
+3. `yarn db:migrate` to apply to PostgreSQL
 
-- **Singleton Pattern**: Database (`src/db/index.ts`) uses singleton to avoid multiple connection pools
-- **GitHub Token Storage**: Access tokens stored in `users.githubAccessToken` for Cron worker and API fallback
-- **Cron Integration**: `instrumentation.ts` initializes Cron service when Next.js server boots (Node.js runtime only)
-- **Cron Schedule**: Runs every 10 minutes (`*/10 * * * *`), syncs users based on their `syncIntervalHours` setting
-- **RLS Security**: Row Level Security policies ensure users only access their own data
-- **Service Role**: Cron worker uses `SUPABASE_SERVICE_ROLE_KEY` to bypass RLS for background operations
-- **AI Summaries**: Generated on-demand via `/api/timeline/commits/[commitId]/summary`, stored in `commitSummaries` table
-- **Route Groups**: App Router uses `(auth)` and `(dashboard)` groups for layout organization
-- **Server Binding**: Production server binds to `0.0.0.0` to allow external connections
-- **Process Management**: PM2 manages single process (`cistory`) which includes both Next.js server and Cron worker
+Drizzle config loads env from `.env.local` (not `.env`).
 
 ## Code Style
 
-- Use Biome for linting and formatting (configured in `biome.json`)
+- **Biome** for linting/formatting (configured in `biome.json`)
 - Formatting: 2-space indent, double quotes, semicolons, trailing commas (ES5), 100 char line width
-- Lint: unused imports are errors, `useImportType` is enforced, `noNonNullAssertion` is off
-- TypeScript strict mode enabled
+- Lint: unused imports are errors, `useImportType` enforced, `noNonNullAssertion` off
 - Path alias: `@/*` maps to `./src/*`
-- Prefer functional components with hooks
-- Use Drizzle ORM query builder (avoid raw SQL)
+- Prefer Drizzle ORM query builder (avoid raw SQL)
 - Follow Next.js App Router conventions (Server Components by default)
-- Drizzle config loads env from `.env.local` (not `.env`)
-
-## Recent Migration Notes
-
-The project has undergone the following migrations:
-1. **Cloudflare Workers → Local Deployment**: Migrated from Cloudflare Workers to local Next.js deployment
-2. **SQLite → PostgreSQL**: Database migrated from SQLite to PostgreSQL
-3. **Better Auth → Supabase Auth**: Authentication migrated to Supabase for better scalability
-4. **Added Self-hosted Cron**: Automatic background sync for users without requiring re-login
-
-Git history contains commits related to previous architectures that are no longer relevant to the current stack.
+- Korean language used for user-facing strings in API responses and UI

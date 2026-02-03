@@ -223,18 +223,17 @@ body {
 /* Pulse Glow - for timeline stepper */
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.6);
-    transform: scale(1);
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.7),
+                0 0 4px hsl(var(--primary) / 0.4);
   }
   50% {
-    box-shadow: 0 0 0 10px hsl(var(--primary) / 0),
-                0 0 18px hsl(var(--primary) / 0.8);
-    transform: scale(1.25);
+    box-shadow: 0 0 0 8px hsl(var(--primary) / 0),
+                0 0 20px 4px hsl(var(--primary) / 0.5);
   }
 }
 
 .animate-pulse-glow {
-  animation: pulse-glow 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: pulse-glow 1.5s ease-in-out infinite;
 }
 
 /* Bar grow - for heatmap bars */
@@ -274,13 +273,6 @@ body {
 .animate-slide-up-fade {
   animation: slide-up-fade 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
-
-/* Stagger delay utilities */
-.stagger-1 { animation-delay: 50ms; }
-.stagger-2 { animation-delay: 100ms; }
-.stagger-3 { animation-delay: 150ms; }
-.stagger-4 { animation-delay: 200ms; }
-.stagger-5 { animation-delay: 250ms; }
 
 /* Highlight flash with glow - for new items */
 @keyframes highlight-flash {
@@ -411,50 +403,48 @@ body {
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Badge pop for NEW indicator */
-@keyframes badge-pop {
-  0% {
-    transform: scale(0);
-    opacity: 0;
-  }
-  50% {
-    transform: scale(1.2);
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
+/* ===== Timeline Stepper Redesign ===== */
 
-.animate-badge-pop {
-  animation: badge-pop 0.3s ease-out forwards;
-}
-
-/* ===== Timeline Redesign Animations ===== */
-
-/* Gradient flow - stepper line animated gradient */
-@keyframes gradient-flow {
-  0% {
-    background-position: 0% 0%;
-  }
-  50% {
-    background-position: 0% 100%;
-  }
-  100% {
-    background-position: 0% 0%;
-  }
-}
-
-.timeline-stepper-line {
+/* Stepper line - gradient glow from selected date */
+.stepper-line {
+  --glow-y: 0px;
   background: linear-gradient(
     180deg,
-    hsl(var(--primary) / 0.5) 0%,
-    hsl(var(--muted-foreground) / 0.3) 40%,
-    hsl(var(--primary) / 0.25) 70%,
-    hsl(var(--muted-foreground) / 0.3) 100%
+    hsl(var(--muted-foreground) / 0.15) 0%,
+    hsl(var(--muted-foreground) / 0.15) calc(var(--glow-y) - 120px),
+    hsl(var(--primary) / 0.5) calc(var(--glow-y) - 20px),
+    hsl(var(--primary) / 0.8) var(--glow-y),
+    hsl(var(--primary) / 0.5) calc(var(--glow-y) + 20px),
+    hsl(var(--muted-foreground) / 0.15) calc(var(--glow-y) + 120px),
+    hsl(var(--muted-foreground) / 0.15) 100%
   );
-  background-size: 100% 200%;
-  animation: gradient-flow 8s ease-in-out infinite;
+  transition: --glow-y 0.4s ease;
+}
+
+/* Stepper dot - clickable date marker */
+.stepper-dot {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 9999px;
+}
+.stepper-dot:hover span { transform: scale(1.2); }
+.stepper-dot:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Compact commit row */
+.compact-commit {
+  transition: background-color 0.15s ease;
+}
+.compact-commit:hover {
+  background-color: hsl(var(--muted) / 0.5);
 }
 
 /* Date group enter - viewport entry animation */
@@ -477,7 +467,7 @@ body {
   animation: date-group-enter 0.5s ease-out forwards;
 }
 
-/* Marker scale-in - date marker bounce entry */
+/* Stepper dot scale-in on visibility */
 @keyframes marker-scale-in {
   0% {
     transform: scale(0);
@@ -490,53 +480,8 @@ body {
   }
 }
 
-.date-group-section.is-visible .date-marker {
+.date-group-section.is-visible .stepper-dot span:not(.animate-pulse-glow) {
   animation: marker-scale-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-/* Today marker float + glow */
-@keyframes today-float {
-  0%, 100% {
-    transform: translateY(0);
-    box-shadow: 0 0 8px hsl(var(--primary) / 0.5), 0 0 16px hsl(var(--primary) / 0.3);
-  }
-  50% {
-    transform: translateY(-2px);
-    box-shadow: 0 0 12px hsl(var(--primary) / 0.7), 0 0 24px hsl(var(--primary) / 0.4);
-  }
-}
-
-.animate-today-marker {
-  animation: today-float 3s ease-in-out infinite;
-}
-
-/* Period break divider - line drawing */
-@keyframes period-break-draw {
-  from {
-    width: 0%;
-  }
-  to {
-    width: 100%;
-  }
-}
-
-.period-break-line {
-  animation: period-break-draw 0.6s ease-out forwards;
-}
-
-/* Period break label fade */
-@keyframes period-label-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.period-break-label {
-  opacity: 0;
-  animation: period-label-fade 0.3s ease-out 0.4s forwards;
 }
 
 /* Commit card hover - lift + shadow */
@@ -627,3 +572,87 @@ body {
 .date-group-section.is-visible .commit-card-stagger:nth-child(7) { animation-delay: 0.35s; }
 .date-group-section.is-visible .commit-card-stagger:nth-child(8) { animation-delay: 0.4s; }
 .date-group-section.is-visible .commit-card-stagger:nth-child(n+9) { animation-delay: 0.45s; }
+
+/* ===== Location Map Marker ===== */
+
+/* Bounce-in for marker appearance */
+@keyframes bounce-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Pulse ring for last location */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.location-marker-container {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.location-marker-dot {
+  width: 12px;
+  height: 12px;
+  background-color: hsl(var(--primary));
+  border-radius: 50%;
+  border: 2px solid hsl(var(--background));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  z-index: 1;
+}
+
+/* Timeline scroll container - thin scrollbar */
+.timeline-scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+}
+
+.timeline-scroll-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.timeline-scroll-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.timeline-scroll-container::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 2px;
+}
+
+.timeline-scroll-container::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.4);
+}
+
+.location-marker-pulse {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background-color: hsl(var(--primary) / 0.4);
+  border-radius: 50%;
+  animation: pulse-ring 1.5s ease-out infinite;
+}

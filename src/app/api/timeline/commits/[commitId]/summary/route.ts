@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser, getGitHubToken } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
 import { commits, commitSummaries, users } from "@/db/schema";
 import { createSummaryService } from "@/modules/summary/service";
@@ -12,24 +12,11 @@ export async function POST(
 ) {
   try {
     const { commitId } = await params;
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
 
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Get user's GitHub access token from users table
-    const userResult = await db
-      .select({ githubAccessToken: users.githubAccessToken })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .limit(1);
-
-    const accessToken = userResult[0]?.githubAccessToken;
-
+    const accessToken = await getGitHubToken(user.id, db, users);
     if (!accessToken) {
       return NextResponse.json(
         { error: "GitHub access token not found" },

@@ -1,19 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@/lib/supabase/server";
-import { getDb, type Database } from "@/db";
+import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
+import { getDb } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
 import { eq, and, desc, gte, lte, sql, inArray } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     // Query parameters
     const searchParams = request.nextUrl.searchParams;
@@ -34,11 +29,19 @@ export async function GET(request: NextRequest) {
     }
 
     if (fromDate) {
-      conditions.push(gte(commits.committedAt, new Date(fromDate)));
+      const parsed = new Date(fromDate);
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "Invalid 'from' date format" }, { status: 400 });
+      }
+      conditions.push(gte(commits.committedAt, parsed));
     }
 
     if (toDate) {
-      conditions.push(lte(commits.committedAt, new Date(toDate)));
+      const parsed = new Date(toDate);
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "Invalid 'to' date format" }, { status: 400 });
+      }
+      conditions.push(lte(commits.committedAt, parsed));
     }
 
     // Get total count
@@ -121,25 +124,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * GET /api/timeline/repos - Get unique repositories from commits
- */
-export async function getUniqueRepositories(userId: string, db: Database) {
-  const repos = await db
-    .selectDistinct({
-      repoFullName: commits.repoFullName,
-      repoId: commits.repoId,
-      repoIsPrivate: commits.repoIsPrivate,
-    })
-    .from(commits)
-    .where(eq(commits.userId, userId))
-    .orderBy(commits.repoFullName);
-
-  return repos.map((r) => ({
-    fullName: r.repoFullName,
-    id: r.repoId,
-    isPrivate: r.repoIsPrivate,
-  }));
 }

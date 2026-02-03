@@ -82,26 +82,23 @@ export function Filters({
   };
 
   return (
-    <div className="mb-4">
-      {/* Toggle button */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setIsOpen(!isOpen)}
-        className={cn("h-8 text-muted-foreground", hasActiveFilters && "text-primary")}
-      >
-        <SlidersHorizontal className="h-4 w-4 mr-1.5" />
-        필터
-        {hasActiveFilters && (
-          <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px]">
-            !
-          </span>
-        )}
-      </Button>
-
-      {/* Collapsible filter content */}
-      {isOpen && (
-        <div className="flex flex-wrap items-center gap-3 mt-2 animate-in fade-in-0 slide-in-from-top-2 duration-200">
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("h-8 w-8", hasActiveFilters && "text-primary")}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          {hasActiveFilters && (
+            <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center w-3 h-3 rounded-full bg-primary text-primary-foreground text-[8px]">
+              !
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-3" align="end" sideOffset={8}>
+        <div className="flex flex-wrap items-center gap-3">
           {/* Repository filter */}
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
@@ -182,7 +179,7 @@ export function Filters({
             </Button>
           )}
         </div>
-      )}
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }

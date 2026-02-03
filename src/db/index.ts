@@ -2,7 +2,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
 
-const DATABASE_URL = process.env.DATABASE_URL || "postgresql://localhost:5432/cistory";
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is not set");
+}
 
 // Singleton database connection
 let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;

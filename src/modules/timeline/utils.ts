@@ -25,37 +25,46 @@ export function getRepoColor(repoFullName: string): string {
   return REPO_COLORS[index];
 }
 
-// --- 1b. Date gap calculation ---
-interface DateGapResult {
-  gapPx: number;
-  showPeriodBreak: boolean;
-  daysDiff: number;
+// --- 1b. Fill date range (oldest commit date → today, descending) ---
+export interface DateEntry {
+  date: string; // "YYYY-MM-DD"
+  commits: TimelineCommit[];
+  isEmpty: boolean;
 }
 
-export function calculateDateGap(dateA: string, dateB: string): DateGapResult {
-  const a = new Date(dateA);
-  const b = new Date(dateB);
-  const diffMs = Math.abs(a.getTime() - b.getTime());
-  const daysDiff = Math.round(diffMs / (1000 * 60 * 60 * 24));
+function toLocalDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-  let gapPx: number;
-  if (daysDiff <= 1) {
-    gapPx = 32;
-  } else if (daysDiff <= 2) {
-    gapPx = 44;
-  } else if (daysDiff <= 3) {
-    gapPx = 56;
-  } else if (daysDiff <= 7) {
-    gapPx = 72;
-  } else {
-    gapPx = 96;
+export function fillDateRange(
+  groupedCommits: Record<string, TimelineCommit[]>,
+): DateEntry[] {
+  const dates = Object.keys(groupedCommits);
+  if (dates.length === 0) return [];
+
+  // Find oldest date among commits
+  const sorted = dates.sort(); // ascending "YYYY-MM-DD"
+  const oldest = sorted[0];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(`${oldest}T00:00:00`); // parse as local
+  start.setHours(0, 0, 0, 0);
+
+  const entries: DateEntry[] = [];
+  const cursor = new Date(today);
+
+  while (cursor >= start) {
+    const key = toLocalDateKey(cursor);
+    const commits = groupedCommits[key] ?? [];
+    entries.push({ date: key, commits, isEmpty: commits.length === 0 });
+    cursor.setDate(cursor.getDate() - 1);
   }
 
-  return {
-    gapPx,
-    showPeriodBreak: daysDiff >= 4,
-    daysDiff,
-  };
+  return entries; // descending (newest first)
 }
 
 // --- 1c. Time-of-day sub-groups ---

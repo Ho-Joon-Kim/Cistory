@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -10,14 +10,9 @@ export async function GET(
 ) {
   try {
     const { commitId } = await params;
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     // 커밋 상세 조회 (사용자 소유 확인 포함)
     const result = await db

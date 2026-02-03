@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, uniqueIndex, index, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, uniqueIndex, index, uuid, doublePrecision } from "drizzle-orm/pg-core";
 
 // Note: Better Auth tables removed - Supabase manages auth.users and auth.sessions
 
@@ -11,6 +11,7 @@ export const users = pgTable(
     githubLogin: text("github_login").notNull(),
     githubAvatarUrl: text("github_avatar_url"),
     githubAccessToken: text("github_access_token").notNull(),
+    ownTracksApiKey: text("own_tracks_api_key"),
     theme: text("theme").default("system"), // 'light' | 'dark' | 'system'
     syncIntervalHours: integer("sync_interval_hours").default(1),
     lastSyncedAt: timestamp("last_synced_at"),
@@ -102,6 +103,31 @@ export const syncJobs = pgTable(
   ]
 );
 
+// ============ Location Points (OwnTracks) ============
+export const locationPoints = pgTable(
+  "location_points",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lat: doublePrecision("lat").notNull(),
+    lon: doublePrecision("lon").notNull(),
+    accuracy: integer("accuracy"),
+    altitude: integer("altitude"),
+    velocity: integer("velocity"),
+    battery: integer("battery"),
+    trackerId: text("tracker_id"),
+    trigger: text("trigger"),
+    timestamp: timestamp("timestamp").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_location_user_timestamp").on(table.userId, table.timestamp),
+    uniqueIndex("idx_location_unique").on(table.userId, table.timestamp, table.lat, table.lon),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -114,3 +140,6 @@ export type NewCommitSummary = typeof commitSummaries.$inferInsert;
 
 export type SyncJob = typeof syncJobs.$inferSelect;
 export type NewSyncJob = typeof syncJobs.$inferInsert;
+
+export type LocationPoint = typeof locationPoints.$inferSelect;
+export type NewLocationPoint = typeof locationPoints.$inferInsert;

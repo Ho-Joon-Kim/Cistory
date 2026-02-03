@@ -8,19 +8,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb, users } from "@/db";
 import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    // Get authenticated user
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const userId = user.id;
 
@@ -40,6 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get GitHub access token from session
+    const supabase = await createRouteHandlerClient();
     const { data: { session } } = await supabase.auth.getSession();
     const githubToken = session?.provider_token;
 

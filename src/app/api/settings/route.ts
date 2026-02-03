@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -25,26 +25,22 @@ const DEFAULT_SETTINGS: UserSettings = {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const userResult = await db
       .select({
         theme: users.theme,
         syncIntervalHours: users.syncIntervalHours,
         lastSyncedAt: users.lastSyncedAt,
+        ownTracksApiKey: users.ownTracksApiKey,
       })
       .from(users)
       .where(eq(users.id, user.id));
 
     if (userResult.length === 0) {
-      return NextResponse.json(DEFAULT_SETTINGS);
+      return NextResponse.json({ ...DEFAULT_SETTINGS, hasOwnTracksKey: false });
     }
 
     const userSettings = userResult[0];
@@ -53,6 +49,7 @@ export async function GET(request: NextRequest) {
       theme: (userSettings.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
       syncIntervalHours: userSettings.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
       lastSyncedAt: userSettings.lastSyncedAt?.toISOString() ?? null,
+      hasOwnTracksKey: !!userSettings.ownTracksApiKey,
     });
   } catch (error) {
     console.error("Get settings error:", error);
@@ -65,14 +62,9 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = await createRouteHandlerClient();
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError) return authError;
     const db = getDb();
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const body = (await request.json()) as Partial<UserSettings>;
     const updates: Partial<{ theme: string; syncIntervalHours: number; updatedAt: Date }> = {
