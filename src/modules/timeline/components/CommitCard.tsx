@@ -5,8 +5,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  ChevronDown,
-  ChevronUp,
   GitCommit,
   GitMerge,
   Plus,
@@ -18,6 +16,7 @@ import {
 import { formatRelativeTime } from "@/lib/utils";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import type { TimelineCommit } from "../hooks";
+import { getCommitSize } from "../utils";
 
 interface CommitStats {
   additions: number;
@@ -30,9 +29,10 @@ interface CommitCardProps {
   onStatsLoaded?: (commitId: string, stats: CommitStats) => void;
   isNew?: boolean;
   animationDelay?: number;
+  repoColor?: string;
 }
 
-export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDelay = 0 }: CommitCardProps) {
+export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDelay = 0, repoColor }: CommitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [stats, setStats] = useState<CommitStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
@@ -145,19 +145,38 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
     }
   }, [isExpanded, needsStatsLoad, commit.id, onStatsLoaded]);
 
+  const commitSize = getCommitSize(commit);
+  const isLarge = commitSize === "large";
+  const isMerge = commit.isMergeCommit;
+
+  const cardStyle: React.CSSProperties = {
+    ...(repoColor ? { "--repo-color-glow": `hsl(${repoColor} / 0.3)` } as React.CSSProperties : {}),
+    ...(isNew ? { animationDelay: `${animationDelay}ms` } : {}),
+  };
+
   return (
     <Card
       className={`
-        transition-all hover:shadow-md cursor-pointer
+        commit-card-hover cursor-pointer !py-0 !gap-0 rounded-lg relative overflow-hidden
         ${isNew ? "animate-slide-up-fade animate-highlight" : ""}
+        ${isLarge ? "large-commit-card" : ""}
+        ${isMerge ? "opacity-70 bg-muted/30" : ""}
       `}
-      style={isNew ? { animationDelay: `${animationDelay}ms` } : undefined}
+      style={cardStyle}
       onClick={() => setIsExpanded(!isExpanded)}
     >
-      <CardContent className="px-3 py-2">
+      {/* Left repo color border */}
+      {repoColor && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-[3px] repo-border-glow"
+          style={{ backgroundColor: `hsl(${repoColor})` }}
+        />
+      )}
+
+      <CardContent className={`py-1.5 ${repoColor ? "pl-4 pr-3" : "px-3"} ${isLarge ? "py-2" : ""}`}>
         {/* 헤더 */}
         <div className="flex items-start gap-2">
-          <Avatar className="h-6 w-6 flex-shrink-0">
+          <Avatar className="h-5 w-5 flex-shrink-0 mt-0.5">
             <AvatarImage src={commit.authorAvatarUrl ?? undefined} />
             <AvatarFallback className="text-xs">
               {commit.authorName.slice(0, 2).toUpperCase()}
@@ -176,22 +195,25 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
                   머지
                 </span>
               )}
+              {hasSummary && summaryStatus === "completed" && (
+                <Sparkles className="h-3 w-3 text-primary animate-sparkle" />
+              )}
               <span className="text-xs text-muted-foreground">
                 {commit.repository.fullName}
               </span>
             </div>
 
             {/* 커밋 메시지 */}
-            <p className="text-sm mt-1 break-words">{messageFirstLine}</p>
+            <p className="text-sm mt-0.5 break-words line-clamp-1">{messageFirstLine}</p>
 
             {/* AI 요약 (접힌 상태에서도 표시) */}
             {hasSummary && (
-              <p className={`text-sm mt-1.5 text-muted-foreground line-clamp-2 ${localSummary ? "animate-summary-reveal" : ""}`}>
+              <p className={`text-xs mt-0.5 text-muted-foreground line-clamp-1 ${localSummary ? "animate-summary-reveal" : ""}`}>
                 {summary}
               </p>
             )}
             {(isPending || isProcessing) && (
-              <div className="flex items-center gap-2 mt-1.5">
+              <div className="flex items-center gap-2 mt-0.5">
                 {isPending && !isProcessing && (
                   <Button
                     variant="ghost"
@@ -213,7 +235,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
             )}
 
             {/* 변경 통계 */}
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-0.5 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <GitCommit className="h-3 w-3" />
                 {commit.sha.slice(0, 7)}
@@ -240,22 +262,6 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
             </div>
           </div>
 
-          {/* 확장 버튼 */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="flex-shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsExpanded(!isExpanded);
-            }}
-          >
-            {isExpanded ? (
-              <ChevronUp className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
-          </Button>
         </div>
 
         {/* 확장 영역: AI 요약 */}

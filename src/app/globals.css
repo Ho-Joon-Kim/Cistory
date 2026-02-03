@@ -8,19 +8,19 @@
   --card-foreground: 240 10% 3.9%;
   --popover: 0 0% 100%;
   --popover-foreground: 240 10% 3.9%;
-  --primary: 210 60% 45%;
+  --primary: 153 60% 38%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 210 100% 95%;
-  --secondary-foreground: 210 60% 35%;
+  --secondary: 153 40% 95%;
+  --secondary-foreground: 153 60% 28%;
   --muted: 210 40% 96%;
   --muted-foreground: 215 16% 47%;
-  --accent: 210 60% 45%;
+  --accent: 153 60% 38%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 210 60% 45%;
+  --ring: 153 60% 38%;
   --radius: 0.5rem;
 }
 
@@ -31,19 +31,19 @@
   --card-foreground: 0 0% 98%;
   --popover: 0 0% 8%;
   --popover-foreground: 0 0% 98%;
-  --primary: 200 95% 55%;
+  --primary: 153 70% 53%;
   --primary-foreground: 0 0% 0%;
-  --secondary: 0 0% 14%;
+  --secondary: 153 20% 14%;
   --secondary-foreground: 0 0% 98%;
   --muted: 0 0% 14%;
   --muted-foreground: 0 0% 64%;
-  --accent: 200 95% 55%;
+  --accent: 153 70% 53%;
   --accent-foreground: 0 0% 0%;
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 14%;
   --input: 0 0% 14%;
-  --ring: 200 95% 55%;
+  --ring: 153 70% 53%;
 }
 
 @theme inline {
@@ -223,16 +223,18 @@ body {
 /* Pulse Glow - for timeline stepper */
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.6);
+    transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 8px hsl(var(--primary) / 0),
-                0 0 12px hsl(var(--primary) / 0.6);
+    box-shadow: 0 0 0 10px hsl(var(--primary) / 0),
+                0 0 18px hsl(var(--primary) / 0.8);
+    transform: scale(1.25);
   }
 }
 
 .animate-pulse-glow {
-  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: pulse-glow 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* Bar grow - for heatmap bars */
@@ -427,3 +429,201 @@ body {
 .animate-badge-pop {
   animation: badge-pop 0.3s ease-out forwards;
 }
+
+/* ===== Timeline Redesign Animations ===== */
+
+/* Gradient flow - stepper line animated gradient */
+@keyframes gradient-flow {
+  0% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 0% 100%;
+  }
+  100% {
+    background-position: 0% 0%;
+  }
+}
+
+.timeline-stepper-line {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--primary) / 0.5) 0%,
+    hsl(var(--muted-foreground) / 0.3) 40%,
+    hsl(var(--primary) / 0.25) 70%,
+    hsl(var(--muted-foreground) / 0.3) 100%
+  );
+  background-size: 100% 200%;
+  animation: gradient-flow 8s ease-in-out infinite;
+}
+
+/* Date group enter - viewport entry animation */
+@keyframes date-group-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.date-group-section {
+  opacity: 0;
+}
+
+.date-group-section.is-visible {
+  animation: date-group-enter 0.5s ease-out forwards;
+}
+
+/* Marker scale-in - date marker bounce entry */
+@keyframes marker-scale-in {
+  0% {
+    transform: scale(0);
+  }
+  70% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.date-group-section.is-visible .date-marker {
+  animation: marker-scale-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Today marker float + glow */
+@keyframes today-float {
+  0%, 100% {
+    transform: translateY(0);
+    box-shadow: 0 0 8px hsl(var(--primary) / 0.5), 0 0 16px hsl(var(--primary) / 0.3);
+  }
+  50% {
+    transform: translateY(-2px);
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.7), 0 0 24px hsl(var(--primary) / 0.4);
+  }
+}
+
+.animate-today-marker {
+  animation: today-float 3s ease-in-out infinite;
+}
+
+/* Period break divider - line drawing */
+@keyframes period-break-draw {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.period-break-line {
+  animation: period-break-draw 0.6s ease-out forwards;
+}
+
+/* Period break label fade */
+@keyframes period-label-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.period-break-label {
+  opacity: 0;
+  animation: period-label-fade 0.3s ease-out 0.4s forwards;
+}
+
+/* Commit card hover - lift + shadow */
+.commit-card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.commit-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px hsl(var(--primary) / 0.1), 0 2px 6px hsl(var(--foreground) / 0.06);
+}
+
+/* Repo border glow on hover */
+.repo-border-glow {
+  transition: box-shadow 0.2s ease;
+}
+
+.commit-card-hover:hover .repo-border-glow {
+  box-shadow: -2px 0 8px var(--repo-color-glow, hsl(var(--primary) / 0.3));
+}
+
+/* Large commit pulsing glow */
+@keyframes large-commit-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+  }
+  50% {
+    box-shadow: 0 0 6px 1px hsl(var(--primary) / 0.12);
+  }
+}
+
+.large-commit-card {
+  animation: large-commit-glow 4s ease-in-out infinite;
+}
+
+/* AI summary sparkle twinkle */
+@keyframes sparkle-twinkle {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.animate-sparkle {
+  animation: sparkle-twinkle 2s ease-in-out infinite;
+}
+
+/* Timeline tick mark */
+.timeline-tick {
+  width: 8px;
+  height: 2px;
+  background-color: hsl(var(--primary) / 0.5);
+  border-radius: 1px;
+}
+
+/* Sub-group divider fade */
+@keyframes subgroup-fade {
+  from {
+    width: 0%;
+    opacity: 0;
+  }
+  to {
+    width: 100%;
+    opacity: 1;
+  }
+}
+
+.subgroup-divider {
+  animation: subgroup-fade 0.4s ease-out forwards;
+}
+
+/* Stagger children animations in date groups */
+.date-group-section.is-visible .commit-card-stagger {
+  opacity: 0;
+  animation: date-group-enter 0.4s ease-out forwards;
+}
+
+.date-group-section.is-visible .commit-card-stagger:nth-child(1) { animation-delay: 0.05s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(2) { animation-delay: 0.1s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(3) { animation-delay: 0.15s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(4) { animation-delay: 0.2s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(5) { animation-delay: 0.25s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(6) { animation-delay: 0.3s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(7) { animation-delay: 0.35s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(8) { animation-delay: 0.4s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(n+9) { animation-delay: 0.45s; }

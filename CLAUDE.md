@@ -90,7 +90,7 @@ src/
 │   ├── summary/         # AI commit summaries
 │   ├── sync/            # Commit sync service
 │   └── timeline/        # Timeline display
-└── instrumentation.ts    # Next.js instrumentation (initializes Cron on server boot)
+instrumentation.ts          # Next.js instrumentation (initializes Cron on server boot, project root)
 ```
 
 ### Key Architectural Patterns
@@ -100,11 +100,10 @@ src/
 - `lib/adapters/vcs/interface.ts` - VCS abstraction (current: GitHub)
 - Implementations: `ai/claude.ts`, `vcs/github.ts`
 
-**Module Organization**: Features are organized in `src/modules/` with:
-- `hooks.ts` - React hooks for data fetching
-- `service.ts` - Business logic and data operations
+**Module Organization**: Features are organized in `src/modules/` with a mix of:
+- `hooks.ts` - React hooks for data fetching (auth, settings, sync, timeline)
+- `service.ts` - Business logic and data operations (github, summary, sync)
 - `components/` - Feature-specific UI components
-- `types.ts` - TypeScript type definitions
 
 **Database Schema**: Four main tables (see `src/db/schema.ts`):
 - `users` - Extended user data with GitHub tokens and sync settings (UUID primary key, references Supabase auth.users)
@@ -185,6 +184,9 @@ All API routes are in `src/app/api/`:
 - `/api/timeline/repos` - List user's repositories with commit counts
 - `/api/timeline/commits/[commitId]` - Get commit details
 - `/api/timeline/commits/[commitId]/summary` - Generate AI summary (POST, async)
+- `/api/timeline/commits/[commitId]/stats` - Fetch commit file stats from GitHub (POST)
+- `/api/timeline/stats` - Daily commit counts for last 30 days (heatmap data)
+- `/api/summaries/process` - Batch process pending summaries (POST)
 - `/api/sync` - Trigger sync operations (manual sync)
 - `/api/sync/status` - SSE stream for real-time sync progress
 - `/api/sync/jobs` - Get sync job history with statistics
@@ -195,7 +197,7 @@ All API routes are in `src/app/api/`:
 - **Singleton Pattern**: Database (`src/db/index.ts`) uses singleton to avoid multiple connection pools
 - **GitHub Token Storage**: Access tokens stored in `users.githubAccessToken` for Cron worker and API fallback
 - **Cron Integration**: `instrumentation.ts` initializes Cron service when Next.js server boots (Node.js runtime only)
-- **Cron Schedule**: Runs every hour (`0 * * * *`), syncs users based on their `syncIntervalHours` setting
+- **Cron Schedule**: Runs every 10 minutes (`*/10 * * * *`), syncs users based on their `syncIntervalHours` setting
 - **RLS Security**: Row Level Security policies ensure users only access their own data
 - **Service Role**: Cron worker uses `SUPABASE_SERVICE_ROLE_KEY` to bypass RLS for background operations
 - **AI Summaries**: Generated on-demand via `/api/timeline/commits/[commitId]/summary`, stored in `commitSummaries` table
@@ -205,11 +207,15 @@ All API routes are in `src/app/api/`:
 
 ## Code Style
 
-- Use Biome for linting and formatting (configured in `.biome.json` if present)
+- Use Biome for linting and formatting (configured in `biome.json`)
+- Formatting: 2-space indent, double quotes, semicolons, trailing commas (ES5), 100 char line width
+- Lint: unused imports are errors, `useImportType` is enforced, `noNonNullAssertion` is off
 - TypeScript strict mode enabled
+- Path alias: `@/*` maps to `./src/*`
 - Prefer functional components with hooks
 - Use Drizzle ORM query builder (avoid raw SQL)
 - Follow Next.js App Router conventions (Server Components by default)
+- Drizzle config loads env from `.env.local` (not `.env`)
 
 ## Recent Migration Notes
 
