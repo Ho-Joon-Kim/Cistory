@@ -109,12 +109,19 @@ function RouteAnimator({
   );
 
   /** Imperatively update Mapbox GL sources (bypasses React render cycle) */
-  const updateSources = useCallback(
+  const updateLine = useCallback(
     (coords: Position[]) => {
       if (!map) return;
       const lineSource = map.getSource("route") as GeoJSONSource | undefined;
-      const pointSource = map.getSource("route-points") as GeoJSONSource | undefined;
       if (lineSource) lineSource.setData(makeLineGeoJSON(coords));
+    },
+    [map],
+  );
+
+  const updatePoints = useCallback(
+    (coords: Position[]) => {
+      if (!map) return;
+      const pointSource = map.getSource("route-points") as GeoJSONSource | undefined;
       if (pointSource) pointSource.setData(makePointsGeoJSON(coords));
     },
     [map],
@@ -150,19 +157,22 @@ function RouteAnimator({
     // Reset on date change
     if (prevDateRef.current !== date) {
       cancelAnimationFrame(animationRef.current);
-      updateSources([]);
+      updateLine([]);
+      updatePoints([]);
       setLastPoint(null);
       prevDateRef.current = date;
     }
 
     if (allCoords.length === 0) {
-      updateSources([]);
+      updateLine([]);
+      updatePoints([]);
       setLastPoint(null);
       return;
     }
 
     if (allCoords.length === 1) {
-      updateSources(allCoords);
+      updateLine(allCoords);
+      updatePoints(allCoords);
       setLastPoint(allCoords[0]);
       return;
     }
@@ -175,13 +185,14 @@ function RouteAnimator({
       const eased = easeOutCubic(progress);
 
       const count = Math.max(2, Math.round(eased * allCoords.length));
-      // Direct Mapbox GL source update — no React state, no re-renders
-      updateSources(allCoords.slice(0, count));
+      // Only animate the line — skip points to avoid ~45k temp objects from GC pressure
+      updateLine(allCoords.slice(0, count));
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(animate);
       } else {
-        updateSources(allCoords);
+        updateLine(allCoords);
+        updatePoints(allCoords);
         setLastPoint(allCoords[allCoords.length - 1]);
       }
     }
@@ -190,7 +201,7 @@ function RouteAnimator({
     animationRef.current = requestAnimationFrame(animate);
 
     return () => cancelAnimationFrame(animationRef.current);
-  }, [map, allCoords, date, updateSources]);
+  }, [map, allCoords, date, updateLine, updatePoints]);
 
   return (
     <>
