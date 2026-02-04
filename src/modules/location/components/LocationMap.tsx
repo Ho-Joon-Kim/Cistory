@@ -203,17 +203,21 @@ function RouteAnimator({
     return () => cancelAnimationFrame(animationRef.current);
   }, [map, allCoords, date, updateLine, updatePoints]);
 
+  // Only mount sources when data exists — avoids interfering with initial tile loading
+  const hasData = allCoords.length > 0;
+
   return (
     <>
-      {/* Line layer — WebGL rendered */}
-      <Source id="route" type="geojson" data={EMPTY_LINE_GEOJSON}>
-        <Layer {...LINE_LAYER} />
-      </Source>
-      {/* Point layer — WebGL rendered (replaces 500 individual DOM Markers) */}
-      <Source id="route-points" type="geojson" data={EMPTY_POINTS_GEOJSON}>
-        <Layer {...POINT_LAYER} />
-      </Source>
-      {/* Single DOM Marker for current position pulse animation */}
+      {hasData && (
+        <>
+          <Source id="route" type="geojson" data={EMPTY_LINE_GEOJSON}>
+            <Layer {...LINE_LAYER} />
+          </Source>
+          <Source id="route-points" type="geojson" data={EMPTY_POINTS_GEOJSON}>
+            <Layer {...POINT_LAYER} />
+          </Source>
+        </>
+      )}
       {lastPoint && (
         <Marker longitude={lastPoint[0]} latitude={lastPoint[1]} anchor="center">
           <div className="location-marker-container animate-bounce-in">
@@ -301,10 +305,15 @@ export function LocationMap({ date, className }: LocationMapProps) {
 
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
 
-  if (!MAPBOX_TOKEN) {
+  // Wait for theme to resolve before mounting the map — avoids double style load
+  // (e.g. light-v11 → dark-v11 switch that causes full tile re-download on mobile)
+  if (!MAPBOX_TOKEN || !resolvedTheme) {
     return (
       <div className={`bg-muted flex items-center justify-center ${className ?? ""}`}>
-        <p className="text-sm text-muted-foreground">Mapbox 토큰이 설정되지 않았습니다</p>
+        {!MAPBOX_TOKEN && (
+          <p className="text-sm text-muted-foreground">Mapbox 토큰이 설정되지 않았습니다</p>
+        )}
+        {MAPBOX_TOKEN && !resolvedTheme && <MapSkeleton />}
       </div>
     );
   }
@@ -319,6 +328,7 @@ export function LocationMap({ date, className }: LocationMapProps) {
           zoom: DEFAULT_ZOOM,
         }}
         mapStyle={mapStyle}
+        fadeDuration={0}
         style={{ width: "100%", height: "100%" }}
         onLoad={() => setMapLoaded(true)}
         reuseMaps
