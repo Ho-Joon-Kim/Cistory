@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import Map, { Source, Layer, Marker, Popup, useMap } from "react-map-gl/mapbox";
 import type { LayerProps } from "react-map-gl/mapbox";
 import type { Position } from "geojson";
+import type { GeoJSONSource } from "mapbox-gl";
 import { useTheme } from "next-themes";
 import { useLocations, useStayPoints, type LocationData, type StayPointData } from "../hooks";
 import { MapSkeleton } from "./MapSkeleton";
@@ -20,6 +21,45 @@ const DEFAULT_ZOOM = 11;
 
 const ANIMATION_DURATION = 1500;
 
+// Static initial GeoJSON (referentially stable to prevent unnecessary source updates)
+const EMPTY_LINE_GEOJSON: GeoJSON.Feature = {
+  type: "Feature",
+  properties: {},
+  geometry: { type: "LineString", coordinates: [] },
+};
+const EMPTY_POINTS_GEOJSON: GeoJSON.FeatureCollection = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+// Mapbox GL layer styles (WebGL-rendered, not DOM)
+const LINE_LAYER: LayerProps = {
+  id: "route-line",
+  type: "line" as const,
+  paint: {
+    "line-color": "hsl(153, 60%, 38%)",
+    "line-width": 3,
+    "line-opacity": 0.8,
+  },
+  layout: {
+    "line-cap": "round" as const,
+    "line-join": "round" as const,
+  },
+};
+
+const POINT_LAYER: LayerProps = {
+  id: "route-points",
+  type: "circle" as const,
+  paint: {
+    "circle-radius": 4,
+    "circle-color": "hsl(153, 60%, 38%)",
+    "circle-opacity": 0.9,
+    "circle-stroke-width": 1.5,
+    "circle-stroke-color": "#ffffff",
+    "circle-stroke-opacity": 0.8,
+  },
+};
+
 interface LocationMapProps {
   date: string;
   className?: string;
@@ -27,6 +67,27 @@ interface LocationMapProps {
 
 function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;
+}
+
+/** Helper to build a LineString GeoJSON from coordinates */
+function makeLineGeoJSON(coords: Position[]): GeoJSON.Feature {
+  return {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "LineString", coordinates: coords },
+  };
+}
+
+/** Helper to build a FeatureCollection of Points from coordinates */
+function makePointsGeoJSON(coords: Position[]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: coords.map((c) => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: { type: "Point" as const, coordinates: c },
+    })),
+  };
 }
 
 function RouteAnimator({
@@ -37,14 +98,26 @@ function RouteAnimator({
   date: string;
 }) {
   const { current: map } = useMap();
-  const [animatedCoords, setAnimatedCoords] = useState<Position[]>([]);
-  const [showMarker, setShowMarker] = useState(false);
+  // Only one piece of React state: the last point (single DOM Marker for pulse animation)
+  const [lastPoint, setLastPoint] = useState<Position | null>(null);
   const animationRef = useRef<number>(0);
   const prevDateRef = useRef(date);
 
   const allCoords = useMemo<Position[]>(
     () => locations.map((l) => [l.lon, l.lat]),
-    [locations]
+    [locations],
+  );
+
+  /** Imperatively update Mapbox GL sources (bypasses React render cycle) */
+  const updateSources = useCallback(
+    (coords: Position[]) => {
+      if (!map) return;
+      const lineSource = map.getSource("route") as GeoJSONSource | undefined;
+      const pointSource = map.getSource("route-points") as GeoJSONSource | undefined;
+      if (lineSource) lineSource.setData(makeLineGeoJSON(coords));
+      if (pointSource) pointSource.setData(makePointsGeoJSON(coords));
+    },
+    [map],
   );
 
   // Fit bounds when locations change
@@ -65,30 +138,32 @@ function RouteAnimator({
           [Math.min(...lngs), Math.min(...lats)],
           [Math.max(...lngs), Math.max(...lats)],
         ],
-        { padding: 50, duration: 1000 }
+        { padding: 50, duration: 1000 },
       );
     }
   }, [map, allCoords]);
 
-  // Animate route drawing
+  // Animate route drawing — updates Mapbox sources directly (no React re-renders)
   useEffect(() => {
+    if (!map) return;
+
     // Reset on date change
     if (prevDateRef.current !== date) {
       cancelAnimationFrame(animationRef.current);
-      setAnimatedCoords([]);
-      setShowMarker(false);
+      updateSources([]);
+      setLastPoint(null);
       prevDateRef.current = date;
     }
 
     if (allCoords.length === 0) {
-      setAnimatedCoords([]);
-      setShowMarker(false);
+      updateSources([]);
+      setLastPoint(null);
       return;
     }
 
     if (allCoords.length === 1) {
-      setAnimatedCoords(allCoords);
-      setShowMarker(true);
+      updateSources(allCoords);
+      setLastPoint(allCoords[0]);
       return;
     }
 
@@ -100,74 +175,42 @@ function RouteAnimator({
       const eased = easeOutCubic(progress);
 
       const count = Math.max(2, Math.round(eased * allCoords.length));
-      setAnimatedCoords(allCoords.slice(0, count));
+      // Direct Mapbox GL source update — no React state, no re-renders
+      updateSources(allCoords.slice(0, count));
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(animate);
       } else {
-        setAnimatedCoords(allCoords);
-        setShowMarker(true);
+        updateSources(allCoords);
+        setLastPoint(allCoords[allCoords.length - 1]);
       }
     }
 
-    setShowMarker(false);
+    setLastPoint(null);
     animationRef.current = requestAnimationFrame(animate);
 
     return () => cancelAnimationFrame(animationRef.current);
-  }, [allCoords, date]);
-
-  const geojson = useMemo(
-    () => ({
-      type: "Feature" as const,
-      properties: {},
-      geometry: {
-        type: "LineString" as const,
-        coordinates: animatedCoords,
-      },
-    }),
-    [animatedCoords]
-  );
-
-  const lineLayer: LayerProps = useMemo(
-    () => ({
-      id: "route-line",
-      type: "line" as const,
-      paint: {
-        "line-color": "hsl(153, 60%, 38%)",
-        "line-width": 3,
-        "line-opacity": 0.8,
-      },
-      layout: {
-        "line-cap": "round" as const,
-        "line-join": "round" as const,
-      },
-    }),
-    []
-  );
+  }, [map, allCoords, date, updateSources]);
 
   return (
     <>
-      {animatedCoords.length >= 2 && (
-        <Source id="route" type="geojson" data={geojson}>
-          <Layer {...lineLayer} />
-        </Source>
+      {/* Line layer — WebGL rendered */}
+      <Source id="route" type="geojson" data={EMPTY_LINE_GEOJSON}>
+        <Layer {...LINE_LAYER} />
+      </Source>
+      {/* Point layer — WebGL rendered (replaces 500 individual DOM Markers) */}
+      <Source id="route-points" type="geojson" data={EMPTY_POINTS_GEOJSON}>
+        <Layer {...POINT_LAYER} />
+      </Source>
+      {/* Single DOM Marker for current position pulse animation */}
+      {lastPoint && (
+        <Marker longitude={lastPoint[0]} latitude={lastPoint[1]} anchor="center">
+          <div className="location-marker-container animate-bounce-in">
+            <div className="location-marker-pulse" />
+            <div className="location-marker-dot" />
+          </div>
+        </Marker>
       )}
-      {animatedCoords.map((coord, i) => {
-        const isLast = showMarker && i === allCoords.length - 1;
-        return (
-          <Marker
-            key={`${coord[0]}-${coord[1]}-${i}`}
-            longitude={coord[0]}
-            latitude={coord[1]}
-            anchor="center"
-          >
-            <div className={`location-marker-container ${isLast ? "animate-bounce-in" : ""}`}>
-              {isLast && <div className="location-marker-pulse" />}
-              <div className="location-marker-dot" />
-            </div>
-          </Marker>
-        );
-      })}
     </>
   );
 }
