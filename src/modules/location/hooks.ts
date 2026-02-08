@@ -110,6 +110,78 @@ export function useStayPoints(date: string) {
   return { stayPoints, isLoading };
 }
 
+interface DailyDistancesResponse {
+  distances: Record<string, number>;
+}
+
+export function useDailyDistances(dateFrom: string, dateTo: string) {
+  const [distances, setDistances] = useState<Record<string, number>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const cache = useRef<Map<string, Record<string, number>>>(new Map());
+
+  const fetchDistances = useCallback(
+    async (from: string, to: string, signal: AbortSignal, silent = false) => {
+      const cacheKey = `${from}:${to}`;
+
+      if (!silent) {
+        const cached = cache.current.get(cacheKey);
+        if (cached) {
+          setDistances(cached);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      if (!silent) setIsLoading(true);
+
+      try {
+        const response = await fetch(
+          `/api/timeline/locations/distances?from=${from}&to=${to}`,
+          { signal },
+        );
+        if (!response.ok) throw new Error("Failed to fetch distances");
+
+        const data = (await response.json()) as DailyDistancesResponse;
+
+        cache.current.set(cacheKey, data.distances);
+        setDistances(data.distances);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!silent) setDistances({});
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!dateFrom || !dateTo) return;
+
+    const controller = new AbortController();
+    fetchDistances(dateFrom, dateTo, controller.signal);
+
+    // Poll if today is in range
+    const today = new Date().toISOString().slice(0, 10);
+    if (today >= dateFrom && today <= dateTo) {
+      const interval = setInterval(() => {
+        // Invalidate cache for polling
+        cache.current.delete(`${dateFrom}:${dateTo}`);
+        fetchDistances(dateFrom, dateTo, controller.signal, true);
+      }, POLL_INTERVAL_MS);
+
+      return () => {
+        controller.abort();
+        clearInterval(interval);
+      };
+    }
+
+    return () => controller.abort();
+  }, [dateFrom, dateTo, fetchDistances]);
+
+  return { distances, isLoading };
+}
+
 export function useLocations(date: string) {
   const [locations, setLocations] = useState<LocationData[]>([]);
   const [isLoading, setIsLoading] = useState(false);

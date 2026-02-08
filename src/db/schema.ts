@@ -146,6 +146,23 @@ export const placeCache = pgTable(
   ]
 );
 
+// ============ Daily Distances (Cache) ============
+export const dailyDistances = pgTable(
+  "daily_distances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(), // "YYYY-MM-DD"
+    distanceMeters: doublePrecision("distance_meters").notNull(),
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_daily_distance_user_date").on(table.userId, table.date),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -164,3 +181,6 @@ export type NewLocationPoint = typeof locationPoints.$inferInsert;
 
 export type PlaceCache = typeof placeCache.$inferSelect;
 export type NewPlaceCache = typeof placeCache.$inferInsert;
+
+export type DailyDistance = typeof dailyDistances.$inferSelect;
+export type NewDailyDistance = typeof dailyDistances.$inferInsert;

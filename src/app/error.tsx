@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +15,7 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // 에러 로깅 서비스에 에러 보고 (Sentry 등)
+    Sentry.captureException(error);
     console.error("Application error:", error);
   }, [error]);
 

@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { createSyncService } from "@/modules/sync/service";
 import { createSummaryService } from "@/modules/summary/service";
 import { now } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
   try {
@@ -87,7 +88,11 @@ export async function POST(request: NextRequest) {
             .where(eq(syncJobs.id, syncJobId));
         }
       } catch (error) {
-        console.error("Sync failed:", error);
+        logger.error("Sync failed", {
+          userId: user.id,
+          syncJobId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     })();
 
@@ -99,7 +104,9 @@ export async function POST(request: NextRequest) {
       { status: 202 }
     );
   } catch (error) {
-    console.error("Sync trigger error:", error);
+    logger.error("Sync trigger error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: "Failed to trigger sync" },
       { status: 500 }

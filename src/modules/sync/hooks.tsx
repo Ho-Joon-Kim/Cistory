@@ -6,7 +6,16 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  createContext,
+  useContext,
+  type ReactNode,
+} from "react";
 
 export interface SyncJob {
   id: string;
@@ -56,28 +65,50 @@ export interface SyncStats {
 }
 
 /**
- * SSE를 사용한 실시간 동기화 상태 훅
- * @param onSyncCompleted - 동기화 작업이 완료될 때 호출되는 콜백
- * @param onAllSyncFinished - 모든 활성 작업(동기화+요약)이 완료될 때 호출되는 콜백
+ * SSE 동기화 상태 Context
+ * 단일 SSE 연결을 공유하여 브라우저 동시 연결 제한 문제 방지
  */
-export function useSyncStatus(
-  onSyncCompleted?: (job: RecentSyncJob) => void,
-  onAllSyncFinished?: () => void
-) {
+interface SyncStatusContextValue {
+  status: SyncStatus | null;
+  isConnected: boolean;
+  error: string | null;
+  reconnect: () => void;
+  disconnect: () => void;
+}
+
+const SyncStatusContext = createContext<SyncStatusContextValue | null>(null);
+
+interface SyncStatusProviderProps {
+  children: ReactNode;
+  onSyncCompleted?: (job: RecentSyncJob) => void;
+  onAllSyncFinished?: () => void;
+}
+
+export function SyncStatusProvider({
+  children,
+  onSyncCompleted,
+  onAllSyncFinished,
+}: SyncStatusProviderProps) {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  // 이미 처리한 완료 작업 ID를 추적
   const processedCompletedJobsRef = useRef<Set<string>>(new Set());
-  // 초기 로드 여부 - 첫 번째 status 이벤트에서는 콜백을 호출하지 않음
   const isInitialLoadRef = useRef(true);
-  // 이전 hasActiveSync 상태 추적 (활성 → 비활성 전환 감지용)
   const prevHasActiveSyncRef = useRef<boolean | null>(null);
 
+  // 콜백을 ref로 관리하여 connect가 재생성되지 않도록 함
+  const onSyncCompletedRef = useRef(onSyncCompleted);
+  const onAllSyncFinishedRef = useRef(onAllSyncFinished);
+  useEffect(() => {
+    onSyncCompletedRef.current = onSyncCompleted;
+  }, [onSyncCompleted]);
+  useEffect(() => {
+    onAllSyncFinishedRef.current = onAllSyncFinished;
+  }, [onAllSyncFinished]);
+
   const connect = useCallback(() => {
-    // 기존 연결 정리
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -95,37 +126,34 @@ export function useSyncStatus(
         const data = JSON.parse(event.data) as SyncStatus;
         setStatus(data);
 
-        // 완료된 작업 ID 추적 및 콜백 호출
         if (data.recentCompleted) {
           if (isInitialLoadRef.current) {
-            // 초기 로드: 기존 완료 작업 ID만 등록하고 콜백은 호출하지 않음
             for (const job of data.recentCompleted) {
               processedCompletedJobsRef.current.add(job.id);
             }
-            // 초기 hasActiveSync 상태 저장
             prevHasActiveSyncRef.current = data.hasActiveSync;
             isInitialLoadRef.current = false;
           } else {
-            // 이후 업데이트: 새로 완료된 작업에 대해서만 콜백 호출
-            if (onSyncCompleted) {
+            const onCompleted = onSyncCompletedRef.current;
+            if (onCompleted) {
               for (const job of data.recentCompleted) {
                 if (
                   job.status === "completed" &&
                   !processedCompletedJobsRef.current.has(job.id)
                 ) {
                   processedCompletedJobsRef.current.add(job.id);
-                  onSyncCompleted(job);
+                  onCompleted(job);
                 }
               }
             }
 
-            // 모든 활성 작업 완료 감지 (활성 → 비활성 전환)
+            const onFinished = onAllSyncFinishedRef.current;
             if (
-              onAllSyncFinished &&
+              onFinished &&
               prevHasActiveSyncRef.current === true &&
               data.hasActiveSync === false
             ) {
-              onAllSyncFinished();
+              onFinished();
             }
             prevHasActiveSyncRef.current = data.hasActiveSync;
           }
@@ -136,7 +164,6 @@ export function useSyncStatus(
     });
 
     eventSource.addEventListener("reconnect", () => {
-      // 서버가 재연결 요청
       eventSource.close();
       reconnectTimeoutRef.current = setTimeout(connect, 1000);
     });
@@ -149,11 +176,9 @@ export function useSyncStatus(
     eventSource.onerror = () => {
       setIsConnected(false);
       eventSource.close();
-
-      // 자동 재연결 (3초 후)
       reconnectTimeoutRef.current = setTimeout(connect, 3000);
     };
-  }, [onSyncCompleted, onAllSyncFinished]);
+  }, []);
 
   const disconnect = useCallback(() => {
     if (eventSourceRef.current) {
@@ -169,19 +194,28 @@ export function useSyncStatus(
 
   useEffect(() => {
     connect();
-
     return () => {
       disconnect();
     };
   }, [connect, disconnect]);
 
-  return {
-    status,
-    isConnected,
-    error,
-    reconnect: connect,
-    disconnect,
-  };
+  const value = useMemo(
+    () => ({ status, isConnected, error, reconnect: connect, disconnect }),
+    [status, isConnected, error, connect, disconnect]
+  );
+
+  return <SyncStatusContext.Provider value={value}>{children}</SyncStatusContext.Provider>;
+}
+
+/**
+ * SSE 동기화 상태 훅 (SyncStatusProvider 내부에서 사용)
+ */
+export function useSyncStatus() {
+  const context = useContext(SyncStatusContext);
+  if (!context) {
+    throw new Error("useSyncStatus must be used within SyncStatusProvider");
+  }
+  return context;
 }
 
 /**

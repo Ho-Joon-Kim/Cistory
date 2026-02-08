@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Features automatic background sync via integrated Cron worker.
+Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Also includes location tracking via OwnTracks integration with map visualization (Mapbox/Kakao). Features automatic background sync via integrated Cron worker.
 
 ## Development Commands
 
@@ -42,10 +42,11 @@ Package manager is **Yarn 4** (Berry, via Corepack). Use `yarn` for all package 
 - **TypeScript 5** (strict mode)
 - **Supabase** - Authentication + hosted PostgreSQL with Row Level Security
 - **Drizzle ORM** - Type-safe PostgreSQL access via `pg.Pool` singleton
-- **Anthropic SDK** - Claude AI for commit summaries
+- **Anthropic SDK** - Claude AI for commit summaries (`claude-sonnet-4-20250514`)
 - **shadcn/ui** + **Tailwind CSS v4** - UI components and styling
 - **Biome** - Linter and formatter (replaces ESLint + Prettier)
 - **node-cron** - Background sync within Next.js process
+- **Mapbox GL** + **react-map-gl** - Map visualization for location tracking
 
 ### Project Structure
 
@@ -53,25 +54,29 @@ Package manager is **Yarn 4** (Berry, via Corepack). Use `yarn` for all package 
 src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
-│   ├── (dashboard)/         # Dashboard route group (settings)
-│   ├── api/                 # API routes
+│   ├── (dashboard)/         # Dashboard route group (settings, repositories)
+│   ├── api/                 # API routes (~18 endpoints)
 │   └── dashboard/           # Main dashboard page
-├── components/              # Shared components (Layout/, ui/)
+├── components/              # Shared components (Layout/, ui/ with 16 shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (users, commits, commitSummaries, syncJobs)
+│   ├── schema.ts            # Drizzle schema (6 tables)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
 │   ├── adapters/            # Adapter pattern interfaces + implementations
 │   │   ├── ai/             # AI adapter (interface.ts + claude.ts)
+│   │   ├── geocoding/      # Geocoding adapter (kakao.ts, mapbox.ts, index.ts)
 │   │   └── vcs/            # VCS adapter (interface.ts + github.ts)
 │   ├── supabase/            # Client configs (client.ts, server.ts, service.ts, auth-helpers.ts)
 │   ├── cron.ts              # Cron service (auto-sync commits)
-│   └── utils.ts             # Shared utilities
+│   └── utils.ts             # Shared utilities (cn, generateId, now, formatRelativeTime, etc.)
 ├── modules/                 # Feature modules (hooks.ts, service.ts, components/)
 │   ├── auth/               # Auth hooks (useAuth, useUser)
+│   ├── github/             # GitHub service wrapper (GitHubService class)
+│   ├── location/           # Location tracking (OwnTracks, stay points, map)
+│   ├── settings/           # User settings (theme, sync interval, OwnTracks key)
 │   ├── summary/            # AI commit summary service
 │   ├── sync/               # Commit sync service (SyncService class)
-│   └── timeline/           # Timeline display (hooks, CommitCard, Timeline)
+│   └── timeline/           # Timeline display (hooks, CommitCard, Timeline, Filters)
 instrumentation.ts           # (project root) Initializes Cron on server boot (Node.js runtime only)
 ```
 
@@ -90,6 +95,7 @@ const accessToken = await getGitHubToken(user.id, db, users);
 **Adapter Pattern**: Extensible interfaces in `lib/adapters/`:
 - `ai/interface.ts` - AI/LLM abstraction (implemented: `claude.ts`)
 - `vcs/interface.ts` - VCS abstraction (implemented: `github.ts`)
+- `geocoding/interface.ts` - Geocoding abstraction (implemented: `kakao.ts` for Korea, `mapbox.ts` for international; auto-selected by coordinates in `index.ts`)
 
 **Module Organization**: Features in `src/modules/` follow:
 - `hooks.ts` - React hooks for client-side data fetching
@@ -102,18 +108,29 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (4 tables in `src/db/schema.ts`):
-- `users` - Extended user data with GitHub tokens (UUID PK, references Supabase `auth.users`)
+**Database Schema** (6 tables in `src/db/schema.ts`):
+- `users` - Extended user data with GitHub tokens and `ownTracksApiKey` (UUID PK, references Supabase `auth.users`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
 - `syncJobs` - Sync tracking (status: fetching/summarizing/completed/failed)
+- `locationPoints` - OwnTracks GPS data (lat, lon, accuracy, altitude, velocity, battery, timestamp). Indexes on `(userId, timestamp)` and unique on `(userId, timestamp, lat, lon)`
+- `placeCache` - Geocoding cache (latKey, lonKey, placeName, address, category, provider). Unique index on `(latKey, lonKey)`
+
+**Supabase Client Variants** (`src/lib/supabase/`):
+- `client.ts` - Browser client for Client Components (`createClient()`)
+- `server.ts` - Server Component client (silently catches cookie errors) and Route Handler client (`createRouteHandlerClient()`, throws on cookie errors)
+- `service.ts` - Service role client bypassing RLS (`createServiceClient()`), used by Cron worker only
+- `auth-helpers.ts` - `getAuthenticatedUser()` and `getGitHubToken()` for API routes
 
 **Sync Strategy** (`src/modules/sync/service.ts`):
-- Initial sync: GitHub Search API for last 3 months of commits
-- Regular sync: GitHub Search API since `lastSyncedAt` (fallback: 7 days)
+- Uses `getAllRepoCommits()` which iterates `/user/repos` + `/repos/:owner/:repo/commits`
+- Initial sync: last 3 months of commits
+- Regular sync: since `lastSyncedAt` (fallback: 7 days)
 - Both flows use shared `_executeSyncCommits()` private method
 - Deduplication via SHA batch lookup (batch size: 500)
+- Rate limiting: 100ms delay between commit saves
 - Cron runs every 10 minutes, respects per-user `syncIntervalHours`
+- Cron also processes pending summaries (limit 5/user, 1s delay between) and auto-deletes sync jobs older than 7 days
 
 **Session/Token Management**:
 - JWT sessions managed by Supabase with automatic refresh
@@ -122,12 +139,30 @@ const db = getDb();
 
 **Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`. Set `RUN_ON_START=true` to trigger an immediate sync on boot.
 
+**Location Tracking**:
+- OwnTracks app sends GPS data to `/api/owntracks?apikey={key}` (returns `[]` per OwnTracks protocol)
+- Stay point detection: clusters points within 100m radius, minimum 10-minute stay duration
+- Geocoding auto-selects Kakao (Korean coordinates) or Mapbox (international)
+- Location hooks poll every 60 seconds when viewing today's date
+
 ### Authentication Flow
 
-1. User signs in with GitHub via Supabase OAuth
+1. User signs in with GitHub via Supabase OAuth (scopes: `repo read:user`)
 2. Callback redirects to `/callback` page which calls `/api/auth/ensure-user`
 3. Ensure-user creates/updates application `users` record with GitHub token
 4. GitHub access token stored in DB for Cron worker access
+
+### API Routes
+
+- `/api/auth/*` - OAuth callback, ensure-user, disconnect
+- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key
+- `/api/sync` - POST manual sync; `/api/sync/status` - GET status; `/api/sync/jobs` - GET history
+- `/api/timeline` - GET paginated commits with filters
+- `/api/timeline/repos` - GET user repos; `/api/timeline/stats` - GET commit stats
+- `/api/timeline/commits/[commitId]` - GET details; `.../stats` - GET file stats; `.../summary` - GET/POST summary
+- `/api/timeline/locations` - GET location points; `.../stay-points` - GET detected stay points
+- `/api/summaries/process` - POST batch summary generation
+- `/api/owntracks` - POST location data ingestion
 
 ### Environment Setup
 
@@ -139,6 +174,12 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...     # For Cron worker (bypasses RLS)
 DATABASE_URL=postgresql://...         # Required, no fallback
 ANTHROPIC_API_KEY=sk-ant-...
 NEXT_PUBLIC_APP_URL=https://your-domain.com  # For OAuth redirects
+```
+
+Optional (location features):
+```bash
+NEXT_PUBLIC_MAPBOX_TOKEN=pk...       # Map visualization
+KAKAO_REST_API_KEY=...               # Korean location geocoding
 ```
 
 ### Database Operations
@@ -153,7 +194,7 @@ Drizzle config loads env from `.env.local` (not `.env`).
 
 - **Biome** for linting/formatting (configured in `biome.json`)
 - Formatting: 2-space indent, double quotes, semicolons, trailing commas (ES5), 100 char line width
-- Lint: unused imports are errors, `useImportType` enforced, `noNonNullAssertion` off
+- Lint: unused imports are errors, `useImportType` enforced, `noNonNullAssertion` off, `noExplicitAny` warn
 - Path alias: `@/*` maps to `./src/*`
 - Prefer Drizzle ORM query builder (avoid raw SQL)
 - Follow Next.js App Router conventions (Server Components by default)

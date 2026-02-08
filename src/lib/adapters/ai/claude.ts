@@ -5,8 +5,9 @@ import type {
   AIGenerateResult,
   AIStreamOptions,
 } from "./interface";
+import { logger } from "@/lib/logger";
 
-const MODEL_ID = "claude-sonnet-4-20250514";
+const MODEL_ID = "claude-sonnet-4-5";
 const MAX_CONTEXT_TOKENS = 200000;
 
 export class ClaudeAdapter implements AIAdapter {
@@ -19,79 +20,95 @@ export class ClaudeAdapter implements AIAdapter {
   async generateText(options: AIGenerateOptions): Promise<AIGenerateResult> {
     const { system, prompt, maxTokens = 1024, temperature = 0.7 } = options;
 
-    const response = await this.client.messages.create({
-      model: MODEL_ID,
-      max_tokens: maxTokens,
-      temperature,
-      system: system ?? undefined,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
+    try {
+      const response = await this.client.messages.create({
+        model: MODEL_ID,
+        max_tokens: maxTokens,
+        temperature,
+        system: system ?? undefined,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
+
+      const content = response.content[0];
+      const text = content.type === "text" ? content.text : "";
+
+      return {
+        content: text,
+        usage: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
         },
-      ],
-    });
-
-    const content = response.content[0];
-    const text = content.type === "text" ? content.text : "";
-
-    return {
-      content: text,
-      usage: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-      },
-      stopReason: this.mapStopReason(response.stop_reason),
-    };
+        stopReason: this.mapStopReason(response.stop_reason),
+      };
+    } catch (error) {
+      logger.error("Claude API error", {
+        model: MODEL_ID,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   async generateTextStream(options: AIStreamOptions): Promise<AIGenerateResult> {
     const { system, prompt, maxTokens = 1024, temperature = 0.7, onToken } =
       options;
 
-    let fullContent = "";
-    let inputTokens = 0;
-    let outputTokens = 0;
+    try {
+      let fullContent = "";
+      let inputTokens = 0;
+      let outputTokens = 0;
 
-    const stream = await this.client.messages.stream({
-      model: MODEL_ID,
-      max_tokens: maxTokens,
-      temperature,
-      system: system ?? undefined,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
+      const stream = await this.client.messages.stream({
+        model: MODEL_ID,
+        max_tokens: maxTokens,
+        temperature,
+        system: system ?? undefined,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
+
+      for await (const event of stream) {
+        if (
+          event.type === "content_block_delta" &&
+          event.delta.type === "text_delta"
+        ) {
+          const token = event.delta.text;
+          fullContent += token;
+          onToken?.(token);
+        }
+
+        if (event.type === "message_delta" && event.usage) {
+          outputTokens = event.usage.output_tokens;
+        }
+      }
+
+      const finalMessage = await stream.finalMessage();
+      inputTokens = finalMessage.usage.input_tokens;
+
+      return {
+        content: fullContent,
+        usage: {
+          inputTokens,
+          outputTokens,
         },
-      ],
-    });
-
-    for await (const event of stream) {
-      if (
-        event.type === "content_block_delta" &&
-        event.delta.type === "text_delta"
-      ) {
-        const token = event.delta.text;
-        fullContent += token;
-        onToken?.(token);
-      }
-
-      if (event.type === "message_delta" && event.usage) {
-        outputTokens = event.usage.output_tokens;
-      }
+        stopReason: this.mapStopReason(finalMessage.stop_reason),
+      };
+    } catch (error) {
+      logger.error("Claude API stream error", {
+        model: MODEL_ID,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
-
-    const finalMessage = await stream.finalMessage();
-    inputTokens = finalMessage.usage.input_tokens;
-
-    return {
-      content: fullContent,
-      usage: {
-        inputTokens,
-        outputTokens,
-      },
-      stopReason: this.mapStopReason(finalMessage.stop_reason),
-    };
   }
 
   async verifyApiKey(): Promise<boolean> {

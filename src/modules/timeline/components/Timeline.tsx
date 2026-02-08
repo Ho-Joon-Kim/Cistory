@@ -7,12 +7,14 @@ import { CommitCard } from "./CommitCard";
 import { CompactCommitCard } from "./CompactCommitCard";
 import { TimelineSkeleton } from "./TimelineSkeleton";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
-import { Loader2 } from "lucide-react";
+import { Loader2, MapPin } from "lucide-react";
 import {
   fillDateRange,
+  formatDistance,
   getRepoColor,
   groupCommitsByTimeOfDay,
 } from "../utils";
+import { useDailyDistances } from "@/modules/location/hooks";
 
 interface TimelineProps {
   commits: TimelineCommit[];
@@ -75,6 +77,7 @@ interface DateGroupSectionProps {
   repoColorMap: Map<string, string>;
   newCommitIds: Set<string>;
   onSelectDate: (date: string) => void;
+  distanceMeters?: number;
 }
 
 const DateGroupSection = memo(function DateGroupSection({
@@ -85,6 +88,7 @@ const DateGroupSection = memo(function DateGroupSection({
   repoColorMap,
   newCommitIds,
   onSelectDate,
+  distanceMeters,
 }: DateGroupSectionProps) {
   const { date, commits: dateCommits, isEmpty } = entry;
   const { label, isToday } = formatDateHeader(date);
@@ -138,6 +142,18 @@ const DateGroupSection = memo(function DateGroupSection({
           >
             <AnimatedNumber value={dateCommits.length} />
           </span>
+          {distanceMeters != null && distanceMeters > 0 && (
+            <span
+              className={`inline-flex items-center gap-0.5 h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
+                isSelected
+                  ? "bg-primary/15 text-primary"
+                  : "bg-muted/50 text-muted-foreground/50"
+              }`}
+            >
+              <MapPin className="w-3 h-3" />
+              {formatDistance(distanceMeters)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -281,6 +297,17 @@ export function Timeline({
     return fillDateRange(grouped);
   }, [commits]);
 
+  // Compute date range for daily distances
+  const { dateFrom, dateTo } = useMemo(() => {
+    if (filledDates.length === 0) return { dateFrom: "", dateTo: "" };
+    return {
+      dateFrom: filledDates[filledDates.length - 1].date,
+      dateTo: filledDates[0].date,
+    };
+  }, [filledDates]);
+
+  const { distances } = useDailyDistances(dateFrom, dateTo);
+
   // Stepper line gradient position
   const containerRef = useRef<HTMLDivElement>(null);
   const [glowY, setGlowY] = useState<number | null>(null);
@@ -356,6 +383,7 @@ export function Timeline({
             repoColorMap={repoColorMap}
             newCommitIds={newCommitIds}
             onSelectDate={onSelectedDateChange}
+            distanceMeters={distances[entry.date]}
           />
         ))}
       </div>

@@ -12,6 +12,7 @@ import type {
   GetRepositoriesOptions,
   SearchCommitsOptions,
 } from "./interface";
+import { logger } from "@/lib/logger";
 
 const GITHUB_API_BASE = "https://api.github.com";
 
@@ -43,6 +44,11 @@ export class GitHubAdapter implements VCSAdapter {
 
     if (!response.ok) {
       const error = await response.text();
+      logger.error("GitHub API error", {
+        statusCode: response.status,
+        endpoint: endpoint.startsWith("http") ? new URL(endpoint).pathname : endpoint,
+        error,
+      });
       throw new Error(`GitHub API error: ${response.status} - ${error}`);
     }
 

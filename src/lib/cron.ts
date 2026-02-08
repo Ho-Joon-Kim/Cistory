@@ -10,6 +10,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
 import { createSummaryService } from '@/modules/summary/service';
 import { sql, eq, and, gte, lt, inArray } from 'drizzle-orm';
+import { logger } from '@/lib/logger';
 
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
@@ -18,9 +19,7 @@ async function syncAllUsers() {
   const startTime = Date.now();
   const timestamp = new Date().toISOString();
 
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`[Cron] Starting sync job at ${timestamp}`);
-  console.log(`${'='.repeat(60)}\n`);
+  logger.info(`[Cron] Starting sync job`, { timestamp });
 
   const db = getDb();
 
@@ -38,10 +37,10 @@ async function syncAllUsers() {
       .from(users)
       .where(sql`${users.githubAccessToken} IS NOT NULL`);
 
-    console.log(`[Cron] Found ${usersToSync.length} user(s) requiring sync\n`);
+    logger.info(`[Cron] Found ${usersToSync.length} user(s) requiring sync`);
 
     if (usersToSync.length === 0) {
-      console.log('[Cron] No users to sync. Exiting.');
+      logger.info('[Cron] No users to sync. Exiting.');
       return;
     }
 
@@ -54,10 +53,13 @@ async function syncAllUsers() {
       const userStartTime = Date.now();
 
       try {
-        console.log(`[Cron] ┌─ Syncing: ${user.githubLogin} (${user.id})`);
-        console.log(`[Cron] │  Last synced: ${user.lastSyncedAt || 'Never'}`);
-        console.log(`[Cron] │  Sync interval: ${user.syncIntervalHours}h`);
-        console.log(`[Cron] │  Initial sync: ${user.initialSyncCompleted ? 'Yes' : 'No'}`);
+        logger.info(`[Cron] Syncing: ${user.githubLogin}`, {
+          userId: user.id,
+          githubLogin: user.githubLogin,
+          lastSyncedAt: user.lastSyncedAt?.toISOString() ?? null,
+          syncIntervalHours: user.syncIntervalHours,
+          initialSyncCompleted: user.initialSyncCompleted,
+        });
 
         if (!user.githubAccessToken) {
           throw new Error('GitHub access token not found');
@@ -99,7 +101,10 @@ async function syncAllUsers() {
               .limit(5);
 
             if (recentCommitsWithPendingSummaries.length > 0) {
-              console.log(`[Cron] │  Found ${recentCommitsWithPendingSummaries.length} recent commits needing summaries`);
+              logger.info(`[Cron] Found ${recentCommitsWithPendingSummaries.length} recent commits needing summaries`, {
+                userId: user.id,
+                githubLogin: user.githubLogin,
+              });
 
               let processed = 0;
               for (const { commitId } of recentCommitsWithPendingSummaries) {
@@ -114,18 +119,30 @@ async function syncAllUsers() {
               }
 
               if (processed > 0) {
-                console.log(`[Cron] │  Processed ${processed} summaries for recent commits`);
+                logger.info(`[Cron] Processed ${processed} summaries`, {
+                  userId: user.id,
+                  githubLogin: user.githubLogin,
+                });
               }
             }
           } catch (summaryError) {
-            console.error(`[Cron] │  Summary processing error: ${summaryError instanceof Error ? summaryError.message : summaryError}`);
+            logger.error(`[Cron] Summary processing error`, {
+              userId: user.id,
+              githubLogin: user.githubLogin,
+              error: summaryError instanceof Error ? summaryError.message : String(summaryError),
+            });
           }
         }
 
         const duration = Date.now() - userStartTime;
         successCount++;
 
-        console.log(`[Cron] └─ ✓ Success in ${duration}ms\n`);
+        logger.info(`[Cron] Sync success: ${user.githubLogin}`, {
+          userId: user.id,
+          githubLogin: user.githubLogin,
+          duration,
+          status: 'success',
+        });
 
         results.push({
           user: user.githubLogin,
@@ -136,8 +153,14 @@ async function syncAllUsers() {
         failCount++;
 
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`[Cron] └─ ✗ Failed in ${duration}ms`);
-        console.error(`[Cron]    Error: ${errorMessage}\n`);
+
+        logger.error(`[Cron] Sync failed: ${user.githubLogin}`, {
+          userId: user.id,
+          githubLogin: user.githubLogin,
+          duration,
+          status: 'failed',
+          error: errorMessage,
+        });
 
         results.push({
           user: user.githubLogin,
@@ -152,26 +175,14 @@ async function syncAllUsers() {
 
     // Print summary
     const totalDuration = Date.now() - startTime;
-    console.log(`${'='.repeat(60)}`);
-    console.log('[Cron] Sync Job Summary');
-    console.log(`${'='.repeat(60)}`);
-    console.log(`Total users:     ${usersToSync.length}`);
-    console.log(`Successful:      ${successCount}`);
-    console.log(`Failed:          ${failCount}`);
-    console.log(`Duration:        ${totalDuration}ms (${(totalDuration / 1000).toFixed(2)}s)`);
-    console.log(`Completed at:    ${new Date().toISOString()}`);
-    console.log(`${'='.repeat(60)}\n`);
 
-    // Detailed results
-    if (failCount > 0) {
-      console.log('Failed syncs:');
-      results
-        .filter(r => r.status === 'failed')
-        .forEach(r => {
-          console.log(`  - ${r.user}: ${r.error}`);
-        });
-      console.log('');
-    }
+    logger.info('[Cron] Sync job completed', {
+      totalUsers: usersToSync.length,
+      successCount,
+      failCount,
+      duration: totalDuration,
+      failedUsers: results.filter(r => r.status === 'failed').map(r => ({ user: r.user, error: r.error })),
+    });
 
     // Cleanup old sync jobs (older than 7 days)
     try {
@@ -184,16 +195,19 @@ async function syncAllUsers() {
         .returning({ id: syncJobs.id });
 
       if (deleted.length > 0) {
-        console.log(`[Cron] Cleaned up ${deleted.length} old sync job(s)`);
+        logger.info(`[Cron] Cleaned up ${deleted.length} old sync job(s)`);
       }
     } catch (error) {
-      console.error('[Cron] Failed to cleanup old sync jobs:', error);
+      logger.error('[Cron] Failed to cleanup old sync jobs', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
   } catch (error) {
-    console.error('[Cron] Fatal error during sync job:');
-    console.error(error);
-    console.error('');
+    logger.error('[Cron] Fatal error during sync job', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
   }
 }
 
@@ -203,30 +217,23 @@ async function syncAllUsers() {
  */
 export function initializeCron() {
   if (isInitialized) {
-    console.log('[Cron] Already initialized. Skipping.');
+    logger.info('[Cron] Already initialized. Skipping.');
     return;
   }
 
-  console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║         Cistory Cron Service - Starting                   ║');
-  console.log('╚════════════════════════════════════════════════════════════╝');
-  console.log('');
-
-  // Schedule: Run every 10 minutes
-  // Cron format: minute hour day month weekday
-  // "*/10 * * * *" = Every 10 minutes
   const CRON_SCHEDULE = '*/10 * * * *';
 
-  console.log(`Schedule:  ${CRON_SCHEDULE} (Every 10 minutes)`);
-  console.log(`Timezone:  ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
-  console.log(`Started:   ${new Date().toISOString()}`);
-  console.log('');
+  logger.info('[Cron] Service starting', {
+    schedule: CRON_SCHEDULE,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  });
 
   // Set up cron job
   cronTask = cron.schedule(CRON_SCHEDULE, () => {
     syncAllUsers().catch(error => {
-      console.error('[Cron] Unhandled error in sync job:');
-      console.error(error);
+      logger.error('[Cron] Unhandled error in sync job', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
   });
 
@@ -234,24 +241,26 @@ export function initializeCron() {
 
   // Run immediately on start if environment variable is set
   if (process.env.RUN_ON_START === 'true') {
-    console.log('[Cron] RUN_ON_START=true detected. Running sync immediately...\n');
+    logger.info('[Cron] RUN_ON_START=true detected. Running sync immediately...');
     syncAllUsers().catch(error => {
-      console.error('[Cron] Initial sync failed:');
-      console.error(error);
+      logger.error('[Cron] Initial sync failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
   }
 
-  console.log('[Cron] Service initialized successfully.\n');
+  logger.info('[Cron] Service initialized successfully.');
 }
 
 /**
  * Stop cron service
  * Used for graceful shutdown
  */
-export function stopCron() {
+export async function stopCron() {
   if (cronTask) {
     cronTask.stop();
-    console.log('[Cron] Service stopped.');
+    await logger.flush();
+    logger.info('[Cron] Service stopped.');
     isInitialized = false;
     cronTask = null;
   }

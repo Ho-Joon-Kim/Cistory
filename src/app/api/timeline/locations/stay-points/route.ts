@@ -12,22 +12,11 @@ import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb, locationPoints, placeCache } from "@/db";
 import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";
 import { getGeocodingAdapter } from "@/lib/adapters/geocoding";
+import { distanceM } from "@/lib/geo";
 
 const STAY_RADIUS_M = 100; // 같은 클러스터로 판정할 반경 (미터)
 const MIN_STAY_MINUTES = 10; // 최소 머문 시간 (분)
 const TIME_GAP_MINUTES = 10; // 다음 포인트까지 이 시간 이상 비면 → 해당 위치에 머문 것으로 추정
-
-/** Haversine distance in metres */
-function distanceM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const R = 6_371_000;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 interface LocationRow {
   lat: number;

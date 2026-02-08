@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { users, locationPoints } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "@/lib/logger";
 
 interface OwnTracksPayload {
   _type: string;
@@ -78,7 +79,9 @@ export async function POST(request: NextRequest) {
 
     return EMPTY_RESPONSE;
   } catch (error) {
-    console.error("OwnTracks ingestion error:", error);
+    logger.error("OwnTracks ingestion error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return EMPTY_RESPONSE;
   }
 }
