@@ -13,7 +13,7 @@ export interface GeocodingResult {
   /** 카테고리 (e.g. "카페", "음식점") */
   category?: string;
   /** 제공자 */
-  provider: "kakao" | "mapbox";
+  provider: "kakao" | "mapbox" | "google";
 }
 
 export interface GeocodingAdapter {
