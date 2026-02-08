@@ -1,7 +1,7 @@
 /**
  * Kakao Local API Geocoding Adapter
  *
- * Uses Kakao coord2address + keyword search for Korean locations.
+ * Uses Kakao coord2address + category search for Korean locations.
  * Requires KAKAO_REST_API_KEY environment variable.
  */
 
@@ -9,12 +9,38 @@ import type { GeocodingAdapter, GeocodingResult } from "./interface";
 
 const KAKAO_API_BASE = "https://dapi.kakao.com/v2/local";
 
+/** 카테고리 검색 반경 (미터) */
+const POI_SEARCH_RADIUS = 150;
+
+/**
+ * 검색할 카테고리 그룹 코드 목록
+ * @see https://developers.kakao.com/docs/latest/ko/local/dev-guide#search-by-category
+ */
+const CATEGORY_CODES = [
+  "CE7", // 카페
+  "FD6", // 음식점
+  "CS2", // 편의점
+  "SW8", // 지하철역
+  "HP8", // 병원
+  "SC4", // 학교
+  "CT1", // 문화시설
+  "MT1", // 대형마트
+  "BK9", // 은행
+  "AC5", // 학원
+  "AT4", // 관광명소
+  "AD5", // 숙박
+  "PO3", // 공공기관
+  "PM9", // 약국
+  "OL7", // 주유소
+  "PK6", // 주차장
+];
+
 interface KakaoAddressDoc {
   address?: { address_name: string };
   road_address?: { address_name: string; building_name?: string };
 }
 
-interface KakaoKeywordDoc {
+interface KakaoCategoryDoc {
   place_name: string;
   address_name: string;
   category_group_name: string;
@@ -51,22 +77,32 @@ export class KakaoGeocodingAdapter implements GeocodingAdapter {
       addressDoc?.address?.address_name ??
       "";
 
-    // 2. keyword search로 반경 50m 이내 POI 검색
-    const keywordUrl = `${KAKAO_API_BASE}/search/keyword.json?query=*&x=${lon}&y=${lat}&radius=50&sort=distance&size=1`;
-    const keywordRes = await fetch(keywordUrl, { headers });
+    // 2. 카테고리 검색으로 반경 내 가장 가까운 POI 탐색
+    const poiResults = await Promise.all(
+      CATEGORY_CODES.map(async (code) => {
+        try {
+          const url = `${KAKAO_API_BASE}/search/category.json?category_group_code=${code}&x=${lon}&y=${lat}&radius=${POI_SEARCH_RADIUS}&sort=distance&size=1`;
+          const res = await fetch(url, { headers });
+          if (!res.ok) return null;
+          const data = await res.json();
+          return (data.documents?.[0] as KakaoCategoryDoc) ?? null;
+        } catch {
+          return null;
+        }
+      }),
+    );
 
-    if (keywordRes.ok) {
-      const keywordData = await keywordRes.json();
-      const poi: KakaoKeywordDoc | undefined = keywordData.documents?.[0];
+    const closestPoi = poiResults
+      .filter((p): p is KakaoCategoryDoc => p !== null)
+      .sort((a, b) => Number(a.distance) - Number(b.distance))[0];
 
-      if (poi) {
-        return {
-          placeName: poi.place_name,
-          address: address || poi.address_name,
-          category: poi.category_group_name || undefined,
-          provider: "kakao",
-        };
-      }
+    if (closestPoi) {
+      return {
+        placeName: closestPoi.place_name,
+        address: address || closestPoi.address_name,
+        category: closestPoi.category_group_name || undefined,
+        provider: "kakao",
+      };
     }
 
     // POI가 없으면 주소만 반환

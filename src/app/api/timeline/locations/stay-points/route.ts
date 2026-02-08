@@ -153,16 +153,24 @@ export async function GET(request: NextRequest) {
 
         if (cached.length > 0) {
           const c = cached[0];
-          return {
-            lat: cluster.centroidLat,
-            lon: cluster.centroidLon,
-            placeName: c.placeName,
-            address: c.address,
-            category: c.category,
-            startTime: cluster.startTime.toISOString(),
-            endTime: cluster.endTime.toISOString(),
-            durationMinutes: cluster.durationMinutes,
-          };
+          // placeName === address이고 category가 없으면 POI 미검출 stale 캐시 → 삭제 후 재검색
+          const isStale = c.placeName === c.address && !c.category;
+          if (isStale) {
+            await db
+              .delete(placeCache)
+              .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)));
+          } else {
+            return {
+              lat: cluster.centroidLat,
+              lon: cluster.centroidLon,
+              placeName: c.placeName,
+              address: c.address,
+              category: c.category,
+              startTime: cluster.startTime.toISOString(),
+              endTime: cluster.endTime.toISOString(),
+              durationMinutes: cluster.durationMinutes,
+            };
+          }
         }
 
         // 캐시 miss → geocoding
