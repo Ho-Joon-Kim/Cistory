@@ -159,11 +159,20 @@ interface WakaTimeUser {
   email: string;
 }
 
+export interface WakaTimeSyncStats {
+  totalSessions: number;
+  totalDays: number;
+  lastSyncedAt: string | null;
+  unsyncedDays: number;
+}
+
 export function useWakaTimeKey(hasKey: boolean) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);
   const [hasWakaTimeKey, setHasWakaTimeKey] = useState(hasKey);
   const [wakatimeUser, setWakatimeUser] = useState<WakaTimeUser | null>(null);
+  const [syncStats, setSyncStats] = useState<WakaTimeSyncStats | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const prevHasKey = useRef(hasKey);
 
   useEffect(() => {
@@ -172,6 +181,51 @@ export function useWakaTimeKey(hasKey: boolean) {
       prevHasKey.current = hasKey;
     }
   }, [hasKey]);
+
+  const fetchSyncStats = useCallback(async () => {
+    try {
+      const response = await fetch("/api/settings/wakatime-sync");
+      if (!response.ok) return;
+      const data = (await response.json()) as WakaTimeSyncStats;
+      setSyncStats(data);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Auto-fetch sync stats when connected
+  useEffect(() => {
+    if (hasWakaTimeKey) {
+      fetchSyncStats();
+    } else {
+      setSyncStats(null);
+    }
+  }, [hasWakaTimeKey, fetchSyncStats]);
+
+  const triggerSync = useCallback(
+    async (mode: "initial" | "regular") => {
+      setIsSyncing(true);
+      try {
+        const response = await fetch("/api/settings/wakatime-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode }),
+        });
+        if (!response.ok) {
+          const data = (await response.json()) as { error?: string };
+          throw new Error(data.error || "동기화에 실패했습니다");
+        }
+        // Refresh stats after sync
+        await fetchSyncStats();
+        return true;
+      } catch (e) {
+        throw e;
+      } finally {
+        setIsSyncing(false);
+      }
+    },
+    [fetchSyncStats]
+  );
 
   const connect = useCallback(async (apiKey: string) => {
     setIsConnecting(true);
@@ -205,6 +259,7 @@ export function useWakaTimeKey(hasKey: boolean) {
       if (!response.ok) throw new Error("Failed to revoke key");
       setHasWakaTimeKey(false);
       setWakatimeUser(null);
+      setSyncStats(null);
       return true;
     } catch {
       return false;
@@ -220,5 +275,9 @@ export function useWakaTimeKey(hasKey: boolean) {
     isRevoking,
     connect,
     revoke,
+    syncStats,
+    isSyncing,
+    fetchSyncStats,
+    triggerSync,
   };
 }

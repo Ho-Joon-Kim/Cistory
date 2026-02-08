@@ -5,11 +5,12 @@
  */
 
 import type { Database } from "@/db";
-import { codingSessions, codingDailyStats, users } from "@/db/schema";
+import { codingSessions, codingDailyStats, commits, users } from "@/db/schema";
 import { createWakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
 import type { WakaTimeAdapter } from "@/lib/adapters/wakatime/interface";
-import { eq, and } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { sleep } from "@/lib/utils";
 
 export class WakaTimeSyncService {
   private db: Database;
@@ -67,7 +68,7 @@ export class WakaTimeSyncService {
         .values({
           userId,
           date: s.date,
-          totalSeconds: s.grandTotalSeconds,
+          totalSeconds: Math.round(s.grandTotalSeconds),
           projects: JSON.stringify(s.projects),
           languages: JSON.stringify(s.languages),
           editors: JSON.stringify(s.editors),
@@ -77,7 +78,7 @@ export class WakaTimeSyncService {
         .onConflictDoUpdate({
           target: [codingDailyStats.userId, codingDailyStats.date],
           set: {
-            totalSeconds: s.grandTotalSeconds,
+            totalSeconds: Math.round(s.grandTotalSeconds),
             projects: JSON.stringify(s.projects),
             languages: JSON.stringify(s.languages),
             editors: JSON.stringify(s.editors),
@@ -116,6 +117,79 @@ export class WakaTimeSyncService {
       .update(users)
       .set({ wakatimeLastSyncedAt: new Date(), updatedAt: new Date() })
       .where(eq(users.id, userId));
+  }
+
+  async syncAllCommitDates(
+    userId: string
+  ): Promise<{ syncedDays: number; totalSessions: number; totalSummaries: number }> {
+    // Get distinct commit dates for user
+    const commitDates = await this.db
+      .selectDistinct({
+        date: sql<string>`date(${commits.committedAt})`.as("date"),
+      })
+      .from(commits)
+      .where(eq(commits.userId, userId));
+
+    const allDates = commitDates.map((r) => r.date).filter(Boolean);
+
+    if (allDates.length === 0) {
+      return { syncedDays: 0, totalSessions: 0, totalSummaries: 0 };
+    }
+
+    // Get dates already in coding_daily_stats
+    const existingDates = await this.db
+      .select({ date: codingDailyStats.date })
+      .from(codingDailyStats)
+      .where(eq(codingDailyStats.userId, userId));
+
+    const existingSet = new Set(existingDates.map((r) => r.date));
+    const unsyncedDates = allDates.filter((d) => !existingSet.has(d));
+
+    if (unsyncedDates.length === 0) {
+      return { syncedDays: 0, totalSessions: 0, totalSummaries: 0 };
+    }
+
+    logger.info("[WakaTime] Starting initial sync", {
+      userId,
+      totalDates: unsyncedDates.length,
+    });
+
+    let totalSessions = 0;
+    let totalSummaries = 0;
+    let syncedDays = 0;
+
+    for (const date of unsyncedDates) {
+      try {
+        const sessions = await this.syncDurations(userId, date);
+        const summaries = await this.syncSummaries(userId, date, date);
+        totalSessions += sessions;
+        totalSummaries += summaries;
+        syncedDays++;
+      } catch (error) {
+        logger.warn("[WakaTime] Failed to sync date", {
+          userId,
+          date,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      // Rate limit: 200ms between dates
+      await sleep(200);
+    }
+
+    // Update last synced timestamp
+    await this.db
+      .update(users)
+      .set({ wakatimeLastSyncedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    logger.info("[WakaTime] Initial sync completed", {
+      userId,
+      syncedDays,
+      totalSessions,
+      totalSummaries,
+    });
+
+    return { syncedDays, totalSessions, totalSummaries };
   }
 
   async verifyApiKey(): Promise<boolean> {

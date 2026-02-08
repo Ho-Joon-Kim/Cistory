@@ -11,6 +11,8 @@ import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createWakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
+import { createWakaTimeSyncService } from "@/modules/wakatime/service";
+import { logger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,6 +46,15 @@ export async function POST(request: NextRequest) {
       .update(users)
       .set({ wakatimeApiKey: apiKey, updatedAt: new Date() })
       .where(eq(users.id, user.id));
+
+    // Fire-and-forget: initial sync for all commit dates
+    const syncService = createWakaTimeSyncService(db, apiKey);
+    syncService.syncAllCommitDates(user.id).catch((error) => {
+      logger.error("[WakaTime] Background initial sync failed", {
+        userId: user.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 
     return NextResponse.json({
       success: true,
