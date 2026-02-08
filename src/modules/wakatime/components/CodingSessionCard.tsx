@@ -52,7 +52,7 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Code className="h-4 w-4 text-violet-500 flex-shrink-0" />
-            <span className="font-medium text-sm">코딩 활동</span>
+            <span className="font-medium text-sm">Coding</span>
             <span className="font-bold text-sm">{formatCodingTime(totalSeconds)}</span>
             {sessions.length > 0 && (
               <span className="text-xs text-muted-foreground">{sessions.length}개 세션</span>

@@ -224,7 +224,7 @@ export function SettingsForm() {
       {/* 위치 추적 */}
       <OwnTracksSettings hasKey={settings.hasOwnTracksKey} />
 
-      {/* 코딩 활동 */}
+      {/* Coding */}
       <WakaTimeSettings hasKey={settings.hasWakaTimeKey} />
 
       {/* AI 요약 */}

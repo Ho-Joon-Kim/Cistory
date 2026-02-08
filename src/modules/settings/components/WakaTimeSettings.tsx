@@ -66,7 +66,7 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
           <Code className="h-5 w-5" />
-          코딩 활동 (WakaTime)
+          Coding (WakaTime)
         </CardTitle>
         <CardDescription>
           WakaTime과 연동하여 코딩 세션 데이터를 타임라인에 표시합니다
