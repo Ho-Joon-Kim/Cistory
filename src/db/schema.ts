@@ -12,6 +12,8 @@ export const users = pgTable(
     githubAvatarUrl: text("github_avatar_url"),
     githubAccessToken: text("github_access_token").notNull(),
     ownTracksApiKey: text("own_tracks_api_key"),
+    wakatimeApiKey: text("wakatime_api_key"),
+    wakatimeLastSyncedAt: timestamp("wakatime_last_synced_at"),
     theme: text("theme").default("system"), // 'light' | 'dark' | 'system'
     syncIntervalHours: integer("sync_interval_hours").default(1),
     lastSyncedAt: timestamp("last_synced_at"),
@@ -163,6 +165,50 @@ export const dailyDistances = pgTable(
   ]
 );
 
+// ============ Coding Sessions (WakaTime) ============
+export const codingSessions = pgTable(
+  "coding_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    project: text("project"),
+    startedAt: timestamp("started_at").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    humanAdditions: integer("human_additions"),
+    humanDeletions: integer("human_deletions"),
+    aiAdditions: integer("ai_additions"),
+    aiDeletions: integer("ai_deletions"),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_coding_session_user_started").on(table.userId, table.startedAt),
+    uniqueIndex("idx_coding_session_unique").on(table.userId, table.startedAt, table.project),
+  ]
+);
+
+// ============ Coding Daily Stats (WakaTime) ============
+export const codingDailyStats = pgTable(
+  "coding_daily_stats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    totalSeconds: integer("total_seconds").notNull().default(0),
+    projects: text("projects"), // JSON [{name, totalSeconds}]
+    languages: text("languages"), // JSON [{name, totalSeconds}]
+    editors: text("editors"), // JSON [{name, totalSeconds}]
+    categories: text("categories"), // JSON [{name, totalSeconds}]
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_coding_daily_stats_user_date").on(table.userId, table.date),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -184,3 +230,9 @@ export type NewPlaceCache = typeof placeCache.$inferInsert;
 
 export type DailyDistance = typeof dailyDistances.$inferSelect;
 export type NewDailyDistance = typeof dailyDistances.$inferInsert;
+
+export type CodingSession = typeof codingSessions.$inferSelect;
+export type NewCodingSession = typeof codingSessions.$inferInsert;
+
+export type CodingDailyStat = typeof codingDailyStats.$inferSelect;
+export type NewCodingDailyStat = typeof codingDailyStats.$inferInsert;

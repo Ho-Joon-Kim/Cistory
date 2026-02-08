@@ -7,14 +7,18 @@ import { CommitCard } from "./CommitCard";
 import { CompactCommitCard } from "./CompactCommitCard";
 import { TimelineSkeleton } from "./TimelineSkeleton";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
-import { Loader2, MapPin } from "lucide-react";
+import { Code, Loader2, MapPin } from "lucide-react";
 import {
   fillDateRange,
+  formatCodingTime,
   formatDistance,
   getRepoColor,
   groupCommitsByTimeOfDay,
 } from "../utils";
 import { useDailyDistances } from "@/modules/location/hooks";
+import { useCodingSessions, useCodingStats } from "@/modules/wakatime/hooks";
+import type { CodingSessionData, CodingStatData } from "@/modules/wakatime/hooks";
+import { CodingSessionCard } from "@/modules/wakatime/components/CodingSessionCard";
 
 interface TimelineProps {
   commits: TimelineCommit[];
@@ -78,6 +82,9 @@ interface DateGroupSectionProps {
   newCommitIds: Set<string>;
   onSelectDate: (date: string) => void;
   distanceMeters?: number;
+  codingSeconds?: number;
+  codingSessions?: CodingSessionData[];
+  codingStats?: CodingStatData;
 }
 
 const DateGroupSection = memo(function DateGroupSection({
@@ -89,6 +96,9 @@ const DateGroupSection = memo(function DateGroupSection({
   newCommitIds,
   onSelectDate,
   distanceMeters,
+  codingSeconds,
+  codingSessions,
+  codingStats,
 }: DateGroupSectionProps) {
   const { date, commits: dateCommits, isEmpty } = entry;
   const { label, isToday } = formatDateHeader(date);
@@ -166,6 +176,18 @@ const DateGroupSection = memo(function DateGroupSection({
               {formatDistance(distanceMeters)}
             </span>
           )}
+          {codingSeconds != null && codingSeconds > 0 && (
+            <span
+              className={`inline-flex items-center gap-0.5 h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
+                isSelected
+                  ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
+                  : "bg-muted/50 text-muted-foreground/50"
+              }`}
+            >
+              <Code className="w-3 h-3" />
+              {formatCodingTime(codingSeconds)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -174,6 +196,9 @@ const DateGroupSection = memo(function DateGroupSection({
         {/* Selected date: full layout */}
         {isSelected && !isEmpty && (
           <div className="space-y-1">
+            {codingSessions && codingSessions.length > 0 && (
+              <CodingSessionCard sessions={codingSessions} stats={codingStats} />
+            )}
             {subGroups.map((subGroup, sgIndex) => (
               <div key={sgIndex}>
                 {subGroup.label && (
@@ -204,9 +229,14 @@ const DateGroupSection = memo(function DateGroupSection({
 
         {/* Selected but empty */}
         {isSelected && isEmpty && (
-          <p className="text-sm text-muted-foreground/60 py-2">
-            이 날의 커밋이 없습니다
-          </p>
+          <div className="space-y-1">
+            {codingSessions && codingSessions.length > 0 && (
+              <CodingSessionCard sessions={codingSessions} stats={codingStats} />
+            )}
+            <p className="text-sm text-muted-foreground/60 py-2">
+              이 날의 커밋이 없습니다
+            </p>
+          </div>
         )}
 
         {/* Non-selected: compact commits */}
@@ -320,6 +350,32 @@ export function Timeline({
 
   const { distances } = useDailyDistances(dateFrom, dateTo);
 
+  // Coding stats for date range badges
+  const { stats: codingStatsArray } = useCodingStats(dateFrom, dateTo);
+  const codingSecondsMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const stat of codingStatsArray) {
+      map[stat.date] = stat.totalSeconds;
+    }
+    return map;
+  }, [codingStatsArray]);
+  const codingStatsMap = useMemo(() => {
+    const map: Record<string, CodingStatData> = {};
+    for (const stat of codingStatsArray) {
+      map[stat.date] = stat;
+    }
+    return map;
+  }, [codingStatsArray]);
+
+  // Coding sessions for selected date
+  const { sessions: codingSessions } = useCodingSessions(selectedDate);
+
+  // Fallback: compute coding seconds from sessions for selected date badge
+  const selectedDateSessionSeconds = useMemo(() => {
+    if (codingSessions.length === 0) return 0;
+    return codingSessions.reduce((sum, s) => sum + s.durationSeconds, 0);
+  }, [codingSessions]);
+
   // Stepper line gradient position
   const containerRef = useRef<HTMLDivElement>(null);
   const [glowY, setGlowY] = useState<number | null>(null);
@@ -396,6 +452,9 @@ export function Timeline({
             newCommitIds={newCommitIds}
             onSelectDate={onSelectedDateChange}
             distanceMeters={distances[entry.date]}
+            codingSeconds={codingSecondsMap[entry.date] ?? (entry.date === selectedDate ? selectedDateSessionSeconds : undefined)}
+            codingSessions={entry.date === selectedDate ? codingSessions : undefined}
+            codingStats={codingStatsMap[entry.date]}
           />
         ))}
       </div>

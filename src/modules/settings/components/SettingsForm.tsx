@@ -4,6 +4,7 @@ import { useSettings } from "../hooks";
 import { useAuth } from "@/modules/auth/hooks";
 import { SummaryStats } from "./SummaryStats";
 import { OwnTracksSettings } from "./OwnTracksSettings";
+import { WakaTimeSettings } from "./WakaTimeSettings";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -222,6 +223,9 @@ export function SettingsForm() {
 
       {/* 위치 추적 */}
       <OwnTracksSettings hasKey={settings.hasOwnTracksKey} />
+
+      {/* 코딩 활동 */}
+      <WakaTimeSettings hasKey={settings.hasWakaTimeKey} />
 
       {/* AI 요약 */}
       <SummaryStats />

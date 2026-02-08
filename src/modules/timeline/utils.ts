@@ -137,7 +137,18 @@ export function getCommitSize(commit: TimelineCommit): CommitSize {
   return total >= 100 ? "large" : "normal";
 }
 
-// --- 1e. Day abbreviation ---
+// --- 1f. Coding time formatting ---
+export function formatCodingTime(seconds: number): string {
+  if (seconds < 60) return "1분 미만";
+  const minutes = Math.floor(seconds / 60);
+  if (seconds < 3600) return `${minutes}m`;
+  const hours = Math.floor(seconds / 3600);
+  const remainMinutes = Math.floor((seconds % 3600) / 60);
+  if (remainMinutes === 0) return `${hours}h`;
+  return `${hours}h ${remainMinutes}m`;
+}
+
+// --- 1g. Day abbreviation ---
 const DAY_ABBRS = ["일", "월", "화", "수", "목", "금", "토"];
 
 export function getDayAbbreviation(dateStr: string): string {

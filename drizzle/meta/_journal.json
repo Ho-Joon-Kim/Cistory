@@ -29,6 +29,13 @@
       "when": 1770553869818,
       "tag": "0003_naive_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770561419149,
+      "tag": "0004_mysterious_gauntlet",
+      "breakpoints": true
     }
   ]
 }

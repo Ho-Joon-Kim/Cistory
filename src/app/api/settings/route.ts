@@ -35,12 +35,13 @@ export async function GET(request: NextRequest) {
         syncIntervalHours: users.syncIntervalHours,
         lastSyncedAt: users.lastSyncedAt,
         ownTracksApiKey: users.ownTracksApiKey,
+        wakatimeApiKey: users.wakatimeApiKey,
       })
       .from(users)
       .where(eq(users.id, user.id));
 
     if (userResult.length === 0) {
-      return NextResponse.json({ ...DEFAULT_SETTINGS, hasOwnTracksKey: false });
+      return NextResponse.json({ ...DEFAULT_SETTINGS, hasOwnTracksKey: false, hasWakaTimeKey: false });
     }
 
     const userSettings = userResult[0];
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
       syncIntervalHours: userSettings.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
       lastSyncedAt: userSettings.lastSyncedAt?.toISOString() ?? null,
       hasOwnTracksKey: !!userSettings.ownTracksApiKey,
+      hasWakaTimeKey: !!userSettings.wakatimeApiKey,
     });
   } catch (error) {
     console.error("Get settings error:", error);

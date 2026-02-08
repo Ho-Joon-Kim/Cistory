@@ -8,6 +8,7 @@ export interface UserSettings {
   syncIntervalHours: number;
   lastSyncedAt: string | null;
   hasOwnTracksKey: boolean;
+  hasWakaTimeKey: boolean;
 }
 
 export function useSettings() {
@@ -150,5 +151,74 @@ export function useOwnTracksKey(hasKey: boolean) {
     generate,
     revoke,
     clearNewKey: () => setNewKey(null),
+  };
+}
+
+interface WakaTimeUser {
+  displayName: string;
+  email: string;
+}
+
+export function useWakaTimeKey(hasKey: boolean) {
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [hasWakaTimeKey, setHasWakaTimeKey] = useState(hasKey);
+  const [wakatimeUser, setWakatimeUser] = useState<WakaTimeUser | null>(null);
+  const prevHasKey = useRef(hasKey);
+
+  useEffect(() => {
+    if (prevHasKey.current !== hasKey) {
+      setHasWakaTimeKey(hasKey);
+      prevHasKey.current = hasKey;
+    }
+  }, [hasKey]);
+
+  const connect = useCallback(async (apiKey: string) => {
+    setIsConnecting(true);
+    try {
+      const response = await fetch("/api/settings/wakatime-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey }),
+      });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        throw new Error(data.error || "Failed to connect");
+      }
+      const data = (await response.json()) as { wakatimeUser: WakaTimeUser };
+      setWakatimeUser(data.wakatimeUser);
+      setHasWakaTimeKey(true);
+      return true;
+    } catch (e) {
+      throw e;
+    } finally {
+      setIsConnecting(false);
+    }
+  }, []);
+
+  const revoke = useCallback(async () => {
+    setIsRevoking(true);
+    try {
+      const response = await fetch("/api/settings/wakatime-key", {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Failed to revoke key");
+      setHasWakaTimeKey(false);
+      setWakatimeUser(null);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsRevoking(false);
+    }
+  }, []);
+
+  return {
+    hasWakaTimeKey,
+    wakatimeUser,
+    isConnecting,
+    isRevoking,
+    connect,
+    revoke,
   };
 }

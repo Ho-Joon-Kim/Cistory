@@ -9,6 +9,7 @@ import * as cron from 'node-cron';
 import { getDb, users, commits, commitSummaries, syncJobs } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
 import { createSummaryService } from '@/modules/summary/service';
+import { createWakaTimeSyncService } from '@/modules/wakatime/service';
 import { sql, eq, and, gte, lt, inArray } from 'drizzle-orm';
 import { logger } from '@/lib/logger';
 
@@ -33,6 +34,8 @@ async function syncAllUsers() {
         syncIntervalHours: users.syncIntervalHours,
         lastSyncedAt: users.lastSyncedAt,
         initialSyncCompleted: users.initialSyncCompleted,
+        wakatimeApiKey: users.wakatimeApiKey,
+        wakatimeLastSyncedAt: users.wakatimeLastSyncedAt,
       })
       .from(users)
       .where(sql`${users.githubAccessToken} IS NOT NULL`);
@@ -131,6 +134,26 @@ async function syncAllUsers() {
               githubLogin: user.githubLogin,
               error: summaryError instanceof Error ? summaryError.message : String(summaryError),
             });
+          }
+        }
+
+        // WakaTime sync
+        if (user.wakatimeApiKey) {
+          const shouldSync =
+            !user.wakatimeLastSyncedAt ||
+            Date.now() - user.wakatimeLastSyncedAt.getTime() > 24 * 60 * 60 * 1000;
+
+          if (shouldSync) {
+            try {
+              const wakatimeService = createWakaTimeSyncService(db, user.wakatimeApiKey);
+              await wakatimeService.syncUser(user.id);
+            } catch (wakatimeError) {
+              logger.error('[Cron] WakaTime sync error', {
+                userId: user.id,
+                githubLogin: user.githubLogin,
+                error: wakatimeError instanceof Error ? wakatimeError.message : String(wakatimeError),
+              });
+            }
           }
         }
 
