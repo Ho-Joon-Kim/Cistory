@@ -44,14 +44,14 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
       className="cursor-pointer !py-0 !gap-0 rounded-lg relative overflow-hidden mb-2"
       onClick={() => setIsExpanded(!isExpanded)}
     >
-      {/* Purple left border (WakaTime brand) */}
-      <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-violet-500" />
+      {/* DS cyan left border */}
+      <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#5CAACC]" />
 
       <CardContent className="py-2 pl-4 pr-3">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Code className="h-4 w-4 text-violet-500 flex-shrink-0" />
+            <Code className="h-4 w-4 text-[#5CAACC] flex-shrink-0" />
             <span className="font-medium text-sm">Coding</span>
             <span className="font-bold text-sm">{formatCodingTime(totalSeconds)}</span>
             {sessions.length > 0 && (
@@ -65,25 +65,29 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
           )}
         </div>
 
-        {/* Language bars (always visible) */}
+        {/* Language bars (always visible) — DS scaleX expansion */}
         {topLanguages.length > 0 && (
           <div className="mt-2 flex items-center gap-1.5">
-            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
+            <div className="ds-progress-bar flex-1">
               {topLanguages.map((lang, i) => (
                 <div
                   key={lang.name}
-                  className="h-full transition-all duration-300"
+                  className="ds-progress-segment h-full"
                   style={{
                     width: `${langTotal > 0 ? (lang.totalSeconds / langTotal) * 100 : 0}%`,
-                    backgroundColor: LANG_COLORS[i],
-                  }}
+                    backgroundColor: DS_LANG_COLORS[lang.name] ?? DS_LANG_COLORS_INDEXED[i] ?? "#5CAACC",
+                    "--seg-index": i,
+                  } as React.CSSProperties}
                 />
               ))}
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {topLanguages.map((lang, i) => (
                 <span key={lang.name} className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: LANG_COLORS[i] }} />
+                  <span
+                    className="w-1.5 h-1.5 rounded-sm"
+                    style={{ backgroundColor: DS_LANG_COLORS[lang.name] ?? DS_LANG_COLORS_INDEXED[i] ?? "#5CAACC" }}
+                  />
                   {lang.name}
                 </span>
               ))}
@@ -116,23 +120,23 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
               <div>
                 <h4 className="text-xs font-medium text-muted-foreground mb-1.5">코드 작성 비율</h4>
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden flex">
+                  <div className="ds-progress-bar flex-1 h-2">
                     <div
-                      className="h-full bg-violet-500 transition-all duration-300"
-                      style={{ width: `${aiPercent}%` }}
+                      className="ds-progress-segment h-full"
+                      style={{ width: `${aiPercent}%`, backgroundColor: "#5CAACC", "--seg-index": 0 } as React.CSSProperties}
                     />
                     <div
-                      className="h-full bg-emerald-500 transition-all duration-300"
-                      style={{ width: `${100 - aiPercent}%` }}
+                      className="ds-progress-segment h-full"
+                      style={{ width: `${100 - aiPercent}%`, backgroundColor: "#DC8D18", "--seg-index": 1 } as React.CSSProperties}
                     />
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-muted-foreground flex-shrink-0">
                     <span className="flex items-center gap-0.5">
-                      <Bot className="h-3 w-3 text-violet-500" />
+                      <Bot className="h-3 w-3 text-[#5CAACC]" />
                       AI {aiPercent}%
                     </span>
                     <span className="flex items-center gap-0.5">
-                      <User className="h-3 w-3 text-emerald-500" />
+                      <User className="h-3 w-3 text-[#DC8D18]" />
                       직접 {100 - aiPercent}%
                     </span>
                   </div>
@@ -174,7 +178,18 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
   );
 }
 
-const LANG_COLORS = ["#8b5cf6", "#3b82f6", "#f59e0b"];
+// DS palette — language colors mapped per design system 10-2 §5
+const DS_LANG_COLORS: Record<string, string> = {
+  TypeScript: "#5CAACC",   // 시안 — 주 언어
+  JavaScript: "#5CAACC",
+  Other: "#7EC8E3",        // 밝은 시안
+  JSON: "#DC8D18",         // 앰버
+  CSS: "#F4D136",          // 골드
+  Python: "#CAB4A1",       // 웜 베이지
+  SCSS: "#F4D136",
+  HTML: "#7EC8E3",
+};
+const DS_LANG_COLORS_INDEXED = ["#5CAACC", "#7EC8E3", "#DC8D18"];
 
 function deriveProjects(sessions: CodingSessionData[]) {
   const map = new Map<string, number>();

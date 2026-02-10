@@ -203,7 +203,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
                 {formatRelativeTime(commit.committedAt)}
               </span>
               {commit.isMergeCommit && (
-                <span className="inline-flex items-center gap-1 text-xs bg-secondary px-1.5 py-0.5 rounded">
+                <span className="inline-flex items-center gap-1 text-xs bg-transparent border border-[hsl(var(--ds-strand))] px-1.5 py-0.5 rounded-sm text-muted-foreground">
                   <GitMerge className="h-3 w-3" />
                   머지
                 </span>
@@ -252,7 +252,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
 
             {/* 변경 통계 */}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-0.5 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1 dark:text-[hsl(195_45%_57%_/_0.6)]">
                 <GitCommit className="h-3 w-3" />
                 {commit.sha.slice(0, 7)}
               </span>
@@ -261,11 +261,11 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
               )}
               {hasStats && (
                 <>
-                  <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+                  <span className="inline-flex items-center gap-1 text-green-600 dark:text-[#5CAACC]">
                     <Plus className="h-3 w-3" />
                     <AnimatedNumber value={displayStats.additions} />
                   </span>
-                  <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+                  <span className="inline-flex items-center gap-1 text-red-600 dark:text-[#DC8D18]">
                     <Minus className="h-3 w-3" />
                     <AnimatedNumber value={displayStats.deletions} />
                   </span>
@@ -282,7 +282,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
 
         {/* 확장 영역: AI 요약 */}
         {isExpanded && (
-          <div className="mt-4 pt-4 border-t animate-in fade-in-0 slide-in-from-top-2 duration-200">
+          <div className="mt-4 pt-4 border-t border-[hsl(var(--ds-strand-dim))] animate-in fade-in-0 slide-in-from-top-2 duration-200">
             <h4 className="text-xs font-medium text-muted-foreground mb-2">
               AI 요약
             </h4>

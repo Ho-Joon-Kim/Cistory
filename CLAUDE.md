@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Also includes location tracking via OwnTracks integration with map visualization (Mapbox/Kakao). Features automatic background sync via integrated Cron worker.
+Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Also includes location tracking via OwnTracks integration with map visualization (Mapbox/Kakao), and WakaTime integration for coding activity tracking. Features automatic background sync via integrated Cron worker and Sentry error monitoring.
 
 ## Development Commands
 
@@ -55,17 +55,18 @@ src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
 │   ├── (dashboard)/         # Dashboard route group (settings, repositories)
-│   ├── api/                 # API routes (~18 endpoints)
+│   ├── api/                 # API routes (~23 endpoints)
 │   └── dashboard/           # Main dashboard page
-├── components/              # Shared components (Layout/, ui/ with 16 shadcn components)
+├── components/              # Shared components (Layout/, ui/ with 15 shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (6 tables)
+│   ├── schema.ts            # Drizzle schema (9 tables)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
 │   ├── adapters/            # Adapter pattern interfaces + implementations
 │   │   ├── ai/             # AI adapter (interface.ts + claude.ts)
-│   │   ├── geocoding/      # Geocoding adapter (kakao.ts, mapbox.ts, index.ts)
-│   │   └── vcs/            # VCS adapter (interface.ts + github.ts)
+│   │   ├── geocoding/      # Geocoding adapter (kakao.ts, google.ts, mapbox.ts, index.ts)
+│   │   ├── vcs/            # VCS adapter (interface.ts + github.ts)
+│   │   └── wakatime/       # WakaTime adapter (interface.ts + wakatime.ts)
 │   ├── supabase/            # Client configs (client.ts, server.ts, service.ts, auth-helpers.ts)
 │   ├── cron.ts              # Cron service (auto-sync commits)
 │   └── utils.ts             # Shared utilities (cn, generateId, now, formatRelativeTime, etc.)
@@ -76,7 +77,8 @@ src/
 │   ├── settings/           # User settings (theme, sync interval, OwnTracks key)
 │   ├── summary/            # AI commit summary service
 │   ├── sync/               # Commit sync service (SyncService class)
-│   └── timeline/           # Timeline display (hooks, CommitCard, Timeline, Filters)
+│   ├── timeline/           # Timeline display (hooks, CommitCard, Timeline, Filters)
+│   └── wakatime/           # WakaTime coding activity (sync, stats, components)
 instrumentation.ts           # (project root) Initializes Cron on server boot (Node.js runtime only)
 ```
 
@@ -95,7 +97,8 @@ const accessToken = await getGitHubToken(user.id, db, users);
 **Adapter Pattern**: Extensible interfaces in `lib/adapters/`:
 - `ai/interface.ts` - AI/LLM abstraction (implemented: `claude.ts`)
 - `vcs/interface.ts` - VCS abstraction (implemented: `github.ts`)
-- `geocoding/interface.ts` - Geocoding abstraction (implemented: `kakao.ts` for Korea, `mapbox.ts` for international; auto-selected by coordinates in `index.ts`)
+- `geocoding/interface.ts` - Geocoding abstraction (implemented: `kakao.ts` for Korea, `google.ts` primary international, `mapbox.ts` fallback; auto-selected by coordinates in `index.ts`)
+- `wakatime/interface.ts` - Time tracking abstraction (implemented: `wakatime.ts`)
 
 **Module Organization**: Features in `src/modules/` follow:
 - `hooks.ts` - React hooks for client-side data fetching
@@ -108,13 +111,16 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (6 tables in `src/db/schema.ts`):
-- `users` - Extended user data with GitHub tokens and `ownTracksApiKey` (UUID PK, references Supabase `auth.users`)
+**Database Schema** (9 tables in `src/db/schema.ts`):
+- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `wakatimeApiKey` (UUID PK, references Supabase `auth.users`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
 - `syncJobs` - Sync tracking (status: fetching/summarizing/completed/failed)
 - `locationPoints` - OwnTracks GPS data (lat, lon, accuracy, altitude, velocity, battery, timestamp). Indexes on `(userId, timestamp)` and unique on `(userId, timestamp, lat, lon)`
 - `placeCache` - Geocoding cache (latKey, lonKey, placeName, address, category, provider). Unique index on `(latKey, lonKey)`
+- `dailyDistances` - Cache for daily distance calculations
+- `codingSessions` - WakaTime coding session data (project, language, duration, timestamps)
+- `codingDailyStats` - WakaTime daily aggregated stats (totalSeconds, project/language breakdowns)
 
 **Supabase Client Variants** (`src/lib/supabase/`):
 - `client.ts` - Browser client for Client Components (`createClient()`)
@@ -142,7 +148,7 @@ const db = getDb();
 **Location Tracking**:
 - OwnTracks app sends GPS data to `/api/owntracks?apikey={key}` (returns `[]` per OwnTracks protocol)
 - Stay point detection: clusters points within 100m radius, minimum 10-minute stay duration
-- Geocoding auto-selects Kakao (Korean coordinates) or Mapbox (international)
+- Geocoding priority: Kakao (Korean coordinates) → Google Places (international) → Mapbox (fallback)
 - Location hooks poll every 60 seconds when viewing today's date
 
 ### Authentication Flow
@@ -155,12 +161,13 @@ const db = getDb();
 ### API Routes
 
 - `/api/auth/*` - OAuth callback, ensure-user, disconnect
-- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key
+- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key; `/api/settings/wakatime-key` - POST/DELETE WakaTime key; `/api/settings/wakatime-sync` - POST manual WakaTime sync
 - `/api/sync` - POST manual sync; `/api/sync/status` - GET status; `/api/sync/jobs` - GET history
 - `/api/timeline` - GET paginated commits with filters
 - `/api/timeline/repos` - GET user repos; `/api/timeline/stats` - GET commit stats
 - `/api/timeline/commits/[commitId]` - GET details; `.../stats` - GET file stats; `.../summary` - GET/POST summary
-- `/api/timeline/locations` - GET location points; `.../stay-points` - GET detected stay points
+- `/api/timeline/locations` - GET location points; `.../stay-points` - GET detected stay points; `.../distances` - GET daily distances
+- `/api/timeline/coding-sessions` - GET WakaTime coding sessions; `/api/timeline/coding-stats` - GET daily coding stats
 - `/api/summaries/process` - POST batch summary generation
 - `/api/owntracks` - POST location data ingestion
 
@@ -180,6 +187,13 @@ Optional (location features):
 ```bash
 NEXT_PUBLIC_MAPBOX_TOKEN=pk...       # Map visualization
 KAKAO_REST_API_KEY=...               # Korean location geocoding
+GOOGLE_MAPS_API_KEY=...              # Google Places geocoding (international)
+```
+
+Optional (monitoring):
+```bash
+NEXT_PUBLIC_SENTRY_DSN=...           # Sentry error tracking
+BETTER_STACK_SOURCE_TOKEN=...        # Structured logging via @logtail/node
 ```
 
 ### Database Operations

@@ -148,8 +148,8 @@ const DateGroupSection = memo(function DateGroupSection({
             className={`text-sm font-medium transition-colors duration-200 ${
               isSelected
                 ? isToday
-                  ? "text-primary"
-                  : "text-foreground"
+                  ? "text-primary dark:uppercase dark:tracking-wider dark:font-light"
+                  : "text-foreground dark:uppercase dark:tracking-wider dark:font-light"
                 : "text-muted-foreground/50"
             }`}
           >
@@ -180,7 +180,7 @@ const DateGroupSection = memo(function DateGroupSection({
             <span
               className={`inline-flex items-center gap-0.5 h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
                 isSelected
-                  ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
+                  ? "bg-violet-500/15 dark:bg-[rgba(92,170,204,0.15)] text-violet-600 dark:text-[#5CAACC]"
                   : "bg-muted/50 text-muted-foreground/50"
               }`}
             >
@@ -188,6 +188,10 @@ const DateGroupSection = memo(function DateGroupSection({
               {formatCodingTime(codingSeconds)}
             </span>
           )}
+        </div>
+        {/* DS strand line divider */}
+        <div className="ml-10 md:ml-14 mt-1 mb-2">
+          <div className="timeline-group-divider" />
         </div>
       </div>
 

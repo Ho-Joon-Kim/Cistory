@@ -127,7 +127,7 @@ export function SummaryStats() {
             </div>
           </div>
           <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <CheckCircle2 className="h-4 w-4 text-primary" />
             <div>
               <p className="text-sm font-medium">{stats.completed}</p>
               <p className="text-xs text-muted-foreground">완료</p>

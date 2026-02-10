@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
-import Map, { Source, Layer, Marker, Popup, useMap } from "react-map-gl/mapbox";
+import Map, { Source, Layer, Marker, Popup, useMap, type MapRef } from "react-map-gl/mapbox";
 import type { LayerProps } from "react-map-gl/mapbox";
 import type { Position } from "geojson";
-import type { GeoJSONSource } from "mapbox-gl";
+import type { GeoJSONSource, Map as MapboxMap } from "mapbox-gl";
 import { useTheme } from "next-themes";
 import { useLocations, useStayPoints, type LocationData, type StayPointData } from "../hooks";
 import { MapSkeleton } from "./MapSkeleton";
@@ -33,12 +33,28 @@ const EMPTY_POINTS_GEOJSON: GeoJSON.FeatureCollection = {
 };
 
 // Mapbox GL layer styles (WebGL-rendered, not DOM)
-const LINE_LAYER: LayerProps = {
+// DS-style dual layer: wide translucent glow behind a thin core line
+const LINE_GLOW_LAYER: LayerProps = {
+  id: "route-glow",
+  type: "line" as const,
+  paint: {
+    "line-color": "#5CAACC",
+    "line-width": 6,
+    "line-opacity": 0.15,
+    "line-blur": 4,
+  },
+  layout: {
+    "line-cap": "round" as const,
+    "line-join": "round" as const,
+  },
+};
+
+const LINE_CORE_LAYER: LayerProps = {
   id: "route-line",
   type: "line" as const,
   paint: {
-    "line-color": "hsl(153, 60%, 38%)",
-    "line-width": 3,
+    "line-color": "#5CAACC",
+    "line-width": 1.5,
     "line-opacity": 0.8,
   },
   layout: {
@@ -52,11 +68,10 @@ const POINT_LAYER: LayerProps = {
   type: "circle" as const,
   paint: {
     "circle-radius": 4,
-    "circle-color": "hsl(153, 60%, 38%)",
-    "circle-opacity": 0.9,
-    "circle-stroke-width": 1.5,
-    "circle-stroke-color": "#ffffff",
-    "circle-stroke-opacity": 0.8,
+    "circle-color": "#5CAACC",
+    "circle-blur": 0.3,
+    "circle-stroke-width": 1,
+    "circle-stroke-color": "rgba(92,170,204,0.5)",
   },
 };
 
@@ -211,7 +226,8 @@ function RouteAnimator({
       {hasData && (
         <>
           <Source id="route" type="geojson" data={EMPTY_LINE_GEOJSON}>
-            <Layer {...LINE_LAYER} />
+            <Layer {...LINE_GLOW_LAYER} />
+            <Layer {...LINE_CORE_LAYER} />
           </Source>
           <Source id="route-points" type="geojson" data={EMPTY_POINTS_GEOJSON}>
             <Layer {...POINT_LAYER} />
@@ -302,8 +318,19 @@ export function LocationMap({ date, className }: LocationMapProps) {
   const { locations, isLoading } = useLocations(date);
   const { stayPoints } = useStayPoints(date);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const mapRef = useRef<MapRef>(null);
 
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
+
+  const applyDarkMapColors = useCallback((map: MapboxMap) => {
+    if (resolvedTheme !== "dark") return;
+    if (map.getLayer("water")) {
+      map.setPaintProperty("water", "fill-color", "#080C14");
+    }
+    if (map.getLayer("background")) {
+      map.setPaintProperty("background", "background-color", "#0A0E17");
+    }
+  }, [resolvedTheme]);
 
   // Wait for theme to resolve before mounting the map — avoids double style load
   // (e.g. light-v11 → dark-v11 switch that causes full tile re-download on mobile)
@@ -321,6 +348,7 @@ export function LocationMap({ date, className }: LocationMapProps) {
   return (
     <div className={`relative ${className ?? ""}`}>
       <Map
+        ref={mapRef}
         id="location-map"
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={{
@@ -330,7 +358,14 @@ export function LocationMap({ date, className }: LocationMapProps) {
         mapStyle={mapStyle}
         fadeDuration={0}
         style={{ width: "100%", height: "100%" }}
-        onLoad={() => setMapLoaded(true)}
+        onLoad={(e) => {
+          setMapLoaded(true);
+          applyDarkMapColors(e.target);
+        }}
+        onStyleData={() => {
+          const m = mapRef.current?.getMap();
+          if (m) applyDarkMapColors(m);
+        }}
         reuseMaps
       >
         {mapLoaded && <RouteAnimator locations={locations} date={date} />}
@@ -338,6 +373,9 @@ export function LocationMap({ date, className }: LocationMapProps) {
           <StayPointMarkers stayPoints={stayPoints} />
         )}
       </Map>
+
+      {/* DS scanline overlay */}
+      <div className="map-scanline" />
 
       {/* Loading overlay */}
       {isLoading && (

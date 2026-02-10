@@ -50,7 +50,7 @@ export function CommitHeatmap() {
         {Array.from({ length: 30 }).map((_, i) => (
           <div
             key={i}
-            className="w-1 bg-muted rounded-sm animate-shimmer"
+            className="w-1 bg-muted rounded-[2px] animate-shimmer"
             style={{ height: `${Math.random() * 16 + 4}px` }}
           />
         ))}
@@ -77,23 +77,33 @@ export function CommitHeatmap() {
           const heightPercent = data.maxCount > 0
             ? Math.max((stat.count / data.maxCount) * 100, stat.count > 0 ? 20 : 8)
             : 8;
+          // DS: opacity scales with height — taller bars are brighter
+          const barOpacity = stat.count > 0
+            ? 0.3 + (stat.count / Math.max(data.maxCount, 1)) * 0.7
+            : 0.15;
 
           return (
             <Tooltip key={stat.date}>
               <TooltipTrigger asChild>
                 <div
                   className={`
-                    w-1 rounded-sm cursor-pointer
+                    w-1 cursor-pointer
                     transition-all duration-200
                     hover:opacity-80 hover:scale-110
-                    ${stat.count > 0 ? "bg-primary" : "bg-muted"}
-                    ${isVisible ? "animate-bar-grow" : "opacity-0"}
+                    ${stat.count > 0
+                      ? isVisible ? "ds-waveform-bar" : "opacity-0"
+                      : "bg-muted rounded-sm"
+                    }
+                    ${stat.count === 0 && isVisible ? "animate-bar-grow" : ""}
+                    ${stat.count === 0 && !isVisible ? "opacity-0" : ""}
                   `}
                   style={{
                     height: `${heightPercent}%`,
                     minHeight: "3px",
-                    animationDelay: `${index * 20}ms`,
-                  }}
+                    "--bar-index": index,
+                    "--bar-opacity": barOpacity,
+                    ...(stat.count === 0 ? { animationDelay: `${index * 20}ms` } : {}),
+                  } as React.CSSProperties}
                 />
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">

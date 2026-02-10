@@ -57,7 +57,7 @@ export function ProgressRing({
           strokeDashoffset={offset}
           className={cn(
             "text-primary transition-all duration-300 ease-out",
-            isComplete && "text-green-500"
+            isComplete && "text-[#5CAACC]"
           )}
         />
       </svg>
@@ -65,7 +65,7 @@ export function ProgressRing({
       {/* Check mark on complete */}
       {showCheck && isComplete && (
         <div className="absolute inset-0 flex items-center justify-center animate-success-pulse">
-          <Check className="h-3 w-3 text-green-500 animate-check-draw" />
+          <Check className="h-3 w-3 text-[#5CAACC] animate-check-draw" />
         </div>
       )}
 
@@ -114,7 +114,7 @@ export function SyncProgressRing({
         className={cn("inline-flex items-center justify-center animate-success-pulse", className)}
         style={{ width: size, height: size }}
       >
-        <Check className="text-green-500" style={{ width: size * 0.75, height: size * 0.75 }} />
+        <Check className="text-[#5CAACC]" style={{ width: size * 0.75, height: size * 0.75 }} />
       </div>
     );
   }

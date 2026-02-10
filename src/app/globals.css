@@ -25,25 +25,67 @@
 }
 
 .dark {
-  --background: 0 0% 0%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 8%;
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 8%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 153 70% 53%;
-  --primary-foreground: 0 0% 0%;
-  --secondary: 153 20% 14%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 0 0% 14%;
-  --muted-foreground: 0 0% 64%;
-  --accent: 153 10% 16%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 14%;
-  --input: 0 0% 14%;
-  --ring: 153 70% 53%;
+  /* DS 배경 계층 */
+  --background: 222 47% 5%;          /* #0A0E17 */
+  --foreground: 216 25% 93%;         /* #EAEEF4 */
+
+  --card: 220 40% 10%;               /* #141A2B */
+  --card-foreground: 216 20% 85%;    /* #C8D0DC */
+
+  --popover: 222 40% 8%;
+  --popover-foreground: 216 25% 93%;
+
+  /* 메인 컬러 → 시안 */
+  --primary: 195 45% 57%;            /* #5CAACC */
+  --primary-foreground: 222 47% 5%;
+
+  /* 보조 (패널 표면) */
+  --secondary: 220 35% 15%;
+  --secondary-foreground: 216 20% 85%;
+
+  /* 뮤트 */
+  --muted: 220 20% 18%;
+  --muted-foreground: 218 10% 50%;   /* #6B7280 */
+
+  /* 강조 → 앰버 */
+  --accent: 35 80% 48%;              /* #DC8D18 */
+  --accent-foreground: 216 25% 93%;
+
+  /* 경고/파괴 */
+  --destructive: 35 80% 48%;
+  --destructive-foreground: 216 25% 93%;
+
+  /* 보더, 인풋, 링 */
+  --border: 220 30% 15%;
+  --input: 220 30% 15%;
+  --ring: 195 45% 57%;               /* 포커스 링 = 시안 */
+
+  /* 차트 컬러 */
+  --chart-1: 195 45% 57%;            /* 시안 */
+  --chart-2: 195 45% 70%;            /* 밝은 시안 */
+  --chart-3: 35 80% 48%;             /* 앰버 */
+  --chart-4: 45 88% 58%;             /* 골드 */
+  --chart-5: 25 40% 65%;             /* 웜 베이지 */
+
+  /* DS 전용 커스텀 변수 */
+  --ds-cyan: 195 45% 57%;            /* #5CAACC */
+  --ds-cyan-dim: 195 45% 57% / 0.15;
+  --ds-cyan-glow: 195 45% 57% / 0.3;
+  --ds-glow: 195 45% 57% / 0.15;
+  --ds-strand: 195 45% 57% / 0.4;
+  --ds-strand-dim: 195 45% 57% / 0.1;
+  --ds-amber: 35 80% 48%;            /* #DC8D18 */
+  --ds-gold: 45 88% 58%;             /* #F4D136 */
+
+  /* DS 스타일 직각 모서리 */
+  --radius: 0.125rem;
+}
+
+.dark [data-slot="card"] {
+  background: hsl(220 40% 10% / 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid hsl(var(--ds-strand-dim));
+  border-radius: 2px;
 }
 
 @theme inline {
@@ -82,6 +124,9 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* Neon Glow Effects */
@@ -89,37 +134,28 @@ body {
 .dark button[class*="bg-primary"],
 .dark a[class*="text-primary"],
 .dark [class*="text-accent"] {
-  text-shadow: 0 0 10px hsl(var(--primary) / 0.5),
-               0 0 20px hsl(var(--primary) / 0.3),
-               0 0 30px hsl(var(--primary) / 0.2);
+  text-shadow: 0 0 5px hsl(var(--primary) / 0.4);
 }
 
 .dark button[data-primary="true"]:not(:disabled),
 .dark button[class*="bg-primary"]:not(:disabled) {
-  box-shadow: 0 0 15px hsl(var(--primary) / 0.4),
-              0 0 30px hsl(var(--primary) / 0.2),
-              inset 0 0 10px hsl(var(--primary) / 0.1);
+  box-shadow: 0 0 8px hsl(var(--primary) / 0.3);
 }
 
 .dark button[data-primary="true"]:hover:not(:disabled),
 .dark button[class*="bg-primary"]:hover:not(:disabled) {
-  box-shadow: 0 0 20px hsl(var(--primary) / 0.6),
-              0 0 40px hsl(var(--primary) / 0.3),
-              0 0 60px hsl(var(--primary) / 0.1),
-              inset 0 0 15px hsl(var(--primary) / 0.2);
+  box-shadow: 0 0 12px hsl(var(--primary) / 0.4);
 }
 
 .dark *:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
-  box-shadow: 0 0 10px hsl(var(--ring) / 0.5),
-              0 0 20px hsl(var(--ring) / 0.3);
+  box-shadow: 0 0 6px hsl(var(--ring) / 0.4);
 }
 
 .dark svg[class*="text-primary"],
 .dark svg[class*="text-accent"] {
-  filter: drop-shadow(0 0 8px hsl(var(--primary) / 0.6))
-          drop-shadow(0 0 15px hsl(var(--primary) / 0.3));
+  filter: drop-shadow(0 0 4px hsl(var(--primary) / 0.5));
 }
 
 /* Animation keyframes for shadcn/ui */
@@ -247,6 +283,41 @@ body {
 .animate-bar-grow {
   animation: bar-grow 0.5s ease-out forwards;
   transform-origin: bottom;
+}
+
+/* DS waveform bar — cyan single color, bottom-up stagger */
+@keyframes ds-waveform-grow {
+  from { transform: scaleY(0); opacity: 0; }
+  to   { transform: scaleY(1); opacity: var(--bar-opacity, 1); }
+}
+
+.ds-waveform-bar {
+  background: #5CAACC;
+  transform-origin: bottom;
+  animation: ds-waveform-grow 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--bar-index) * 15ms);
+  box-shadow: 0 0 3px rgba(92, 170, 204, 0.3);
+  border-radius: 2px !important;
+}
+
+/* DS progress bar — segment scaleX expansion */
+@keyframes ds-bar-fill {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.ds-progress-bar {
+  display: flex;
+  overflow: hidden;
+  border-radius: 2px;
+  height: 6px;
+  background: rgba(92, 170, 204, 0.05);
+}
+
+.ds-progress-segment {
+  transform-origin: left;
+  animation: ds-bar-fill 0.6s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+  animation-delay: calc(var(--seg-index) * 0.1s);
 }
 
 /* Slide up fade with bounce - for new commits */
@@ -445,16 +516,43 @@ body {
   background-color: hsl(var(--muted) / 0.5);
 }
 
-/* Date group enter - viewport entry animation */
+/* Date group enter - viewport entry animation (fade only, cards handle movement) */
 @keyframes date-group-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* DS data cascade — commit cards slide from left */
+@keyframes ds-card-cascade {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateX(-12px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(0);
   }
+}
+
+/* DS strand line — extends left→right behind group labels */
+@keyframes strand-extend {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.timeline-group-divider {
+  height: 1px;
+  background: linear-gradient(90deg,
+    rgba(92,170,204,0.4) 0%,
+    rgba(92,170,204,0.1) 40%,
+    transparent 100%
+  );
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+.date-group-section.is-visible .timeline-group-divider {
+  animation: strand-extend 0.5s cubic-bezier(0.25, 0.1, 0.25, 1) 0.2s both;
 }
 
 .date-group-section {
@@ -482,14 +580,16 @@ body {
   animation: marker-scale-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-/* Commit card hover - lift + shadow */
+/* Commit card hover - DS style: subtle brighten + left cyan bar */
 .commit-card-hover {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.4s ease;
 }
 
 .commit-card-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px hsl(var(--primary) / 0.1), 0 2px 6px hsl(var(--foreground) / 0.06);
+  background-color: rgba(92, 170, 204, 0.04);
+  box-shadow: inset 2px 0 0 rgba(92, 170, 204, 0.3);
 }
 
 /* Repo border glow on hover */
@@ -555,21 +655,21 @@ body {
   animation: subgroup-fade 0.4s ease-out forwards;
 }
 
-/* Stagger children animations in date groups */
+/* DS stagger cascade — cards slide from left with 0.06s intervals, 0.15s base delay */
 .date-group-section.is-visible .commit-card-stagger {
   opacity: 0;
-  animation: date-group-enter 0.4s ease-out forwards;
+  animation: ds-card-cascade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.date-group-section.is-visible .commit-card-stagger:nth-child(1) { animation-delay: 0.05s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(2) { animation-delay: 0.1s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(3) { animation-delay: 0.15s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(4) { animation-delay: 0.2s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(5) { animation-delay: 0.25s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(6) { animation-delay: 0.3s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(7) { animation-delay: 0.35s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(8) { animation-delay: 0.4s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(n+9) { animation-delay: 0.45s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(1) { animation-delay: 0.15s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(2) { animation-delay: 0.21s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(3) { animation-delay: 0.27s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(4) { animation-delay: 0.33s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(5) { animation-delay: 0.39s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(6) { animation-delay: 0.45s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(7) { animation-delay: 0.51s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(8) { animation-delay: 0.57s; }
+.date-group-section.is-visible .commit-card-stagger:nth-child(n+9) { animation-delay: 0.63s; }
 
 /* ===== Location Map Marker ===== */
 
@@ -671,10 +771,10 @@ body {
 .stay-point-marker {
   width: 28px;
   height: 28px;
-  background-color: hsl(260 60% 50%);
+  background-color: #7EC8E3;
   border-radius: 50%;
   border: 2.5px solid hsl(var(--background));
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px hsl(260 60% 50% / 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(126,200,227,0.3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -685,7 +785,7 @@ body {
 
 .stay-point-marker:hover {
   transform: scale(1.15);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4), 0 0 0 3px hsl(260 60% 50% / 0.25);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(92,170,204,0.25);
 }
 
 /* Stay point popup tooltip */
@@ -751,10 +851,182 @@ body {
 .stay-point-tooltip-category {
   display: inline-block;
   font-size: 10px;
-  color: hsl(260 60% 50%);
-  background: hsl(260 60% 50% / 0.1);
+  color: hsl(var(--ds-cyan));
+  background: hsl(var(--ds-cyan-dim));
   padding: 1px 6px;
   border-radius: 4px;
   width: fit-content;
   margin-top: 2px;
+}
+
+/* ===== DS Map Scanline Overlay ===== */
+
+.dark .map-scanline {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(92,170,204,0.02) 2px,
+    rgba(92,170,204,0.02) 4px
+  );
+  z-index: 1;
+}
+
+/* ===== DS Hologram Skeleton (11-5) ===== */
+
+.ds-skeleton {
+  background: rgba(92, 170, 204, 0.03);
+  border: 1px solid rgba(92, 170, 204, 0.05);
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+
+.ds-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(92, 170, 204, 0.06) 40%,
+    rgba(92, 170, 204, 0.06) 60%,
+    transparent 100%
+  );
+  animation: skeleton-scan 2s linear infinite;
+}
+
+@keyframes skeleton-scan {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+/* Skeleton → content: blur unfocus transition (CSS-only, no framer-motion) */
+@keyframes ds-content-resolve {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0px);
+  }
+}
+
+.ds-resolve {
+  animation: ds-content-resolve 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ===== DS Button Hover (11-4) ===== */
+
+.ds-button {
+  position: relative;
+  overflow: hidden;
+  transition:
+    color 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.ds-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(92, 170, 204, 0.08);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
+  pointer-events: none;
+}
+
+.ds-button:hover::before {
+  transform: scaleX(1);
+}
+
+.dark .ds-button:hover {
+  border-color: rgba(92, 170, 204, 0.4);
+}
+
+/* ===== DS Sync Timer (11-2 J, 10-2 §7) ===== */
+
+.ds-sync-timer {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-sync-timer.syncing {
+  color: hsl(var(--ds-cyan));
+  text-shadow: 0 0 8px hsl(var(--ds-cyan-glow));
+  animation: holo-flicker 3s ease-in-out infinite;
+}
+
+@keyframes holo-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.92; }
+}
+
+/* ===== prefers-reduced-motion (11-3) ===== */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Disable all ambient & stagger animations */
+  .ds-skeleton::after,
+  .ds-waveform-bar,
+  .animate-shimmer,
+  .animate-pulse-glow::after,
+  .animate-sparkle,
+  .large-commit-card,
+  .animate-progress-spin,
+  .ds-sync-timer.syncing {
+    animation: none !important;
+  }
+
+  /* Stagger cascade: show immediately without slide */
+  .date-group-section.is-visible .commit-card-stagger {
+    opacity: 1 !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  /* Strand divider: show immediately */
+  .date-group-section.is-visible .timeline-group-divider {
+    animation: none !important;
+    transform: scaleX(1) !important;
+  }
+
+  /* Waveform bars: show immediately at target opacity */
+  .ds-waveform-bar {
+    transform: scaleY(1) !important;
+    opacity: var(--bar-opacity, 1) !important;
+  }
+
+  /* Progress segments: show immediately */
+  .ds-progress-segment {
+    animation: none !important;
+    transform: scaleX(1) !important;
+  }
+
+  /* Content resolve: no blur transition */
+  .ds-resolve {
+    animation: none !important;
+    opacity: 1 !important;
+    filter: none !important;
+  }
+
+  /* Date group enter: immediate */
+  .date-group-section {
+    opacity: 1 !important;
+  }
+
+  .date-group-section.is-visible {
+    animation: none !important;
+  }
+
+  /* Button hover: disable sweep, keep color change */
+  .ds-button::before {
+    transition: none !important;
+    display: none;
+  }
 }

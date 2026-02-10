@@ -53,10 +53,10 @@ export function SyncButton({
       size={size}
       onClick={handleSync}
       disabled={isActive}
-      className={className}
+      className={`ds-button ${className ?? ""}`}
     >
       {showComplete ? (
-        <Check className={`h-4 w-4 text-green-500 animate-success-pulse ${size !== "icon" ? "mr-2" : ""}`} />
+        <Check className={`h-4 w-4 text-[#5CAACC] animate-success-pulse ${size !== "icon" ? "mr-2" : ""}`} />
       ) : isActive ? (
         <SyncProgressRing
           isSyncing={true}
