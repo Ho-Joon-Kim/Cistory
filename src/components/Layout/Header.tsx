@@ -16,21 +16,23 @@ interface HeaderProps {
 
 export function Header({ showSync = true, onSyncStarted, actions }: HeaderProps) {
   return (
-    <header className="shrink-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto px-4 h-14 flex items-center justify-between">
-        {/* 로고 */}
-        <div className="flex items-center gap-4">
-          <Link href="/" className="font-semibold text-lg">
-            Cistory
-          </Link>
-          {/* 30일 커밋 히트맵 */}
-          <div className="hidden md:block">
-            <CommitHeatmap />
-          </div>
+    <header className="relative z-50 pointer-events-none h-14 px-4 flex items-center justify-between">
+      {/* Left: Logo + Heatmap */}
+      <div className="flex items-center gap-3 pointer-events-auto dark:bg-background/30 dark:backdrop-blur-md rounded-full px-3 py-1">
+        <Link
+          href="/"
+          className="uppercase tracking-[0.3em] font-light text-sm text-foreground dark:text-[#5CAACC] dark:drop-shadow-[0_0_8px_rgba(92,170,204,0.5)]"
+        >
+          Cistory
+        </Link>
+        <div className="hidden md:block">
+          <CommitHeatmap />
         </div>
+      </div>
 
-        {/* 액션 버튼들 */}
-        <div className="flex items-center gap-2 sm:gap-4">
+      {/* Right: Action pills */}
+      <div className="flex items-center gap-2 pointer-events-auto">
+        <div className="flex items-center gap-2 dark:bg-background/30 dark:backdrop-blur-md rounded-full px-2 py-1">
           {actions}
           {showSync && (
             <>

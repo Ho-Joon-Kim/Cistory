@@ -220,7 +220,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
             </div>
 
             {/* 커밋 메시지 */}
-            <p className="text-sm mt-0.5 break-words line-clamp-1">{messageFirstLine}</p>
+            <p className="text-sm mt-0.5 break-words line-clamp-1 commit-message-text">{messageFirstLine}</p>
 
             {/* AI 요약 (접힌 상태에서도 표시) */}
             {hasSummary && (

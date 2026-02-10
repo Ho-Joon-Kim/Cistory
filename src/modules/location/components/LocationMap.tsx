@@ -380,13 +380,27 @@ export function LocationMap({ date, className }: LocationMapProps) {
   const applyDarkMapColors = useCallback((map: MapboxMap) => {
     if (resolvedTheme !== "dark") return;
     if (map.getLayer("water")) {
-      map.setPaintProperty("water", "fill-color", "#080C14");
+      map.setPaintProperty("water", "fill-color", "#060A12");
     }
     if (map.getLayer("background")) {
-      map.setPaintProperty("background", "background-color", "#0A0E17");
+      map.setPaintProperty("background", "background-color", "#080C14");
     }
     if (map.getLayer("road-label")) {
-      map.setPaintProperty("road-label", "text-color", "#4A5568");
+      map.setPaintProperty("road-label", "text-color", "#3A4558");
+    }
+    // Reduce land/terrain brightness
+    if (map.getLayer("land")) {
+      map.setPaintProperty("land", "background-color", "#0A0E17");
+    }
+    // Dim road lines
+    for (const layerId of ["road-street", "road-minor", "road-major", "road-primary", "road-secondary-tertiary"]) {
+      if (map.getLayer(layerId)) {
+        map.setPaintProperty(layerId, "line-opacity", 0.3);
+      }
+    }
+    // Dim building layer
+    if (map.getLayer("building")) {
+      map.setPaintProperty("building", "fill-opacity", 0.3);
     }
   }, [resolvedTheme]);
 
@@ -394,7 +408,7 @@ export function LocationMap({ date, className }: LocationMapProps) {
   // (e.g. light-v11 → dark-v11 switch that causes full tile re-download on mobile)
   if (!MAPBOX_TOKEN || !resolvedTheme) {
     return (
-      <div className={`bg-muted flex items-center justify-center ${className ?? ""}`}>
+      <div className={`bg-muted dark:ds-map-fallback flex items-center justify-center ${className ?? ""}`}>
         {!MAPBOX_TOKEN && (
           <p className="text-sm text-muted-foreground">Mapbox 토큰이 설정되지 않았습니다</p>
         )}

@@ -148,8 +148,8 @@ const DateGroupSection = memo(function DateGroupSection({
             className={`text-sm font-medium transition-colors duration-200 ${
               isSelected
                 ? isToday
-                  ? "text-primary dark:uppercase dark:tracking-wider dark:font-light"
-                  : "text-foreground dark:uppercase dark:tracking-wider dark:font-light"
+                  ? "text-primary dark:uppercase dark:tracking-wider dark:font-light dark:drop-shadow-[0_0_6px_rgba(92,170,204,0.4)]"
+                  : "text-foreground dark:uppercase dark:tracking-wider dark:font-light dark:drop-shadow-[0_0_6px_rgba(92,170,204,0.3)]"
                 : "text-muted-foreground/50"
             }`}
           >
