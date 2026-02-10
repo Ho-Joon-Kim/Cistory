@@ -114,7 +114,7 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
             <div className="flex items-center justify-between">
               <h4 className="font-medium">동기화 진행 중</h4>
               {!isConnected && (
-                <Badge variant="outline" className="text-xs text-yellow-600">
+                <Badge variant="outline" className="text-xs text-accent">
                   연결 끊김
                 </Badge>
               )}
@@ -192,9 +192,9 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
                 >
                   <div className="flex items-center gap-2 truncate">
                     {job.status === "completed" ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                      <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
                     ) : (
-                      <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                      <XCircle className="h-4 w-4 text-accent shrink-0" />
                     )}
                     <span className="truncate">{getSyncTypeLabel(job.syncType)}</span>
                   </div>

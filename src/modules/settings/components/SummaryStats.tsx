@@ -113,14 +113,14 @@ export function SummaryStats() {
         {/* Stats grid */}
         <div className="grid grid-cols-2 gap-3">
           <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <Clock className="h-4 w-4 text-yellow-500" />
+            <Clock className="h-4 w-4 text-[#DC8D18]" />
             <div>
               <p className="text-sm font-medium">{stats.pending}</p>
               <p className="text-xs text-muted-foreground">대기 중</p>
             </div>
           </div>
           <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <Loader2 className="h-4 w-4 text-blue-500" />
+            <Loader2 className="h-4 w-4 text-primary" />
             <div>
               <p className="text-sm font-medium">{stats.processing}</p>
               <p className="text-xs text-muted-foreground">처리 중</p>
@@ -134,7 +134,7 @@ export function SummaryStats() {
             </div>
           </div>
           <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <AlertCircle className="h-4 w-4 text-red-500" />
+            <AlertCircle className="h-4 w-4 text-accent" />
             <div>
               <p className="text-sm font-medium">{stats.failed}</p>
               <p className="text-xs text-muted-foreground">실패</p>

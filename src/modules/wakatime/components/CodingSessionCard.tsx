@@ -41,7 +41,7 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
 
   return (
     <Card
-      className="cursor-pointer !py-0 !gap-0 rounded-lg relative overflow-hidden mb-2"
+      className="cursor-pointer !py-0 !gap-0 !rounded-sm relative overflow-hidden mb-2"
       onClick={() => setIsExpanded(!isExpanded)}
     >
       {/* DS cyan left border */}
@@ -97,7 +97,7 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
 
         {/* Expanded: project breakdown + AI ratio */}
         {isExpanded && (
-          <div className="mt-3 pt-3 border-t animate-in fade-in-0 slide-in-from-top-2 duration-200 space-y-3">
+          <div className="mt-3 pt-3 border-t border-[hsl(var(--ds-strand-dim))] animate-in fade-in-0 slide-in-from-top-2 duration-200 space-y-3">
             {/* Projects */}
             {projects.length > 0 && (
               <div>

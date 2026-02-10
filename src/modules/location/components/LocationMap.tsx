@@ -31,6 +31,11 @@ const EMPTY_POINTS_GEOJSON: GeoJSON.FeatureCollection = {
   type: "FeatureCollection",
   features: [],
 };
+const EMPTY_POINT_GEOJSON: GeoJSON.Feature = {
+  type: "Feature",
+  properties: {},
+  geometry: { type: "Point", coordinates: [0, 0] },
+};
 
 // Mapbox GL layer styles (WebGL-rendered, not DOM)
 // DS-style dual layer: wide translucent glow behind a thin core line
@@ -72,6 +77,28 @@ const POINT_LAYER: LayerProps = {
     "circle-blur": 0.3,
     "circle-stroke-width": 1,
     "circle-stroke-color": "rgba(92,170,204,0.5)",
+  },
+};
+
+// DS head dot layers — bright cyan leading point during route drawing
+const HEAD_GLOW_LAYER: LayerProps = {
+  id: "route-head-glow",
+  type: "circle" as const,
+  paint: {
+    "circle-color": "#7EC8E3",
+    "circle-radius": 6,
+    "circle-opacity": 0.4,
+    "circle-blur": 0.5,
+  },
+};
+
+const HEAD_DOT_LAYER: LayerProps = {
+  id: "route-head-dot",
+  type: "circle" as const,
+  paint: {
+    "circle-color": "#5CAACC",
+    "circle-radius": 3,
+    "circle-opacity": 1,
   },
 };
 
@@ -142,6 +169,25 @@ function RouteAnimator({
     [map],
   );
 
+  /** Update the leading head dot position during route drawing */
+  const updateHead = useCallback(
+    (coord: Position | null) => {
+      if (!map) return;
+      const headSource = map.getSource("route-head") as GeoJSONSource | undefined;
+      if (!headSource) return;
+      if (coord) {
+        headSource.setData({
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Point", coordinates: coord },
+        });
+      } else {
+        headSource.setData(EMPTY_POINTS_GEOJSON);
+      }
+    },
+    [map],
+  );
+
   // Fit bounds when locations change
   useEffect(() => {
     if (!map || allCoords.length === 0) return;
@@ -174,6 +220,7 @@ function RouteAnimator({
       cancelAnimationFrame(animationRef.current);
       updateLine([]);
       updatePoints([]);
+      updateHead(null);
       setLastPoint(null);
       prevDateRef.current = date;
     }
@@ -181,6 +228,7 @@ function RouteAnimator({
     if (allCoords.length === 0) {
       updateLine([]);
       updatePoints([]);
+      updateHead(null);
       setLastPoint(null);
       return;
     }
@@ -188,6 +236,7 @@ function RouteAnimator({
     if (allCoords.length === 1) {
       updateLine(allCoords);
       updatePoints(allCoords);
+      updateHead(null);
       setLastPoint(allCoords[0]);
       return;
     }
@@ -200,14 +249,16 @@ function RouteAnimator({
       const eased = easeOutCubic(progress);
 
       const count = Math.max(2, Math.round(eased * allCoords.length));
-      // Only animate the line — skip points to avoid ~45k temp objects from GC pressure
-      updateLine(allCoords.slice(0, count));
+      const sliced = allCoords.slice(0, count);
+      updateLine(sliced);
+      updateHead(sliced[sliced.length - 1]);
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(animate);
       } else {
         updateLine(allCoords);
         updatePoints(allCoords);
+        updateHead(null);
         setLastPoint(allCoords[allCoords.length - 1]);
       }
     }
@@ -216,7 +267,7 @@ function RouteAnimator({
     animationRef.current = requestAnimationFrame(animate);
 
     return () => cancelAnimationFrame(animationRef.current);
-  }, [map, allCoords, date, updateLine, updatePoints]);
+  }, [map, allCoords, date, updateLine, updatePoints, updateHead]);
 
   // Only mount sources when data exists — avoids interfering with initial tile loading
   const hasData = allCoords.length > 0;
@@ -231,6 +282,10 @@ function RouteAnimator({
           </Source>
           <Source id="route-points" type="geojson" data={EMPTY_POINTS_GEOJSON}>
             <Layer {...POINT_LAYER} />
+          </Source>
+          <Source id="route-head" type="geojson" data={EMPTY_POINT_GEOJSON}>
+            <Layer {...HEAD_GLOW_LAYER} />
+            <Layer {...HEAD_DOT_LAYER} />
           </Source>
         </>
       )}
@@ -329,6 +384,9 @@ export function LocationMap({ date, className }: LocationMapProps) {
     }
     if (map.getLayer("background")) {
       map.setPaintProperty("background", "background-color", "#0A0E17");
+    }
+    if (map.getLayer("road-label")) {
+      map.setPaintProperty("road-label", "text-color", "#4A5568");
     }
   }, [resolvedTheme]);
 

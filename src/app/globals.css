@@ -267,6 +267,7 @@ body {
   inset: -2px;
   border-radius: 50%;
   background-color: hsl(var(--primary) / 0.4);
+  will-change: transform, opacity;
   animation: pulse-ring-lg 1.5s ease-out infinite;
 }
 
@@ -612,6 +613,7 @@ body {
 }
 
 .large-commit-card {
+  will-change: box-shadow;
   animation: large-commit-glow 4s ease-in-out infinite;
 }
 
@@ -628,6 +630,7 @@ body {
 }
 
 .animate-sparkle {
+  will-change: opacity, transform;
   animation: sparkle-twinkle 2s ease-in-out infinite;
 }
 
@@ -875,6 +878,28 @@ body {
   z-index: 1;
 }
 
+.dark .map-scanline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(92,170,204,0.02) 50%,
+    transparent 100%
+  );
+  height: 30%;
+  width: 100%;
+  will-change: transform;
+  animation: map-scan 6s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes map-scan {
+  from { transform: translateY(-30%); }
+  to   { transform: translateY(430%); }
+}
+
 /* ===== DS Hologram Skeleton (11-5) ===== */
 
 .ds-skeleton {
@@ -896,6 +921,7 @@ body {
     rgba(92, 170, 204, 0.06) 60%,
     transparent 100%
   );
+  will-change: transform;
   animation: skeleton-scan 2s linear infinite;
 }
 
@@ -918,6 +944,16 @@ body {
 
 .ds-resolve {
   animation: ds-content-resolve 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.ds-skeleton.loaded {
+  animation: skeleton-resolve 0.4s ease-out forwards;
+}
+
+@keyframes skeleton-resolve {
+  0%   { border-color: rgba(92,170,204,0.15); }
+  50%  { border-color: rgba(92,170,204,0.3); }
+  100% { border-color: rgba(92,170,204,0.08); }
 }
 
 /* ===== DS Button Hover (11-4) ===== */
@@ -960,12 +996,16 @@ body {
 .ds-sync-timer.syncing {
   color: hsl(var(--ds-cyan));
   text-shadow: 0 0 8px hsl(var(--ds-cyan-glow));
-  animation: holo-flicker 3s ease-in-out infinite;
+  animation: holo-flicker 4s ease-in-out infinite;
 }
 
 @keyframes holo-flicker {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.92; }
+  92% { opacity: 1; }
+  93% { opacity: 0.8; }
+  94% { opacity: 1; }
+  96% { opacity: 0.9; }
+  97% { opacity: 1; }
 }
 
 /* ===== prefers-reduced-motion (11-3) ===== */
@@ -979,7 +1019,8 @@ body {
   .animate-sparkle,
   .large-commit-card,
   .animate-progress-spin,
-  .ds-sync-timer.syncing {
+  .ds-sync-timer.syncing,
+  .map-scanline::after {
     animation: none !important;
   }
 

@@ -170,7 +170,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
   return (
     <Card
       className={`
-        commit-card-hover cursor-pointer !py-0 !gap-0 rounded-lg relative overflow-hidden
+        commit-card-hover cursor-pointer !py-0 !gap-0 !rounded-sm relative overflow-hidden
         ${isNew ? "animate-slide-up-fade animate-highlight" : ""}
         ${isLarge ? "large-commit-card" : ""}
         ${isMerge ? "opacity-70 bg-muted/30" : ""}
@@ -314,7 +314,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
 
             {/* 전체 커밋 메시지 (있을 경우) */}
             {hasMoreMessage && (
-              <div className="mt-3 pt-3 border-t">
+              <div className="mt-3 pt-3 border-t border-[hsl(var(--ds-strand-dim))]">
                 <h4 className="text-xs font-medium text-muted-foreground mb-2">
                   전체 커밋 메시지
                 </h4>
