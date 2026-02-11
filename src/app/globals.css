@@ -77,6 +77,12 @@
   --ds-amber: 35 80% 48%;            /* #DC8D18 */
   --ds-gold: 45 88% 58%;             /* #F4D136 */
 
+  /* DS 데이터 카테고리 컬러 */
+  --ds-data-coding: 260 35% 58%;
+  --ds-data-coding-dim: 260 35% 58% / 0.15;
+  --ds-data-location: 35 65% 50%;
+  --ds-data-location-dim: 35 65% 50% / 0.15;
+
   /* DS 스타일 직각 모서리 */
   --radius: 0.125rem;
 }
@@ -114,6 +120,7 @@
   --radius-xl: calc(var(--radius) + 4px);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-rajdhani);
 }
 
 * {
@@ -452,6 +459,31 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* DS change ratio bar (additions vs deletions) */
+.ds-change-ratio-bar {
+  height: 3px;
+  width: 48px;
+  border-radius: 1px;
+  background: hsl(var(--ds-amber) / 0.4);
+  position: relative;
+  overflow: hidden;
+}
+.ds-change-ratio-bar::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: var(--add-ratio, 50%);
+  background: hsl(var(--ds-cyan) / 0.6);
+  border-radius: 1px;
+}
+
+/* DS display font for stat numbers */
+.ds-display-stat {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Shimmer effect for loading states */
 @keyframes shimmer {
   0% {
@@ -625,6 +657,11 @@ body {
 .large-commit-card {
   will-change: box-shadow;
   animation: large-commit-glow 4s ease-in-out infinite;
+}
+
+.dark .large-commit-card {
+  border-left-width: 4px;
+  background: hsl(220 40% 10% / 0.95);
 }
 
 /* AI summary sparkle twinkle */
@@ -802,6 +839,10 @@ body {
 }
 
 /* Stay point popup tooltip */
+.mapboxgl-ctrl-logo {
+  display: none !important;
+}
+
 .stay-point-popup .mapboxgl-popup-content {
   padding: 0;
   border-radius: 10px;
@@ -1265,6 +1306,77 @@ body {
   background-size: 40px 40px;
 }
 
+/* ===== DS Scan Flash (card click feedback) ===== */
+
+@keyframes ds-scan-flash {
+  0% { transform: translateX(-100%); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+
+.ds-scan-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 10;
+}
+.ds-scan-flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(92, 170, 204, 0.15) 45%,
+    rgba(92, 170, 204, 0.25) 50%,
+    rgba(92, 170, 204, 0.15) 55%,
+    transparent 100%
+  );
+  animation: ds-scan-flash 0.5s ease-out forwards;
+}
+
+/* ===== DS Stepper Ripple ===== */
+
+@keyframes stepper-ripple {
+  0% { transform: scale(0.5); opacity: 0.5; }
+  100% { transform: scale(3); opacity: 0; }
+}
+
+.stepper-dot {
+  position: relative;
+}
+
+.stepper-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.stepper-dot:active::after {
+  background: hsl(var(--primary) / 0.3);
+  animation: stepper-ripple 0.4s ease-out;
+}
+
+/* ===== DS Expand Strand Line ===== */
+
+@keyframes ds-strand-reveal {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.ds-expand-strand {
+  height: 1px;
+  background: linear-gradient(90deg,
+    hsl(var(--ds-cyan) / 0.5) 0%,
+    hsl(var(--ds-cyan) / 0.15) 60%,
+    transparent 100%
+  );
+  transform-origin: left;
+  animation: ds-strand-reveal 0.3s ease-out;
+}
+
 /* ===== prefers-reduced-motion (11-3) ===== */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1343,4 +1455,9 @@ body {
     animation: none !important;
     opacity: 1 !important;
   }
+
+  /* Phase 3 animations */
+  .ds-scan-flash { display: none; }
+  .stepper-dot:active::after { animation: none; }
+  .ds-expand-strand { animation: none; transform: scaleX(1); }
 }

@@ -44,14 +44,16 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
       className="cursor-pointer !py-0 !gap-0 !rounded-sm relative overflow-hidden mb-2"
       onClick={() => setIsExpanded(!isExpanded)}
     >
-      {/* DS cyan left border */}
-      <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#5CAACC]" />
+      {/* Violet left border */}
+      <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[hsl(260,35%,58%)]" />
+      {/* Violet top edge accent */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[hsl(260,35%,58%)] via-[hsl(260,35%,58%,0.3)] to-transparent" />
 
       <CardContent className="py-2 pl-4 pr-3">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Code className="h-4 w-4 text-[#5CAACC] flex-shrink-0" />
+            <Code className="h-4 w-4 text-[hsl(260,35%,58%)] flex-shrink-0" />
             <span className="font-medium text-sm">Coding</span>
             <span className="font-bold text-sm">{formatCodingTime(totalSeconds)}</span>
             {sessions.length > 0 && (
@@ -180,16 +182,16 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
 
 // DS palette — language colors mapped per design system 10-2 §5
 const DS_LANG_COLORS: Record<string, string> = {
-  TypeScript: "#5CAACC",   // 시안 — 주 언어
-  JavaScript: "#5CAACC",
-  Other: "#7EC8E3",        // 밝은 시안
+  TypeScript: "#7EC8E3",   // 밝은 시안 (UI 시안과 구별)
+  JavaScript: "#7EC8E3",
+  Python: "#927FCC",       // 바이올렛
   JSON: "#DC8D18",         // 앰버
   CSS: "#F4D136",          // 골드
-  Python: "#CAB4A1",       // 웜 베이지
   SCSS: "#F4D136",
-  HTML: "#7EC8E3",
+  HTML: "#A0B8C4",         // 스틸
+  Other: "#A0B8C4",
 };
-const DS_LANG_COLORS_INDEXED = ["#5CAACC", "#7EC8E3", "#DC8D18"];
+const DS_LANG_COLORS_INDEXED = ["#7EC8E3", "#927FCC", "#DC8D18"];
 
 function deriveProjects(sessions: CodingSessionData[]) {
   const map = new Map<string, number>();

@@ -2,14 +2,16 @@ import type { TimelineCommit } from "./hooks";
 
 // --- 1a. Repository color palette ---
 const REPO_COLORS = [
-  "173 80% 40%", // teal
-  "217 91% 60%", // blue
-  "263 70% 58%", // violet
-  "330 81% 60%", // pink
-  "25 95% 53%", // orange
-  "45 93% 47%", // amber
-  "84 81% 44%", // lime
-  "186 94% 42%", // cyan
+  "185 35% 45%",  // muted teal
+  "215 35% 50%",  // steel blue
+  "255 25% 52%",  // muted violet
+  "330 30% 50%",  // dusty rose
+  "25 40% 48%",   // burnt sienna
+  "42 45% 45%",   // muted amber
+  "150 30% 42%",  // sage
+  "195 40% 48%",  // deep cyan
+  "275 25% 48%",  // lavender
+  "10 35% 50%",   // terracotta
 ];
 
 function djb2Hash(str: string): number {

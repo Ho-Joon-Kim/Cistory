@@ -428,6 +428,7 @@ export function LocationMap({ date, className }: LocationMapProps) {
           zoom: DEFAULT_ZOOM,
         }}
         mapStyle={mapStyle}
+        attributionControl={false}
         fadeDuration={0}
         style={{ width: "100%", height: "100%" }}
         onLoad={(e) => {

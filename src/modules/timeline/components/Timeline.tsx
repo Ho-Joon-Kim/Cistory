@@ -145,7 +145,7 @@ const DateGroupSection = memo(function DateGroupSection({
           aria-label={`${label} 선택`}
         >
           <h3
-            className={`text-sm font-medium transition-colors duration-200 ${
+            className={`text-base font-medium transition-colors duration-200 font-[family-name:var(--font-display)] ${
               isSelected
                 ? isToday
                   ? "text-primary dark:uppercase dark:tracking-wider dark:font-light dark:drop-shadow-[0_0_6px_rgba(92,170,204,0.4)]"
@@ -180,7 +180,7 @@ const DateGroupSection = memo(function DateGroupSection({
             <span
               className={`inline-flex items-center gap-0.5 h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
                 isSelected
-                  ? "bg-violet-500/15 dark:bg-[rgba(92,170,204,0.15)] text-violet-600 dark:text-[#5CAACC]"
+                  ? "bg-[hsl(260_35%_58%_/_0.15)] text-[hsl(260,35%,58%)]"
                   : "bg-muted/50 text-muted-foreground/50"
               }`}
             >

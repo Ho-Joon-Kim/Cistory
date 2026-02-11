@@ -34,6 +34,7 @@ interface CommitCardProps {
 
 export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDelay = 0, repoColor }: CommitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showScanFlash, setShowScanFlash] = useState(false);
   const [stats, setStats] = useState<CommitStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
@@ -176,13 +177,24 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
         ${isMerge ? "opacity-70 bg-muted/30" : ""}
       `}
       style={cardStyle}
-      onClick={() => setIsExpanded(!isExpanded)}
+      onClick={() => {
+        setIsExpanded(!isExpanded);
+        setShowScanFlash(true);
+        setTimeout(() => setShowScanFlash(false), 500);
+      }}
     >
+      {/* Scan flash on click */}
+      {showScanFlash && <div className="ds-scan-flash" />}
+
       {/* Left repo color border */}
       {repoColor && (
         <div
-          className="absolute left-0 top-0 bottom-0 w-[3px] repo-border-glow"
-          style={{ backgroundColor: `hsl(${repoColor})` }}
+          className={`absolute left-0 top-0 bottom-0 w-[3px] repo-border-glow ${isMerge ? "opacity-40" : ""}`}
+          style={{
+            ...(isMerge
+              ? { backgroundImage: `repeating-linear-gradient(180deg, hsl(${repoColor}) 0px, hsl(${repoColor}) 4px, transparent 4px, transparent 8px)` }
+              : { backgroundColor: `hsl(${repoColor})` }),
+          }}
         />
       )}
 
@@ -276,13 +288,21 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
                 </>
               )}
             </div>
+            {/* Change ratio mini-bar */}
+            {hasStats && (displayStats.additions + displayStats.deletions > 0) && (
+              <div
+                className="ds-change-ratio-bar mt-1"
+                style={{ "--add-ratio": `${Math.round((displayStats.additions / (displayStats.additions + displayStats.deletions)) * 100)}%` } as React.CSSProperties}
+              />
+            )}
           </div>
 
         </div>
 
         {/* 확장 영역: AI 요약 */}
         {isExpanded && (
-          <div className="mt-4 pt-4 border-t border-[hsl(var(--ds-strand-dim))] animate-in fade-in-0 slide-in-from-top-2 duration-200">
+          <div className="mt-3 pt-3 animate-in fade-in-0 slide-in-from-top-2 duration-200">
+            <div className="ds-expand-strand mb-3" />
             <h4 className="text-xs font-medium text-muted-foreground mb-2">
               AI 요약
             </h4>

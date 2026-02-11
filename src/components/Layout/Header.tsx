@@ -21,7 +21,7 @@ export function Header({ showSync = true, onSyncStarted, actions }: HeaderProps)
       <div className="flex items-center gap-3 pointer-events-auto dark:bg-background/30 dark:backdrop-blur-md rounded-full px-3 py-1">
         <Link
           href="/"
-          className="uppercase tracking-[0.3em] font-light text-sm text-foreground dark:text-[#5CAACC] dark:drop-shadow-[0_0_8px_rgba(92,170,204,0.5)]"
+          className="uppercase tracking-[0.4em] font-light text-base font-[family-name:var(--font-display)] text-foreground dark:text-[#5CAACC] dark:drop-shadow-[0_0_8px_rgba(92,170,204,0.5)]"
         >
           Cistory
         </Link>
