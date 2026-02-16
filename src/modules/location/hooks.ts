@@ -205,7 +205,8 @@ export function useLocations(date: string) {
       setError(null);
 
       try {
-        const response = await fetch(`/api/timeline/locations?date=${targetDate}`, { signal });
+        const params = new URLSearchParams({ date: targetDate });
+        const response = await fetch(`/api/timeline/locations?${params}`, { signal });
         if (!response.ok) throw new Error("Failed to fetch locations");
 
         const data = (await response.json()) as LocationsResponse;

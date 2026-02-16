@@ -138,89 +138,90 @@ export async function GET(request: NextRequest) {
     // 2. Stay point 알고리즘 적용
     const clusters = detectStayPoints(rows);
 
-    // 3. 각 stay point에 대해 geocoding (캐시 확인 우선)
-    const stayPoints = await Promise.all(
-      clusters.map(async (cluster) => {
-        const latKey = roundCoord(cluster.centroidLat);
-        const lonKey = roundCoord(cluster.centroidLon);
+    // 3. 각 stay point에 대해 geocoding (캐시 확인 우선, 순차 처리로 커넥션 풀 보호)
+    const stayPoints = [];
+    for (const cluster of clusters) {
+      const latKey = roundCoord(cluster.centroidLat);
+      const lonKey = roundCoord(cluster.centroidLon);
 
-        // 캐시 확인
-        const cached = await db
-          .select()
-          .from(placeCache)
-          .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)))
-          .limit(1);
+      // 캐시 확인
+      const cached = await db
+        .select()
+        .from(placeCache)
+        .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)))
+        .limit(1);
 
-        if (cached.length > 0) {
-          const c = cached[0];
-          // placeName === address이고 category가 없으면 POI 미검출 stale 캐시 → 삭제 후 재검색
-          const isStale = c.placeName === c.address && !c.category;
-          if (isStale) {
-            await db
-              .delete(placeCache)
-              .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)));
-          } else {
-            return {
-              lat: cluster.centroidLat,
-              lon: cluster.centroidLon,
-              placeName: c.placeName,
-              address: c.address,
-              category: c.category,
-              startTime: cluster.startTime.toISOString(),
-              endTime: cluster.endTime.toISOString(),
-              durationMinutes: cluster.durationMinutes,
-            };
-          }
+      if (cached.length > 0) {
+        const c = cached[0];
+        // placeName === address이고 category가 없으면 POI 미검출 stale 캐시 → 삭제 후 재검색
+        const isStale = c.placeName === c.address && !c.category;
+        if (isStale) {
+          await db
+            .delete(placeCache)
+            .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)));
+        } else {
+          stayPoints.push({
+            lat: cluster.centroidLat,
+            lon: cluster.centroidLon,
+            placeName: c.placeName,
+            address: c.address,
+            category: c.category,
+            startTime: cluster.startTime.toISOString(),
+            endTime: cluster.endTime.toISOString(),
+            durationMinutes: cluster.durationMinutes,
+          });
+          continue;
         }
+      }
 
-        // 캐시 miss → geocoding
-        try {
-          const adapter = getGeocodingAdapter(cluster.centroidLat, cluster.centroidLon);
-          const result = await adapter.reverseGeocode(cluster.centroidLat, cluster.centroidLon);
+      // 캐시 miss → geocoding
+      try {
+        const adapter = getGeocodingAdapter(cluster.centroidLat, cluster.centroidLon);
+        const result = await adapter.reverseGeocode(cluster.centroidLat, cluster.centroidLon);
 
-          if (result) {
-            // 캐시 저장
-            await db
-              .insert(placeCache)
-              .values({
-                latKey,
-                lonKey,
-                placeName: result.placeName,
-                address: result.address,
-                category: result.category ?? null,
-                provider: result.provider,
-                resolvedAt: new Date(),
-              })
-              .onConflictDoNothing();
-
-            return {
-              lat: cluster.centroidLat,
-              lon: cluster.centroidLon,
+        if (result) {
+          // 캐시 저장
+          await db
+            .insert(placeCache)
+            .values({
+              latKey,
+              lonKey,
               placeName: result.placeName,
               address: result.address,
-              category: result.category,
-              startTime: cluster.startTime.toISOString(),
-              endTime: cluster.endTime.toISOString(),
-              durationMinutes: cluster.durationMinutes,
-            };
-          }
-        } catch (e) {
-          console.error("Geocoding error:", e);
-        }
+              category: result.category ?? null,
+              provider: result.provider,
+              resolvedAt: new Date(),
+            })
+            .onConflictDoNothing();
 
-        // geocoding 실패 시 좌표만 반환
-        return {
-          lat: cluster.centroidLat,
-          lon: cluster.centroidLon,
-          placeName: null,
-          address: null,
-          category: null,
-          startTime: cluster.startTime.toISOString(),
-          endTime: cluster.endTime.toISOString(),
-          durationMinutes: cluster.durationMinutes,
-        };
-      }),
-    );
+          stayPoints.push({
+            lat: cluster.centroidLat,
+            lon: cluster.centroidLon,
+            placeName: result.placeName,
+            address: result.address,
+            category: result.category,
+            startTime: cluster.startTime.toISOString(),
+            endTime: cluster.endTime.toISOString(),
+            durationMinutes: cluster.durationMinutes,
+          });
+          continue;
+        }
+      } catch (e) {
+        console.error("Geocoding error:", e);
+      }
+
+      // geocoding 실패 시 좌표만 반환
+      stayPoints.push({
+        lat: cluster.centroidLat,
+        lon: cluster.centroidLon,
+        placeName: null,
+        address: null,
+        category: null,
+        startTime: cluster.startTime.toISOString(),
+        endTime: cluster.endTime.toISOString(),
+        durationMinutes: cluster.durationMinutes,
+      });
+    }
 
     return NextResponse.json({ stayPoints });
   } catch (error) {

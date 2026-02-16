@@ -63,6 +63,7 @@ const POINT_LAYER: LayerProps = {
 interface LocationMapProps {
   date: string;
   className?: string;
+  initialCenter?: { latitude: number; longitude: number } | null;
 }
 
 function easeOutCubic(t: number): number {
@@ -297,13 +298,14 @@ function StayPointMarkers({ stayPoints }: { stayPoints: StayPointData[] }) {
   );
 }
 
-export function LocationMap({ date, className }: LocationMapProps) {
+export function LocationMap({ date, className, initialCenter }: LocationMapProps) {
   const { resolvedTheme } = useTheme();
   const { locations, isLoading } = useLocations(date);
   const { stayPoints } = useStayPoints(date);
   const [mapLoaded, setMapLoaded] = useState(false);
 
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
+  const center = initialCenter ?? SEOUL_CENTER;
 
   // Wait for theme to resolve before mounting the map — avoids double style load
   // (e.g. light-v11 → dark-v11 switch that causes full tile re-download on mobile)
@@ -324,7 +326,7 @@ export function LocationMap({ date, className }: LocationMapProps) {
         id="location-map"
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={{
-          ...SEOUL_CENTER,
+          ...center,
           zoom: DEFAULT_ZOOM,
         }}
         mapStyle={mapStyle}

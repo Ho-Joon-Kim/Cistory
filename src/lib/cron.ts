@@ -282,9 +282,11 @@ export function initializeCron() {
 export async function stopCron() {
   if (cronTask) {
     cronTask.stop();
+    cronTask = null;
+  }
+  if (isInitialized) {
     await logger.flush();
     logger.info('[Cron] Service stopped.');
     isInitialized = false;
-    cronTask = null;
   }
 }

@@ -14,6 +14,8 @@ export const users = pgTable(
     ownTracksApiKey: text("own_tracks_api_key"),
     wakatimeApiKey: text("wakatime_api_key"),
     wakatimeLastSyncedAt: timestamp("wakatime_last_synced_at"),
+    lastLat: doublePrecision("last_lat"),
+    lastLon: doublePrecision("last_lon"),
     theme: text("theme").default("system"), // 'light' | 'dark' | 'system'
     syncIntervalHours: integer("sync_interval_hours").default(1),
     lastSyncedAt: timestamp("last_synced_at"),
@@ -236,3 +238,4 @@ export type NewCodingSession = typeof codingSessions.$inferInsert;
 
 export type CodingDailyStat = typeof codingDailyStats.$inferSelect;
 export type NewCodingDailyStat = typeof codingDailyStats.$inferInsert;
+

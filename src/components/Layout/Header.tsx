@@ -1,20 +1,23 @@
 "use client";
 
-import type { ReactNode } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CommitHeatmap } from "@/components/CommitHeatmap";
 import { UserMenu } from "@/modules/auth/components/UserMenu";
 import { SyncStatus } from "@/modules/sync/components/SyncStatus";
 import { SyncButton } from "@/modules/sync/components/SyncButton";
+import { BarChart3 } from "lucide-react";
 
 interface HeaderProps {
   showSync?: boolean;
   onSyncStarted?: () => void;
-  actions?: ReactNode;
 }
 
-export function Header({ showSync = true, onSyncStarted, actions }: HeaderProps) {
+export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
+  const pathname = usePathname();
+  const isReportPage = pathname === "/report";
+
   return (
     <header className="shrink-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto px-4 h-14 flex items-center justify-between">
@@ -31,7 +34,13 @@ export function Header({ showSync = true, onSyncStarted, actions }: HeaderProps)
 
         {/* 액션 버튼들 */}
         <div className="flex items-center gap-2 sm:gap-4">
-          {actions}
+          <Link
+            href={isReportPage ? "/" : "/report"}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <BarChart3 className="h-4 w-4" />
+            <span className="hidden sm:inline">{isReportPage ? "타임라인" : "보고서"}</span>
+          </Link>
           {showSync && (
             <>
               <div className="hidden sm:block">

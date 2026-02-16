@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Timeline } from "@/modules/timeline/components/Timeline";
-import { Filters } from "@/modules/timeline/components/Filters";
-import { useTimeline, useFilters } from "@/modules/timeline/hooks";
+import { useTimeline } from "@/modules/timeline/hooks";
 import { useAuth } from "@/modules/auth/hooks";
+import { parseDateParam } from "@/lib/utils";
 import { SyncStatusProvider, type RecentSyncJob } from "@/modules/sync/hooks";
 import { Header } from "@/components/Layout/Header";
 import { MapSkeleton } from "@/modules/location/components/MapSkeleton";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { useSettings } from "@/modules/settings/hooks";
 
 const LocationMap = dynamic(
   () => import("@/modules/location/components/LocationMap").then((m) => m.LocationMap),
@@ -32,16 +33,27 @@ export default function DashboardPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading: isAuthLoading, isAuthenticated } = useAuth();
+  const { settings } = useSettings();
 
-  // Selected date for timeline + map
-  const [selectedDate, setSelectedDate] = useState<string>(
-    () => new Date().toISOString().split("T")[0]
+  // Selected date for timeline + map (initialized from URL ?date= param)
+  const today = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const [selectedDate, setSelectedDateRaw] = useState<string>(
+    () => parseDateParam(searchParams.get("date"))
   );
 
-  // URL 쿼리 파라미터에서 repos 읽기 (초기값)
-  const initialRepos = searchParams.get("repos")?.split(",").filter(Boolean) ?? [];
-  const { filters, setRepoFullNames, setDateRange, clearFilters } = useFilters(
-    initialRepos.length > 0 ? initialRepos : undefined
+  // Wrap setSelectedDate to sync URL
+  const setSelectedDate = useCallback(
+    (date: string) => {
+      setSelectedDateRaw(date);
+      const url = new URL(window.location.href);
+      if (date === today) {
+        url.searchParams.delete("date");
+      } else {
+        url.searchParams.set("date", date);
+      }
+      window.history.replaceState(null, "", url.toString());
+    },
+    [today]
   );
 
   const {
@@ -50,7 +62,14 @@ export default function DashboardPage() {
     hasNext,
     loadMore,
     refresh,
-  } = useTimeline({ filters });
+  } = useTimeline();
+
+  const mapInitialCenter = useMemo(() => {
+    if (settings?.lastLat != null && settings?.lastLon != null) {
+      return { latitude: settings.lastLat, longitude: settings.lastLon };
+    }
+    return null;
+  }, [settings?.lastLat, settings?.lastLon]);
 
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [isLoadingRepos, setIsLoadingRepos] = useState(true);
@@ -137,22 +156,7 @@ export default function DashboardPage() {
       onAllSyncFinished={handleAllSyncFinished}
     >
       <div className="h-screen flex flex-col overflow-hidden bg-background">
-        <Header
-          onSyncStarted={handleSyncStarted}
-          actions={
-            !showEmptyState ? (
-              <Filters
-                repositories={repositories}
-                selectedRepoFullNames={filters.repoFullNames ?? []}
-                onRepoFullNamesChange={setRepoFullNames}
-                dateFrom={filters.from}
-                dateTo={filters.to}
-                onDateRangeChange={setDateRange}
-                onClearFilters={clearFilters}
-              />
-            ) : undefined
-          }
-        />
+        <Header onSyncStarted={handleSyncStarted} />
 
         {/* Main content */}
         <main className="flex-1 overflow-hidden flex flex-col container mx-auto px-4 py-4">
@@ -186,7 +190,7 @@ export default function DashboardPage() {
             <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
               {/* Map */}
               <div className="shrink-0 h-[250px] lg:h-auto lg:flex-1 rounded-lg overflow-hidden border">
-                <LocationMap date={selectedDate} className="h-full w-full" />
+                <LocationMap date={selectedDate} className="h-full w-full" initialCenter={mapInitialCenter} />
               </div>
 
               {/* Timeline (only scrollable area) */}

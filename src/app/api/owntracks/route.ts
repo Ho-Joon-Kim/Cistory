@@ -77,6 +77,13 @@ export async function POST(request: NextRequest) {
       .values(rows)
       .onConflictDoNothing();
 
+    // Update user's last known location (most recent by timestamp)
+    const latest = rows.reduce((a, b) => (a.timestamp > b.timestamp ? a : b));
+    await db
+      .update(users)
+      .set({ lastLat: latest.lat, lastLon: latest.lon, updatedAt: now })
+      .where(eq(users.id, userId));
+
     return EMPTY_RESPONSE;
   } catch (error) {
     logger.error("OwnTracks ingestion error", {

@@ -141,6 +141,49 @@ export async function retry<T>(
 }
 
 /**
+ * Parse a date query parameter into YYYY-MM-DD format.
+ * Supports: YYYY-MM-DD, MM-DD, M-DD, MMDD (4-digit).
+ * Returns today for null, empty, invalid, or future dates.
+ */
+export function parseDateParam(param: string | null): string {
+  const today = new Date().toISOString().split("T")[0];
+  if (!param) return today;
+
+  const trimmed = param.trim();
+  if (!trimmed) return today;
+
+  let candidate: string;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    // YYYY-MM-DD
+    candidate = trimmed;
+  } else if (/^\d{1,2}-\d{2}$/.test(trimmed)) {
+    // M-DD or MM-DD
+    const year = new Date().getFullYear();
+    const [m, d] = trimmed.split("-");
+    candidate = `${year}-${m.padStart(2, "0")}-${d}`;
+  } else if (/^\d{4}$/.test(trimmed)) {
+    // MMDD
+    const year = new Date().getFullYear();
+    candidate = `${year}-${trimmed.slice(0, 2)}-${trimmed.slice(2)}`;
+  } else {
+    return today;
+  }
+
+  // Validate the date is real and not in the future
+  const parsed = new Date(candidate);
+  if (Number.isNaN(parsed.getTime())) return today;
+  // Check the date components match (catches Feb 30 etc.)
+  const [y, m, d] = candidate.split("-").map(Number);
+  if (parsed.getUTCFullYear() !== y || parsed.getUTCMonth() + 1 !== m || parsed.getUTCDate() !== d) {
+    return today;
+  }
+  if (candidate > today) return today;
+
+  return candidate;
+}
+
+/**
  * Check if running in browser environment
  */
 export function isBrowser(): boolean {

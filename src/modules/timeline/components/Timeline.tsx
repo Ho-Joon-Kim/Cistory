@@ -399,9 +399,11 @@ export function Timeline({
     }
 
     if (el) {
+      const today = new Date().toISOString().split("T")[0];
       if (isInitialScroll.current) {
         isInitialScroll.current = false;
-        return;
+        // Skip scroll only if initial date is today (already at top)
+        if (selectedDate === today) return;
       }
       const sc = scrollContainerRef.current;
       if (sc) {

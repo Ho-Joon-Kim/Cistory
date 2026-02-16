@@ -9,6 +9,8 @@ export interface UserSettings {
   lastSyncedAt: string | null;
   hasOwnTracksKey: boolean;
   hasWakaTimeKey: boolean;
+  lastLat: number | null;
+  lastLon: number | null;
 }
 
 export function useSettings() {

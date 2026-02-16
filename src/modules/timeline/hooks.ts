@@ -193,37 +193,3 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
   };
 }
 
-interface UseFiltersReturn {
-  filters: TimelineFilters;
-  setRepoFullNames: (fullNames: string[]) => void;
-  setDateRange: (from?: string, to?: string) => void;
-  clearFilters: () => void;
-}
-
-export function useFilters(initialRepos?: string[]): UseFiltersReturn {
-  const [filters, setFilters] = useState<TimelineFilters>(() => ({
-    repoFullNames: initialRepos,
-  }));
-
-  const setRepoFullNames = useCallback((fullNames: string[]) => {
-    setFilters((prev) => ({
-      ...prev,
-      repoFullNames: fullNames.length > 0 ? fullNames : undefined
-    }));
-  }, []);
-
-  const setDateRange = useCallback((from?: string, to?: string) => {
-    setFilters((prev) => ({ ...prev, from, to }));
-  }, []);
-
-  const clearFilters = useCallback(() => {
-    setFilters({});
-  }, []);
-
-  return {
-    filters,
-    setRepoFullNames,
-    setDateRange,
-    clearFilters,
-  };
-}

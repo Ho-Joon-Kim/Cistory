@@ -15,6 +15,8 @@ export function getDb() {
   if (!dbInstance) {
     pool = new Pool({
       connectionString: DATABASE_URL,
+      max: 5,
+      idleTimeoutMillis: 30000,
     });
     dbInstance = drizzle(pool, { schema });
   }

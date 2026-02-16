@@ -29,9 +29,23 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const useAccuracy = request.nextUrl.searchParams.get("accuracy") !== "false";
+    const useMinDistance = request.nextUrl.searchParams.get("minDistance") !== "false";
+    const useDownsample = request.nextUrl.searchParams.get("downsample") !== "false";
+
     const db = getDb();
     const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
     const dayEnd = new Date(`${dateParam}T23:59:59.999Z`);
+
+    const conditions = [
+      eq(locationPoints.userId, user.id),
+      gte(locationPoints.timestamp, dayStart),
+      lt(locationPoints.timestamp, dayEnd),
+    ];
+
+    if (useAccuracy) {
+      conditions.push(or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200))!);
+    }
 
     const rows = await db
       .select({
@@ -44,27 +58,25 @@ export async function GET(request: NextRequest) {
         timestamp: locationPoints.timestamp,
       })
       .from(locationPoints)
-      .where(
-        and(
-          eq(locationPoints.userId, user.id),
-          gte(locationPoints.timestamp, dayStart),
-          lt(locationPoints.timestamp, dayEnd),
-          or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200))
-        )
-      )
+      .where(and(...conditions))
       .orderBy(asc(locationPoints.timestamp));
 
-    // Filter out points within 50m of the previous accepted point
-    const filtered: typeof rows = [];
-    for (const row of rows) {
-      if (filtered.length === 0) {
-        filtered.push(row);
-      } else {
-        const prev = filtered[filtered.length - 1];
-        if (distanceM(prev.lat, prev.lon, row.lat, row.lon) >= MIN_DISTANCE_M) {
+    // Filter out points within MIN_DISTANCE_M of the previous accepted point
+    let filtered: typeof rows;
+    if (useMinDistance) {
+      filtered = [];
+      for (const row of rows) {
+        if (filtered.length === 0) {
           filtered.push(row);
+        } else {
+          const prev = filtered[filtered.length - 1];
+          if (distanceM(prev.lat, prev.lon, row.lat, row.lon) >= MIN_DISTANCE_M) {
+            filtered.push(row);
+          }
         }
       }
+    } else {
+      filtered = rows;
     }
 
     let locations = filtered.map((r) => ({
@@ -78,7 +90,7 @@ export async function GET(request: NextRequest) {
     }));
 
     // Downsample if too many points (time-based uniform sampling)
-    if (locations.length > MAX_POINTS) {
+    if (useDownsample && locations.length > MAX_POINTS) {
       const step = locations.length / MAX_POINTS;
       const sampled = [];
       for (let i = 0; i < MAX_POINTS; i++) {
