@@ -34,17 +34,25 @@ interface CommitCardProps {
 
 export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDelay = 0, repoColor }: CommitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [stats, setStats] = useState<CommitStats | null>(null);
-  const [isLoadingStats, setIsLoadingStats] = useState(false);
-  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
-  const [summaryStatus, setSummaryStatus] = useState(commit.summary?.status);
-  const [localSummary, setLocalSummary] = useState<string | null>(null);
+  const [statsState, setStatsState] = useState<{ stats: CommitStats | null; isLoading: boolean }>({
+    stats: null,
+    isLoading: false,
+  });
+  const [summaryState, setSummaryState] = useState<{
+    isGenerating: boolean;
+    status: string | undefined;
+    localSummary: string | null;
+  }>({
+    isGenerating: false,
+    status: commit.summary?.status,
+    localSummary: null,
+  });
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const summary = localSummary ?? commit.summary?.summary;
+  const summary = summaryState.localSummary ?? commit.summary?.summary;
   const hasSummary = !!summary;
-  const isPending = summaryStatus === "pending";
-  const isProcessing = summaryStatus === "processing" || isGeneratingSummary;
+  const isPending = summaryState.status === "pending";
+  const isProcessing = summaryState.status === "processing" || summaryState.isGenerating;
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -57,15 +65,13 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
       if (response.ok) {
         const data = await response.json();
         if (data.summary?.status === "completed" && data.summary?.summary) {
-          setLocalSummary(data.summary.summary);
-          setSummaryStatus("completed");
-          // 폴링 중지
+          setSummaryState({ isGenerating: false, status: "completed", localSummary: data.summary.summary });
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
         } else if (data.summary?.status === "failed") {
-          setSummaryStatus("failed");
+          setSummaryState((prev) => ({ ...prev, isGenerating: false, status: "failed" }));
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
@@ -91,10 +97,9 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
 
   const handleGenerateSummary = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isGeneratingSummary) return;
+    if (summaryState.isGenerating) return;
 
-    setIsGeneratingSummary(true);
-    setSummaryStatus("processing");
+    setSummaryState((prev) => ({ ...prev, isGenerating: true, status: "processing" }));
 
     try {
       const response = await fetch(`/api/timeline/commits/${commit.id}/summary`, {
@@ -102,18 +107,17 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
       });
 
       if (response.ok) {
-        // 폴링 시작 (2초 간격으로 상태 확인)
         pollingRef.current = setInterval(pollSummaryStatus, 2000);
       } else {
         const data = await response.json();
         console.error("Summary generation failed:", data.error);
-        setSummaryStatus("pending");
+        setSummaryState((prev) => ({ ...prev, isGenerating: false, status: "pending" }));
       }
     } catch (error) {
       console.error("Summary generation error:", error);
-      setSummaryStatus("pending");
+      setSummaryState((prev) => ({ ...prev, isGenerating: false, status: "pending" }));
     } finally {
-      setIsGeneratingSummary(false);
+      setSummaryState((prev) => ({ ...prev, isGenerating: false }));
     }
   };
 
@@ -122,41 +126,46 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
   const hasMoreMessage = commit.message.includes("\n");
 
   // 현재 표시할 stats (로컬 상태 또는 commit에서)
-  const displayStats: CommitStats = stats ?? {
+  const displayStats: CommitStats = statsState.stats ?? {
     additions: commit.additions,
     deletions: commit.deletions,
     changedFilesCount: commit.changedFilesCount,
   };
   const hasStats = displayStats.additions > 0 || displayStats.deletions > 0 || displayStats.changedFilesCount > 0;
-  const needsStatsLoad = !hasStats && !stats && !isLoadingStats;
+  const needsStatsLoad = !hasStats && !statsState.stats && !statsState.isLoading;
 
   // 확장 시 stats 로드
-  useEffect(() => {
-    if (isExpanded && needsStatsLoad) {
-      setIsLoadingStats(true);
-      fetch(`/api/timeline/commits/${commit.id}/stats`, {
+  const fetchStats = useCallback(async () => {
+    setStatsState({ stats: null, isLoading: true });
+    try {
+      const res = await fetch(`/api/timeline/commits/${commit.id}/stats`, {
         method: "POST",
         signal: abortControllerRef.current?.signal,
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.additions !== undefined) {
-            const newStats = {
-              additions: data.additions,
-              deletions: data.deletions,
-              changedFilesCount: data.changedFilesCount,
-            };
-            setStats(newStats);
-            onStatsLoaded?.(commit.id, newStats);
-          }
-        })
-        .catch((err) => {
-          if (err instanceof DOMException && err.name === "AbortError") return;
-          console.error(err);
-        })
-        .finally(() => setIsLoadingStats(false));
+      });
+      const data = await res.json();
+      if (data.additions !== undefined) {
+        const newStats = {
+          additions: data.additions,
+          deletions: data.deletions,
+          changedFilesCount: data.changedFilesCount,
+        };
+        setStatsState({ stats: newStats, isLoading: false });
+        onStatsLoaded?.(commit.id, newStats);
+      } else {
+        setStatsState((prev) => ({ ...prev, isLoading: false }));
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      console.error(err);
+      setStatsState((prev) => ({ ...prev, isLoading: false }));
     }
-  }, [isExpanded, needsStatsLoad, commit.id, onStatsLoaded]);
+  }, [commit.id, onStatsLoaded]);
+
+  useEffect(() => {
+    if (isExpanded && needsStatsLoad) {
+      fetchStats();
+    }
+  }, [isExpanded, needsStatsLoad, fetchStats]);
 
   const commitSize = getCommitSize(commit);
   const isLarge = commitSize === "large";
@@ -211,7 +220,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
               {isProcessing && (
                 <Sparkles className="h-3 w-3 text-primary animate-sparkle" />
               )}
-              {hasSummary && summaryStatus === "completed" && (
+              {hasSummary && summaryState.status === "completed" && (
                 <Sparkles className="h-3 w-3 text-primary/60" />
               )}
               <span className="text-xs text-muted-foreground">
@@ -224,7 +233,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
 
             {/* AI 요약 (접힌 상태에서도 표시) */}
             {hasSummary && (
-              <p className={`text-xs mt-0.5 text-muted-foreground line-clamp-1 ${localSummary ? "animate-summary-reveal" : ""}`}>
+              <p className={`text-xs mt-0.5 text-muted-foreground line-clamp-1 ${summaryState.localSummary ? "animate-summary-reveal" : ""}`}>
                 {summary}
               </p>
             )}
@@ -256,7 +265,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
                 <GitCommit className="h-3 w-3" />
                 {commit.sha.slice(0, 7)}
               </span>
-              {isLoadingStats && (
+              {statsState.isLoading && (
                 <Loader2 className="h-3 w-3 animate-spin" />
               )}
               {hasStats && (
@@ -301,7 +310,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
             )}
 
             {hasSummary && (
-              <p className={`text-sm leading-relaxed ${localSummary ? "animate-summary-reveal" : ""}`}>
+              <p className={`text-sm leading-relaxed ${summaryState.localSummary ? "animate-summary-reveal" : ""}`}>
                 {summary}
               </p>
             )}

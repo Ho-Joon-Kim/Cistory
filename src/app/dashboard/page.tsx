@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Timeline } from "@/modules/timeline/components/Timeline";
-import { useTimeline } from "@/modules/timeline/hooks";
-import { useAuth } from "@/modules/auth/hooks";
+import { useTimeline, useRepositories } from "@/modules/timeline/hooks";
+import { useRequireAuth } from "@/modules/auth/hooks";
 import { parseDateParam } from "@/lib/utils";
 import { SyncStatusProvider, type RecentSyncJob } from "@/modules/sync/hooks";
 import { Header } from "@/components/Layout/Header";
@@ -21,18 +21,9 @@ const LocationMap = dynamic(
   { ssr: false, loading: () => <MapSkeleton /> }
 );
 
-interface Repository {
-  fullName: string;
-  id: number | null;
-  isPrivate: boolean | null;
-  commitCount: number;
-  lastCommitAt: string;
-}
-
-export default function DashboardPage() {
-  const router = useRouter();
+function DashboardContent() {
   const searchParams = useSearchParams();
-  const { user, isLoading: isAuthLoading, isAuthenticated } = useAuth();
+  const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
   const { settings } = useSettings();
 
   // Selected date for timeline + map (initialized from URL ?date= param)
@@ -71,16 +62,7 @@ export default function DashboardPage() {
     return null;
   }, [settings?.lastLat, settings?.lastLon]);
 
-  const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [isLoadingRepos, setIsLoadingRepos] = useState(true);
-
-  // 레포지토리 목록만 새로고침
-  const refreshRepos = useCallback(() => {
-    fetch("/api/timeline/repos")
-      .then((res) => res.json() as Promise<{ repositories: Repository[] }>)
-      .then((data) => setRepositories(data.repositories))
-      .catch(console.error);
-  }, []);
+  const { repositories, isLoading: isLoadingRepos, refresh: refreshRepos } = useRepositories(isAuthenticated);
 
   // 동기화 작업 완료 시 — 신규 커밋 추가 + 전체 새로고침 fallback
   const handleSyncCompleted = useCallback(
@@ -102,38 +84,8 @@ export default function DashboardPage() {
     refresh();
   }, [refresh]);
 
-  // Auth check
-  useEffect(() => {
-    if (!isAuthLoading && !isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthLoading, isAuthenticated, router]);
-
-  // Fetch unique repositories from commits
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    async function fetchRepos() {
-      setIsLoadingRepos(true);
-      try {
-        const response = await fetch("/api/timeline/repos");
-        if (response.ok) {
-          const data = (await response.json()) as { repositories: Repository[] };
-          setRepositories(data.repositories);
-        }
-      } catch (error) {
-        console.error("Failed to fetch repositories:", error);
-      } finally {
-        setIsLoadingRepos(false);
-      }
-    }
-
-    fetchRepos();
-  }, [isAuthenticated]);
-
   const handleSyncStarted = () => {
     toast.success("동기화가 시작되었습니다");
-    // 동기화 완료는 SSE를 통해 자동으로 감지되어 새로고침됨
   };
 
   if (isAuthLoading) {
@@ -209,5 +161,17 @@ export default function DashboardPage() {
         </main>
       </div>
     </SyncStatusProvider>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }

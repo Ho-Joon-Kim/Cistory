@@ -2,6 +2,57 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export interface Repository {
+  fullName: string;
+  id: number | null;
+  isPrivate: boolean | null;
+  commitCount: number;
+  lastCommitAt: string;
+}
+
+interface UseRepositoriesReturn {
+  repositories: Repository[];
+  isLoading: boolean;
+  refresh: () => void;
+}
+
+export function useRepositories(enabled = true): UseRepositoriesReturn {
+  const [state, setState] = useState<{ repositories: Repository[]; isLoading: boolean }>({
+    repositories: [],
+    isLoading: true,
+  });
+
+  const fetchRepos = useCallback(async (signal?: AbortSignal) => {
+    setState((prev) => ({ ...prev, isLoading: true }));
+    try {
+      const response = await fetch("/api/timeline/repos", { signal });
+      if (response.ok) {
+        const data = (await response.json()) as { repositories: Repository[] };
+        setState({ repositories: data.repositories, isLoading: false });
+      } else {
+        setState((prev) => ({ ...prev, isLoading: false }));
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      console.error("Failed to fetch repositories:", err);
+      setState((prev) => ({ ...prev, isLoading: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    fetchRepos(controller.signal);
+    return () => controller.abort();
+  }, [enabled, fetchRepos]);
+
+  const refresh = useCallback(() => {
+    fetchRepos();
+  }, [fetchRepos]);
+
+  return { ...state, refresh };
+}
+
 export interface TimelineCommit {
   id: string;
   sha: string;

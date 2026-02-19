@@ -1,35 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import { useAuth } from "@/modules/auth/hooks";
+import { useRequireAuth } from "@/modules/auth/hooks";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMonthlyReport, useYearlyReport } from "@/modules/report/hooks";
-import type { UseReportReturn } from "@/modules/report/hooks";
 import { StatCards } from "@/modules/report/components/StatCards";
 import { ActivityHeatmap } from "@/modules/report/components/ActivityHeatmap";
-import { CommitChart } from "@/modules/report/components/CommitChart";
-import { CodingTimeChart } from "@/modules/report/components/CodingTimeChart";
-import { ProjectDonut } from "@/modules/report/components/ProjectDonut";
-import { LanguagePie } from "@/modules/report/components/LanguagePie";
-import { CommitTypeBreakdown } from "@/modules/report/components/CommitTypeBreakdown";
 import { WeekdayHourBubble } from "@/modules/report/components/WeekdayHourBubble";
 import { AiCodeRatio } from "@/modules/report/components/AiCodeRatio";
 import { StreakHighlight } from "@/modules/report/components/StreakHighlight";
-import { DistanceChart } from "@/modules/report/components/DistanceChart";
 import { TopPlaces } from "@/modules/report/components/TopPlaces";
 import { OverseasTripCards } from "@/modules/report/components/OverseasTripCards";
 import { NarrativeSection } from "@/modules/report/components/NarrativeSection";
-import { MonthlyTrendChart } from "@/modules/report/components/MonthlyTrendChart";
-import { ProjectTimeline } from "@/modules/report/components/ProjectTimeline";
-import { LanguageEvolution } from "@/modules/report/components/LanguageEvolution";
 import type {
-  CommitsSectionData,
   CodingSectionData,
   LocationSectionData,
   YearlyCommitsSectionData,
@@ -38,6 +27,43 @@ import type {
 } from "@/modules/report/types";
 import { ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
 
+// Dynamic imports for recharts-based components
+const CommitChart = dynamic(
+  () => import("@/modules/report/components/CommitChart").then((m) => m.CommitChart),
+  { ssr: false }
+);
+const CodingTimeChart = dynamic(
+  () => import("@/modules/report/components/CodingTimeChart").then((m) => m.CodingTimeChart),
+  { ssr: false }
+);
+const ProjectDonut = dynamic(
+  () => import("@/modules/report/components/ProjectDonut").then((m) => m.ProjectDonut),
+  { ssr: false }
+);
+const LanguagePie = dynamic(
+  () => import("@/modules/report/components/LanguagePie").then((m) => m.LanguagePie),
+  { ssr: false }
+);
+const CommitTypeBreakdown = dynamic(
+  () => import("@/modules/report/components/CommitTypeBreakdown").then((m) => m.CommitTypeBreakdown),
+  { ssr: false }
+);
+const DistanceChart = dynamic(
+  () => import("@/modules/report/components/DistanceChart").then((m) => m.DistanceChart),
+  { ssr: false }
+);
+const MonthlyTrendChart = dynamic(
+  () => import("@/modules/report/components/MonthlyTrendChart").then((m) => m.MonthlyTrendChart),
+  { ssr: false }
+);
+const LanguageEvolution = dynamic(
+  () => import("@/modules/report/components/LanguageEvolution").then((m) => m.LanguageEvolution),
+  { ssr: false }
+);
+const ProjectTimeline = dynamic(
+  () => import("@/modules/report/components/ProjectTimeline").then((m) => m.ProjectTimeline),
+  { ssr: false }
+);
 const LocationHeatmap = dynamic(
   () => import("@/modules/report/components/LocationHeatmap").then((m) => m.LocationHeatmap),
   { ssr: false }
@@ -49,10 +75,9 @@ const TravelMap = dynamic(
 
 type ReportType = "monthly" | "yearly";
 
-export default function ReportPage() {
-  const router = useRouter();
+function ReportContent() {
   const searchParams = useSearchParams();
-  const { isLoading: isAuthLoading, isAuthenticated } = useAuth();
+  const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
 
   const [reportType, setReportType] = useState<ReportType>(
     () => (searchParams.get("type") as ReportType) || "monthly"
@@ -68,13 +93,6 @@ export default function ReportPage() {
     url.searchParams.set("period", period);
     window.history.replaceState(null, "", url.toString());
   }, [reportType, period]);
-
-  // Auth check
-  useEffect(() => {
-    if (!isAuthLoading && !isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthLoading, isAuthenticated, router]);
 
   const yearMonth = reportType === "monthly" ? period : null;
   const year = reportType === "yearly" ? period.slice(0, 4) : null;
@@ -182,34 +200,12 @@ export default function ReportPage() {
 
         <main className="flex-1 container mx-auto px-4 py-6 max-w-5xl">
           {/* Period selector */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <Button
-                variant={reportType === "monthly" ? "default" : "outline"}
-                size="sm"
-                onClick={() => switchType("monthly")}
-              >
-                월간
-              </Button>
-              <Button
-                variant={reportType === "yearly" ? "default" : "outline"}
-                size="sm"
-                onClick={() => switchType("yearly")}
-              >
-                연간
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="font-medium text-sm min-w-[100px] text-center">{periodLabel}</span>
-              <Button variant="ghost" size="icon" onClick={() => navigate(1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+          <ReportPeriodSelector
+            reportType={reportType}
+            periodLabel={periodLabel}
+            onSwitchType={switchType}
+            onNavigate={navigate}
+          />
 
           {/* No data state */}
           {noData ? (
@@ -250,179 +246,32 @@ export default function ReportPage() {
               />
 
               {/* Commits Section */}
-              {report.commits.isLoading ? (
-                <SectionSkeleton title="커밋 활동" />
-              ) : commitsData ? (
-                <>
-                  {commitsData.dailyCommits.length > 0 && (
-                    <Section title="활동 히트맵">
-                      <ActivityHeatmap
-                        dailyCommits={commitsData.dailyCommits}
-                        startDate={commitsData.dailyCommits[0].date}
-                        endDate={commitsData.dailyCommits[commitsData.dailyCommits.length - 1].date}
-                      />
-                    </Section>
-                  )}
-
-                  <Section title="커밋 활동">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {commitsData.dailyCommits.length > 0 && (
-                        <ChartCard title="일별 커밋">
-                          <CommitChart dailyCommits={commitsData.dailyCommits} />
-                        </ChartCard>
-                      )}
-                      {commitsData.projectBreakdown.length > 0 && (
-                        <ChartCard title="프로젝트별 커밋">
-                          <ProjectDonut projects={commitsData.projectBreakdown} />
-                        </ChartCard>
-                      )}
-                      {commitsData.commitTypeBreakdown.length > 0 && (
-                        <ChartCard title="커밋 유형">
-                          <CommitTypeBreakdown breakdown={commitsData.commitTypeBreakdown} />
-                        </ChartCard>
-                      )}
-                      <ChartCard title="코딩 시간대 패턴">
-                        <WeekdayHourBubble
-                          commitsByDayOfWeek={commitsData.commitsByDayOfWeek}
-                          commitsByHour={commitsData.commitsByHour}
-                        />
-                      </ChartCard>
-                    </div>
-                    <div className="mt-6">
-                      <StreakHighlight
-                        maxStreak={commitsData.maxStreak}
-                        activeDays={commitsData.activeDays}
-                        totalDays={commitsData.totalDaysInMonth}
-                      />
-                    </div>
-                  </Section>
-                </>
-              ) : null}
+              <CommitsSection
+                isLoading={report.commits.isLoading}
+                commitsData={commitsData}
+              />
 
               {/* Coding Section */}
-              {report.coding.isLoading ? (
-                <SectionSkeleton title="코딩 활동" />
-              ) : codingData ? (
-                <Section title="코딩 활동">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {codingData.dailyCodingSeconds.length > 0 && (
-                      <ChartCard title="일별 코딩 시간">
-                        <CodingTimeChart dailyCodingSeconds={codingData.dailyCodingSeconds} />
-                      </ChartCard>
-                    )}
-                    {codingData.languageBreakdown.length > 0 && (
-                      <ChartCard title="언어별 코딩 시간">
-                        <LanguagePie languages={codingData.languageBreakdown} />
-                      </ChartCard>
-                    )}
-                    {(codingData.aiCodeStats.aiLines > 0 ||
-                      codingData.aiCodeStats.humanLines > 0) && (
-                      <AiCodeRatio
-                        aiLines={codingData.aiCodeStats.aiLines}
-                        humanLines={codingData.aiCodeStats.humanLines}
-                      />
-                    )}
-                  </div>
-                </Section>
-              ) : null}
+              <CodingSection
+                isLoading={report.coding.isLoading}
+                codingData={codingData as CodingSectionData | null}
+              />
 
               {/* Location Section */}
-              {report.location.isLoading ? (
-                <SectionSkeleton title="이동/생활" />
-              ) : locationData &&
-                (locationData.dailyDistances.length > 0 ||
-                  locationData.topPlaces.length > 0) ? (
-                <Section title="이동/생활">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {locationData.dailyDistances.length > 0 && (
-                      <ChartCard title="일별 이동거리">
-                        <DistanceChart dailyDistances={locationData.dailyDistances} />
-                      </ChartCard>
-                    )}
-                    {locationData.locationHeatmapPoints.length > 0 && (
-                      <ChartCard title="활동 히트맵 지도">
-                        <div className="h-[300px]">
-                          <LocationHeatmap
-                            points={locationData.locationHeatmapPoints}
-                            className="h-full w-full"
-                          />
-                        </div>
-                      </ChartCard>
-                    )}
-                  </div>
-
-                  {locationData.topPlaces.length > 0 && (
-                    <div className="mt-6">
-                      <TopPlaces places={locationData.topPlaces} />
-                    </div>
-                  )}
-
-                  {locationData.overseasTrips.length > 0 && (
-                    <div className="mt-6 space-y-6">
-                      <OverseasTripCards trips={locationData.overseasTrips} />
-                      <ChartCard title="해외여행 지도">
-                        <div className="h-[400px]">
-                          <TravelMap
-                            trips={locationData.overseasTrips}
-                            topPlaces={locationData.topPlaces}
-                            className="h-full w-full"
-                          />
-                        </div>
-                      </ChartCard>
-                    </div>
-                  )}
-                </Section>
-              ) : null}
+              <LocationSection
+                isLoading={report.location.isLoading}
+                locationData={locationData as LocationSectionData | null}
+              />
 
               {/* Yearly-only sections */}
               {reportType === "yearly" && (
-                <>
-                  {/* Monthly trend — needs all 3 sections */}
-                  {monthlyTrend ? (
-                    <Section title="연간 추이">
-                      <div className="grid grid-cols-1 gap-6">
-                        {monthlyTrend.length > 0 && (
-                          <ChartCard title="월별 추이">
-                            <MonthlyTrendChart monthlyTrend={monthlyTrend} />
-                          </ChartCard>
-                        )}
-                      </div>
-                    </Section>
-                  ) : report.isLoading ? (
-                    <SectionSkeleton title="연간 추이" />
-                  ) : null}
-
-                  {/* Project timeline — from commits section */}
-                  {yearly.commits.data &&
-                    (yearly.commits.data as YearlyCommitsSectionData).projectTimeline?.length >
-                      0 && (
-                      <Section title="프로젝트 타임라인">
-                        <ChartCard title="프로젝트 타임라인">
-                          <ProjectTimeline
-                            projects={
-                              (yearly.commits.data as YearlyCommitsSectionData).projectTimeline
-                            }
-                            year={period.slice(0, 4)}
-                          />
-                        </ChartCard>
-                      </Section>
-                    )}
-
-                  {/* Language evolution — from coding section */}
-                  {yearly.coding.data &&
-                    (yearly.coding.data as YearlyCodingSectionData).quarterlyLanguages?.length >
-                      0 && (
-                      <Section title="분기별 언어 변화">
-                        <ChartCard title="분기별 언어 변화">
-                          <LanguageEvolution
-                            quarterlyLanguages={
-                              (yearly.coding.data as YearlyCodingSectionData).quarterlyLanguages
-                            }
-                          />
-                        </ChartCard>
-                      </Section>
-                    )}
-                </>
+                <YearlySections
+                  monthlyTrend={monthlyTrend}
+                  isLoading={report.isLoading}
+                  yearlyCommitsData={yearly.commits.data as YearlyCommitsSectionData | null}
+                  yearlyCodingData={yearly.coding.data as YearlyCodingSectionData | null}
+                  period={period}
+                />
               )}
 
               {report.error && (
@@ -435,6 +284,272 @@ export default function ReportPage() {
     </SyncStatusProvider>
   );
 }
+
+export default function ReportPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    }>
+      <ReportContent />
+    </Suspense>
+  );
+}
+
+// --- Extracted sub-components ---
+
+function ReportPeriodSelector({
+  reportType,
+  periodLabel,
+  onSwitchType,
+  onNavigate,
+}: {
+  reportType: ReportType;
+  periodLabel: string;
+  onSwitchType: (type: ReportType) => void;
+  onNavigate: (direction: -1 | 1) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center gap-2">
+        <Button
+          variant={reportType === "monthly" ? "default" : "outline"}
+          size="sm"
+          onClick={() => onSwitchType("monthly")}
+        >
+          월간
+        </Button>
+        <Button
+          variant={reportType === "yearly" ? "default" : "outline"}
+          size="sm"
+          onClick={() => onSwitchType("yearly")}
+        >
+          연간
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={() => onNavigate(-1)}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="font-medium text-sm min-w-[100px] text-center">{periodLabel}</span>
+        <Button variant="ghost" size="icon" onClick={() => onNavigate(1)}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CommitsSection({
+  isLoading,
+  commitsData,
+}: {
+  isLoading: boolean;
+  commitsData: ReturnType<typeof useMonthlyReport>["commits"]["data"];
+}) {
+  if (isLoading) return <SectionSkeleton title="커밋 활동" />;
+  if (!commitsData) return null;
+
+  return (
+    <>
+      {commitsData.dailyCommits.length > 0 && (
+        <Section title="활동 히트맵">
+          <ActivityHeatmap
+            dailyCommits={commitsData.dailyCommits}
+            startDate={commitsData.dailyCommits[0].date}
+            endDate={commitsData.dailyCommits[commitsData.dailyCommits.length - 1].date}
+          />
+        </Section>
+      )}
+
+      <Section title="커밋 활동">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {commitsData.dailyCommits.length > 0 && (
+            <ChartCard title="일별 커밋">
+              <CommitChart dailyCommits={commitsData.dailyCommits} />
+            </ChartCard>
+          )}
+          {commitsData.projectBreakdown.length > 0 && (
+            <ChartCard title="프로젝트별 커밋">
+              <ProjectDonut projects={commitsData.projectBreakdown} />
+            </ChartCard>
+          )}
+          {commitsData.commitTypeBreakdown.length > 0 && (
+            <ChartCard title="커밋 유형">
+              <CommitTypeBreakdown breakdown={commitsData.commitTypeBreakdown} />
+            </ChartCard>
+          )}
+          <ChartCard title="코딩 시간대 패턴">
+            <WeekdayHourBubble
+              commitsByDayOfWeek={commitsData.commitsByDayOfWeek}
+              commitsByHour={commitsData.commitsByHour}
+            />
+          </ChartCard>
+        </div>
+        <div className="mt-6">
+          <StreakHighlight
+            maxStreak={commitsData.maxStreak}
+            activeDays={commitsData.activeDays}
+            totalDays={commitsData.totalDaysInMonth}
+          />
+        </div>
+      </Section>
+    </>
+  );
+}
+
+function CodingSection({
+  isLoading,
+  codingData,
+}: {
+  isLoading: boolean;
+  codingData: CodingSectionData | null;
+}) {
+  if (isLoading) return <SectionSkeleton title="코딩 활동" />;
+  if (!codingData) return null;
+
+  return (
+    <Section title="코딩 활동">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {codingData.dailyCodingSeconds.length > 0 && (
+          <ChartCard title="일별 코딩 시간">
+            <CodingTimeChart dailyCodingSeconds={codingData.dailyCodingSeconds} />
+          </ChartCard>
+        )}
+        {codingData.languageBreakdown.length > 0 && (
+          <ChartCard title="언어별 코딩 시간">
+            <LanguagePie languages={codingData.languageBreakdown} />
+          </ChartCard>
+        )}
+        {(codingData.aiCodeStats.aiLines > 0 ||
+          codingData.aiCodeStats.humanLines > 0) && (
+          <AiCodeRatio
+            aiLines={codingData.aiCodeStats.aiLines}
+            humanLines={codingData.aiCodeStats.humanLines}
+          />
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function LocationSection({
+  isLoading,
+  locationData,
+}: {
+  isLoading: boolean;
+  locationData: LocationSectionData | null;
+}) {
+  if (isLoading) return <SectionSkeleton title="이동/생활" />;
+  if (!locationData || (locationData.dailyDistances.length === 0 && locationData.topPlaces.length === 0)) {
+    return null;
+  }
+
+  return (
+    <Section title="이동/생활">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {locationData.dailyDistances.length > 0 && (
+          <ChartCard title="일별 이동거리">
+            <DistanceChart dailyDistances={locationData.dailyDistances} />
+          </ChartCard>
+        )}
+        {locationData.locationHeatmapPoints.length > 0 && (
+          <ChartCard title="활동 히트맵 지도">
+            <div className="h-[300px]">
+              <LocationHeatmap
+                points={locationData.locationHeatmapPoints}
+                className="h-full w-full"
+              />
+            </div>
+          </ChartCard>
+        )}
+      </div>
+
+      {locationData.topPlaces.length > 0 && (
+        <div className="mt-6">
+          <TopPlaces places={locationData.topPlaces} />
+        </div>
+      )}
+
+      {locationData.overseasTrips.length > 0 && (
+        <div className="mt-6 space-y-6">
+          <OverseasTripCards trips={locationData.overseasTrips} />
+          <ChartCard title="해외여행 지도">
+            <div className="h-[400px]">
+              <TravelMap
+                trips={locationData.overseasTrips}
+                topPlaces={locationData.topPlaces}
+                className="h-full w-full"
+              />
+            </div>
+          </ChartCard>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function YearlySections({
+  monthlyTrend,
+  isLoading,
+  yearlyCommitsData,
+  yearlyCodingData,
+  period,
+}: {
+  monthlyTrend: YearlyReportData["monthlyTrend"] | null;
+  isLoading: boolean;
+  yearlyCommitsData: YearlyCommitsSectionData | null;
+  yearlyCodingData: YearlyCodingSectionData | null;
+  period: string;
+}) {
+  return (
+    <>
+      {/* Monthly trend — needs all 3 sections */}
+      {monthlyTrend ? (
+        <Section title="연간 추이">
+          <div className="grid grid-cols-1 gap-6">
+            {monthlyTrend.length > 0 && (
+              <ChartCard title="월별 추이">
+                <MonthlyTrendChart monthlyTrend={monthlyTrend} />
+              </ChartCard>
+            )}
+          </div>
+        </Section>
+      ) : isLoading ? (
+        <SectionSkeleton title="연간 추이" />
+      ) : null}
+
+      {/* Project timeline — from commits section */}
+      {yearlyCommitsData &&
+        yearlyCommitsData.projectTimeline?.length > 0 && (
+          <Section title="프로젝트 타임라인">
+            <ChartCard title="프로젝트 타임라인">
+              <ProjectTimeline
+                projects={yearlyCommitsData.projectTimeline}
+                year={period.slice(0, 4)}
+              />
+            </ChartCard>
+          </Section>
+        )}
+
+      {/* Language evolution — from coding section */}
+      {yearlyCodingData &&
+        yearlyCodingData.quarterlyLanguages?.length > 0 && (
+          <Section title="분기별 언어 변화">
+            <ChartCard title="분기별 언어 변화">
+              <LanguageEvolution
+                quarterlyLanguages={yearlyCodingData.quarterlyLanguages}
+              />
+            </ChartCard>
+          </Section>
+        )}
+    </>
+  );
+}
+
+// --- Shared utility components ---
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

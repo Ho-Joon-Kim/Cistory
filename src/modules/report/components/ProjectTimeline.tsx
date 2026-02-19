@@ -53,6 +53,18 @@ export function ProjectTimeline({ projects, year }: ProjectTimelineProps) {
     );
   }, [projects]);
 
+  // Compute month boundaries as percentages (must be before early return)
+  const monthBoundaries = useMemo(() => {
+    const boundaries: number[] = [];
+    const daysInMonths = [31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let cumDays = 0;
+    for (const d of daysInMonths) {
+      boundaries.push((cumDays / totalDays) * 100);
+      cumDays += d;
+    }
+    return boundaries;
+  }, [totalDays, isLeap]);
+
   if (sorted.length === 0) {
     return (
       <Card>
@@ -67,18 +79,6 @@ export function ProjectTimeline({ projects, year }: ProjectTimelineProps) {
       </Card>
     );
   }
-
-  // Compute month boundaries as percentages
-  const monthBoundaries = useMemo(() => {
-    const boundaries: number[] = [];
-    const daysInMonths = [31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let cumDays = 0;
-    for (const d of daysInMonths) {
-      boundaries.push((cumDays / totalDays) * 100);
-      cumDays += d;
-    }
-    return boundaries;
-  }, [totalDays, isLeap]);
 
   return (
     <Card>
@@ -133,9 +133,9 @@ export function ProjectTimeline({ projects, year }: ProjectTimelineProps) {
                   {/* Bar area */}
                   <div className="flex-1 relative h-6">
                     {/* Month grid lines */}
-                    {monthBoundaries.map((pct, i) => (
+                    {monthBoundaries.map((pct) => (
                       <div
-                        key={i}
+                        key={`month-${pct}`}
                         className="absolute top-0 bottom-0 w-px bg-border/50"
                         style={{ left: `${pct}%` }}
                       />

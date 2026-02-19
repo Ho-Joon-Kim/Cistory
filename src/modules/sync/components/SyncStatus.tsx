@@ -25,8 +25,10 @@ const syncTypeLabels: Record<string, string> = {
 
 // 다음 10분 cron까지 남은 시간 계산
 function useNextSyncProgress() {
-  const [progress, setProgress] = useState(0);
-  const [remainingMinutes, setRemainingMinutes] = useState<number | null>(null);
+  const [state, setState] = useState<{ progress: number; remainingMinutes: number | null }>({
+    progress: 0,
+    remainingMinutes: null,
+  });
 
   useEffect(() => {
     const calculateProgress = () => {
@@ -42,8 +44,10 @@ function useNextSyncProgress() {
       const elapsedInCycle = (currentMinutes % 10) * 60 + currentSeconds;
       const prog = (elapsedInCycle / 600) * 100; // 600초 = 10분
 
-      setProgress(prog);
-      setRemainingMinutes(Math.ceil(secondsUntilNextCron / 60));
+      setState({
+        progress: prog,
+        remainingMinutes: Math.ceil(secondsUntilNextCron / 60),
+      });
     };
 
     calculateProgress();
@@ -52,7 +56,7 @@ function useNextSyncProgress() {
     return () => clearInterval(interval);
   }, []);
 
-  return { progress, remainingMinutes };
+  return state;
 }
 
 export function SyncStatus({ showDetails = true }: SyncStatusProps) {

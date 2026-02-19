@@ -266,10 +266,14 @@ export function Timeline({
 }: TimelineProps) {
   const observerTarget = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<Element | null>(null);
-  const [seenCommitIds, setSeenCommitIds] = useState<Set<string>>(new Set());
-  const [newCommitIds, setNewCommitIds] = useState<Set<string>>(new Set());
+  const [commitTracking, setCommitTracking] = useState<{
+    seenIds: Set<string>;
+    newIds: Set<string>;
+  }>({ seenIds: new Set(), newIds: new Set() });
   const isFirstRender = useRef(true);
   const { setRef, visibleGroups, refs } = useDateGroupVisibility(scrollContainerRef);
+
+  const newCommitIds = commitTracking.newIds;
 
   // Track new commits for animation
   useEffect(() => {
@@ -278,29 +282,34 @@ export function Timeline({
     const currentIds = new Set(commits.map((c) => c.id));
 
     if (isFirstRender.current) {
-      setSeenCommitIds(currentIds);
+      setCommitTracking({ seenIds: currentIds, newIds: new Set() });
       isFirstRender.current = false;
       return;
     }
 
-    const newIds = new Set<string>();
-    for (const id of currentIds) {
-      if (!seenCommitIds.has(id)) {
-        newIds.add(id);
+    setCommitTracking((prev) => {
+      const newIds = new Set<string>();
+      for (const id of currentIds) {
+        if (!prev.seenIds.has(id)) {
+          newIds.add(id);
+        }
       }
-    }
 
-    if (newIds.size > 0) {
-      setNewCommitIds(newIds);
-      setSeenCommitIds(currentIds);
+      if (newIds.size > 0) {
+        return { seenIds: currentIds, newIds };
+      }
+      return prev;
+    });
+  }, [commits]);
 
-      const timer = setTimeout(() => {
-        setNewCommitIds(new Set());
-      }, 3000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [commits, seenCommitIds]);
+  // Clear new commit animation after timeout
+  useEffect(() => {
+    if (commitTracking.newIds.size === 0) return;
+    const timer = setTimeout(() => {
+      setCommitTracking((prev) => ({ ...prev, newIds: new Set() }));
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [commitTracking.newIds]);
 
   // Infinite scroll
   useEffect(() => {

@@ -9,10 +9,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
-import { getDb, locationPoints, placeCache } from "@/db";
+import { getDb, locationPoints, placeCache, savedPlaces } from "@/db";
 import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";
 import { getGeocodingAdapter } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
+import type { SavedPlace } from "@/db";
 
 const STAY_RADIUS_M = 100; // 같은 클러스터로 판정할 반경 (미터)
 const MIN_STAY_MINUTES = 10; // 최소 머문 시간 (분)
@@ -138,9 +139,36 @@ export async function GET(request: NextRequest) {
     // 2. Stay point 알고리즘 적용
     const clusters = detectStayPoints(rows);
 
-    // 3. 각 stay point에 대해 geocoding (캐시 확인 우선, 순차 처리로 커넥션 풀 보호)
+    // 3. 유저 저장 장소 조회 (geocoding 우선 매칭용)
+    const userSavedPlaces: SavedPlace[] = await db
+      .select()
+      .from(savedPlaces)
+      .where(eq(savedPlaces.userId, user.id));
+
+    // 4. 각 stay point에 대해 저장 장소 매칭 → 캐시 → geocoding 순차 처리
     const stayPoints = [];
     for (const cluster of clusters) {
+      // 저장 장소 매칭 (geocoding/캐시 건너뛰기)
+      const matched = userSavedPlaces.find(
+        (p) => distanceM(cluster.centroidLat, cluster.centroidLon, p.lat, p.lon) <= p.radiusM,
+      );
+      if (matched) {
+        stayPoints.push({
+          lat: cluster.centroidLat,
+          lon: cluster.centroidLon,
+          placeName: matched.name,
+          address: matched.address,
+          category: matched.category,
+          savedPlaceId: matched.id,
+          icon: matched.icon,
+          color: matched.color,
+          startTime: cluster.startTime.toISOString(),
+          endTime: cluster.endTime.toISOString(),
+          durationMinutes: cluster.durationMinutes,
+        });
+        continue;
+      }
+
       const latKey = roundCoord(cluster.centroidLat);
       const lonKey = roundCoord(cluster.centroidLon);
 

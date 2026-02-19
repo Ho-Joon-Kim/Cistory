@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState, useMemo, useCallback } from "react";
+import { useRef, useState, useMemo, useCallback } from "react";
 import Map, { Source, Layer } from "react-map-gl/mapbox";
 import type { LayerProps, MapRef } from "react-map-gl/mapbox";
 import { useTheme } from "next-themes";
@@ -42,6 +42,44 @@ export function LocationHeatmap({ points, className }: LocationHeatmapProps) {
   const mapRef = useRef<MapRef>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
 
+  const geojson = useMemo<GeoJSON.FeatureCollection>(() => ({
+    type: "FeatureCollection",
+    features: points.map((p) => ({
+      type: "Feature" as const,
+      properties: { weight: p.weight },
+      geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
+    })),
+  }), [points]);
+
+  const { bounds, avgLat, avgLon, lons, lats } = useMemo(() => {
+    const lons = points.map((p) => p.lon);
+    const lats = points.map((p) => p.lat);
+    const bounds: [[number, number], [number, number]] = [
+      [Math.min(...lons, 0), Math.min(...lats, 0)],
+      [Math.max(...lons, 0), Math.max(...lats, 0)],
+    ];
+    const avgLat = lats.length > 0 ? lats.reduce((s, v) => s + v, 0) / lats.length : 0;
+    const avgLon = lons.length > 0 ? lons.reduce((s, v) => s + v, 0) / lons.length : 0;
+    return { bounds, avgLat, avgLon, lons, lats };
+  }, [points]);
+
+  const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
+
+  const handleLoad = useCallback(() => {
+    setMapLoaded(true);
+    const map = mapRef.current;
+    if (!map) return;
+
+    const lonSpan = Math.max(...lons) - Math.min(...lons);
+    const latSpan = Math.max(...lats) - Math.min(...lats);
+
+    if (lonSpan < 0.001 && latSpan < 0.001) {
+      map.flyTo({ center: [avgLon, avgLat], zoom: 13, duration: 0 });
+    } else {
+      map.fitBounds(bounds, { padding: 40, duration: 0 });
+    }
+  }, [lons, lats, bounds, avgLon, avgLat]);
+
   if (!MAPBOX_TOKEN || points.length === 0) {
     return (
       <div className={`bg-muted flex items-center justify-center rounded-lg ${className ?? ""}`}>
@@ -51,46 +89,6 @@ export function LocationHeatmap({ points, className }: LocationHeatmapProps) {
       </div>
     );
   }
-
-  const geojson: GeoJSON.FeatureCollection = {
-    type: "FeatureCollection",
-    features: points.map((p) => ({
-      type: "Feature" as const,
-      properties: { weight: p.weight },
-      geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
-    })),
-  };
-
-  // Calculate bounding box for fitBounds
-  const lons = points.map((p) => p.lon);
-  const lats = points.map((p) => p.lat);
-  const bounds: [[number, number], [number, number]] = [
-    [Math.min(...lons), Math.min(...lats)],
-    [Math.max(...lons), Math.max(...lats)],
-  ];
-
-  // Fallback center for initial render (fitBounds overrides after load)
-  const avgLat = lats.reduce((s, v) => s + v, 0) / lats.length;
-  const avgLon = lons.reduce((s, v) => s + v, 0) / lons.length;
-
-  const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
-
-  const handleLoad = useCallback(() => {
-    setMapLoaded(true);
-    const map = mapRef.current;
-    if (!map) return;
-
-    // Check if all points are at the same location (or very close)
-    const lonSpan = Math.max(...lons) - Math.min(...lons);
-    const latSpan = Math.max(...lats) - Math.min(...lats);
-
-    if (lonSpan < 0.001 && latSpan < 0.001) {
-      // Single cluster — just center with a reasonable zoom
-      map.flyTo({ center: [avgLon, avgLat], zoom: 13, duration: 0 });
-    } else {
-      map.fitBounds(bounds, { padding: 40, duration: 0 });
-    }
-  }, [lons, lats, bounds, avgLon, avgLat]);
 
   return (
     <div className={`relative rounded-lg overflow-hidden ${className ?? ""}`}>

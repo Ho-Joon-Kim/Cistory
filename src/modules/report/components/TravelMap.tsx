@@ -130,9 +130,9 @@ export function TravelMap({ trips, topPlaces, className }: TravelMapProps) {
             </Marker>
 
             {/* Trip destination markers */}
-            {tripMarkers.map((marker, i) => (
+            {tripMarkers.map((marker) => (
               <Marker
-                key={`trip-${marker.country}-${i}`}
+                key={`trip-${marker.country}-${marker.startDate}`}
                 longitude={marker.lon}
                 latitude={marker.lat}
                 anchor="center"

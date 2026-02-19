@@ -1,54 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
-import { useAuth } from "@/modules/auth/hooks";
+import { useRequireAuth } from "@/modules/auth/hooks";
+import { useRepositories } from "@/modules/timeline/hooks";
 import { Header } from "@/components/Layout/Header";
 import { Loader2, GitFork, Lock, Globe, GitCommit } from "lucide-react";
 import { formatRelativeTime } from "@/lib/utils";
 
-interface Repository {
-  fullName: string;
-  id: number | null;
-  isPrivate: boolean | null;
-  commitCount: number;
-  lastCommitAt: string;
-}
-
 export default function RepositoriesPage() {
-  const router = useRouter();
-  const { isLoading: isAuthLoading, isAuthenticated } = useAuth();
-  const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    if (!isAuthLoading && !isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthLoading, isAuthenticated, router]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    async function fetchRepos() {
-      setIsLoading(true);
-      try {
-        const response = await fetch("/api/timeline/repos");
-        if (response.ok) {
-          const data = (await response.json()) as { repositories: Repository[] };
-          setRepositories(data.repositories);
-        }
-      } catch (error) {
-        console.error("Failed to fetch repositories:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    fetchRepos();
-  }, [isAuthenticated]);
+  const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
+  const { repositories, isLoading } = useRepositories(isAuthenticated);
 
   if (isAuthLoading) {
     return (

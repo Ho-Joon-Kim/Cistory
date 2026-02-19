@@ -66,9 +66,9 @@ export function NarrativeSection({ narrative }: NarrativeSectionProps) {
           <span className="font-medium">AI 리포트 요약</span>
         </div>
         <div className="space-y-3">
-          {paragraphs.map((paragraph, index) => (
+          {paragraphs.map((paragraph) => (
             <p
-              key={index}
+              key={`para-${paragraph.slice(0, 30)}`}
               className="text-sm leading-relaxed text-foreground/90"
             >
               {parseMarkdownInline(paragraph)}

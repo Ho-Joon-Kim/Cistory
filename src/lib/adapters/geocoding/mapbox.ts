@@ -37,7 +37,7 @@ export class MapboxGeocodingAdapter implements GeocodingAdapter {
   }
 
   async reverseGeocode(lat: number, lon: number): Promise<GeocodingResult | null> {
-    const url = `${MAPBOX_API_BASE}/reverse?longitude=${lon}&latitude=${lat}&types=poi,address&limit=1&access_token=${this.accessToken}`;
+    const url = `${MAPBOX_API_BASE}/reverse?longitude=${lon}&latitude=${lat}&types=poi,address&access_token=${this.accessToken}`;
 
     const res = await fetch(url);
     if (!res.ok) {

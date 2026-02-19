@@ -125,8 +125,8 @@ async function getSyncStatus(
   db: Database,
   userId: string
 ): Promise<SyncStatus> {
-  // 활성 동기화 작업 조회 (fetching, summarizing 상태)
-  const activeJobsResult = await db
+  // 단일 쿼리로 active + recent completed 모두 조회 (connection 점유 최소화)
+  const allJobs = await db
     .select({
       id: syncJobs.id,
       syncType: syncJobs.syncType,
@@ -134,35 +134,25 @@ async function getSyncStatus(
       totalCommits: syncJobs.totalCommits,
       processedCommits: syncJobs.processedCommits,
       startedAt: syncJobs.startedAt,
-    })
-    .from(syncJobs)
-    .where(
-      and(
-        eq(syncJobs.userId, userId),
-        inArray(syncJobs.status, ["fetching", "summarizing"])
-      )
-    )
-    .orderBy(desc(syncJobs.createdAt))
-    .limit(5);
-
-  // 최근 완료된 작업 조회
-  const recentCompletedResult = await db
-    .select({
-      id: syncJobs.id,
-      syncType: syncJobs.syncType,
-      status: syncJobs.status,
-      totalCommits: syncJobs.totalCommits,
       completedAt: syncJobs.completedAt,
     })
     .from(syncJobs)
     .where(
       and(
         eq(syncJobs.userId, userId),
-        inArray(syncJobs.status, ["completed", "failed"])
+        inArray(syncJobs.status, ["fetching", "summarizing", "completed", "failed"])
       )
     )
-    .orderBy(desc(syncJobs.completedAt))
-    .limit(5);
+    .orderBy(desc(syncJobs.createdAt))
+    .limit(10);
+
+  const activeJobsResult = allJobs.filter(
+    (j) => j.status === "fetching" || j.status === "summarizing"
+  );
+  const recentCompletedResult = allJobs
+    .filter((j) => j.status === "completed" || j.status === "failed")
+    .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0))
+    .slice(0, 5);
 
   // 마지막 동기화 시간
   const lastSync = recentCompletedResult[0]?.completedAt || null;

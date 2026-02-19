@@ -104,6 +104,8 @@ export const syncJobs = pgTable(
     index("idx_sync_user_id").on(table.userId),
     index("idx_sync_status").on(table.status),
     index("idx_sync_created_at").on(table.createdAt),
+    index("idx_sync_user_status_created").on(table.userId, table.status, table.createdAt),
+    index("idx_sync_user_status_completed").on(table.userId, table.status, table.completedAt),
   ]
 );
 
@@ -211,6 +213,30 @@ export const codingDailyStats = pgTable(
   ]
 );
 
+// ============ Saved Places ============
+export const savedPlaces = pgTable(
+  "saved_places",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    lat: doublePrecision("lat").notNull(),
+    lon: doublePrecision("lon").notNull(),
+    radiusM: integer("radius_m").notNull().default(100),
+    category: text("category"),
+    address: text("address"),
+    icon: text("icon"),
+    color: text("color"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_saved_place_user").on(table.userId),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -238,4 +264,7 @@ export type NewCodingSession = typeof codingSessions.$inferInsert;
 
 export type CodingDailyStat = typeof codingDailyStats.$inferSelect;
 export type NewCodingDailyStat = typeof codingDailyStats.$inferInsert;
+
+export type SavedPlace = typeof savedPlaces.$inferSelect;
+export type NewSavedPlace = typeof savedPlaces.$inferInsert;
 

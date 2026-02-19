@@ -52,8 +52,8 @@ export function LanguagePie({ languages }: LanguagePieProps) {
             paddingAngle={2}
             dataKey="value"
           >
-            {data.map((_, index) => (
-              <Cell key={`cell-${index}`} fill={LANGUAGE_COLORS[index % LANGUAGE_COLORS.length]} />
+            {data.map((entry, index) => (
+              <Cell key={`cell-${entry.name}`} fill={LANGUAGE_COLORS[index % LANGUAGE_COLORS.length]} />
             ))}
           </Pie>
           <Tooltip

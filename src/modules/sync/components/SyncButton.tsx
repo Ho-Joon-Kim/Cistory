@@ -21,21 +21,33 @@ export function SyncButton({
 }: SyncButtonProps) {
   const { isSyncing, sync } = useSync();
   const { status } = useSyncStatus();
-  const [showComplete, setShowComplete] = useState(false);
-  const [wasActive, setWasActive] = useState(false);
+  const [completionState, setCompletionState] = useState<{
+    showComplete: boolean;
+    wasActive: boolean;
+  }>({ showComplete: false, wasActive: false });
 
   // Track sync completion for success animation
   useEffect(() => {
-    if (status?.hasActiveSync) {
-      setWasActive(true);
-    } else if (wasActive && !status?.hasActiveSync) {
-      // Sync just completed
-      setShowComplete(true);
-      setWasActive(false);
-      const timer = setTimeout(() => setShowComplete(false), 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [status?.hasActiveSync, wasActive]);
+    setCompletionState((prev) => {
+      if (status?.hasActiveSync) {
+        return { ...prev, wasActive: true };
+      }
+      if (prev.wasActive && !status?.hasActiveSync) {
+        return { showComplete: true, wasActive: false };
+      }
+      return prev;
+    });
+  }, [status?.hasActiveSync]);
+
+  // Clear completion indicator after timeout
+  useEffect(() => {
+    if (!completionState.showComplete) return;
+    const timer = setTimeout(
+      () => setCompletionState((prev) => ({ ...prev, showComplete: false })),
+      2000
+    );
+    return () => clearTimeout(timer);
+  }, [completionState.showComplete]);
 
   const handleSync = async () => {
     const success = await sync();
@@ -55,7 +67,7 @@ export function SyncButton({
       disabled={isActive}
       className={className}
     >
-      {showComplete ? (
+      {completionState.showComplete ? (
         <Check className={`h-4 w-4 text-green-500 animate-success-pulse ${size !== "icon" ? "mr-2" : ""}`} />
       ) : isActive ? (
         <SyncProgressRing
@@ -68,7 +80,7 @@ export function SyncButton({
         <RefreshCw className={`h-4 w-4 ${size !== "icon" ? "mr-2" : ""}`} />
       )}
       {size !== "icon" && (
-        showComplete ? "완료!" : isActive ? `동기화 중${progress > 0 ? ` ${progress}%` : "..."}` : "동기화"
+        completionState.showComplete ? "완료!" : isActive ? `동기화 중${progress > 0 ? ` ${progress}%` : "..."}` : "동기화"
       )}
     </Button>
   );

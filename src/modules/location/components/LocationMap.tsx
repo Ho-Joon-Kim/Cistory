@@ -1,14 +1,22 @@
 "use client";
 
-import { useRef, useEffect, useState, useMemo, useCallback } from "react";
-import Map, { Source, Layer, Marker, Popup, useMap } from "react-map-gl/mapbox";
-import type { LayerProps } from "react-map-gl/mapbox";
-import type { Position } from "geojson";
-import type { GeoJSONSource } from "mapbox-gl";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import Map, { Source, Layer, Marker, Popup } from "react-map-gl/mapbox";
+import type { MapRef, LayerProps } from "react-map-gl/mapbox";
 import { useTheme } from "next-themes";
-import { useLocations, useStayPoints, type LocationData, type StayPointData } from "../hooks";
+import {
+  useLocations,
+  useStayPoints,
+  useSavedPlaces,
+  type SavedPlaceData,
+  type StayPointData,
+} from "../hooks";
+import { segmentLocations, createGeoCircle, findSegmentIndexByStayPoint } from "../utils";
+import { SegmentedRouteAnimator } from "./SegmentedRouteAnimator";
+import { TimelineSegmentBar } from "./TimelineSegmentBar";
 import { MapSkeleton } from "./MapSkeleton";
-import { MapPin, Clock, Navigation } from "lucide-react";
+import { MapPin, Clock, Navigation, Bookmark, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -19,216 +27,10 @@ const DARK_STYLE = "mapbox://styles/mapbox/dark-v11";
 const SEOUL_CENTER = { longitude: 126.978, latitude: 37.5665 };
 const DEFAULT_ZOOM = 11;
 
-const ANIMATION_DURATION = 1500;
-
-// Static initial GeoJSON (referentially stable to prevent unnecessary source updates)
-const EMPTY_LINE_GEOJSON: GeoJSON.Feature = {
-  type: "Feature",
-  properties: {},
-  geometry: { type: "LineString", coordinates: [] },
-};
-const EMPTY_POINTS_GEOJSON: GeoJSON.FeatureCollection = {
-  type: "FeatureCollection",
-  features: [],
-};
-
-// Mapbox GL layer styles (WebGL-rendered, not DOM)
-const LINE_LAYER: LayerProps = {
-  id: "route-line",
-  type: "line" as const,
-  paint: {
-    "line-color": "hsl(153, 60%, 38%)",
-    "line-width": 3,
-    "line-opacity": 0.8,
-  },
-  layout: {
-    "line-cap": "round" as const,
-    "line-join": "round" as const,
-  },
-};
-
-const POINT_LAYER: LayerProps = {
-  id: "route-points",
-  type: "circle" as const,
-  paint: {
-    "circle-radius": 4,
-    "circle-color": "hsl(153, 60%, 38%)",
-    "circle-opacity": 0.9,
-    "circle-stroke-width": 1.5,
-    "circle-stroke-color": "#ffffff",
-    "circle-stroke-opacity": 0.8,
-  },
-};
-
 interface LocationMapProps {
   date: string;
   className?: string;
   initialCenter?: { latitude: number; longitude: number } | null;
-}
-
-function easeOutCubic(t: number): number {
-  return 1 - (1 - t) ** 3;
-}
-
-/** Helper to build a LineString GeoJSON from coordinates */
-function makeLineGeoJSON(coords: Position[]): GeoJSON.Feature {
-  return {
-    type: "Feature",
-    properties: {},
-    geometry: { type: "LineString", coordinates: coords },
-  };
-}
-
-/** Helper to build a FeatureCollection of Points from coordinates */
-function makePointsGeoJSON(coords: Position[]): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: coords.map((c) => ({
-      type: "Feature" as const,
-      properties: {},
-      geometry: { type: "Point" as const, coordinates: c },
-    })),
-  };
-}
-
-function RouteAnimator({
-  locations,
-  date,
-}: {
-  locations: LocationData[];
-  date: string;
-}) {
-  const { current: map } = useMap();
-  // Only one piece of React state: the last point (single DOM Marker for pulse animation)
-  const [lastPoint, setLastPoint] = useState<Position | null>(null);
-  const animationRef = useRef<number>(0);
-  const prevDateRef = useRef(date);
-
-  const allCoords = useMemo<Position[]>(
-    () => locations.map((l) => [l.lon, l.lat]),
-    [locations],
-  );
-
-  /** Imperatively update Mapbox GL sources (bypasses React render cycle) */
-  const updateLine = useCallback(
-    (coords: Position[]) => {
-      if (!map) return;
-      const lineSource = map.getSource("route") as GeoJSONSource | undefined;
-      if (lineSource) lineSource.setData(makeLineGeoJSON(coords));
-    },
-    [map],
-  );
-
-  const updatePoints = useCallback(
-    (coords: Position[]) => {
-      if (!map) return;
-      const pointSource = map.getSource("route-points") as GeoJSONSource | undefined;
-      if (pointSource) pointSource.setData(makePointsGeoJSON(coords));
-    },
-    [map],
-  );
-
-  // Fit bounds when locations change
-  useEffect(() => {
-    if (!map || allCoords.length === 0) return;
-
-    if (allCoords.length === 1) {
-      map.flyTo({
-        center: [allCoords[0][0], allCoords[0][1]],
-        zoom: 15,
-        duration: 1000,
-      });
-    } else {
-      const lngs = allCoords.map((c) => c[0]);
-      const lats = allCoords.map((c) => c[1]);
-      map.fitBounds(
-        [
-          [Math.min(...lngs), Math.min(...lats)],
-          [Math.max(...lngs), Math.max(...lats)],
-        ],
-        { padding: 50, duration: 1000 },
-      );
-    }
-  }, [map, allCoords]);
-
-  // Animate route drawing — updates Mapbox sources directly (no React re-renders)
-  useEffect(() => {
-    if (!map) return;
-
-    // Reset on date change
-    if (prevDateRef.current !== date) {
-      cancelAnimationFrame(animationRef.current);
-      updateLine([]);
-      updatePoints([]);
-      setLastPoint(null);
-      prevDateRef.current = date;
-    }
-
-    if (allCoords.length === 0) {
-      updateLine([]);
-      updatePoints([]);
-      setLastPoint(null);
-      return;
-    }
-
-    if (allCoords.length === 1) {
-      updateLine(allCoords);
-      updatePoints(allCoords);
-      setLastPoint(allCoords[0]);
-      return;
-    }
-
-    const startTime = performance.now();
-
-    function animate(now: number) {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / ANIMATION_DURATION, 1);
-      const eased = easeOutCubic(progress);
-
-      const count = Math.max(2, Math.round(eased * allCoords.length));
-      // Only animate the line — skip points to avoid ~45k temp objects from GC pressure
-      updateLine(allCoords.slice(0, count));
-
-      if (progress < 1) {
-        animationRef.current = requestAnimationFrame(animate);
-      } else {
-        updateLine(allCoords);
-        updatePoints(allCoords);
-        setLastPoint(allCoords[allCoords.length - 1]);
-      }
-    }
-
-    setLastPoint(null);
-    animationRef.current = requestAnimationFrame(animate);
-
-    return () => cancelAnimationFrame(animationRef.current);
-  }, [map, allCoords, date, updateLine, updatePoints]);
-
-  // Only mount sources when data exists — avoids interfering with initial tile loading
-  const hasData = allCoords.length > 0;
-
-  return (
-    <>
-      {hasData && (
-        <>
-          <Source id="route" type="geojson" data={EMPTY_LINE_GEOJSON}>
-            <Layer {...LINE_LAYER} />
-          </Source>
-          <Source id="route-points" type="geojson" data={EMPTY_POINTS_GEOJSON}>
-            <Layer {...POINT_LAYER} />
-          </Source>
-        </>
-      )}
-      {lastPoint && (
-        <Marker longitude={lastPoint[0]} latitude={lastPoint[1]} anchor="center">
-          <div className="location-marker-container animate-bounce-in">
-            <div className="location-marker-pulse" />
-            <div className="location-marker-dot" />
-          </div>
-        </Marker>
-      )}
-    </>
-  );
 }
 
 function formatDuration(minutes: number): string {
@@ -243,27 +45,48 @@ function formatTime(isoString: string): string {
   return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function StayPointMarkers({ stayPoints }: { stayPoints: StayPointData[] }) {
+function StayPointMarkers({
+  stayPoints,
+  selectedSegmentIndex,
+  segments,
+  onSavePlace,
+  onStayPointSelect,
+}: {
+  stayPoints: StayPointData[];
+  selectedSegmentIndex: number | null;
+  segments: ReturnType<typeof segmentLocations>;
+  onSavePlace?: (sp: StayPointData) => void;
+  onStayPointSelect?: (sp: StayPointData) => void;
+}) {
   const [selectedPoint, setSelectedPoint] = useState<StayPointData | null>(null);
 
   return (
     <>
-      {stayPoints.map((sp, i) => (
-        <Marker
-          key={`stay-${sp.lat}-${sp.lon}-${i}`}
-          longitude={sp.lon}
-          latitude={sp.lat}
-          anchor="center"
-          onClick={(e) => {
-            e.originalEvent.stopPropagation();
-            setSelectedPoint(sp);
-          }}
-        >
-          <div className="stay-point-marker animate-bounce-in" title={sp.placeName ?? undefined}>
-            <Navigation className="h-3.5 w-3.5 text-white" />
-          </div>
-        </Marker>
-      ))}
+      {stayPoints.map((sp) => {
+        const segIdx = findSegmentIndexByStayPoint(segments, sp);
+        const isSelected = selectedSegmentIndex !== null && segIdx === selectedSegmentIndex;
+
+        return (
+          <Marker
+            key={`stay-${sp.lat}-${sp.lon}-${sp.startTime}`}
+            longitude={sp.lon}
+            latitude={sp.lat}
+            anchor="center"
+            onClick={(e) => {
+              e.originalEvent.stopPropagation();
+              setSelectedPoint(sp);
+              onStayPointSelect?.(sp);
+            }}
+          >
+            <div
+              className={`stay-point-marker animate-bounce-in ${sp.savedPlaceId ? "stay-point-marker-saved" : ""} ${isSelected ? "stay-point-marker-selected" : ""}`}
+              title={sp.placeName ?? undefined}
+            >
+              <Navigation className="h-3.5 w-3.5 text-white" />
+            </div>
+          </Marker>
+        );
+      })}
 
       {selectedPoint && (
         <Popup
@@ -271,7 +94,7 @@ function StayPointMarkers({ stayPoints }: { stayPoints: StayPointData[] }) {
           latitude={selectedPoint.lat}
           anchor="bottom"
           offset={16}
-          closeOnClick={false}
+          closeOnClick={true}
           onClose={() => setSelectedPoint(null)}
           className="stay-point-popup"
         >
@@ -291,6 +114,19 @@ function StayPointMarkers({ stayPoints }: { stayPoints: StayPointData[] }) {
             {selectedPoint.category && (
               <span className="stay-point-tooltip-category">{selectedPoint.category}</span>
             )}
+            {!selectedPoint.savedPlaceId && onSavePlace && (
+              <button
+                type="button"
+                className="stay-point-save-btn"
+                onClick={() => {
+                  onSavePlace(selectedPoint);
+                  setSelectedPoint(null);
+                }}
+              >
+                <Bookmark className="h-3 w-3" />
+                이 장소 저장
+              </button>
+            )}
           </div>
         </Popup>
       )}
@@ -298,17 +134,166 @@ function StayPointMarkers({ stayPoints }: { stayPoints: StayPointData[] }) {
   );
 }
 
+const SAVED_PLACE_FILL_LAYER: LayerProps = {
+  id: "saved-places-fill",
+  type: "fill" as const,
+  paint: {
+    "fill-color": "hsl(45, 100%, 42%)",
+    "fill-opacity": 0.1,
+  },
+};
+
+const SAVED_PLACE_OUTLINE_LAYER: LayerProps = {
+  id: "saved-places-outline",
+  type: "line" as const,
+  paint: {
+    "line-color": "hsl(45, 100%, 42%)",
+    "line-width": 1.5,
+    "line-opacity": 0.5,
+    "line-dasharray": [3, 2],
+  },
+};
+
+function SavedPlacesOverlay({ places }: { places: SavedPlaceData[] }) {
+  const geojson = useMemo<GeoJSON.FeatureCollection>(() => {
+    return {
+      type: "FeatureCollection",
+      features: places.map((p) => createGeoCircle(p.lon, p.lat, p.radiusM)),
+    };
+  }, [places]);
+
+  if (places.length === 0) return null;
+
+  return (
+    <>
+      <Source id="saved-places-circles" type="geojson" data={geojson}>
+        <Layer {...SAVED_PLACE_FILL_LAYER} />
+        <Layer {...SAVED_PLACE_OUTLINE_LAYER} />
+      </Source>
+      {places.map((p) => (
+        <Marker
+          key={`saved-label-${p.id}`}
+          longitude={p.lon}
+          latitude={p.lat}
+          anchor="center"
+        >
+          <div className="saved-place-label">{p.name}</div>
+        </Marker>
+      ))}
+    </>
+  );
+}
+
 export function LocationMap({ date, className, initialCenter }: LocationMapProps) {
   const { resolvedTheme } = useTheme();
-  const { locations, isLoading } = useLocations(date);
-  const { stayPoints } = useStayPoints(date);
+  const { locations, isLoading: isLocationsLoading } = useLocations(date);
+  const { stayPoints, isLoading: isStayPointsLoading } = useStayPoints(date);
+  const { places: savedPlaces, createPlace } = useSavedPlaces();
   const [mapLoaded, setMapLoaded] = useState(false);
+  const mapRef = useRef<MapRef>(null);
+
+  // Bidirectional state
+  const [selectedSegmentIndex, setSelectedSegmentIndex] = useState<number | null>(null);
+  const [hoveredSegmentIndex, setHoveredSegmentIndex] = useState<number | null>(null);
+
+  const segments = useMemo(
+    () => segmentLocations(locations, stayPoints),
+    [locations, stayPoints],
+  );
+
+  // Auto-select the last staying segment on today's date
+  const autoSelectedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (date !== today) return;
+    if (segments.length === 0) return;
+    // Only auto-select once per date
+    if (autoSelectedRef.current === date) return;
+
+    // Find last staying segment
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (segments[i].type === "staying") {
+        setSelectedSegmentIndex(i);
+        autoSelectedRef.current = date;
+        break;
+      }
+    }
+  }, [date, segments]);
+
+  const handleSavePlace = useCallback(
+    async (sp: StayPointData) => {
+      const success = await createPlace({
+        name: sp.placeName || "새 장소",
+        lat: sp.lat,
+        lon: sp.lon,
+        address: sp.address || undefined,
+        category: sp.category || undefined,
+      });
+      if (success) {
+        toast.success("장소가 저장되었습니다");
+      } else {
+        toast.error("장소 저장에 실패했습니다");
+      }
+    },
+    [createPlace],
+  );
+
+  // Bar → Map: segment click handler
+  const handleSegmentClick = useCallback(
+    (index: number) => {
+      const map = mapRef.current;
+      // Toggle: clicking same segment deselects
+      if (selectedSegmentIndex === index) {
+        setSelectedSegmentIndex(null);
+        return;
+      }
+
+      setSelectedSegmentIndex(index);
+
+      if (!map) return;
+
+      const seg = segments[index];
+      if (seg.type === "staying") {
+        map.flyTo({
+          center: [seg.stayPoint.lon, seg.stayPoint.lat],
+          zoom: 16,
+          duration: 1000,
+        });
+      } else if (seg.type === "moving" && seg.coords.length > 0) {
+        const lngs = seg.coords.map((c) => c[0]);
+        const lats = seg.coords.map((c) => c[1]);
+        map.fitBounds(
+          [
+            [Math.min(...lngs), Math.min(...lats)],
+            [Math.max(...lngs), Math.max(...lats)],
+          ],
+          { padding: 60, duration: 1000 },
+        );
+      }
+    },
+    [selectedSegmentIndex, segments],
+  );
+
+  // Map → Bar: stay point marker click
+  const handleMapStayPointSelect = useCallback(
+    (sp: StayPointData) => {
+      const idx = findSegmentIndexByStayPoint(segments, sp);
+      if (idx !== -1) {
+        setSelectedSegmentIndex(idx);
+      }
+    },
+    [segments],
+  );
+
+  // Map click: deselect
+  const handleMapClick = useCallback(() => {
+    setSelectedSegmentIndex(null);
+  }, []);
 
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
   const center = initialCenter ?? SEOUL_CENTER;
 
-  // Wait for theme to resolve before mounting the map — avoids double style load
-  // (e.g. light-v11 → dark-v11 switch that causes full tile re-download on mobile)
+  // Wait for theme to resolve before mounting the map
   if (!MAPBOX_TOKEN || !resolvedTheme) {
     return (
       <div className={`bg-muted flex items-center justify-center ${className ?? ""}`}>
@@ -321,41 +306,86 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
   }
 
   return (
-    <div className={`relative ${className ?? ""}`}>
-      <Map
-        id="location-map"
-        mapboxAccessToken={MAPBOX_TOKEN}
-        initialViewState={{
-          ...center,
-          zoom: DEFAULT_ZOOM,
-        }}
-        mapStyle={mapStyle}
-        fadeDuration={0}
-        style={{ width: "100%", height: "100%" }}
-        onLoad={() => setMapLoaded(true)}
-        reuseMaps
-      >
-        {mapLoaded && <RouteAnimator locations={locations} date={date} />}
-        {mapLoaded && stayPoints.length > 0 && (
-          <StayPointMarkers stayPoints={stayPoints} />
-        )}
-      </Map>
+    <div className={`relative flex flex-col ${className ?? ""}`}>
+      <div className="relative flex-1">
+        <Map
+          ref={mapRef}
+          id="location-map"
+          mapboxAccessToken={MAPBOX_TOKEN}
+          initialViewState={{
+            ...center,
+            zoom: DEFAULT_ZOOM,
+          }}
+          mapStyle={mapStyle}
+          fadeDuration={0}
+          style={{ width: "100%", height: "100%" }}
+          onLoad={() => setMapLoaded(true)}
+          onClick={handleMapClick}
+          reuseMaps
+        >
+          {mapLoaded && (
+            <SegmentedRouteAnimator
+              locations={locations}
+              stayPoints={stayPoints}
+              date={date}
+              selectedSegmentIndex={selectedSegmentIndex}
+              hoveredSegmentIndex={hoveredSegmentIndex}
+            />
+          )}
+          {mapLoaded && stayPoints.length > 0 && (
+            <StayPointMarkers
+              stayPoints={stayPoints}
+              selectedSegmentIndex={selectedSegmentIndex}
+              segments={segments}
+              onSavePlace={handleSavePlace}
+              onStayPointSelect={handleMapStayPointSelect}
+            />
+          )}
+          {mapLoaded && savedPlaces.length > 0 && (
+            <SavedPlacesOverlay places={savedPlaces} />
+          )}
+        </Map>
 
-      {/* Loading overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
-          <MapSkeleton />
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!isLoading && locations.length === 0 && mapLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="bg-background/80 backdrop-blur-sm rounded-lg px-4 py-3 flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">위치 데이터가 없습니다</span>
+        {/* Loading indicator */}
+        {(isLocationsLoading || isStayPointsLoading) && (
+          <div className="absolute top-3 left-3 z-10 pointer-events-none">
+            <div className="bg-background/80 backdrop-blur-sm border border-border/50 rounded-lg px-3 py-2 shadow-sm flex flex-col gap-1.5">
+              {isLocationsLoading && (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  <span className="text-xs text-muted-foreground">경로 불러오는 중...</span>
+                </div>
+              )}
+              {isStayPointsLoading && (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  <span className="text-xs text-muted-foreground">체류지점 분석 중...</span>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Empty state */}
+        {!isLocationsLoading && locations.length === 0 && mapLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="bg-background/80 backdrop-blur-sm rounded-lg px-4 py-3 flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">위치 데이터가 없습니다</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Timeline Segment Bar */}
+      {segments.length > 0 && (
+        <TimelineSegmentBar
+          segments={segments}
+          selectedIndex={selectedSegmentIndex}
+          hoveredIndex={hoveredSegmentIndex}
+          onSegmentClick={handleSegmentClick}
+          onSegmentHover={setHoveredSegmentIndex}
+        />
       )}
     </div>
   );

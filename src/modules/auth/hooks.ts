@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getAppUrl } from "@/lib/utils";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
@@ -137,4 +138,17 @@ export function useAuth(): UseAuthReturn {
 export function useUser() {
   const { user, isLoading } = useAuth();
   return { user, isLoading };
+}
+
+export function useRequireAuth() {
+  const router = useRouter();
+  const { isLoading, isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isLoading, isAuthenticated, router]);
+
+  return { isLoading, isAuthenticated };
 }

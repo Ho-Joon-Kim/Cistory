@@ -19,20 +19,10 @@ const POI_SEARCH_RADIUS = 150;
 const CATEGORY_CODES = [
   "CE7", // 카페
   "FD6", // 음식점
-  "CS2", // 편의점
   "SW8", // 지하철역
-  "HP8", // 병원
-  "SC4", // 학교
   "CT1", // 문화시설
-  "MT1", // 대형마트
-  "BK9", // 은행
-  "AC5", // 학원
   "AT4", // 관광명소
-  "AD5", // 숙박
-  "PO3", // 공공기관
-  "PM9", // 약국
-  "OL7", // 주유소
-  "PK6", // 주차장
+  "SC4", // 학교
 ];
 
 interface KakaoAddressDoc {

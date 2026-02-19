@@ -299,8 +299,8 @@ export class SyncService {
       }
     }
 
-    // Save commit
-    await this.db.insert(commits).values({
+    // Save commit (onConflictDoNothing handles race conditions with concurrent syncs)
+    const insertResult = await this.db.insert(commits).values({
       id: commitId,
       userId,
       sha: searchCommit.sha,
@@ -318,16 +318,18 @@ export class SyncService {
       repoId: searchCommit.repoId,
       repoIsPrivate: searchCommit.repoIsPrivate,
       createdAt: timestamp,
-    } satisfies NewCommit);
+    } satisfies NewCommit).onConflictDoNothing({ target: [commits.userId, commits.sha] });
 
-    // Create summary record (pending status)
-    await this.db.insert(commitSummaries).values({
-      id: generateId(),
-      commitId,
-      status: "pending",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    } satisfies NewCommitSummary);
+    // Only create summary if commit was actually inserted (not a duplicate)
+    if (insertResult.rowCount && insertResult.rowCount > 0) {
+      await this.db.insert(commitSummaries).values({
+        id: generateId(),
+        commitId,
+        status: "pending",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      } satisfies NewCommitSummary);
+    }
 
     return commitId;
   }
@@ -348,8 +350,8 @@ export class SyncService {
     const commitId = generateId();
     const timestamp = now();
 
-    // Save commit
-    await this.db.insert(commits).values({
+    // Save commit (onConflictDoNothing handles race conditions with concurrent syncs)
+    const insertResult = await this.db.insert(commits).values({
       id: commitId,
       userId,
       sha: commit.sha,
@@ -367,16 +369,18 @@ export class SyncService {
       repoId: commit.repoId,
       repoIsPrivate: commit.repoIsPrivate,
       createdAt: timestamp,
-    } satisfies NewCommit);
+    } satisfies NewCommit).onConflictDoNothing({ target: [commits.userId, commits.sha] });
 
-    // Create summary record (pending status)
-    await this.db.insert(commitSummaries).values({
-      id: generateId(),
-      commitId,
-      status: "pending",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    } satisfies NewCommitSummary);
+    // Only create summary if commit was actually inserted (not a duplicate)
+    if (insertResult.rowCount && insertResult.rowCount > 0) {
+      await this.db.insert(commitSummaries).values({
+        id: generateId(),
+        commitId,
+        status: "pending",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      } satisfies NewCommitSummary);
+    }
 
     return commitId;
   }

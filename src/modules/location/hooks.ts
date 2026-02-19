@@ -32,6 +32,9 @@ export interface StayPointData {
   startTime: string;
   endTime: string;
   durationMinutes: number;
+  savedPlaceId?: string;
+  icon?: string;
+  color?: string;
 }
 
 interface StayPointsResponse {
@@ -260,4 +263,115 @@ export function useLocations(date: string) {
   }, [date, fetchLocations]);
 
   return { locations, isLoading, error };
+}
+
+export interface SavedPlaceData {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  radiusM: number;
+  category: string | null;
+  address: string | null;
+  icon: string | null;
+  color: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SavedPlacesResponse {
+  places: SavedPlaceData[];
+}
+
+export function useSavedPlaces() {
+  const [places, setPlaces] = useState<SavedPlaceData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/saved-places");
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = (await res.json()) as SavedPlacesResponse;
+      setPlaces(data.places);
+    } catch {
+      setPlaces([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const createPlace = useCallback(
+    async (data: {
+      name: string;
+      lat: number;
+      lon: number;
+      radiusM?: number;
+      category?: string;
+      address?: string;
+      icon?: string;
+      color?: string;
+    }) => {
+      setIsSaving(true);
+      try {
+        const res = await fetch("/api/saved-places", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error("Failed to create");
+        const { place } = await res.json();
+        setPlaces((prev) => [place, ...prev]);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [],
+  );
+
+  const updatePlace = useCallback(
+    async (id: string, data: Partial<Omit<SavedPlaceData, "id" | "createdAt" | "updatedAt">>) => {
+      setIsSaving(true);
+      try {
+        const res = await fetch(`/api/saved-places/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error("Failed to update");
+        const { place } = await res.json();
+        setPlaces((prev) => prev.map((p) => (p.id === id ? place : p)));
+        return true;
+      } catch {
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [],
+  );
+
+  const deletePlace = useCallback(async (id: string) => {
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/saved-places/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete");
+      setPlaces((prev) => prev.filter((p) => p.id !== id));
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }, []);
+
+  return { places, isLoading, isSaving, createPlace, updatePlace, deletePlace, refresh };
 }

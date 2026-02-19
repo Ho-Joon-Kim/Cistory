@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Also includes location tracking via OwnTracks integration with map visualization (Mapbox/Kakao), and WakaTime integration for coding activity tracking. Features automatic background sync via integrated Cron worker with Sentry error tracking and Better Stack structured logging.
+Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Also includes location tracking via OwnTracks integration with map visualization (Mapbox/Kakao), WakaTime integration for coding activity tracking, and comprehensive monthly/yearly report generation with AI narratives. Features automatic background sync via integrated Cron worker with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -61,7 +61,8 @@ src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
 │   ├── (dashboard)/         # Dashboard route group (settings, repositories)
-│   ├── api/                 # API routes (~23 endpoints)
+│   ├── api/                 # API routes (~25 endpoints)
+│   ├── report/              # Monthly/yearly report pages
 │   └── dashboard/           # Main dashboard page
 ├── components/              # Shared components (Layout/, ui/ with 15 shadcn components)
 ├── db/
@@ -85,6 +86,7 @@ src/
 │   ├── settings/           # User settings (theme, sync interval, OwnTracks key, WakaTime key)
 │   ├── summary/            # AI commit summary service
 │   ├── sync/               # Commit sync service (SyncService class)
+│   ├── report/             # Monthly/yearly reports (service, hooks, AI narratives, 20+ chart components)
 │   ├── timeline/           # Timeline display (hooks, CommitCard, Timeline, Filters)
 │   └── wakatime/           # WakaTime coding activity (service, hooks, components)
 instrumentation.ts           # (project root) Initializes Cron + Sentry on server boot
@@ -123,7 +125,7 @@ const db = getDb();
 ```
 
 **Database Schema** (9 tables in `src/db/schema.ts`):
-- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `wakatimeApiKey` (UUID PK, references Supabase `auth.users`)
+- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Supabase `auth.users`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
 - `syncJobs` - Sync tracking (status: fetching/summarizing/completed/failed)
@@ -162,6 +164,13 @@ const db = getDb();
 - Geocoding auto-selects Kakao (Korean coordinates), Google Places, or Mapbox (international)
 - Location hooks poll every 60 seconds when viewing today's date
 
+**Reports** (`src/modules/report/`):
+- Monthly and yearly reports aggregate commits, coding sessions, and location data
+- API supports sectioned queries (`?section=commits`, `?section=coding`, `?section=location`) for incremental loading
+- AI narrative generation via POST with Claude, using prompts defined in `prompts.ts`
+- Includes overseas trip detection (`travel.ts`) and 20+ chart/visualization components
+- `ReportService` handles data aggregation with period-over-period comparisons
+
 **Logging**: `src/lib/logger.ts` wraps Better Stack (Logtail) with `info`, `warn`, `error`, `flush` methods. Falls back to console when `BETTER_STACK_SOURCE_TOKEN` is not set.
 
 ### Authentication Flow
@@ -182,6 +191,8 @@ const db = getDb();
 - `/api/timeline/locations` - GET location points; `.../stay-points` - GET detected stay points; `.../distances` - GET daily travel distances
 - `/api/timeline/coding-sessions` - GET WakaTime coding sessions
 - `/api/timeline/coding-stats` - GET WakaTime coding statistics
+- `/api/reports/monthly` - GET monthly report data (supports `?section=` for commits/coding/location); POST AI narrative
+- `/api/reports/yearly` - GET yearly report data (supports `?section=`); POST AI narrative
 - `/api/summaries/process` - POST batch summary generation
 - `/api/owntracks` - POST location data ingestion
 

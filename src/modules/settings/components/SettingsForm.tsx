@@ -5,6 +5,7 @@ import { useAuth } from "@/modules/auth/hooks";
 import { SummaryStats } from "./SummaryStats";
 import { OwnTracksSettings } from "./OwnTracksSettings";
 import { WakaTimeSettings } from "./WakaTimeSettings";
+import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -223,6 +224,9 @@ export function SettingsForm() {
 
       {/* 위치 추적 */}
       <OwnTracksSettings hasKey={settings.hasOwnTracksKey} />
+
+      {/* 저장된 장소 */}
+      <SavedPlacesSettings />
 
       {/* Coding */}
       <WakaTimeSettings hasKey={settings.hasWakaTimeKey} />

@@ -19,6 +19,14 @@ export const CompactCommitCard = memo(function CompactCommitCard({
     <div
       className="compact-commit flex items-center gap-2 py-0.5 px-2 rounded cursor-pointer text-muted-foreground"
       onClick={onSelectDate}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelectDate();
+        }
+      }}
     >
       <GitCommit className="h-3 w-3 flex-shrink-0 opacity-50" />
       <span className="text-xs font-mono opacity-60">{commit.sha.slice(0, 7)}</span>

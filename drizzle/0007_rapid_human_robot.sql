@@ -1,0 +1,2 @@
+CREATE INDEX "idx_sync_user_status_created" ON "sync_jobs" USING btree ("user_id","status","created_at");--> statement-breakpoint
+CREATE INDEX "idx_sync_user_status_completed" ON "sync_jobs" USING btree ("user_id","status","completed_at");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -19,32 +19,46 @@ interface StatsResponse {
   maxCount: number;
 }
 
+interface HeatmapState {
+  data: StatsResponse | null;
+  isLoading: boolean;
+  isVisible: boolean;
+}
+
 export function CommitHeatmap() {
-  const [data, setData] = useState<StatsResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isVisible, setIsVisible] = useState(false);
+  const [state, setState] = useState<HeatmapState>({
+    data: null,
+    isLoading: true,
+    isVisible: false,
+  });
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    async function fetchStats() {
-      try {
-        const response = await fetch("/api/timeline/stats");
-        if (response.ok) {
-          const json = await response.json();
-          setData(json);
-          // Trigger animation after data loads
-          setTimeout(() => setIsVisible(true), 50);
-        }
-      } catch (error) {
-        console.error("Failed to fetch heatmap stats:", error);
-      } finally {
-        setIsLoading(false);
+  const fetchStats = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await fetch("/api/timeline/stats", { signal });
+      if (response.ok) {
+        const json = await response.json();
+        setState({ data: json, isLoading: false, isVisible: false });
+        // Trigger animation after data loads
+        setTimeout(() => setState((prev) => ({ ...prev, isVisible: true })), 50);
+      } else {
+        setState((prev) => ({ ...prev, isLoading: false }));
       }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      console.error("Failed to fetch heatmap stats:", error);
+      setState((prev) => ({ ...prev, isLoading: false }));
     }
-
-    fetchStats();
   }, []);
 
-  if (isLoading) {
+  useEffect(() => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    fetchStats(controller.signal);
+    return () => controller.abort();
+  }, [fetchStats]);
+
+  if (state.isLoading) {
     return (
       <div className="flex items-end gap-[2px] h-6">
         {Array.from({ length: 30 }).map((_, i) => (
@@ -58,7 +72,7 @@ export function CommitHeatmap() {
     );
   }
 
-  if (!data || data.totalCommits === 0) {
+  if (!state.data || state.data.totalCommits === 0) {
     return null;
   }
 
@@ -73,9 +87,9 @@ export function CommitHeatmap() {
   return (
     <TooltipProvider delayDuration={100}>
       <div className="flex items-end gap-[2px] h-6">
-        {data.stats.map((stat, index) => {
-          const heightPercent = data.maxCount > 0
-            ? Math.max((stat.count / data.maxCount) * 100, stat.count > 0 ? 20 : 8)
+        {state.data.stats.map((stat, index) => {
+          const heightPercent = state.data!.maxCount > 0
+            ? Math.max((stat.count / state.data!.maxCount) * 100, stat.count > 0 ? 20 : 8)
             : 8;
 
           return (
@@ -87,7 +101,7 @@ export function CommitHeatmap() {
                     transition-all duration-200
                     hover:opacity-80 hover:scale-110
                     ${stat.count > 0 ? "bg-primary" : "bg-muted"}
-                    ${isVisible ? "animate-bar-grow" : "opacity-0"}
+                    ${state.isVisible ? "animate-bar-grow" : "opacity-0"}
                   `}
                   style={{
                     height: `${heightPercent}%`,

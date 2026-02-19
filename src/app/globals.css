@@ -758,3 +758,360 @@ body {
   width: fit-content;
   margin-top: 2px;
 }
+
+/* Save place button in popup */
+.stay-point-save-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.08);
+  border: 1px solid hsl(var(--primary) / 0.2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  width: fit-content;
+}
+
+.stay-point-save-btn:hover {
+  background: hsl(var(--primary) / 0.15);
+  border-color: hsl(var(--primary) / 0.4);
+}
+
+/* ===== Saved Place Marker (gold) ===== */
+
+.stay-point-marker-saved {
+  background-color: hsl(45 100% 42%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px hsl(45 100% 42% / 0.3);
+}
+
+.stay-point-marker-saved:hover {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4), 0 0 0 3px hsl(45 100% 42% / 0.25);
+}
+
+/* ===== Transition Marker (moving ↔ staying boundary) ===== */
+
+.transition-marker {
+  width: 10px;
+  height: 10px;
+  background-color: hsl(30 90% 55%);
+  border-radius: 50%;
+  border: 2px solid hsl(var(--background));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* ===== Horizontal Stepper Timeline Bar ===== */
+
+/* Outer wrapper: 3 rows (time labels / dot+dash row / place labels) */
+.stepper-bar {
+  position: relative;
+  width: 100%;
+  background: hsl(var(--card));
+  border-top: 1px solid hsl(var(--border));
+  padding: 6px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* overflow visible so tooltips can escape */
+}
+
+/* Row of time labels — mirrors the middle row layout */
+.stepper-bar-times,
+.stepper-bar-places {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 14px;
+}
+
+/* Middle row: dots and dashes on a horizontal line */
+.stepper-bar-track {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  position: relative;
+  height: 16px;
+}
+
+/* Background line spanning entire track */
+.stepper-bar-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: hsl(var(--muted-foreground) / 0.15);
+  border-radius: 1px;
+  z-index: 0;
+}
+
+/* Individual flex cell — takes proportional width */
+.stepper-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-width: 0;
+  z-index: 1;
+}
+
+/* Stay dot (horizontal stepper bar) */
+.stepper-bar-dot {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  border-radius: 50%;
+  background: hsl(260 60% 50%);
+  border: 2.5px solid hsl(var(--background));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2), 0 0 0 1px hsl(260 60% 50% / 0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.2s ease;
+  appearance: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.stepper-bar-dot:hover {
+  transform: scale(1.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 3px hsl(260 60% 50% / 0.2);
+}
+
+.stepper-bar-dot:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Saved place dot (gold) */
+.stepper-bar-dot-saved {
+  background: hsl(45 100% 42%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2), 0 0 0 1px hsl(45 100% 42% / 0.3);
+}
+
+.stepper-bar-dot-saved:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 3px hsl(45 100% 42% / 0.2);
+}
+
+/* Selected dot — pulse glow ring */
+.stepper-bar-dot-selected {
+  transform: scale(1.25);
+  z-index: 3;
+}
+
+.stepper-bar-dot-selected::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background-color: hsl(var(--primary) / 0.4);
+  animation: pulse-ring-lg 1.5s ease-out infinite;
+}
+
+/* Dimmed (non-selected) */
+.stepper-bar-dot-dimmed {
+  opacity: 0.3;
+}
+
+.stepper-bar-dot-dimmed:hover {
+  opacity: 0.7;
+}
+
+/* Moving segment dashed connector */
+.stepper-dash {
+  height: 2px;
+  width: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    hsl(153 60% 38% / 0.5) 0px,
+    hsl(153 60% 38% / 0.5) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+  border-radius: 1px;
+}
+
+.stepper-dash:hover {
+  background: repeating-linear-gradient(
+    90deg,
+    hsl(153 60% 38% / 0.8) 0px,
+    hsl(153 60% 38% / 0.8) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.stepper-dash-dimmed {
+  opacity: 0.2;
+}
+
+/* Label cells in time / place rows */
+.stepper-label-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  /* Allow text to visually overflow without affecting layout */
+  overflow: visible;
+  position: relative;
+}
+
+.stepper-time-text {
+  font-size: 9px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  pointer-events: none;
+}
+
+.stepper-place-text {
+  font-size: 10px;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  white-space: nowrap;
+  text-align: center;
+  pointer-events: none;
+  /* Clip only when truly overflowing the cell */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.stepper-dist-text {
+  font-size: 9px;
+  color: hsl(var(--muted-foreground) / 0.7);
+  white-space: nowrap;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Hover tooltip — rendered via portal with position:fixed from component */
+.stepper-tooltip {
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  min-width: 150px;
+  max-width: 240px;
+  pointer-events: none;
+  animation: stepper-tooltip-in 0.15s ease-out;
+}
+
+@keyframes stepper-tooltip-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.stepper-tooltip-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin: 0 0 2px;
+  line-height: 1.3;
+}
+
+.stepper-tooltip-address {
+  font-size: 10px;
+  color: hsl(var(--muted-foreground));
+  margin: 0 0 2px;
+  line-height: 1.3;
+}
+
+.stepper-tooltip-time {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: hsl(var(--muted-foreground));
+}
+
+.stepper-tooltip-category {
+  display: inline-block;
+  font-size: 9px;
+  color: hsl(260 60% 50%);
+  background: hsl(260 60% 50% / 0.1);
+  padding: 0 4px;
+  border-radius: 3px;
+  margin-top: 2px;
+  width: fit-content;
+}
+
+/* Stay point marker selected (on map) */
+.stay-point-marker-selected {
+  transform: scale(1.3) !important;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4), 0 0 0 4px hsl(260 60% 50% / 0.3), 0 0 16px hsl(260 60% 50% / 0.2) !important;
+}
+
+/* Responsive: mobile */
+@media (max-width: 768px) {
+  .stepper-bar {
+    padding: 4px 8px 6px;
+  }
+
+  .stepper-bar-dot {
+    width: 11px;
+    height: 11px;
+    min-width: 11px;
+    border-width: 2px;
+  }
+
+  .stepper-time-text,
+  .stepper-dist-text {
+    display: none;
+  }
+
+  .stepper-place-text {
+    font-size: 8px;
+  }
+}
+
+/* ===== Saved Place Label (on map) ===== */
+
+.saved-place-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: hsl(45 100% 30%);
+  background: hsl(45 100% 92% / 0.9);
+  border: 1px solid hsl(45 100% 42% / 0.4);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 0.5px 0 hsl(0 0% 100% / 0.5);
+}
+
+.dark .saved-place-label {
+  color: hsl(45 100% 75%);
+  background: hsl(45 30% 15% / 0.85);
+  border-color: hsl(45 100% 42% / 0.5);
+  text-shadow: none;
+}
+
+/* ===== Dialog Minimap Pin ===== */
+
+.dialog-map-pin {
+  color: hsl(45 100% 42%);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  cursor: grab;
+  transition: transform 0.1s ease;
+}
+
+.dialog-map-pin:hover {
+  transform: scale(1.15);
+}
+
+.dialog-map-pin:active {
+  cursor: grabbing;
+  transform: scale(1.05);
+}

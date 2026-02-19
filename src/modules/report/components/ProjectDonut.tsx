@@ -52,8 +52,8 @@ export function ProjectDonut({ projects }: ProjectDonutProps) {
             paddingAngle={2}
             dataKey="value"
           >
-            {data.map((_, index) => (
-              <Cell key={`cell-${index}`} fill={PROJECT_COLORS[index % PROJECT_COLORS.length]} />
+            {data.map((entry, index) => (
+              <Cell key={`cell-${entry.name}`} fill={PROJECT_COLORS[index % PROJECT_COLORS.length]} />
             ))}
           </Pie>
           <Tooltip
