@@ -253,23 +253,6 @@ export function TimelineSegmentBar({
         })}
       </div>
 
-      {/* Row 3: Place name labels (below) */}
-      <div className="stepper-bar-places">
-        {segments.map((seg, i) => (
-          <div
-            key={`place-${i}`}
-            className="stepper-label-cell"
-            style={{ flex: `${flexGrows[i]} 0 0%` }}
-          >
-            {seg.type === "staying" && (
-              <span className="stepper-place-text">
-                {seg.stayPoint.placeName || formatDuration(seg.stayPoint.durationMinutes)}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-
       {/* Tooltip via portal — always above map */}
       {tooltipSeg?.type === "staying" && tooltipAnchor && (
         <StepperTooltip anchorEl={tooltipAnchor} segment={tooltipSeg} />

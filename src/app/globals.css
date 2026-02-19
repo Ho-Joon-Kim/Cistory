@@ -811,20 +811,18 @@ body {
   width: 100%;
   background: hsl(var(--card));
   border-top: 1px solid hsl(var(--border));
-  padding: 6px 16px 8px;
+  padding: 3px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  /* overflow visible so tooltips can escape */
+  gap: 1px;
 }
 
 /* Row of time labels — mirrors the middle row layout */
-.stepper-bar-times,
-.stepper-bar-places {
+.stepper-bar-times {
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 14px;
+  min-height: 12px;
 }
 
 /* Middle row: dots and dashes on a horizontal line */
@@ -833,7 +831,7 @@ body {
   align-items: center;
   width: 100%;
   position: relative;
-  height: 16px;
+  height: 14px;
 }
 
 /* Background line spanning entire track */
@@ -974,13 +972,12 @@ body {
 }
 
 .stepper-place-text {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
-  color: hsl(var(--foreground));
+  color: hsl(var(--foreground) / 0.7);
   white-space: nowrap;
   text-align: center;
   pointer-events: none;
-  /* Clip only when truly overflowing the cell */
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
@@ -1056,14 +1053,18 @@ body {
 /* Responsive: mobile */
 @media (max-width: 768px) {
   .stepper-bar {
-    padding: 4px 8px 6px;
+    padding: 2px 6px;
   }
 
   .stepper-bar-dot {
-    width: 11px;
-    height: 11px;
-    min-width: 11px;
+    width: 10px;
+    height: 10px;
+    min-width: 10px;
     border-width: 2px;
+  }
+
+  .stepper-bar-track {
+    height: 12px;
   }
 
   .stepper-time-text,
@@ -1071,8 +1072,8 @@ body {
     display: none;
   }
 
-  .stepper-place-text {
-    font-size: 8px;
+  .stepper-bar-times {
+    display: none;
   }
 }
 
