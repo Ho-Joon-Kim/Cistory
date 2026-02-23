@@ -817,18 +817,30 @@ body {
   gap: 1px;
 }
 
-/* Row of time labels — mirrors the middle row layout */
-.stepper-bar-times {
-  display: flex;
-  align-items: center;
+/* Row of fixed time ticks (0시~24시) */
+.stepper-bar-ticks {
+  position: relative;
   width: 100%;
-  min-height: 12px;
+  height: 14px;
 }
+
+.stepper-tick-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: hsl(var(--muted-foreground) / 0.6);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* 첫 번째(0시)는 왼쪽 정렬, 마지막(24시)은 오른쪽 정렬하여 잘림 방지 */
+.stepper-tick-label:first-child { transform: translateX(0); }
+.stepper-tick-label:last-child { transform: translateX(-100%); }
 
 /* Middle row: dots and dashes on a horizontal line */
 .stepper-bar-track {
-  display: flex;
-  align-items: center;
   width: 100%;
   position: relative;
   height: 14px;
@@ -848,16 +860,6 @@ body {
   z-index: 0;
 }
 
-/* Individual flex cell — takes proportional width */
-.stepper-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  min-width: 0;
-  z-index: 1;
-}
-
 /* Stay dot (horizontal stepper bar) */
 .stepper-bar-dot {
   width: 14px;
@@ -873,12 +875,14 @@ body {
   padding: 0;
   font: inherit;
   color: inherit;
-  position: relative;
-  flex-shrink: 0;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
 }
 
 .stepper-bar-dot:hover {
-  transform: scale(1.3);
+  transform: translate(-50%, -50%) scale(1.3);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 3px hsl(260 60% 50% / 0.2);
 }
 
@@ -899,7 +903,7 @@ body {
 
 /* Selected dot — pulse glow ring */
 .stepper-bar-dot-selected {
-  transform: scale(1.25);
+  transform: translate(-50%, -50%) scale(1.25);
   z-index: 3;
 }
 
@@ -924,7 +928,11 @@ body {
 /* Moving segment dashed connector */
 .stepper-dash {
   height: 2px;
-  width: 100%;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 4px;
+  z-index: 1;
   background: repeating-linear-gradient(
     90deg,
     hsl(153 60% 38% / 0.5) 0px,
@@ -951,45 +959,6 @@ body {
   opacity: 0.2;
 }
 
-/* Label cells in time / place rows */
-.stepper-label-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  /* Allow text to visually overflow without affecting layout */
-  overflow: visible;
-  position: relative;
-}
-
-.stepper-time-text {
-  font-size: 9px;
-  color: hsl(var(--muted-foreground));
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  pointer-events: none;
-}
-
-.stepper-place-text {
-  font-size: 9px;
-  font-weight: 500;
-  color: hsl(var(--foreground) / 0.7);
-  white-space: nowrap;
-  text-align: center;
-  pointer-events: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-.stepper-dist-text {
-  font-size: 9px;
-  color: hsl(var(--muted-foreground) / 0.7);
-  white-space: nowrap;
-  text-align: center;
-  pointer-events: none;
-}
 
 /* Hover tooltip — rendered via portal with position:fixed from component */
 .stepper-tooltip {
@@ -1061,19 +1030,27 @@ body {
     height: 10px;
     min-width: 10px;
     border-width: 2px;
+    transform: translate(-50%, -50%);
+  }
+
+  .stepper-bar-dot:hover {
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+
+  .stepper-bar-dot-selected {
+    transform: translate(-50%, -50%) scale(1.25);
   }
 
   .stepper-bar-track {
     height: 12px;
   }
 
-  .stepper-time-text,
-  .stepper-dist-text {
-    display: none;
+  .stepper-bar-ticks {
+    height: 12px;
   }
 
-  .stepper-bar-times {
-    display: none;
+  .stepper-tick-label {
+    font-size: 8px;
   }
 }
 

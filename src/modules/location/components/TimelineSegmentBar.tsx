@@ -4,7 +4,6 @@ import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
 import type { TimelineSegment } from "../utils";
-import { computeSegmentDistance } from "../utils";
 
 function formatTime(isoString: string): string {
   const d = new Date(isoString);
@@ -18,11 +17,6 @@ function formatDuration(minutes: number): string {
   return mins > 0 ? `${hours}시간 ${mins}분` : `${hours}시간`;
 }
 
-function formatDistance(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)}m`;
-  return `${(meters / 1000).toFixed(1)}km`;
-}
-
 interface TimelineSegmentBarProps {
   segments: TimelineSegment[];
   selectedIndex: number | null;
@@ -31,78 +25,40 @@ interface TimelineSegmentBarProps {
   onSegmentHover: (index: number | null) => void;
 }
 
-function computeFlexGrows(segments: TimelineSegment[]): number[] {
-  const MIN_STAY = 8;
-  const MIN_MOVE = 5;
+/** ISO 타임스탬프 → 자정 기준 분(0~1439) */
+function getMinutesFromMidnight(isoString: string): number {
+  const d = new Date(isoString);
+  return d.getHours() * 60 + d.getMinutes();
+}
 
-  const durations = segments.map((seg) => {
-    if (seg.type === "moving") {
-      return Math.max(new Date(seg.endTime).getTime() - new Date(seg.startTime).getTime(), 60_000);
-    }
-    const sp = seg.stayPoint;
-    return Math.max(new Date(sp.endTime).getTime() - new Date(sp.startTime).getTime(), 60_000);
+interface SegmentPosition {
+  leftPercent: number;
+  widthPercent: number;
+}
+
+/** 각 세그먼트의 24시간 타임라인 내 절대 위치 계산 */
+function computeSegmentPositions(segments: TimelineSegment[]): SegmentPosition[] {
+  const MINUTES_PER_DAY = 1440;
+  return segments.map((seg) => {
+    const start = seg.type === "moving" ? seg.startTime : seg.stayPoint.startTime;
+    const end = seg.type === "moving" ? seg.endTime : seg.stayPoint.endTime;
+    const startMin = getMinutesFromMidnight(start);
+    let endMin = getMinutesFromMidnight(end);
+    if (endMin <= startMin) endMin = MINUTES_PER_DAY;
+    return {
+      leftPercent: Math.max(0, Math.min(100, (startMin / MINUTES_PER_DAY) * 100)),
+      widthPercent: Math.max(0, Math.min(100, ((endMin - startMin) / MINUTES_PER_DAY) * 100)),
+    };
   });
-  const totalMs = durations.reduce((s, d) => s + d, 0);
-
-  const raw = durations.map((d) => (d / totalMs) * 100);
-  const adjusted = raw.map((p, i) =>
-    Math.max(p, segments[i].type === "staying" ? MIN_STAY : MIN_MOVE),
-  );
-  const adjTotal = adjusted.reduce((s, p) => s + p, 0);
-  return adjusted.map((p) => (p / adjTotal) * 100);
 }
 
-/**
- * Which staying segments show time labels.
- * <=4 stays: show all. Otherwise: first, last, selected, hovered,
- * + greedily fill ensuring >= MIN_GAP% between shown labels.
- */
-function computeVisibleTimeLabels(
-  segments: TimelineSegment[],
-  flexGrows: number[],
-  selectedIndex: number | null,
-  hoveredIndex: number | null,
-): Set<number> {
-  const stayIndices = segments
-    .map((s, i) => (s.type === "staying" ? i : -1))
-    .filter((i) => i >= 0);
-
-  if (stayIndices.length <= 4) return new Set(stayIndices);
-
-  const visible = new Set<number>();
-  visible.add(stayIndices[0]);
-  visible.add(stayIndices[stayIndices.length - 1]);
-
-  if (selectedIndex !== null && segments[selectedIndex]?.type === "staying") {
-    visible.add(selectedIndex);
-  }
-  if (hoveredIndex !== null && segments[hoveredIndex]?.type === "staying") {
-    visible.add(hoveredIndex);
-  }
-
-  // Cumulative center position for each stay
-  const centerPositions: { index: number; center: number }[] = [];
-  let cumPct = 0;
-  for (let i = 0; i < segments.length; i++) {
-    const center = cumPct + flexGrows[i] / 2;
-    if (segments[i].type === "staying") {
-      centerPositions.push({ index: i, center });
-    }
-    cumPct += flexGrows[i];
-  }
-
-  const MIN_GAP = 12;
-  for (const { index, center } of centerPositions) {
-    if (visible.has(index)) continue;
-    const tooClose = [...visible].some((vi) => {
-      const viPos = centerPositions.find((c) => c.index === vi);
-      return viPos && Math.abs(viPos.center - center) < MIN_GAP;
-    });
-    if (!tooClose) visible.add(index);
-  }
-
-  return visible;
-}
+const TIME_TICKS = [
+  { percent: 0, label: "0시" },
+  { percent: 25, label: "6시" },
+  { percent: 50, label: "12시" },
+  { percent: 75, label: "18시" },
+  { percent: 100, label: "24시" },
+] as const;
 
 /** Tooltip rendered via portal so it always floats above the map */
 function StepperTooltip({
@@ -152,12 +108,7 @@ export function TimelineSegmentBar({
   const [tooltipIndex, setTooltipIndex] = useState<number | null>(null);
   const dotRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
-  const flexGrows = useMemo(() => computeFlexGrows(segments), [segments]);
-
-  const visibleTimeLabels = useMemo(
-    () => computeVisibleTimeLabels(segments, flexGrows, selectedIndex, hoveredIndex),
-    [segments, flexGrows, selectedIndex, hoveredIndex],
-  );
+  const positions = useMemo(() => computeSegmentPositions(segments), [segments]);
 
   if (segments.length === 0) return null;
 
@@ -169,30 +120,23 @@ export function TimelineSegmentBar({
 
   return (
     <div className="stepper-bar">
-      {/* Row 1: Time labels (above) */}
-      <div className="stepper-bar-times">
-        {segments.map((seg, i) => (
-          <div
-            key={`time-${i}`}
-            className="stepper-label-cell"
-            style={{ flex: `${flexGrows[i]} 0 0%` }}
+      {/* Row 1: Fixed time ticks (0시~24시) */}
+      <div className="stepper-bar-ticks">
+        {TIME_TICKS.map((tick) => (
+          <span
+            key={tick.percent}
+            className="stepper-tick-label"
+            style={{ left: `${tick.percent}%` }}
           >
-            {seg.type === "staying" && visibleTimeLabels.has(i) ? (
-              <span className="stepper-time-text">{formatTime(seg.stayPoint.startTime)}</span>
-            ) : seg.type === "moving" ? (
-              <span className="stepper-dist-text">
-                {computeSegmentDistance(seg.coords) > 100 && flexGrows[i] > 8
-                  ? formatDistance(computeSegmentDistance(seg.coords))
-                  : ""}
-              </span>
-            ) : null}
-          </div>
+            {tick.label}
+          </span>
         ))}
       </div>
 
-      {/* Row 2: Dots and dashes (middle track) */}
+      {/* Row 2: Dots and dashes (absolute positioned on track) */}
       <div className="stepper-bar-track">
         {segments.map((seg, i) => {
+          const pos = positions[i];
           const isSelected = selectedIndex === i;
           const isDimmed = selectedIndex !== null && !isSelected;
 
@@ -209,29 +153,25 @@ export function TimelineSegmentBar({
               .join(" ");
 
             return (
-              <div
+              <button
                 key={`track-${i}`}
-                className="stepper-cell"
-                style={{ flex: `${flexGrows[i]} 0 0%` }}
-              >
-                <button
-                  ref={(el) => {
-                    if (el) dotRefs.current.set(i, el);
-                  }}
-                  type="button"
-                  className={dotClasses}
-                  onClick={() => onSegmentClick(i)}
-                  onMouseEnter={() => {
-                    onSegmentHover(i);
-                    setTooltipIndex(i);
-                  }}
-                  onMouseLeave={() => {
-                    onSegmentHover(null);
-                    setTooltipIndex(null);
-                  }}
-                  aria-label={sp.placeName || "체류 지점"}
-                />
-              </div>
+                ref={(el) => {
+                  if (el) dotRefs.current.set(i, el);
+                }}
+                type="button"
+                className={dotClasses}
+                style={{ left: `${pos.leftPercent + pos.widthPercent / 2}%` }}
+                onClick={() => onSegmentClick(i)}
+                onMouseEnter={() => {
+                  onSegmentHover(i);
+                  setTooltipIndex(i);
+                }}
+                onMouseLeave={() => {
+                  onSegmentHover(null);
+                  setTooltipIndex(null);
+                }}
+                aria-label={sp.placeName || "체류 지점"}
+              />
             );
           }
 
@@ -239,16 +179,12 @@ export function TimelineSegmentBar({
           return (
             <div
               key={`track-${i}`}
-              className="stepper-cell"
-              style={{ flex: `${flexGrows[i]} 0 0%` }}
-            >
-              <div
-                className={`stepper-dash ${isDimmed ? "stepper-dash-dimmed" : ""}`}
-                onClick={() => onSegmentClick(i)}
-                onMouseEnter={() => onSegmentHover(i)}
-                onMouseLeave={() => onSegmentHover(null)}
-              />
-            </div>
+              className={`stepper-dash ${isDimmed ? "stepper-dash-dimmed" : ""}`}
+              style={{ left: `${pos.leftPercent}%`, width: `${pos.widthPercent}%` }}
+              onClick={() => onSegmentClick(i)}
+              onMouseEnter={() => onSegmentHover(i)}
+              onMouseLeave={() => onSegmentHover(null)}
+            />
           );
         })}
       </div>
