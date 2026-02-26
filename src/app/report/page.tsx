@@ -1,31 +1,39 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
-import dynamic from "next/dynamic";
-import { useRequireAuth } from "@/modules/auth/hooks";
-import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMonthlyReport, useYearlyReport } from "@/modules/report/hooks";
-import { StatCards } from "@/modules/report/components/StatCards";
+import { useRequireAuth } from "@/modules/auth/hooks";
 import { ActivityHeatmap } from "@/modules/report/components/ActivityHeatmap";
-import { WeekdayHourBubble } from "@/modules/report/components/WeekdayHourBubble";
 import { AiCodeRatio } from "@/modules/report/components/AiCodeRatio";
+import { CategoryBreakdownChart } from "@/modules/report/components/CategoryBreakdownChart";
+import { ContextSwitchingCard } from "@/modules/report/components/ContextSwitchingCard";
+import { DeepWorkCard } from "@/modules/report/components/DeepWorkCard";
+import { NarrativeSection } from "@/modules/report/components/NarrativeSection";
+import { OverseasTripCards } from "@/modules/report/components/OverseasTripCards";
+import { PlaceProductivityCard } from "@/modules/report/components/PlaceProductivityCard";
+import { StatCards } from "@/modules/report/components/StatCards";
 import { StreakHighlight } from "@/modules/report/components/StreakHighlight";
 import { TopPlaces } from "@/modules/report/components/TopPlaces";
-import { OverseasTripCards } from "@/modules/report/components/OverseasTripCards";
-import { NarrativeSection } from "@/modules/report/components/NarrativeSection";
+import { WeekdayHourBubble } from "@/modules/report/components/WeekdayHourBubble";
+import { WorkLifeBalanceCard } from "@/modules/report/components/WorkLifeBalanceCard";
+import { useMonthlyReport, useYearlyReport } from "@/modules/report/hooks";
 import type {
   CodingSectionData,
+  CrossAnalysisData,
+  EnrichedCodingSectionData,
+  EnrichedCommitsSectionData,
   LocationSectionData,
-  YearlyCommitsSectionData,
   YearlyCodingSectionData,
+  YearlyCommitsSectionData,
   YearlyReportData,
 } from "@/modules/report/types";
+import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 // Dynamic imports for recharts-based components
 const CommitChart = dynamic(
@@ -45,7 +53,8 @@ const LanguagePie = dynamic(
   { ssr: false }
 );
 const CommitTypeBreakdown = dynamic(
-  () => import("@/modules/report/components/CommitTypeBreakdown").then((m) => m.CommitTypeBreakdown),
+  () =>
+    import("@/modules/report/components/CommitTypeBreakdown").then((m) => m.CommitTypeBreakdown),
   { ssr: false }
 );
 const DistanceChart = dynamic(
@@ -150,19 +159,13 @@ function ReportContent() {
       const monthStr = `${year}-${String(m).padStart(2, "0")}`;
       const monthStart = `${monthStr}-01`;
       const monthEnd =
-        m === 12
-          ? `${Number(year) + 1}-01-01`
-          : `${year}-${String(m + 1).padStart(2, "0")}-01`;
+        m === 12 ? `${Number(year) + 1}-01-01` : `${year}-${String(m + 1).padStart(2, "0")}-01`;
 
-      const mCommits = c.dailyCommits.filter(
-        (d) => d.date >= monthStart && d.date < monthEnd
-      );
+      const mCommits = c.dailyCommits.filter((d) => d.date >= monthStart && d.date < monthEnd);
       const mCoding = co.dailyCodingSeconds.filter(
         (d) => d.date >= monthStart && d.date < monthEnd
       );
-      const mDist = l.dailyDistances.filter(
-        (d) => d.date >= monthStart && d.date < monthEnd
-      );
+      const mDist = l.dailyDistances.filter((d) => d.date >= monthStart && d.date < monthEnd);
 
       trend.push({
         month: monthStr,
@@ -188,6 +191,10 @@ function ReportContent() {
   const commitsData = report.commits.data;
   const codingData = report.coding.data;
   const locationData = report.location.data;
+  const enrichedCommitsData = report.enrichedCommits.data;
+  const enrichedCodingData = report.enrichedCoding.data;
+  const enrichedLocationData = report.enrichedLocation.data;
+  const crossAnalysisData = report.crossAnalysis.data;
 
   // All sections done loading but no data at all
   const allDone = !report.isLoading;
@@ -243,24 +250,48 @@ function ReportContent() {
                 commits={commitsData}
                 coding={codingData}
                 location={locationData}
+                sparklines={
+                  enrichedCommitsData || enrichedCodingData || enrichedLocationData
+                    ? {
+                        commits: enrichedCommitsData?.sparklines?.commits,
+                        activeDays: enrichedCommitsData?.sparklines?.activeDays,
+                        codingTime: enrichedCodingData?.sparklines?.codingTime,
+                        distance: enrichedLocationData?.sparklines?.distance,
+                      }
+                    : undefined
+                }
+                sameMonthLastYear={
+                  enrichedCommitsData?.sameMonthLastYear ||
+                  enrichedCodingData?.sameMonthLastYear ||
+                  enrichedLocationData?.sameMonthLastYear
+                    ? {
+                        commits: enrichedCommitsData?.sameMonthLastYear,
+                        coding: enrichedCodingData?.sameMonthLastYear,
+                        distance: enrichedLocationData?.sameMonthLastYear,
+                      }
+                    : undefined
+                }
               />
 
               {/* Commits Section */}
               <CommitsSection
                 isLoading={report.commits.isLoading}
                 commitsData={commitsData}
+                enrichedData={enrichedCommitsData}
               />
 
               {/* Coding Section */}
               <CodingSection
                 isLoading={report.coding.isLoading}
                 codingData={codingData as CodingSectionData | null}
+                enrichedData={enrichedCodingData}
               />
 
               {/* Location Section */}
               <LocationSection
                 isLoading={report.location.isLoading}
                 locationData={locationData as LocationSectionData | null}
+                crossAnalysisData={crossAnalysisData}
               />
 
               {/* Yearly-only sections */}
@@ -287,11 +318,13 @@ function ReportContent() {
 
 export default function ReportPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
       <ReportContent />
     </Suspense>
   );
@@ -345,9 +378,11 @@ function ReportPeriodSelector({
 function CommitsSection({
   isLoading,
   commitsData,
+  enrichedData,
 }: {
   isLoading: boolean;
   commitsData: ReturnType<typeof useMonthlyReport>["commits"]["data"];
+  enrichedData?: EnrichedCommitsSectionData | null;
 }) {
   if (isLoading) return <SectionSkeleton title="커밋 활동" />;
   if (!commitsData) return null;
@@ -395,6 +430,11 @@ function CommitsSection({
             totalDays={commitsData.totalDaysInMonth}
           />
         </div>
+        {enrichedData?.workLifeBalance && (
+          <div className="mt-6">
+            <WorkLifeBalanceCard metrics={enrichedData.workLifeBalance} />
+          </div>
+        )}
       </Section>
     </>
   );
@@ -403,9 +443,11 @@ function CommitsSection({
 function CodingSection({
   isLoading,
   codingData,
+  enrichedData,
 }: {
   isLoading: boolean;
   codingData: CodingSectionData | null;
+  enrichedData?: EnrichedCodingSectionData | null;
 }) {
   if (isLoading) return <SectionSkeleton title="코딩 활동" />;
   if (!codingData) return null;
@@ -423,14 +465,27 @@ function CodingSection({
             <LanguagePie languages={codingData.languageBreakdown} />
           </ChartCard>
         )}
-        {(codingData.aiCodeStats.aiLines > 0 ||
-          codingData.aiCodeStats.humanLines > 0) && (
+        {(codingData.aiCodeStats.aiLines > 0 || codingData.aiCodeStats.humanLines > 0) && (
           <AiCodeRatio
             aiLines={codingData.aiCodeStats.aiLines}
             humanLines={codingData.aiCodeStats.humanLines}
           />
         )}
+        {enrichedData?.categoryBreakdown && enrichedData.categoryBreakdown.length > 0 && (
+          <CategoryBreakdownChart categories={enrichedData.categoryBreakdown} />
+        )}
       </div>
+      {enrichedData && (
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {enrichedData.deepWorkStats.totalSessions > 0 && (
+            <DeepWorkCard
+              sessions={enrichedData.deepWorkSessions}
+              stats={enrichedData.deepWorkStats}
+            />
+          )}
+          <ContextSwitchingCard metrics={enrichedData.contextSwitching} />
+        </div>
+      )}
     </Section>
   );
 }
@@ -438,12 +493,17 @@ function CodingSection({
 function LocationSection({
   isLoading,
   locationData,
+  crossAnalysisData,
 }: {
   isLoading: boolean;
   locationData: LocationSectionData | null;
+  crossAnalysisData?: CrossAnalysisData | null;
 }) {
   if (isLoading) return <SectionSkeleton title="이동/생활" />;
-  if (!locationData || (locationData.dailyDistances.length === 0 && locationData.topPlaces.length === 0)) {
+  if (
+    !locationData ||
+    (locationData.dailyDistances.length === 0 && locationData.topPlaces.length === 0)
+  ) {
     return null;
   }
 
@@ -470,6 +530,12 @@ function LocationSection({
       {locationData.topPlaces.length > 0 && (
         <div className="mt-6">
           <TopPlaces places={locationData.topPlaces} />
+        </div>
+      )}
+
+      {crossAnalysisData?.placeProductivity && crossAnalysisData.placeProductivity.length > 0 && (
+        <div className="mt-6">
+          <PlaceProductivityCard places={crossAnalysisData.placeProductivity} />
         </div>
       )}
 
@@ -522,29 +588,25 @@ function YearlySections({
       ) : null}
 
       {/* Project timeline — from commits section */}
-      {yearlyCommitsData &&
-        yearlyCommitsData.projectTimeline?.length > 0 && (
-          <Section title="프로젝트 타임라인">
-            <ChartCard title="프로젝트 타임라인">
-              <ProjectTimeline
-                projects={yearlyCommitsData.projectTimeline}
-                year={period.slice(0, 4)}
-              />
-            </ChartCard>
-          </Section>
-        )}
+      {yearlyCommitsData && yearlyCommitsData.projectTimeline?.length > 0 && (
+        <Section title="프로젝트 타임라인">
+          <ChartCard title="프로젝트 타임라인">
+            <ProjectTimeline
+              projects={yearlyCommitsData.projectTimeline}
+              year={period.slice(0, 4)}
+            />
+          </ChartCard>
+        </Section>
+      )}
 
       {/* Language evolution — from coding section */}
-      {yearlyCodingData &&
-        yearlyCodingData.quarterlyLanguages?.length > 0 && (
-          <Section title="분기별 언어 변화">
-            <ChartCard title="분기별 언어 변화">
-              <LanguageEvolution
-                quarterlyLanguages={yearlyCodingData.quarterlyLanguages}
-              />
-            </ChartCard>
-          </Section>
-        )}
+      {yearlyCodingData && yearlyCodingData.quarterlyLanguages?.length > 0 && (
+        <Section title="분기별 언어 변화">
+          <ChartCard title="분기별 언어 변화">
+            <LanguageEvolution quarterlyLanguages={yearlyCodingData.quarterlyLanguages} />
+          </ChartCard>
+        </Section>
+      )}
     </>
   );
 }

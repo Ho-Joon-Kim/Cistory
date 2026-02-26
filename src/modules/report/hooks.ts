@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
-  CommitsSectionData,
   CodingSectionData,
+  CommitsSectionData,
+  CrossAnalysisData,
+  EnrichedCodingSectionData,
+  EnrichedCommitsSectionData,
+  EnrichedLocationSectionData,
   LocationSectionData,
-  YearlyCommitsSectionData,
   YearlyCodingSectionData,
+  YearlyCommitsSectionData,
 } from "./types";
 
 export interface SectionState<T> {
@@ -19,6 +23,10 @@ export interface UseReportReturn<TCommits, TCoding, TLocation> {
   commits: SectionState<TCommits>;
   coding: SectionState<TCoding>;
   location: SectionState<TLocation>;
+  enrichedCommits: SectionState<EnrichedCommitsSectionData>;
+  enrichedCoding: SectionState<EnrichedCodingSectionData>;
+  enrichedLocation: SectionState<EnrichedLocationSectionData>;
+  crossAnalysis: SectionState<CrossAnalysisData>;
   isLoading: boolean;
   hasAnyData: boolean;
   narrative: string | null;
@@ -74,11 +82,23 @@ export function useMonthlyReport(
   const commits = useSectionFetch<CommitsSectionData>(
     baseUrl ? `${baseUrl}&section=commits` : null
   );
-  const coding = useSectionFetch<CodingSectionData>(
-    baseUrl ? `${baseUrl}&section=coding` : null
-  );
+  const coding = useSectionFetch<CodingSectionData>(baseUrl ? `${baseUrl}&section=coding` : null);
   const location = useSectionFetch<LocationSectionData>(
     baseUrl ? `${baseUrl}&section=location` : null
+  );
+
+  // Enriched data (loaded in parallel with base data)
+  const enrichedCommits = useSectionFetch<EnrichedCommitsSectionData>(
+    baseUrl ? `${baseUrl}&section=commits&enriched=true` : null
+  );
+  const enrichedCoding = useSectionFetch<EnrichedCodingSectionData>(
+    baseUrl ? `${baseUrl}&section=coding&enriched=true` : null
+  );
+  const enrichedLocation = useSectionFetch<EnrichedLocationSectionData>(
+    baseUrl ? `${baseUrl}&section=location&enriched=true` : null
+  );
+  const crossAnalysis = useSectionFetch<CrossAnalysisData>(
+    baseUrl ? `${baseUrl}&section=cross` : null
   );
 
   const isLoading = commits.isLoading || coding.isLoading || location.isLoading;
@@ -122,6 +142,10 @@ export function useMonthlyReport(
     commits,
     coding,
     location,
+    enrichedCommits,
+    enrichedCoding,
+    enrichedLocation,
+    crossAnalysis,
     isLoading,
     hasAnyData,
     narrative,
@@ -144,6 +168,20 @@ export function useYearlyReport(
   );
   const location = useSectionFetch<LocationSectionData>(
     baseUrl ? `${baseUrl}&section=location` : null
+  );
+
+  // Enriched data (loaded in parallel with base data)
+  const enrichedCommits = useSectionFetch<EnrichedCommitsSectionData>(
+    baseUrl ? `${baseUrl}&section=commits&enriched=true` : null
+  );
+  const enrichedCoding = useSectionFetch<EnrichedCodingSectionData>(
+    baseUrl ? `${baseUrl}&section=coding&enriched=true` : null
+  );
+  const enrichedLocation = useSectionFetch<EnrichedLocationSectionData>(
+    baseUrl ? `${baseUrl}&section=location&enriched=true` : null
+  );
+  const crossAnalysis = useSectionFetch<CrossAnalysisData>(
+    baseUrl ? `${baseUrl}&section=cross` : null
   );
 
   const isLoading = commits.isLoading || coding.isLoading || location.isLoading;
@@ -187,6 +225,10 @@ export function useYearlyReport(
     commits,
     coding,
     location,
+    enrichedCommits,
+    enrichedCoding,
+    enrichedLocation,
+    crossAnalysis,
     isLoading,
     hasAnyData,
     narrative,

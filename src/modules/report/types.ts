@@ -61,6 +61,88 @@ export interface YearlyCodingSectionData extends CodingSectionData {
   newLanguages: string[];
 }
 
+// ==================== Deep Reports Types ====================
+
+export interface SparklineData {
+  date: string;
+  value: number;
+}
+
+export interface DeepWorkSession {
+  date: string;
+  project: string | null;
+  durationSeconds: number;
+  startedAt: string;
+}
+
+export interface WorkLifeBalanceMetrics {
+  nightCommitRatio: number; // 22시~6시 커밋 비율
+  weekendCommitRatio: number; // 토/일 커밋 비율
+  balanceScore: number; // 0~100 점수
+}
+
+export interface ContextSwitchingMetrics {
+  avgDailyProjects: number;
+  avgDailyLanguages: number;
+  focusScore: number; // 0~100 점수 (낮은 전환 = 높은 집중)
+}
+
+export interface PlaceProductivity {
+  placeName: string;
+  address: string;
+  lat: number;
+  lon: number;
+  commitCount: number;
+  codingSeconds: number;
+  productivityScore: number; // 커밋 + 코딩시간 기반 점수
+}
+
+export interface RoutinePattern {
+  dayOfWeek: number; // 0=일, 6=토
+  dominantCategory: string;
+  totalSeconds: number;
+}
+
+export interface EnrichedCommitsSectionData extends CommitsSectionData {
+  mergeCommitCount: number;
+  avgFilesChangedPerCommit: number;
+  workLifeBalance: WorkLifeBalanceMetrics;
+  sparklines: {
+    commits: SparklineData[];
+    activeDays: SparklineData[];
+  };
+  sameMonthLastYear?: { totalCommits: number; activeDays: number };
+}
+
+export interface EnrichedCodingSectionData extends CodingSectionData {
+  categoryBreakdown: { name: string; seconds: number }[];
+  projectCodingTime: { name: string; seconds: number }[];
+  deepWorkSessions: DeepWorkSession[];
+  deepWorkStats: {
+    totalSessions: number;
+    avgDurationSeconds: number;
+    totalDeepWorkSeconds: number;
+  };
+  contextSwitching: ContextSwitchingMetrics;
+  sparklines: {
+    codingTime: SparklineData[];
+  };
+  sameMonthLastYear?: { totalCodingSeconds: number };
+}
+
+export interface EnrichedLocationSectionData extends LocationSectionData {
+  topPlacesEnriched: PlaceProductivity[];
+  sparklines: {
+    distance: SparklineData[];
+  };
+  sameMonthLastYear?: { totalDistanceMeters: number };
+}
+
+export interface CrossAnalysisData {
+  placeProductivity: PlaceProductivity[];
+  routinePatterns: RoutinePattern[];
+}
+
 // ==================== Full Report Types (backward compat) ====================
 
 export interface MonthlyReportData {
@@ -113,7 +195,8 @@ export interface MonthlyReportData {
   };
 }
 
-export interface YearlyReportData extends Omit<MonthlyReportData, "prevMonth" | "totalDaysInMonth"> {
+export interface YearlyReportData
+  extends Omit<MonthlyReportData, "prevMonth" | "totalDaysInMonth"> {
   totalDaysInMonth: number; // 연간: 365/366
   monthlyTrend: {
     month: string;

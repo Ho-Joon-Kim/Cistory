@@ -8,12 +8,12 @@
  * POST /api/reports/monthly { yearMonth: "2026-02" } → AI 내러티브 생성
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
+import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { createReportService } from "@/modules/report/service";
+import { type NextRequest, NextResponse } from "next/server";
 
-const VALID_SECTIONS = new Set(["commits", "coding", "location"]);
+const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross"]);
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,24 +31,35 @@ export async function GET(request: NextRequest) {
     const section = request.nextUrl.searchParams.get("section");
     if (section && !VALID_SECTIONS.has(section)) {
       return NextResponse.json(
-        { error: "유효하지 않은 section 파라미터입니다 (commits, coding, location)" },
+        { error: "유효하지 않은 section 파라미터입니다 (commits, coding, location, cross)" },
         { status: 400 }
       );
     }
 
+    const enriched = request.nextUrl.searchParams.get("enriched") === "true";
     const db = getDb();
     const service = createReportService(db);
 
     if (section === "commits") {
-      const data = await service.aggregateMonthlyCommits(user.id, yearMonth);
+      const data = enriched
+        ? await service.aggregateEnrichedMonthlyCommits(user.id, yearMonth)
+        : await service.aggregateMonthlyCommits(user.id, yearMonth);
       return NextResponse.json({ data });
     }
     if (section === "coding") {
-      const data = await service.aggregateMonthlyCoding(user.id, yearMonth);
+      const data = enriched
+        ? await service.aggregateEnrichedMonthlyCoding(user.id, yearMonth)
+        : await service.aggregateMonthlyCoding(user.id, yearMonth);
       return NextResponse.json({ data });
     }
     if (section === "location") {
-      const data = await service.aggregateMonthlyLocation(user.id, yearMonth);
+      const data = enriched
+        ? await service.aggregateEnrichedMonthlyLocation(user.id, yearMonth)
+        : await service.aggregateMonthlyLocation(user.id, yearMonth);
+      return NextResponse.json({ data });
+    }
+    if (section === "cross") {
+      const data = await service.aggregateCrossAnalysis(user.id, yearMonth);
       return NextResponse.json({ data });
     }
 
@@ -83,9 +94,24 @@ export async function POST(request: NextRequest) {
     const db = getDb();
     const service = createReportService(db, anthropicApiKey);
 
-    // Aggregate data if not provided, then generate narrative
+    // Aggregate data + enriched insights, then generate narrative
     const data = await service.aggregateMonthlyData(user.id, yearMonth);
-    const narrative = await service.generateMonthlyNarrative(user.id, yearMonth, data);
+
+    // Collect enriched data for deeper narrative
+    const [enrichedCommits, enrichedCoding, crossAnalysis] = await Promise.all([
+      service.aggregateEnrichedMonthlyCommits(user.id, yearMonth),
+      service.aggregateEnrichedMonthlyCoding(user.id, yearMonth),
+      service.aggregateCrossAnalysis(user.id, yearMonth),
+    ]);
+
+    const narrative = await service.generateMonthlyNarrative(user.id, yearMonth, data, {
+      workLifeBalance: enrichedCommits.workLifeBalance,
+      deepWorkStats: enrichedCoding.deepWorkStats,
+      categoryBreakdown: enrichedCoding.categoryBreakdown,
+      contextSwitching: enrichedCoding.contextSwitching,
+      placeProductivity: crossAnalysis.placeProductivity,
+      routinePatterns: crossAnalysis.routinePatterns,
+    });
 
     return NextResponse.json({ narrative });
   } catch (error) {

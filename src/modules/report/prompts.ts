@@ -4,7 +4,15 @@
  * 월간/연간 보고서용 AI 회고문 프롬프트
  */
 
-import type { MonthlyReportData, YearlyReportData } from "./types";
+import type {
+  ContextSwitchingMetrics,
+  EnrichedCodingSectionData,
+  MonthlyReportData,
+  PlaceProductivity,
+  RoutinePattern,
+  WorkLifeBalanceMetrics,
+  YearlyReportData,
+} from "./types";
 
 function formatSeconds(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -24,7 +32,15 @@ function formatMeters(meters: number): string {
 export function buildMonthlyNarrativePrompt(
   yearMonth: string,
   data: MonthlyReportData,
-  commitSummaries: string[]
+  commitSummaries: string[],
+  enriched?: {
+    workLifeBalance?: WorkLifeBalanceMetrics;
+    deepWorkStats?: EnrichedCodingSectionData["deepWorkStats"];
+    categoryBreakdown?: { name: string; seconds: number }[];
+    contextSwitching?: ContextSwitchingMetrics;
+    placeProductivity?: PlaceProductivity[];
+    routinePatterns?: RoutinePattern[];
+  }
 ): string {
   const [year, month] = yearMonth.split("-");
   const topProjects = data.projectBreakdown.slice(0, 5);
@@ -43,47 +59,47 @@ export function buildMonthlyNarrativePrompt(
 - 총 코딩 시간: ${formatSeconds(data.totalCodingSeconds)}`;
 
   if (topProjects.length > 0) {
-    prompt += `\n\n### 주요 프로젝트`;
+    prompt += "\n\n### 주요 프로젝트";
     for (const p of topProjects) {
       prompt += `\n- ${p.name}: 커밋 ${p.commits}개, +${p.additions}/-${p.deletions}`;
     }
   }
 
   if (topLanguages.length > 0) {
-    prompt += `\n\n### 사용 언어`;
+    prompt += "\n\n### 사용 언어";
     for (const l of topLanguages) {
       prompt += `\n- ${l.name}: ${formatSeconds(l.seconds)}`;
     }
   }
 
   if (data.commitTypeBreakdown.length > 0) {
-    prompt += `\n\n### 커밋 유형`;
+    prompt += "\n\n### 커밋 유형";
     for (const t of data.commitTypeBreakdown) {
       prompt += `\n- ${t.type}: ${t.count}개`;
     }
   }
 
   if (data.totalDistanceMeters > 0) {
-    prompt += `\n\n### 이동`;
+    prompt += "\n\n### 이동";
     prompt += `\n- 총 이동거리: ${formatMeters(data.totalDistanceMeters)}`;
   }
 
   if (topPlaces.length > 0) {
-    prompt += `\n\n### 주요 활동 장소`;
+    prompt += "\n\n### 주요 활동 장소";
     for (const p of topPlaces) {
       prompt += `\n- ${p.placeName}${p.isOverseas ? " (해외)" : ""}: ${p.visitCount}회 방문, ${Math.round(p.totalMinutes)}분 체류`;
     }
   }
 
   if (data.overseasTrips.length > 0) {
-    prompt += `\n\n### 해외여행`;
+    prompt += "\n\n### 해외여행";
     for (const trip of data.overseasTrips) {
       prompt += `\n- ${trip.country}: ${trip.startDate} ~ ${trip.endDate} (${trip.places.join(", ")})`;
     }
   }
 
   if (data.prevMonth) {
-    prompt += `\n\n### 전월 대비`;
+    prompt += "\n\n### 전월 대비";
     const commitDiff = data.totalCommits - data.prevMonth.totalCommits;
     const codingDiff = data.totalCodingSeconds - data.prevMonth.totalCodingSeconds;
     prompt += `\n- 커밋: ${commitDiff >= 0 ? "+" : ""}${commitDiff}개`;
@@ -91,9 +107,56 @@ export function buildMonthlyNarrativePrompt(
   }
 
   if (commitSummaries.length > 0) {
-    prompt += `\n\n### 주요 커밋 요약 (일부)`;
+    prompt += "\n\n### 주요 커밋 요약 (일부)";
     for (const s of commitSummaries.slice(0, 15)) {
       prompt += `\n- ${s}`;
+    }
+  }
+
+  // Enriched sections
+  if (enriched?.workLifeBalance) {
+    const wlb = enriched.workLifeBalance;
+    prompt += "\n\n### 워크라이프 밸런스";
+    prompt += `\n- 야간(22시~6시) 커밋 비율: ${Math.round(wlb.nightCommitRatio * 100)}%`;
+    prompt += `\n- 주말 커밋 비율: ${Math.round(wlb.weekendCommitRatio * 100)}%`;
+    prompt += `\n- 밸런스 점수: ${wlb.balanceScore}/100`;
+  }
+
+  if (enriched?.deepWorkStats && enriched.deepWorkStats.totalSessions > 0) {
+    const dw = enriched.deepWorkStats;
+    prompt += "\n\n### 딥워크 활동";
+    prompt += `\n- 딥워크 세션 수: ${dw.totalSessions}회 (2시간+ 연속 코딩)`;
+    prompt += `\n- 평균 딥워크 시간: ${formatSeconds(dw.avgDurationSeconds)}`;
+    prompt += `\n- 총 딥워크 시간: ${formatSeconds(dw.totalDeepWorkSeconds)}`;
+  }
+
+  if (enriched?.categoryBreakdown && enriched.categoryBreakdown.length > 0) {
+    prompt += "\n\n### 코딩 활동 유형";
+    for (const cat of enriched.categoryBreakdown.slice(0, 5)) {
+      prompt += `\n- ${cat.name}: ${formatSeconds(cat.seconds)}`;
+    }
+  }
+
+  if (enriched?.contextSwitching) {
+    const cs = enriched.contextSwitching;
+    prompt += "\n\n### 집중도 지표";
+    prompt += `\n- 하루 평균 프로젝트 수: ${cs.avgDailyProjects}개`;
+    prompt += `\n- 하루 평균 언어 수: ${cs.avgDailyLanguages}개`;
+    prompt += `\n- 집중도 점수: ${cs.focusScore}/100`;
+  }
+
+  if (enriched?.placeProductivity && enriched.placeProductivity.length > 0) {
+    prompt += "\n\n### 장소별 생산성";
+    for (const p of enriched.placeProductivity.slice(0, 3)) {
+      prompt += `\n- ${p.placeName}: 커밋 ${p.commitCount}개, 코딩 ${formatSeconds(p.codingSeconds)}, 생산성 ${p.productivityScore}점`;
+    }
+  }
+
+  if (enriched?.routinePatterns && enriched.routinePatterns.length > 0) {
+    const dayNames = ["일", "월", "화", "수", "목", "금", "토"];
+    prompt += "\n\n### 요일별 활동 패턴";
+    for (const rp of enriched.routinePatterns) {
+      prompt += `\n- ${dayNames[rp.dayOfWeek]}요일: ${rp.dominantCategory} (${formatSeconds(rp.totalSeconds)})`;
     }
   }
 
@@ -107,6 +170,10 @@ export function buildMonthlyNarrativePrompt(
 5. 해외여행이 있었다면 자연스럽게 언급
 6. 전월 대비 변화가 있으면 성장이나 변화를 격려
 7. 마크다운 포맷팅 사용 가능 (볼드, 이탈릭 등)
+8. 딥워크/집중도가 있으면 흐름과 몰입 경험을 언급
+9. 장소별 생산성 차이가 있으면 공간과 생산성의 관계 인사이트
+10. 워라밸 점수가 낮으면(60 이하) 적절한 휴식 격려, 높으면 칭찬
+11. 요일별 패턴이 있으면 루틴의 리듬감 언급
 
 회고문만 출력하세요.`;
 
@@ -119,7 +186,15 @@ export function buildMonthlyNarrativePrompt(
 export function buildYearlyNarrativePrompt(
   year: string,
   data: YearlyReportData,
-  monthlyNarratives: string[]
+  monthlyNarratives: string[],
+  enriched?: {
+    workLifeBalance?: WorkLifeBalanceMetrics;
+    deepWorkStats?: EnrichedCodingSectionData["deepWorkStats"];
+    categoryBreakdown?: { name: string; seconds: number }[];
+    contextSwitching?: ContextSwitchingMetrics;
+    placeProductivity?: PlaceProductivity[];
+    routinePatterns?: RoutinePattern[];
+  }
 ): string {
   const topProjects = data.projectBreakdown.slice(0, 8);
 
@@ -135,21 +210,21 @@ export function buildYearlyNarrativePrompt(
 - 총 이동거리: ${formatMeters(data.totalDistanceMeters)}`;
 
   if (data.monthlyTrend.length > 0) {
-    prompt += `\n\n### 월별 추이`;
+    prompt += "\n\n### 월별 추이";
     for (const m of data.monthlyTrend) {
       prompt += `\n- ${m.month}: 커밋 ${m.commits}개, 코딩 ${formatSeconds(m.codingSeconds)}, 활동 ${m.activeDays}일`;
     }
   }
 
   if (topProjects.length > 0) {
-    prompt += `\n\n### 주요 프로젝트`;
+    prompt += "\n\n### 주요 프로젝트";
     for (const p of topProjects) {
       prompt += `\n- ${p.name}: 커밋 ${p.commits}개`;
     }
   }
 
   if (data.projectTimeline.length > 0) {
-    prompt += `\n\n### 프로젝트 타임라인`;
+    prompt += "\n\n### 프로젝트 타임라인";
     for (const p of data.projectTimeline.slice(0, 10)) {
       prompt += `\n- ${p.name}: ${p.firstCommit} ~ ${p.lastCommit} (${p.totalCommits}개 커밋)`;
     }
@@ -160,22 +235,60 @@ export function buildYearlyNarrativePrompt(
   }
 
   if (data.overseasTrips.length > 0) {
-    prompt += `\n\n### 해외여행`;
+    prompt += "\n\n### 해외여행";
     for (const trip of data.overseasTrips) {
       prompt += `\n- ${trip.country}: ${trip.startDate} ~ ${trip.endDate}`;
     }
   }
 
   if (data.prevYear) {
-    prompt += `\n\n### 전년 대비`;
+    prompt += "\n\n### 전년 대비";
     const commitDiff = data.totalCommits - data.prevYear.totalCommits;
     prompt += `\n- 커밋: ${commitDiff >= 0 ? "+" : ""}${commitDiff}개`;
   }
 
   if (monthlyNarratives.length > 0) {
-    prompt += `\n\n### 월간 회고 요약 (참고)`;
+    prompt += "\n\n### 월간 회고 요약 (참고)";
     for (const n of monthlyNarratives) {
       prompt += `\n---\n${n.slice(0, 300)}`;
+    }
+  }
+
+  // Enriched sections
+  if (enriched?.workLifeBalance) {
+    const wlb = enriched.workLifeBalance;
+    prompt += "\n\n### 워크라이프 밸런스";
+    prompt += `\n- 야간(22시~6시) 커밋 비율: ${Math.round(wlb.nightCommitRatio * 100)}%`;
+    prompt += `\n- 주말 커밋 비율: ${Math.round(wlb.weekendCommitRatio * 100)}%`;
+    prompt += `\n- 밸런스 점수: ${wlb.balanceScore}/100`;
+  }
+
+  if (enriched?.deepWorkStats && enriched.deepWorkStats.totalSessions > 0) {
+    const dw = enriched.deepWorkStats;
+    prompt += "\n\n### 딥워크 활동";
+    prompt += `\n- 딥워크 세션 수: ${dw.totalSessions}회`;
+    prompt += `\n- 평균 딥워크 시간: ${formatSeconds(dw.avgDurationSeconds)}`;
+    prompt += `\n- 총 딥워크 시간: ${formatSeconds(dw.totalDeepWorkSeconds)}`;
+  }
+
+  if (enriched?.categoryBreakdown && enriched.categoryBreakdown.length > 0) {
+    prompt += "\n\n### 코딩 활동 유형";
+    for (const cat of enriched.categoryBreakdown.slice(0, 5)) {
+      prompt += `\n- ${cat.name}: ${formatSeconds(cat.seconds)}`;
+    }
+  }
+
+  if (enriched?.contextSwitching) {
+    const cs = enriched.contextSwitching;
+    prompt += "\n\n### 집중도 지표";
+    prompt += `\n- 하루 평균 프로젝트 수: ${cs.avgDailyProjects}개`;
+    prompt += `\n- 집중도 점수: ${cs.focusScore}/100`;
+  }
+
+  if (enriched?.placeProductivity && enriched.placeProductivity.length > 0) {
+    prompt += "\n\n### 장소별 생산성";
+    for (const p of enriched.placeProductivity.slice(0, 3)) {
+      prompt += `\n- ${p.placeName}: 커밋 ${p.commitCount}개, 코딩 ${formatSeconds(p.codingSeconds)}`;
     }
   }
 
@@ -189,6 +302,9 @@ export function buildYearlyNarrativePrompt(
 5. 해외여행이 있었다면 개발 외 활동으로 언급
 6. 전년 대비 성장을 격려
 7. 마크다운 포맷팅 사용 가능
+8. 딥워크/집중도가 있으면 흐름과 몰입 경험을 언급
+9. 워라밸 점수가 낮으면 적절한 휴식 격려
+10. 장소별 생산성 차이가 있으면 공간과 작업의 관계 인사이트
 
 회고문만 출력하세요.`;
 

@@ -8,12 +8,12 @@
  * POST /api/reports/yearly { year: "2026" } → AI 내러티브 생성
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { getDb } from "@/db";
+import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { createReportService } from "@/modules/report/service";
+import { type NextRequest, NextResponse } from "next/server";
 
-const VALID_SECTIONS = new Set(["commits", "coding", "location"]);
+const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross"]);
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,33 +22,41 @@ export async function GET(request: NextRequest) {
 
     const year = request.nextUrl.searchParams.get("year");
     if (!year || !/^\d{4}$/.test(year)) {
-      return NextResponse.json(
-        { error: "year 파라미터가 필요합니다 (YYYY)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "year 파라미터가 필요합니다 (YYYY)" }, { status: 400 });
     }
 
     const section = request.nextUrl.searchParams.get("section");
     if (section && !VALID_SECTIONS.has(section)) {
       return NextResponse.json(
-        { error: "유효하지 않은 section 파라미터입니다 (commits, coding, location)" },
+        { error: "유효하지 않은 section 파라미터입니다 (commits, coding, location, cross)" },
         { status: 400 }
       );
     }
 
+    const enriched = request.nextUrl.searchParams.get("enriched") === "true";
     const db = getDb();
     const service = createReportService(db);
 
     if (section === "commits") {
-      const data = await service.aggregateYearlyCommits(user.id, year);
+      const data = enriched
+        ? await service.aggregateEnrichedMonthlyCommits(user.id, year)
+        : await service.aggregateYearlyCommits(user.id, year);
       return NextResponse.json({ data });
     }
     if (section === "coding") {
-      const data = await service.aggregateYearlyCoding(user.id, year);
+      const data = enriched
+        ? await service.aggregateEnrichedMonthlyCoding(user.id, year)
+        : await service.aggregateYearlyCoding(user.id, year);
       return NextResponse.json({ data });
     }
     if (section === "location") {
-      const data = await service.aggregateYearlyLocation(user.id, year);
+      const data = enriched
+        ? await service.aggregateEnrichedMonthlyLocation(user.id, year)
+        : await service.aggregateYearlyLocation(user.id, year);
+      return NextResponse.json({ data });
+    }
+    if (section === "cross") {
+      const data = await service.aggregateCrossAnalysis(user.id, year);
       return NextResponse.json({ data });
     }
 
@@ -69,10 +77,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as { year?: string };
     const year = body.year;
     if (!year || !/^\d{4}$/.test(year)) {
-      return NextResponse.json(
-        { error: "year 파라미터가 필요합니다 (YYYY)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "year 파라미터가 필요합니다 (YYYY)" }, { status: 400 });
     }
 
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
@@ -84,7 +89,22 @@ export async function POST(request: NextRequest) {
     const service = createReportService(db, anthropicApiKey);
 
     const data = await service.aggregateYearlyData(user.id, year);
-    const narrative = await service.generateYearlyNarrative(user.id, year, data);
+
+    // Collect enriched data for deeper narrative
+    const [enrichedCommits, enrichedCoding, crossAnalysis] = await Promise.all([
+      service.aggregateEnrichedMonthlyCommits(user.id, year),
+      service.aggregateEnrichedMonthlyCoding(user.id, year),
+      service.aggregateCrossAnalysis(user.id, year),
+    ]);
+
+    const narrative = await service.generateYearlyNarrative(user.id, year, data, {
+      workLifeBalance: enrichedCommits.workLifeBalance,
+      deepWorkStats: enrichedCoding.deepWorkStats,
+      categoryBreakdown: enrichedCoding.categoryBreakdown,
+      contextSwitching: enrichedCoding.contextSwitching,
+      placeProductivity: crossAnalysis.placeProductivity,
+      routinePatterns: crossAnalysis.routinePatterns,
+    });
 
     return NextResponse.json({ narrative });
   } catch (error) {
