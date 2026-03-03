@@ -37,16 +37,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "인증 실패" }, { status: 401 });
     }
 
-    // Read raw body as text to preserve whatever MacroDroid sends
-    let rawPayload: string;
-    const contentType = request.headers.get("content-type") || "";
-
-    if (contentType.includes("application/json")) {
-      const body = await request.json();
-      rawPayload = JSON.stringify(body);
-    } else {
-      rawPayload = await request.text();
-    }
+    // Always read as text first — MacroDroid may send malformed JSON
+    // with control characters (newlines, tabs in notification text)
+    const rawPayload = await request.text();
 
     // Capture useful headers for debugging
     const headerEntries: Record<string, string> = {};
