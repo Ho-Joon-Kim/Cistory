@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
         syncIntervalHours: users.syncIntervalHours,
         lastSyncedAt: users.lastSyncedAt,
         ownTracksApiKey: users.ownTracksApiKey,
+        tossNotificationApiKey: users.tossNotificationApiKey,
         wakatimeApiKey: users.wakatimeApiKey,
         lastLat: users.lastLat,
         lastLon: users.lastLon,
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
       .where(eq(users.id, user.id));
 
     if (userResult.length === 0) {
-      return NextResponse.json({ ...DEFAULT_SETTINGS, hasOwnTracksKey: false, hasWakaTimeKey: false, lastLat: null, lastLon: null });
+      return NextResponse.json({ ...DEFAULT_SETTINGS, hasOwnTracksKey: false, hasTossKey: false, hasWakaTimeKey: false, lastLat: null, lastLon: null });
     }
 
     const userSettings = userResult[0];
@@ -53,6 +54,7 @@ export async function GET(request: NextRequest) {
       syncIntervalHours: userSettings.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
       lastSyncedAt: userSettings.lastSyncedAt?.toISOString() ?? null,
       hasOwnTracksKey: !!userSettings.ownTracksApiKey,
+      hasTossKey: !!userSettings.tossNotificationApiKey,
       hasWakaTimeKey: !!userSettings.wakatimeApiKey,
       lastLat: userSettings.lastLat ?? null,
       lastLon: userSettings.lastLon ?? null,

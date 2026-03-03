@@ -8,6 +8,7 @@ export interface UserSettings {
   syncIntervalHours: number;
   lastSyncedAt: string | null;
   hasOwnTracksKey: boolean;
+  hasTossKey: boolean;
   hasWakaTimeKey: boolean;
   lastLat: number | null;
   lastLon: number | null;
@@ -147,6 +148,66 @@ export function useOwnTracksKey(hasKey: boolean) {
 
   return {
     hasOwnTracksKey,
+    newKey,
+    isGenerating,
+    isRevoking,
+    generate,
+    revoke,
+    clearNewKey: () => setNewKey(null),
+  };
+}
+
+export function useTossKey(hasKey: boolean) {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [hasTossKey, setHasTossKey] = useState(hasKey);
+  const prevHasKey = useRef(hasKey);
+
+  useEffect(() => {
+    if (prevHasKey.current !== hasKey) {
+      setHasTossKey(hasKey);
+      prevHasKey.current = hasKey;
+    }
+  }, [hasKey]);
+
+  const generate = useCallback(async () => {
+    setIsGenerating(true);
+    try {
+      const response = await fetch("/api/settings/toss-key", {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Failed to generate key");
+      const data = (await response.json()) as { apiKey: string };
+      setNewKey(data.apiKey);
+      setHasTossKey(true);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, []);
+
+  const revoke = useCallback(async () => {
+    setIsRevoking(true);
+    try {
+      const response = await fetch("/api/settings/toss-key", {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Failed to revoke key");
+      setNewKey(null);
+      setHasTossKey(false);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsRevoking(false);
+    }
+  }, []);
+
+  return {
+    hasTossKey,
     newKey,
     isGenerating,
     isRevoking,
