@@ -257,6 +257,32 @@ export const notificationLogs = pgTable(
   ]
 );
 
+// ============ Transactions (Toss Parsed) ============
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    notificationLogId: uuid("notification_log_id")
+      .notNull()
+      .references(() => notificationLogs.id, { onDelete: "cascade" }),
+    type: text("type").notNull(), // 'withdrawal' | 'deposit'
+    amount: integer("amount").notNull(), // 원 단위
+    merchant: text("merchant").notNull(), // 가맹점/출처명
+    accountName: text("account_name").notNull(), // 계좌명
+    rawTitle: text("raw_title").notNull(),
+    rawText: text("raw_text").notNull(),
+    transactedAt: timestamp("transacted_at").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_transaction_user_transacted").on(table.userId, table.transactedAt),
+    uniqueIndex("idx_transaction_user_log").on(table.userId, table.notificationLogId),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -290,4 +316,7 @@ export type NewSavedPlace = typeof savedPlaces.$inferInsert;
 
 export type NotificationLog = typeof notificationLogs.$inferSelect;
 export type NewNotificationLog = typeof notificationLogs.$inferInsert;
+
+export type Transaction = typeof transactions.$inferSelect;
+export type NewTransaction = typeof transactions.$inferInsert;
 

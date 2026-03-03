@@ -11,9 +11,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { users, notificationLogs } from "@/db/schema";
+import { users, notificationLogs, transactions } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { parseTossNotification } from "@/modules/transaction/parser";
 
 async function authenticateByApiKey(apikey: string | null) {
   if (!apikey) return null;
@@ -49,17 +50,52 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getDb();
-    await db.insert(notificationLogs).values({
+    const now = new Date();
+    const [inserted] = await db
+      .insert(notificationLogs)
+      .values({
+        userId,
+        source: "toss",
+        rawPayload,
+        headers: JSON.stringify(headerEntries),
+        receivedAt: now,
+      })
+      .returning({ id: notificationLogs.id });
+
+    // Try parsing as a transaction (출금/입금)
+    let parsed = null;
+    try {
+      const payload = JSON.parse(rawPayload);
+      const title = typeof payload.title === "string" ? payload.title : "";
+      const text = typeof payload.text === "string" ? payload.text : "";
+
+      if (title && text) {
+        parsed = parseTossNotification(title, text);
+        if (parsed) {
+          await db.insert(transactions).values({
+            userId,
+            notificationLogId: inserted.id,
+            type: parsed.type,
+            amount: parsed.amount,
+            merchant: parsed.merchant,
+            accountName: parsed.accountName,
+            rawTitle: title,
+            rawText: text,
+            transactedAt: now,
+            createdAt: now,
+          });
+        }
+      }
+    } catch {
+      // Parse failure is fine — raw log is already saved
+    }
+
+    logger.info("Toss notification received", {
       userId,
-      source: "toss",
-      rawPayload,
-      headers: JSON.stringify(headerEntries),
-      receivedAt: new Date(),
+      transactionParsed: parsed !== null,
     });
 
-    logger.info("Toss notification received", { userId });
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, transactionParsed: parsed !== null });
   } catch (error) {
     logger.error("Toss notification ingestion error", {
       error: error instanceof Error ? error.message : String(error),
