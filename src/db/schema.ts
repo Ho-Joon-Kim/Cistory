@@ -12,6 +12,7 @@ export const users = pgTable(
     githubAvatarUrl: text("github_avatar_url"),
     githubAccessToken: text("github_access_token").notNull(),
     ownTracksApiKey: text("own_tracks_api_key"),
+    tossNotificationApiKey: text("toss_notification_api_key"),
     wakatimeApiKey: text("wakatime_api_key"),
     wakatimeLastSyncedAt: timestamp("wakatime_last_synced_at"),
     lastLat: doublePrecision("last_lat"),
@@ -237,6 +238,25 @@ export const savedPlaces = pgTable(
   ]
 );
 
+// ============ Notification Logs (Toss / MacroDroid) ============
+export const notificationLogs = pgTable(
+  "notification_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: text("source").notNull().default("toss"), // 'toss' | future sources
+    rawPayload: text("raw_payload").notNull(), // JSON stringified raw body
+    headers: text("headers"), // JSON stringified selected headers
+    receivedAt: timestamp("received_at").notNull(),
+  },
+  (table) => [
+    index("idx_notification_log_user_received").on(table.userId, table.receivedAt),
+    index("idx_notification_log_source").on(table.source),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -267,4 +287,7 @@ export type NewCodingDailyStat = typeof codingDailyStats.$inferInsert;
 
 export type SavedPlace = typeof savedPlaces.$inferSelect;
 export type NewSavedPlace = typeof savedPlaces.$inferInsert;
+
+export type NotificationLog = typeof notificationLogs.$inferSelect;
+export type NewNotificationLog = typeof notificationLogs.$inferInsert;
 
