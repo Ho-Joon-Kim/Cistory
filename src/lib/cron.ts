@@ -6,16 +6,18 @@
  */
 
 import * as cron from 'node-cron';
-import { getDb, users, commits, commitSummaries, syncJobs } from '@/db';
+import { getDb, users, commits, commitSummaries, syncJobs, notificationLogs, transactions } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
 import { createSummaryService } from '@/modules/summary/service';
 import { createWakaTimeSyncService } from '@/modules/wakatime/service';
-import { sql, eq, and, gte, lt, inArray } from 'drizzle-orm';
+import { parseTossNotification } from '@/modules/transaction/parser';
+import { sql, eq, and, gte, lt, lte, inArray, desc } from 'drizzle-orm';
 import { logger } from '@/lib/logger';
 import { maybeRefreshDataUsage } from '@/lib/data-usage';
 
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
+let dailyReparseTask: cron.ScheduledTask | null = null;
 
 async function syncAllUsers() {
   const startTime = Date.now();
@@ -247,6 +249,163 @@ async function syncAllUsers() {
 }
 
 /**
+ * Reparse today's Toss notifications for all users
+ * Runs daily — picks up notifications that failed to parse with older parser versions
+ */
+async function reparseTodayNotifications() {
+  const db = getDb();
+
+  try {
+    // Find users with toss notification key
+    const tossUsers = await db
+      .select({ id: users.id, githubLogin: users.githubLogin })
+      .from(users)
+      .where(sql`${users.tossNotificationApiKey} IS NOT NULL`);
+
+    if (tossUsers.length === 0) return;
+
+    const today = new Date();
+    const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalSkipped = 0;
+
+    for (const user of tossUsers) {
+      try {
+        const logs = await db
+          .select({
+            id: notificationLogs.id,
+            rawPayload: notificationLogs.rawPayload,
+            receivedAt: notificationLogs.receivedAt,
+          })
+          .from(notificationLogs)
+          .where(
+            and(
+              eq(notificationLogs.userId, user.id),
+              gte(notificationLogs.receivedAt, dayStart),
+              lt(notificationLogs.receivedAt, dayEnd),
+            ),
+          )
+          .orderBy(desc(notificationLogs.receivedAt));
+
+        if (logs.length === 0) continue;
+
+        for (const log of logs) {
+          let title = "";
+          let text = "";
+          try {
+            const payload = JSON.parse(log.rawPayload);
+            title = typeof payload.title === "string" ? payload.title : "";
+            text = typeof payload.text === "string" ? payload.text : "";
+          } catch {
+            totalSkipped++;
+            continue;
+          }
+
+          if (!title || !text) {
+            totalSkipped++;
+            continue;
+          }
+
+          const parsed = parseTossNotification(title, text);
+          if (!parsed) {
+            totalSkipped++;
+            continue;
+          }
+
+          // Check if transaction already exists for this log
+          const existing = await db
+            .select({ id: transactions.id })
+            .from(transactions)
+            .where(
+              and(eq(transactions.userId, user.id), eq(transactions.notificationLogId, log.id)),
+            )
+            .limit(1);
+
+          const isUpdate = existing.length > 0;
+
+          // Check for duplicate within ±2 minutes
+          const windowMs = 2 * 60 * 1000;
+          const receivedAt = new Date(log.receivedAt);
+          const windowStart = new Date(receivedAt.getTime() - windowMs);
+          const windowEnd = new Date(receivedAt.getTime() + windowMs);
+
+          const duplicates = await db
+            .select({ id: transactions.id, notificationLogId: transactions.notificationLogId })
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.userId, user.id),
+                eq(transactions.amount, parsed.amount),
+                eq(transactions.merchant, parsed.merchant),
+                eq(transactions.type, parsed.type),
+                gte(transactions.transactedAt, windowStart),
+                lte(transactions.transactedAt, windowEnd),
+              ),
+            )
+            .limit(1);
+
+          if (duplicates.length > 0 && duplicates[0].notificationLogId !== log.id) {
+            totalSkipped++;
+            continue;
+          }
+
+          // Upsert transaction
+          await db
+            .insert(transactions)
+            .values({
+              userId: user.id,
+              notificationLogId: log.id,
+              type: parsed.type,
+              amount: parsed.amount,
+              merchant: parsed.merchant,
+              accountName: parsed.accountName,
+              rawTitle: title,
+              rawText: text,
+              transactedAt: receivedAt,
+              createdAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: [transactions.userId, transactions.notificationLogId],
+              set: {
+                type: sql`excluded.type`,
+                amount: sql`excluded.amount`,
+                merchant: sql`excluded.merchant`,
+                accountName: sql`excluded.account_name`,
+                rawTitle: sql`excluded.raw_title`,
+                rawText: sql`excluded.raw_text`,
+              },
+            });
+
+          if (isUpdate) totalUpdated++;
+          else totalCreated++;
+        }
+      } catch (error) {
+        logger.error('[Cron] Toss reparse error for user', {
+          userId: user.id,
+          githubLogin: user.githubLogin,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (totalCreated > 0 || totalUpdated > 0) {
+      logger.info('[Cron] Daily Toss reparse completed', {
+        created: totalCreated,
+        updated: totalUpdated,
+        skipped: totalSkipped,
+      });
+    }
+  } catch (error) {
+    logger.error('[Cron] Fatal error during Toss reparse', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Initialize cron service
  * Should be called once when the server starts
  */
@@ -257,16 +416,27 @@ export function initializeCron() {
   }
 
   const CRON_SCHEDULE = '*/10 * * * *';
+  const DAILY_REPARSE_SCHEDULE = '0 23 * * *'; // 매일 23시 (당일 알림 재파싱)
 
   logger.info('[Cron] Service starting', {
     schedule: CRON_SCHEDULE,
+    dailyReparseSchedule: DAILY_REPARSE_SCHEDULE,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
 
-  // Set up cron job
+  // Set up cron job (every 10 minutes)
   cronTask = cron.schedule(CRON_SCHEDULE, () => {
     syncAllUsers().catch(error => {
       logger.error('[Cron] Unhandled error in sync job', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+
+  // Daily Toss notification reparse (23:00)
+  dailyReparseTask = cron.schedule(DAILY_REPARSE_SCHEDULE, () => {
+    reparseTodayNotifications().catch(error => {
+      logger.error('[Cron] Unhandled error in daily reparse', {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -295,6 +465,10 @@ export async function stopCron() {
   if (cronTask) {
     cronTask.stop();
     cronTask = null;
+  }
+  if (dailyReparseTask) {
+    dailyReparseTask.stop();
+    dailyReparseTask = null;
   }
   if (isInitialized) {
     await logger.flush();

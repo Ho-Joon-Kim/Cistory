@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a commit timeline visualization application that syncs GitHub commits and generates AI-powered summaries using Claude. Built with Next.js 16, it uses Supabase Auth for GitHub OAuth, Drizzle ORM with Supabase PostgreSQL for data persistence, and the Anthropic SDK for commit summaries. Also includes location tracking via OwnTracks integration with map visualization (Mapbox/Kakao), WakaTime integration for coding activity tracking, and comprehensive monthly/yearly report generation with AI narratives. Features automatic background sync via integrated Cron worker with Sentry error tracking and Better Stack structured logging.
+Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks, monitors coding activity via WakaTime, and logs Toss financial transactions via MacroDroid push notifications. Built with Next.js 16, Supabase Auth (GitHub OAuth), Drizzle ORM with Supabase PostgreSQL, and the Anthropic SDK. Includes comprehensive monthly/yearly report generation with AI narratives, map visualization (Mapbox/Kakao), and automatic background sync via integrated Cron worker with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -61,12 +61,12 @@ src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
 │   ├── (dashboard)/         # Dashboard route group (settings, repositories)
-│   ├── api/                 # API routes (~25 endpoints)
+│   ├── api/                 # API routes (~30 endpoints)
 │   ├── report/              # Monthly/yearly report pages
 │   └── dashboard/           # Main dashboard page
 ├── components/              # Shared components (Layout/, ui/ with 15 shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (9 tables)
+│   ├── schema.ts            # Drizzle schema (13 tables)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
 │   ├── adapters/            # Adapter pattern interfaces + implementations
@@ -75,7 +75,8 @@ src/
 │   │   ├── vcs/            # VCS adapter (interface.ts + github.ts)
 │   │   └── wakatime/       # WakaTime adapter (interface.ts + wakatime.ts)
 │   ├── supabase/            # Client configs (client.ts, server.ts, service.ts, auth-helpers.ts)
-│   ├── cron.ts              # Cron service (auto-sync commits, summaries, WakaTime)
+│   ├── cron.ts              # Cron service (auto-sync commits, summaries, WakaTime, Toss reparse)
+│   ├── data-usage.ts        # Data usage cache refresh utility
 │   ├── geo.ts               # Geospatial utilities (Haversine distance)
 │   ├── logger.ts            # Structured logging (Better Stack / console fallback)
 │   └── utils.ts             # Shared utilities (cn, generateId, now, formatRelativeTime, etc.)
@@ -87,7 +88,9 @@ src/
 │   ├── summary/            # AI commit summary service
 │   ├── sync/               # Commit sync service (SyncService class)
 │   ├── report/             # Monthly/yearly reports (service, hooks, AI narratives, 20+ chart components)
+│   ├── spending/           # Spending data hooks (Toss transactions)
 │   ├── timeline/           # Timeline display (hooks, CommitCard, Timeline, Filters)
+│   ├── transaction/        # Toss notification parser (parser.ts)
 │   └── wakatime/           # WakaTime coding activity (service, hooks, components)
 instrumentation.ts           # (project root) Initializes Cron + Sentry on server boot
 sentry.server.config.ts      # Sentry server config
@@ -124,8 +127,8 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (9 tables in `src/db/schema.ts`):
-- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Supabase `auth.users`)
+**Database Schema** (13 tables in `src/db/schema.ts`):
+- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Supabase `auth.users`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
 - `syncJobs` - Sync tracking (status: fetching/summarizing/completed/failed)
@@ -134,6 +137,10 @@ const db = getDb();
 - `codingSessions` - WakaTime coding sessions (duration, project, additions/deletions)
 - `codingDailyStats` - Daily aggregated coding statistics (projects, languages, editors, categories)
 - `dailyDistances` - Cached daily travel distances
+- `savedPlaces` - User-defined named locations with radius, category, icon, color
+- `notificationLogs` - Raw Toss/MacroDroid push notification payloads (source, rawPayload, headers)
+- `transactions` - Parsed Toss financial transactions (type: withdrawal/deposit, amount, merchant, accountName). Unique on `(userId, notificationLogId)`
+- `dataUsageCache` - Per-user per-table row count and estimated byte size cache
 
 **Supabase Client Variants** (`src/lib/supabase/`):
 - `client.ts` - Browser client for Client Components (`createClient()`)
@@ -149,7 +156,8 @@ const db = getDb();
 - Deduplication via SHA batch lookup (batch size: 500)
 - Rate limiting: 100ms delay between commit saves
 - Cron runs every 10 minutes, respects per-user `syncIntervalHours`
-- Cron also processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, and auto-deletes sync jobs older than 7 days
+- Cron also processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, refreshes data usage cache, and auto-deletes sync jobs older than 7 days
+- Daily cron at 23:00: reparses today's Toss notifications to pick up parser improvements
 
 **Session/Token Management**:
 - JWT sessions managed by Supabase with automatic refresh
@@ -170,6 +178,13 @@ const db = getDb();
 - AI narrative generation via POST with Claude, using prompts defined in `prompts.ts`
 - Includes overseas trip detection (`travel.ts`) and 20+ chart/visualization components
 - `ReportService` handles data aggregation with period-over-period comparisons
+
+**Toss Transaction Tracking**:
+- MacroDroid app forwards Toss push notifications to `/api/toss-notifications?apikey={key}`
+- Raw notification stored in `notificationLogs`, then parsed by `src/modules/transaction/parser.ts`
+- Parser extracts type (withdrawal/deposit), amount, merchant, account name from notification title+text
+- Deduplication: unique constraint on `(userId, notificationLogId)` plus ±2 minute time-window duplicate check
+- Daily cron reparse at 23:00 picks up notifications that failed with older parser versions
 
 **Logging**: `src/lib/logger.ts` wraps Better Stack (Logtail) with `info`, `warn`, `error`, `flush` methods. Falls back to console when `BETTER_STACK_SOURCE_TOKEN` is not set.
 
@@ -195,6 +210,10 @@ const db = getDb();
 - `/api/reports/yearly` - GET yearly report data (supports `?section=`); POST AI narrative
 - `/api/summaries/process` - POST batch summary generation
 - `/api/owntracks` - POST location data ingestion
+- `/api/saved-places` - GET/POST/PUT/DELETE saved places
+- `/api/toss-notifications` - POST Toss notification ingestion (via MacroDroid)
+- `/api/transactions` - GET parsed Toss transactions
+- `/api/spending/*` - Spending analytics endpoints
 
 ### Environment Setup
 
