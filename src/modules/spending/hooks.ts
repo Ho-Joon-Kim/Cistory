@@ -249,6 +249,15 @@ export interface ReparseItem {
   };
 }
 
+export interface ReparseProgress {
+  processed: number;
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+}
+
 export interface ReparseResult {
   dryRun: boolean;
   total: number;
@@ -263,28 +272,78 @@ interface UseReparseReturn {
   preview: () => Promise<void>;
   apply: () => Promise<void>;
   result: ReparseResult | null;
+  progress: ReparseProgress | null;
   isLoading: boolean;
   clear: () => void;
 }
 
 export function useReparse(): UseReparseReturn {
   const [result, setResult] = useState<ReparseResult | null>(null);
+  const [progress, setProgress] = useState<ReparseProgress | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const run = useCallback(async (dryRun: boolean) => {
     setIsLoading(true);
     setResult(null);
+    setProgress(null);
+
     try {
       const response = await fetch("/api/spending/reparse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dryRun }),
       });
-      if (!response.ok) {
+
+      if (!response.ok || !response.body) {
         throw new Error("Reparse failed");
       }
-      const data = (await response.json()) as ReparseResult;
-      setResult(data);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep incomplete last line in buffer
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+
+            if (event.type === "start") {
+              setProgress({ processed: 0, total: event.total, created: 0, updated: 0, skipped: 0, failed: 0 });
+            } else if (event.type === "progress") {
+              setProgress({
+                processed: event.processed,
+                total: event.total,
+                created: event.created,
+                updated: event.updated,
+                skipped: event.skipped,
+                failed: event.failed,
+              });
+            } else if (event.type === "done") {
+              setResult({
+                dryRun: event.dryRun,
+                total: event.total,
+                created: event.created,
+                updated: event.updated,
+                skipped: event.skipped,
+                failed: event.failed,
+                items: event.items,
+              });
+              setProgress(null);
+            }
+          } catch {
+            // Skip malformed lines
+          }
+        }
+      }
     } catch (err) {
       console.error("Reparse failed:", err);
     } finally {
@@ -294,7 +353,10 @@ export function useReparse(): UseReparseReturn {
 
   const preview = useCallback(() => run(true), [run]);
   const apply = useCallback(() => run(false), [run]);
-  const clear = useCallback(() => setResult(null), []);
+  const clear = useCallback(() => {
+    setResult(null);
+    setProgress(null);
+  }, []);
 
-  return { preview, apply, result, isLoading, clear };
+  return { preview, apply, result, progress, isLoading, clear };
 }

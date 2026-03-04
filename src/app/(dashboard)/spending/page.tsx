@@ -42,6 +42,80 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString("ko-KR");
 }
 
+function toDateStr(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+interface DatePreset {
+  label: string;
+  getRange: () => { from: string; to: string };
+}
+
+const DATE_PRESETS: DatePreset[] = [
+  {
+    label: "오늘",
+    getRange: () => {
+      const now = toDateStr(new Date());
+      return { from: now, to: now };
+    },
+  },
+  {
+    label: "이번 달",
+    getRange: () => {
+      const now = new Date();
+      return {
+        from: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`,
+        to: toDateStr(now),
+      };
+    },
+  },
+  {
+    label: "1개월",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now);
+      from.setMonth(from.getMonth() - 1);
+      return { from: toDateStr(from), to: toDateStr(now) };
+    },
+  },
+  {
+    label: "3개월",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now);
+      from.setMonth(from.getMonth() - 3);
+      return { from: toDateStr(from), to: toDateStr(now) };
+    },
+  },
+  {
+    label: "6개월",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now);
+      from.setMonth(from.getMonth() - 6);
+      return { from: toDateStr(from), to: toDateStr(now) };
+    },
+  },
+  {
+    label: "9개월",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now);
+      from.setMonth(from.getMonth() - 9);
+      return { from: toDateStr(from), to: toDateStr(now) };
+    },
+  },
+  {
+    label: "1년",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now);
+      from.setFullYear(from.getFullYear() - 1);
+      return { from: toDateStr(from), to: toDateStr(now) };
+    },
+  },
+];
+
 function ReparseItemRow({ item }: { item: ReparseItem }) {
   const actionIcon = {
     create: <Plus className="h-3.5 w-3.5 text-green-500" />,
@@ -87,6 +161,7 @@ export default function SpendingPage() {
   const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
   const defaultRange = getDefaultDateRange();
   const [tab, setTab] = useState<Tab>("transactions");
+  const [activePreset, setActivePreset] = useState<string>("이번 달");
   const [filters, setFilters] = useState<SpendingFilters>({
     from: defaultRange.from,
     to: defaultRange.to,
@@ -116,8 +191,14 @@ export default function SpendingPage() {
     enabled: isAuthenticated && tab === "notifications",
   });
 
-  const { preview, apply, result: reparseResult, isLoading: reparseLoading, clear: clearReparse } =
-    useReparse();
+  const {
+    preview,
+    apply,
+    result: reparseResult,
+    progress: reparseProgress,
+    isLoading: reparseLoading,
+    clear: clearReparse,
+  } = useReparse();
 
   if (isAuthLoading) {
     return (
@@ -147,52 +228,80 @@ export default function SpendingPage() {
           <p className="text-sm text-muted-foreground mt-1">Toss 알림으로 수집된 소비/입금 내역</p>
         </div>
 
-        {/* 요약 카드 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {/* 요약 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
           <Card>
-            <CardContent className="px-4 py-3">
-              <p className="text-xs text-muted-foreground">총 출금</p>
-              <p className="text-lg font-semibold text-red-500">
+            <CardContent className="px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">총 출금</p>
+              <p className="text-base font-semibold text-red-500">
                 {formatAmount(summary.totalWithdrawal)}원
               </p>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="px-4 py-3">
-              <p className="text-xs text-muted-foreground">총 입금</p>
-              <p className="text-lg font-semibold text-green-500">
+            <CardContent className="px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">총 입금</p>
+              <p className="text-base font-semibold text-green-500">
                 {formatAmount(summary.totalDeposit)}원
               </p>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="px-4 py-3">
-              <p className="text-xs text-muted-foreground">출금 건수</p>
-              <p className="text-lg font-semibold">{summary.withdrawalCount}건</p>
+            <CardContent className="px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">출금 건수</p>
+              <p className="text-base font-semibold">{summary.withdrawalCount}건</p>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="px-4 py-3">
-              <p className="text-xs text-muted-foreground">입금 건수</p>
-              <p className="text-lg font-semibold">{summary.depositCount}건</p>
+            <CardContent className="px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">입금 건수</p>
+              <p className="text-base font-semibold">{summary.depositCount}건</p>
             </CardContent>
           </Card>
         </div>
 
+        {/* 기간 프리셋 */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+          {DATE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              onClick={() => {
+                const range = preset.getRange();
+                setFilters((prev) => ({ ...prev, from: range.from, to: range.to }));
+                setActivePreset(preset.label);
+              }}
+              className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
+                activePreset === preset.label
+                  ? "bg-foreground text-background font-medium"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
         {/* 필터 */}
-        <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
           <input
             type="date"
             value={filters.from || ""}
-            onChange={(e) => setFilters((prev) => ({ ...prev, from: e.target.value }))}
-            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+            onChange={(e) => {
+              setFilters((prev) => ({ ...prev, from: e.target.value }));
+              setActivePreset("");
+            }}
+            className="h-8 rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-xs"
           />
-          <span className="text-sm text-muted-foreground">~</span>
+          <span className="text-xs text-muted-foreground">~</span>
           <input
             type="date"
             value={filters.to || ""}
-            onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
-            className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+            onChange={(e) => {
+              setFilters((prev) => ({ ...prev, to: e.target.value }));
+              setActivePreset("");
+            }}
+            className="h-8 rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-xs"
           />
           {tab === "transactions" && (
             <Select
@@ -204,7 +313,7 @@ export default function SpendingPage() {
                 }))
               }
             >
-              <SelectTrigger className="w-[100px]">
+              <SelectTrigger className="w-[90px]" size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -263,53 +372,46 @@ export default function SpendingPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-2">
-                {transactions.map((tx) => (
-                  <Card key={tx.id}>
-                    <CardContent className="px-4 py-3">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="flex-shrink-0">
-                            {tx.type === "withdrawal" ? (
-                              <ArrowUpRight className="h-4 w-4 text-red-500" />
-                            ) : (
-                              <ArrowDownLeft className="h-4 w-4 text-green-500" />
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium truncate">{tx.merchant}</p>
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                {tx.type === "withdrawal" ? "출금" : "입금"}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {tx.accountName} · {formatDate(tx.transactedAt)}
-                            </p>
-                          </div>
+              <>
+                <Card>
+                  <CardContent className="p-0 divide-y">
+                    {transactions.map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {tx.type === "withdrawal" ? (
+                            <ArrowUpRight className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
+                          ) : (
+                            <ArrowDownLeft className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                          )}
+                          <span className="text-sm font-medium truncate">{tx.merchant}</span>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">
+                            {tx.accountName}
+                          </span>
+                          <span className="text-xs text-muted-foreground flex-shrink-0 hidden sm:inline">
+                            {formatDate(tx.transactedAt)}
+                          </span>
                         </div>
-                        <p
-                          className={`text-sm font-semibold flex-shrink-0 ${
+                        <span
+                          className={`text-sm tabular-nums font-medium flex-shrink-0 ${
                             tx.type === "withdrawal" ? "text-red-500" : "text-green-500"
                           }`}
                         >
                           {tx.type === "withdrawal" ? "-" : "+"}
                           {formatAmount(tx.amount)}원
-                        </p>
+                        </span>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-
+                    ))}
+                  </CardContent>
+                </Card>
                 {hasMore && (
-                  <div className="flex justify-center py-4">
-                    <Button variant="outline" onClick={loadMore} disabled={isLoading}>
-                      {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  <div className="flex justify-center py-3">
+                    <Button variant="outline" size="sm" onClick={loadMore} disabled={isLoading}>
+                      {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
                       더 보기
                     </Button>
                   </div>
                 )}
-              </div>
+              </>
             )}
           </>
         )}
@@ -320,28 +422,24 @@ export default function SpendingPage() {
             {/* 재파싱 섹션 */}
             <Card className="mb-4">
               <CardContent className="px-4 py-3">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">알림 재파싱</p>
                     <p className="text-xs text-muted-foreground">
                       파서가 업데이트된 경우, 기존 알림을 다시 파싱하여 누락된 거래를 복구합니다.
                     </p>
                   </div>
-                  {!reparseResult ? (
+                  {!reparseResult && !reparseProgress ? (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={preview}
                       disabled={reparseLoading}
                     >
-                      {reparseLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4 mr-1.5" />
-                      )}
+                      <RefreshCw className="h-4 w-4 mr-1.5" />
                       미리보기
                     </Button>
-                  ) : reparseResult.dryRun ? (
+                  ) : reparseResult?.dryRun ? (
                     <div className="flex items-center gap-2">
                       <Button variant="ghost" size="sm" onClick={clearReparse}>
                         취소
@@ -351,7 +449,7 @@ export default function SpendingPage() {
                         onClick={handleApply}
                         disabled={reparseLoading || reparseResult.created === 0}
                       >
-                        {reparseLoading ? (
+                        {reparseLoading && !reparseProgress ? (
                           <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
                         ) : (
                           <Check className="h-4 w-4 mr-1.5" />
@@ -359,12 +457,48 @@ export default function SpendingPage() {
                         적용 ({reparseResult.created}건 신규)
                       </Button>
                     </div>
-                  ) : (
+                  ) : reparseResult ? (
                     <Button variant="ghost" size="sm" onClick={clearReparse}>
                       닫기
                     </Button>
-                  )}
+                  ) : null}
                 </div>
+
+                {/* 진행 상황 */}
+                {reparseProgress && (
+                  <div className="mt-3 border-t pt-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-muted-foreground">
+                        {reparseProgress.processed} / {reparseProgress.total}건 처리 중...
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {reparseProgress.total > 0
+                          ? Math.round((reparseProgress.processed / reparseProgress.total) * 100)
+                          : 0}
+                        %
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all duration-300"
+                        style={{
+                          width: `${reparseProgress.total > 0 ? (reparseProgress.processed / reparseProgress.total) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex gap-3 mt-2 text-[11px]">
+                      <span className="text-green-600">
+                        신규 {reparseProgress.created}
+                      </span>
+                      <span className="text-blue-600">
+                        수정 {reparseProgress.updated}
+                      </span>
+                      <span className="text-muted-foreground">
+                        무시 {reparseProgress.skipped}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* 재파싱 결과 */}
                 {reparseResult && (
@@ -405,7 +539,7 @@ export default function SpendingPage() {
                       </div>
                     )}
 
-                    {/* 무시된 항목 요약 (접기/펼치기 없이 개수만) */}
+                    {/* 무시된 항목 요약 */}
                     {reparseResult.skipped > 0 && (
                       <p className="text-xs text-muted-foreground mt-2">
                         + {reparseResult.skipped}건 무시됨 (파싱 불가 또는 중복)
@@ -429,44 +563,36 @@ export default function SpendingPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-2">
-                {logs.map((log) => (
-                  <Card key={log.id}>
-                    <CardContent className="px-4 py-3">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="text-sm font-medium truncate">
-                              {log.title || "(제목 없음)"}
-                            </p>
-                            <Badge
-                              variant={log.parsed ? "secondary" : "outline"}
-                              className="text-[10px] px-1.5 py-0"
-                            >
-                              {log.parsed ? "파싱됨" : "미파싱"}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {log.text || "(내용 없음)"}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground/70 mt-1">
-                            {formatDate(log.receivedAt)}
-                          </p>
+              <>
+                <Card>
+                  <CardContent className="p-0 divide-y">
+                    {logs.map((log) => (
+                      <div key={log.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                        <div className="min-w-0 flex items-center gap-1.5">
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${log.parsed ? "bg-green-500" : "bg-muted-foreground/40"}`}
+                          />
+                          <span className="text-sm truncate">{log.title || "(제목 없음)"}</span>
+                          <span className="text-xs text-muted-foreground truncate hidden sm:inline">
+                            {log.text || ""}
+                          </span>
                         </div>
+                        <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
+                          {formatDate(log.receivedAt)}
+                        </span>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-
+                    ))}
+                  </CardContent>
+                </Card>
                 {logsHasMore && (
-                  <div className="flex justify-center py-4">
-                    <Button variant="outline" onClick={logsLoadMore} disabled={logsLoading}>
-                      {logsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  <div className="flex justify-center py-3">
+                    <Button variant="outline" size="sm" onClick={logsLoadMore} disabled={logsLoading}>
+                      {logsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
                       더 보기
                     </Button>
                   </div>
                 )}
-              </div>
+              </>
             )}
           </>
         )}
