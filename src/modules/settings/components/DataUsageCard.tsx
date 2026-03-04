@@ -1,56 +1,53 @@
 "use client";
 
 import { useMemo } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Label, PolarRadiusAxis, RadialBar, RadialBarChart } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Database } from "lucide-react";
 import { useDataUsage } from "../hooks";
 import { formatBytes, formatRelativeTime } from "@/lib/utils";
 
-const CATEGORY_COLORS = [
-  "#10b981", // emerald
-  "#f59e0b", // amber
-  "#3b82f6", // blue
-  "#8b5cf6", // violet
-  "#6b7280", // gray
-  "#ef4444", // red
-  "#ec4899", // pink
-];
-
-function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { name: string; value: number; rows: number; fill: string } }> }) {
-  if (!active || !payload?.[0]) return null;
-
-  const { name, value, rows, fill: color } = payload[0].payload;
-
-  return (
-    <div className="rounded-lg border bg-popover px-3 py-2 shadow-lg text-popover-foreground animate-in fade-in-0 zoom-in-95 duration-150">
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className="inline-block h-2.5 w-2.5 rounded-full"
-          style={{ backgroundColor: color }}
-        />
-        <span className="font-medium text-sm">{name}</span>
-      </div>
-      <div className="flex items-baseline gap-3 text-xs text-muted-foreground">
-        <span>{formatBytes(value)}</span>
-        <span>{rows.toLocaleString()}건</span>
-      </div>
-    </div>
-  );
-}
+const CATEGORY_COLORS: Record<string, string> = {
+  commits: "#10b981",
+  location: "#f59e0b",
+  coding: "#3b82f6",
+  spending: "#8b5cf6",
+  system: "#6b7280",
+};
 
 export function DataUsageCard() {
   const { data, isLoading, isRefreshing, refresh } = useDataUsage();
 
-  const chartData = useMemo(() => {
-    if (!data?.categories.length) return [];
-    return data.categories.map((cat, index) => ({
-      name: cat.label,
-      value: cat.totalBytes,
-      rows: cat.totalRows,
-      fill: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-    }));
+  const { chartConfig, chartData, categoryKeys } = useMemo(() => {
+    if (!data?.categories.length) {
+      return { chartConfig: {} as ChartConfig, chartData: [] as Record<string, number>[], categoryKeys: [] as string[] };
+    }
+
+    // Sort by totalBytes descending
+    const sorted = [...data.categories].sort((a, b) => b.totalBytes - a.totalBytes);
+
+    // Build chart config: each category becomes a key
+    const config: ChartConfig = {};
+    const row: Record<string, number> = {};
+    const keys: string[] = [];
+
+    for (const cat of sorted) {
+      config[cat.category] = {
+        label: cat.label,
+        color: CATEGORY_COLORS[cat.category] ?? "#6b7280",
+      };
+      row[cat.category] = cat.totalBytes;
+      keys.push(cat.category);
+    }
+
+    return { chartConfig: config, chartData: [row], categoryKeys: keys };
   }, [data]);
 
   const hasData = data && data.categories.length > 0 && data.grandTotalBytes > 0;
@@ -74,7 +71,7 @@ export function DataUsageCard() {
           <span className="ml-1.5">{isRefreshing ? "계산 중..." : "새로고침"}</span>
         </Button>
       </CardHeader>
-      <CardContent className="[&_*]:outline-none">
+      <CardContent>
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -88,46 +85,80 @@ export function DataUsageCard() {
         ) : (
           <>
             <div className="flex flex-col sm:flex-row items-center gap-4">
-              {/* Semi-circle donut chart */}
-              <div className="relative w-[220px] h-[130px] shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={chartData}
-                      cx="50%"
-                      cy="100%"
-                      startAngle={180}
-                      endAngle={0}
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={1}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {chartData.map((entry) => (
-                        <Cell key={entry.name} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      content={<CustomTooltip />}
-                      wrapperStyle={{ outline: "none" }}
+              {/* Radial bar chart (semi-circle) */}
+              <ChartContainer
+                config={chartConfig}
+                className="mx-auto aspect-square w-full max-w-[220px] shrink-0"
+              >
+                <RadialBarChart
+                  data={chartData}
+                  endAngle={180}
+                  innerRadius={60}
+                  outerRadius={100}
+                >
+                  <ChartTooltip
+                    cursor={false}
+                    content={
+                      <ChartTooltipContent
+                        hideLabel
+                        formatter={(value, name) => {
+                          const label = chartConfig[name as string]?.label ?? name;
+                          const cat = data!.categories.find((c) => c.category === name);
+                          return (
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-muted-foreground">{label as string}</span>
+                              <span className="font-medium font-mono tabular-nums text-foreground">
+                                {formatBytes(value as number)}
+                                {cat ? ` · ${cat.totalRows.toLocaleString()}건` : ""}
+                              </span>
+                            </div>
+                          );
+                        }}
+                      />
+                    }
+                  />
+                  <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
+                    <Label
+                      content={({ viewBox }) => {
+                        if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                          return (
+                            <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle">
+                              <tspan
+                                x={viewBox.cx}
+                                y={(viewBox.cy || 0) - 16}
+                                className="fill-foreground text-xl font-bold"
+                              >
+                                {formatBytes(data!.grandTotalBytes)}
+                              </tspan>
+                              <tspan
+                                x={viewBox.cx}
+                                y={(viewBox.cy || 0) + 4}
+                                className="fill-muted-foreground text-xs"
+                              >
+                                {data!.grandTotalRows.toLocaleString()}건
+                              </tspan>
+                            </text>
+                          );
+                        }
+                      }}
                     />
-                  </PieChart>
-                </ResponsiveContainer>
-                {/* Center text overlay */}
-                <div className="absolute inset-0 flex flex-col items-center justify-end pb-1 pointer-events-none">
-                  <span className="text-lg font-bold leading-tight">
-                    {formatBytes(data!.grandTotalBytes)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {data!.grandTotalRows.toLocaleString()}건
-                  </span>
-                </div>
-              </div>
+                  </PolarRadiusAxis>
+                  {categoryKeys.map((key) => (
+                    <RadialBar
+                      key={key}
+                      dataKey={key}
+                      stackId="a"
+                      cornerRadius={4}
+                      fill={`var(--color-${key})`}
+                      className="stroke-transparent stroke-2"
+                    />
+                  ))}
+                </RadialBarChart>
+              </ChartContainer>
 
               {/* Category list */}
               <div className="flex-1 min-w-0 space-y-2 w-full">
-                {data!.categories.map((cat, index) => {
+                {data!.categories.map((cat) => {
                   const pct =
                     data!.grandTotalBytes > 0
                       ? ((cat.totalBytes / data!.grandTotalBytes) * 100).toFixed(1)
@@ -140,8 +171,7 @@ export function DataUsageCard() {
                       <span
                         className="inline-block h-3 w-3 rounded-full shrink-0"
                         style={{
-                          backgroundColor:
-                            CATEGORY_COLORS[index % CATEGORY_COLORS.length],
+                          backgroundColor: CATEGORY_COLORS[cat.category] ?? "#6b7280",
                         }}
                       />
                       <span className="font-medium w-12 shrink-0">{cat.label}</span>
