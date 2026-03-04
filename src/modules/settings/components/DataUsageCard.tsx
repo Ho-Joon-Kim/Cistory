@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Label, PolarRadiusAxis, RadialBar, RadialBarChart } from "recharts";
+import { Cell, Label, Pie, PieChart } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartContainer,
@@ -25,36 +25,38 @@ const CATEGORY_COLORS: Record<string, string> = {
 export function DataUsageCard() {
   const { data, isLoading, isRefreshing, refresh } = useDataUsage();
 
-  const { chartConfig, chartData, categoryKeys } = useMemo(() => {
+  const { chartConfig, chartData } = useMemo(() => {
     if (!data?.categories.length) {
-      return { chartConfig: {} as ChartConfig, chartData: [] as Record<string, number>[], categoryKeys: [] as string[] };
+      return { chartConfig: {} as ChartConfig, chartData: [] as { category: string; bytes: number; rows: number; fill: string }[] };
     }
 
-    // Sort by totalBytes descending
     const sorted = [...data.categories].sort((a, b) => b.totalBytes - a.totalBytes);
 
-    // Build chart config: each category becomes a key
     const config: ChartConfig = {};
-    const row: Record<string, number> = {};
-    const keys: string[] = [];
+    const pieData: { category: string; bytes: number; rows: number; fill: string }[] = [];
 
     for (const cat of sorted) {
+      const color = CATEGORY_COLORS[cat.category] ?? "#6b7280";
       config[cat.category] = {
         label: cat.label,
-        color: CATEGORY_COLORS[cat.category] ?? "#6b7280",
+        color,
       };
-      row[cat.category] = cat.totalBytes;
-      keys.push(cat.category);
+      pieData.push({
+        category: cat.category,
+        bytes: cat.totalBytes,
+        rows: cat.totalRows,
+        fill: color,
+      });
     }
 
-    return { chartConfig: config, chartData: [row], categoryKeys: keys };
+    return { chartConfig: config, chartData: pieData };
   }, [data]);
 
   const hasData = data && data.categories.length > 0 && data.grandTotalBytes > 0;
 
   return (
     <Card className="select-none">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg">데이터 용량</CardTitle>
         <Button
           variant="ghost"
@@ -84,32 +86,26 @@ export function DataUsageCard() {
           </div>
         ) : (
           <>
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              {/* Radial bar chart (semi-circle) */}
+            <div className="flex items-center gap-2">
+              {/* Pie donut chart (semi-circle) */}
               <ChartContainer
                 config={chartConfig}
-                className="mx-auto aspect-square w-full max-w-[220px] shrink-0"
+                className="w-[280px] h-[160px] shrink-0"
               >
-                <RadialBarChart
-                  data={chartData}
-                  endAngle={180}
-                  innerRadius={60}
-                  outerRadius={100}
-                >
+                <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                   <ChartTooltip
-                    cursor={false}
                     content={
                       <ChartTooltipContent
                         hideLabel
-                        formatter={(value, name) => {
-                          const label = chartConfig[name as string]?.label ?? name;
-                          const cat = data!.categories.find((c) => c.category === name);
+                        nameKey="category"
+                        formatter={(value, _name, item) => {
+                          const cat = item.payload as { category: string; bytes: number; rows: number };
+                          const label = chartConfig[cat.category]?.label ?? cat.category;
                           return (
-                            <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-2 text-xs">
                               <span className="text-muted-foreground">{label as string}</span>
-                              <span className="font-medium font-mono tabular-nums text-foreground">
-                                {formatBytes(value as number)}
-                                {cat ? ` · ${cat.totalRows.toLocaleString()}건` : ""}
+                              <span className="font-medium tabular-nums text-foreground">
+                                {formatBytes(cat.bytes)} · {cat.rows.toLocaleString()}건
                               </span>
                             </div>
                           );
@@ -117,7 +113,22 @@ export function DataUsageCard() {
                       />
                     }
                   />
-                  <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
+                  <Pie
+                    data={chartData}
+                    dataKey="bytes"
+                    nameKey="category"
+                    cx="50%"
+                    cy="100%"
+                    startAngle={180}
+                    endAngle={0}
+                    innerRadius={80}
+                    outerRadius={140}
+                    paddingAngle={1.5}
+                    strokeWidth={0}
+                  >
+                    {chartData.map((entry) => (
+                      <Cell key={entry.category} fill={entry.fill} />
+                    ))}
                     <Label
                       content={({ viewBox }) => {
                         if (viewBox && "cx" in viewBox && "cy" in viewBox) {
@@ -125,8 +136,8 @@ export function DataUsageCard() {
                             <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle">
                               <tspan
                                 x={viewBox.cx}
-                                y={(viewBox.cy || 0) - 16}
-                                className="fill-foreground text-xl font-bold"
+                                y={(viewBox.cy || 0) - 18}
+                                className="fill-foreground text-2xl font-bold"
                               >
                                 {formatBytes(data!.grandTotalBytes)}
                               </tspan>
@@ -142,22 +153,12 @@ export function DataUsageCard() {
                         }
                       }}
                     />
-                  </PolarRadiusAxis>
-                  {categoryKeys.map((key) => (
-                    <RadialBar
-                      key={key}
-                      dataKey={key}
-                      stackId="a"
-                      cornerRadius={4}
-                      fill={`var(--color-${key})`}
-                      className="stroke-transparent stroke-2"
-                    />
-                  ))}
-                </RadialBarChart>
+                  </Pie>
+                </PieChart>
               </ChartContainer>
 
               {/* Category list */}
-              <div className="flex-1 min-w-0 space-y-2 w-full">
+              <div className="flex-1 min-w-0 space-y-1.5">
                 {data!.categories.map((cat) => {
                   const pct =
                     data!.grandTotalBytes > 0
@@ -166,22 +167,22 @@ export function DataUsageCard() {
                   return (
                     <div
                       key={cat.category}
-                      className="flex items-center gap-3 text-sm"
+                      className="flex items-center gap-2.5 text-sm"
                     >
                       <span
-                        className="inline-block h-3 w-3 rounded-full shrink-0"
+                        className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
                         style={{
                           backgroundColor: CATEGORY_COLORS[cat.category] ?? "#6b7280",
                         }}
                       />
-                      <span className="font-medium w-12 shrink-0">{cat.label}</span>
-                      <span className="text-muted-foreground tabular-nums">
+                      <span className="font-medium w-10 shrink-0">{cat.label}</span>
+                      <span className="text-muted-foreground tabular-nums text-xs">
                         {cat.totalRows.toLocaleString()}건
                       </span>
-                      <span className="ml-auto text-muted-foreground tabular-nums whitespace-nowrap">
+                      <span className="ml-auto text-muted-foreground tabular-nums whitespace-nowrap text-xs">
                         {formatBytes(cat.totalBytes)}
                       </span>
-                      <span className="text-muted-foreground/60 tabular-nums w-12 text-right text-xs">
+                      <span className="text-muted-foreground/50 tabular-nums w-10 text-right text-xs">
                         {pct}%
                       </span>
                     </div>
@@ -190,9 +191,8 @@ export function DataUsageCard() {
               </div>
             </div>
 
-            {/* Last calculated timestamp */}
             {data!.calculatedAt && (
-              <p className="text-xs text-muted-foreground mt-4 text-right">
+              <p className="text-xs text-muted-foreground mt-3 text-right">
                 마지막 갱신: {formatRelativeTime(data!.calculatedAt)}
               </p>
             )}
