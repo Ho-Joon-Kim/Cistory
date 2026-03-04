@@ -50,6 +50,9 @@ const emptySummary: TransactionSummary = {
 
 export function useTransactions(options: UseTransactionsOptions = {}): UseTransactionsReturn {
   const { perPage = 30, filters, enabled = true } = options;
+  const filterFrom = filters?.from;
+  const filterTo = filters?.to;
+  const filterType = filters?.type;
 
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [summary, setSummary] = useState<TransactionSummary>(emptySummary);
@@ -66,9 +69,9 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
           offset: String(currentOffset),
         });
 
-        if (filters?.from) params.set("from", filters.from);
-        if (filters?.to) params.set("to", filters.to);
-        if (filters?.type) params.set("type", filters.type);
+        if (filterFrom) params.set("from", filterFrom);
+        if (filterTo) params.set("to", filterTo);
+        if (filterType) params.set("type", filterType);
 
         const response = await fetch(`/api/spending?${params}`, { signal });
 
@@ -93,7 +96,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
         setIsLoading(false);
       }
     },
-    [perPage, filters],
+    [perPage, filterFrom, filterTo, filterType],
   );
 
   useEffect(() => {
@@ -158,10 +161,12 @@ export function useNotificationLogs(
   options: UseNotificationLogsOptions = {},
 ): UseNotificationLogsReturn {
   const { perPage = 30, filters, enabled = true } = options;
+  const filterFrom = filters?.from;
+  const filterTo = filters?.to;
 
   const [logs, setLogs] = useState<NotificationLogItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [offset, setOffset] = useState(0);
 
@@ -174,8 +179,8 @@ export function useNotificationLogs(
           offset: String(currentOffset),
         });
 
-        if (filters?.from) params.set("from", filters.from);
-        if (filters?.to) params.set("to", filters.to);
+        if (filterFrom) params.set("from", filterFrom);
+        if (filterTo) params.set("to", filterTo);
 
         const response = await fetch(`/api/spending/notifications?${params}`, { signal });
 
@@ -200,7 +205,7 @@ export function useNotificationLogs(
         setIsLoading(false);
       }
     },
-    [perPage, filters],
+    [perPage, filterFrom, filterTo],
   );
 
   useEffect(() => {
