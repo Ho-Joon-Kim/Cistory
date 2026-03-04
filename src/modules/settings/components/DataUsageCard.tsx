@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Database } from "lucide-react";
@@ -18,22 +18,45 @@ const CATEGORY_COLORS = [
   "#ec4899", // pink
 ];
 
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { name: string; value: number; rows: number; fill: string } }> }) {
+  if (!active || !payload?.[0]) return null;
+
+  const { name, value, rows, fill: color } = payload[0].payload;
+
+  return (
+    <div className="rounded-lg border bg-popover px-3 py-2 shadow-lg text-popover-foreground animate-in fade-in-0 zoom-in-95 duration-150">
+      <div className="flex items-center gap-2 mb-1">
+        <span
+          className="inline-block h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: color }}
+        />
+        <span className="font-medium text-sm">{name}</span>
+      </div>
+      <div className="flex items-baseline gap-3 text-xs text-muted-foreground">
+        <span>{formatBytes(value)}</span>
+        <span>{rows.toLocaleString()}건</span>
+      </div>
+    </div>
+  );
+}
+
 export function DataUsageCard() {
   const { data, isLoading, isRefreshing, refresh } = useDataUsage();
 
   const chartData = useMemo(() => {
     if (!data?.categories.length) return [];
-    return data.categories.map((cat) => ({
+    return data.categories.map((cat, index) => ({
       name: cat.label,
       value: cat.totalBytes,
       rows: cat.totalRows,
+      fill: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
     }));
   }, [data]);
 
   const hasData = data && data.categories.length > 0 && data.grandTotalBytes > 0;
 
   return (
-    <Card>
+    <Card className="select-none">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
         <CardTitle className="text-lg">데이터 용량</CardTitle>
         <Button
@@ -41,6 +64,7 @@ export function DataUsageCard() {
           size="sm"
           onClick={refresh}
           disabled={isRefreshing}
+          className="focus-visible:ring-0 focus-visible:ring-offset-0"
         >
           {isRefreshing ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -50,7 +74,7 @@ export function DataUsageCard() {
           <span className="ml-1.5">{isRefreshing ? "계산 중..." : "새로고침"}</span>
         </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="[&_*]:outline-none">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -80,13 +104,14 @@ export function DataUsageCard() {
                       dataKey="value"
                       stroke="none"
                     >
-                      {chartData.map((entry, index) => (
-                        <Cell
-                          key={entry.name}
-                          fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]}
-                        />
+                      {chartData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.fill} />
                       ))}
                     </Pie>
+                    <Tooltip
+                      content={<CustomTooltip />}
+                      wrapperStyle={{ outline: "none" }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
                 {/* Center text overlay */}
