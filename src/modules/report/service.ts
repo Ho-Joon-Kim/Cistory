@@ -105,8 +105,8 @@ export class ReportService {
 
       const startDate = this._monthStart(yearMonth);
       const endDate = this._monthEnd(yearMonth);
-      const startTs = new Date(startDate);
-      const endTs = new Date(endDate);
+      const startTs = this._toLocalDate(startDate);
+      const endTs = this._toLocalDate(endDate);
 
       const monthCommits = await txq
         .select()
@@ -152,8 +152,8 @@ export class ReportService {
 
       const startDate = this._monthStart(yearMonth);
       const endDate = this._monthEnd(yearMonth);
-      const startTs = new Date(startDate);
-      const endTs = new Date(endDate);
+      const startTs = this._toLocalDate(startDate);
+      const endTs = this._toLocalDate(endDate);
 
       const { sessions: deepWorkSessions, stats: deepWorkStats } =
         await this._detectDeepWorkSessions(txq, userId, startTs, endTs);
@@ -200,8 +200,8 @@ export class ReportService {
 
       const startDate = this._monthStart(yearMonth);
       const endDate = this._monthEnd(yearMonth);
-      const startTs = new Date(startDate);
-      const endTs = new Date(endDate);
+      const startTs = this._toLocalDate(startDate);
+      const endTs = this._toLocalDate(endDate);
 
       const monthCommits = await txq
         .select()
@@ -241,8 +241,8 @@ export class ReportService {
       const txq = tx as unknown as QueryExecutor;
       const startDate = this._monthStart(yearMonth);
       const endDate = this._monthEnd(yearMonth);
-      const startTs = new Date(startDate);
-      const endTs = new Date(endDate);
+      const startTs = this._toLocalDate(startDate);
+      const endTs = this._toLocalDate(endDate);
 
       const monthCommits = await txq
         .select()
@@ -354,8 +354,8 @@ export class ReportService {
   ): Promise<CommitsSectionData> {
     const startDate = this._monthStart(yearMonth);
     const endDate = this._monthEnd(yearMonth);
-    const startTs = new Date(startDate);
-    const endTs = new Date(endDate);
+    const startTs = this._toLocalDate(startDate);
+    const endTs = this._toLocalDate(endDate);
 
     const monthCommits = await tx
       .select()
@@ -446,8 +446,8 @@ export class ReportService {
   ): Promise<CodingSectionData> {
     const startDate = this._monthStart(yearMonth);
     const endDate = this._monthEnd(yearMonth);
-    const startTs = new Date(startDate);
-    const endTs = new Date(endDate);
+    const startTs = this._toLocalDate(startDate);
+    const endTs = this._toLocalDate(endDate);
 
     const codingStats = await tx
       .select()
@@ -533,8 +533,8 @@ export class ReportService {
   ): Promise<LocationSectionData> {
     const startDate = this._monthStart(yearMonth);
     const endDate = this._monthEnd(yearMonth);
-    const startTs = new Date(startDate);
-    const endTs = new Date(endDate);
+    const startTs = this._toLocalDate(startDate);
+    const endTs = this._toLocalDate(endDate);
 
     const distances = await tx
       .select()
@@ -617,8 +617,8 @@ export class ReportService {
   ): Promise<YearlyCommitsSectionData> {
     const startDate = `${year}-01-01`;
     const endDate = `${Number(year) + 1}-01-01`;
-    const startTs = new Date(startDate);
-    const endTs = new Date(endDate);
+    const startTs = this._toLocalDate(startDate);
+    const endTs = this._toLocalDate(endDate);
 
     const allCommits = await tx
       .select()
@@ -745,8 +745,8 @@ export class ReportService {
   ): Promise<YearlyCodingSectionData> {
     const startDate = `${year}-01-01`;
     const endDate = `${Number(year) + 1}-01-01`;
-    const startTs = new Date(startDate);
-    const endTs = new Date(endDate);
+    const startTs = this._toLocalDate(startDate);
+    const endTs = this._toLocalDate(endDate);
 
     const codingStats = await tx
       .select()
@@ -875,8 +875,8 @@ export class ReportService {
   ): Promise<LocationSectionData> {
     const startDate = `${year}-01-01`;
     const endDate = `${Number(year) + 1}-01-01`;
-    const startTs = new Date(startDate);
-    const endTs = new Date(endDate);
+    const startTs = this._toLocalDate(startDate);
+    const endTs = this._toLocalDate(endDate);
 
     const allDistances = await tx
       .select()
@@ -1007,8 +1007,8 @@ export class ReportService {
       .where(
         and(
           eq(commits.userId, userId),
-          gte(commits.committedAt, new Date(startDate)),
-          lt(commits.committedAt, new Date(endDate)),
+          gte(commits.committedAt, this._toLocalDate(startDate)),
+          lt(commits.committedAt, this._toLocalDate(endDate)),
           eq(commitSummaries.status, "completed")
         )
       )
@@ -1052,8 +1052,8 @@ export class ReportService {
     startDate: string,
     endDate: string
   ): Promise<{ totalCommits: number; activeDays: number } | undefined> {
-    const startTs = new Date(startDate);
-    const endTs = new Date(endDate);
+    const startTs = this._toLocalDate(startDate);
+    const endTs = this._toLocalDate(endDate);
 
     const [commitCount] = await tx
       .select({ count: sql<number>`count(*)::int` })
@@ -1665,6 +1665,12 @@ export class ReportService {
     return `${y}-${String(m + 1).padStart(2, "0")}-01`;
   }
 
+  /** Parse "YYYY-MM-DD" to local-timezone midnight Date (avoids UTC parsing bug). */
+  private _toLocalDate(dateStr: string): Date {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+
   private _daysInMonth(yearMonth: string): number {
     const [y, m] = yearMonth.split("-").map(Number);
     return new Date(y, m, 0).getDate();
@@ -1689,11 +1695,14 @@ export class ReportService {
   ): number {
     let maxStreak = 0;
     let currentStreak = 0;
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = this._toLocalDate(startDate);
+    const end = this._toLocalDate(endDate);
 
     for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split("T")[0];
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${day}`;
       if (dailyMap.has(dateStr)) {
         currentStreak++;
         maxStreak = Math.max(maxStreak, currentStreak);

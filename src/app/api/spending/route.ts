@@ -28,13 +28,14 @@ export async function GET(request: NextRequest) {
     const conditions = [eq(transactions.userId, user.id)];
 
     if (from) {
-      conditions.push(gte(transactions.transactedAt, new Date(from)));
+      // "2026-03-04" → local midnight 2026-03-04T00:00:00+09:00
+      const [fy, fm, fd] = from.split("-").map(Number);
+      conditions.push(gte(transactions.transactedAt, new Date(fy, fm - 1, fd)));
     }
     if (to) {
-      // Include the entire "to" day
-      const toDate = new Date(to);
-      toDate.setDate(toDate.getDate() + 1);
-      conditions.push(lte(transactions.transactedAt, toDate));
+      // Include the entire "to" day → local midnight of next day
+      const [ty, tm, td] = to.split("-").map(Number);
+      conditions.push(lte(transactions.transactedAt, new Date(ty, tm - 1, td + 1)));
     }
     if (type === "withdrawal" || type === "deposit") {
       conditions.push(eq(transactions.type, type));

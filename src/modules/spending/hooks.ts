@@ -360,3 +360,181 @@ export function useReparse(): UseReparseReturn {
 
   return { preview, apply, result, progress, isLoading, clear };
 }
+
+// ============ Cleanup ============
+
+export interface CleanupItem {
+  logId: string;
+  title: string;
+  text: string;
+  receivedAt: string;
+  reason: string;
+  bytes: number;
+}
+
+export interface CleanupProgress {
+  phase: "reparse" | "cleanup";
+  // reparse phase
+  reparseProcessed?: number;
+  reparseTotal?: number;
+  reparseCreated?: number;
+  reparseUpdated?: number;
+  // cleanup phase
+  deleted?: number;
+  deletableTotal?: number;
+}
+
+export interface CleanupResult {
+  dryRun: boolean;
+  reparseCreated: number;
+  reparseUpdated: number;
+  reparseSkipped: number;
+  deletable: number;
+  deleted: number;
+  estimatedBytes: number;
+  items: CleanupItem[];
+}
+
+interface UseCleanupReturn {
+  preview: () => Promise<void>;
+  execute: () => Promise<void>;
+  result: CleanupResult | null;
+  progress: CleanupProgress | null;
+  isLoading: boolean;
+  clear: () => void;
+}
+
+export function useCleanup(): UseCleanupReturn {
+  const [result, setResult] = useState<CleanupResult | null>(null);
+  const [progress, setProgress] = useState<CleanupProgress | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const run = useCallback(async (dryRun: boolean) => {
+    setIsLoading(true);
+    setResult(null);
+    setProgress(null);
+
+    // Accumulate reparse stats across events
+    let reparseCreated = 0;
+    let reparseUpdated = 0;
+    let reparseSkipped = 0;
+    let deletable = 0;
+    let estimatedBytes = 0;
+    let items: CleanupItem[] = [];
+
+    try {
+      const response = await fetch("/api/spending/notifications/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun }),
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error("Cleanup failed");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+
+            if (event.type === "reparse-start") {
+              setProgress({
+                phase: "reparse",
+                reparseProcessed: 0,
+                reparseTotal: event.total,
+                reparseCreated: 0,
+                reparseUpdated: 0,
+              });
+            } else if (event.type === "reparse-progress") {
+              setProgress({
+                phase: "reparse",
+                reparseProcessed: event.processed,
+                reparseTotal: event.total,
+                reparseCreated: event.created,
+                reparseUpdated: event.updated,
+              });
+            } else if (event.type === "reparse-done") {
+              reparseCreated = event.created;
+              reparseUpdated = event.updated;
+              reparseSkipped = event.skipped;
+              setProgress(null);
+            } else if (event.type === "cleanup-start") {
+              deletable = event.deletable;
+              estimatedBytes = event.estimatedBytes;
+              items = event.items;
+              if (!dryRun && event.deletable > 0) {
+                setProgress({
+                  phase: "cleanup",
+                  deleted: 0,
+                  deletableTotal: event.deletable,
+                });
+              }
+            } else if (event.type === "cleanup-progress") {
+              setProgress({
+                phase: "cleanup",
+                deleted: event.deleted,
+                deletableTotal: event.total,
+              });
+            } else if (event.type === "cleanup-done") {
+              setResult({
+                dryRun,
+                reparseCreated,
+                reparseUpdated,
+                reparseSkipped,
+                deletable,
+                deleted: event.deleted,
+                estimatedBytes,
+                items,
+              });
+              setProgress(null);
+              return;
+            }
+          } catch {
+            // Skip malformed lines
+          }
+        }
+      }
+
+      // If no cleanup-done event (dryRun=true), set result from accumulated data
+      if (!result) {
+        setResult({
+          dryRun,
+          reparseCreated,
+          reparseUpdated,
+          reparseSkipped,
+          deletable,
+          deleted: 0,
+          estimatedBytes,
+          items,
+        });
+      }
+    } catch (err) {
+      console.error("Cleanup failed:", err);
+    } finally {
+      setIsLoading(false);
+      setProgress(null);
+    }
+  }, []);
+
+  const preview = useCallback(() => run(true), [run]);
+  const execute = useCallback(() => run(false), [run]);
+  const clear = useCallback(() => {
+    setResult(null);
+    setProgress(null);
+  }, []);
+
+  return { preview, execute, result, progress, isLoading, clear };
+}

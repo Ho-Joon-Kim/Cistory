@@ -44,13 +44,12 @@ export async function GET(request: NextRequest) {
     const conditions = [eq(transactions.userId, userId)];
 
     if (from) {
-      conditions.push(gte(transactions.transactedAt, new Date(from)));
+      const [fy, fm, fd] = from.split("-").map(Number);
+      conditions.push(gte(transactions.transactedAt, new Date(fy, fm - 1, fd)));
     }
     if (to) {
-      // Include the entire "to" day
-      const toDate = new Date(to);
-      toDate.setDate(toDate.getDate() + 1);
-      conditions.push(lte(transactions.transactedAt, toDate));
+      const [ty, tm, td] = to.split("-").map(Number);
+      conditions.push(lte(transactions.transactedAt, new Date(ty, tm - 1, td + 1)));
     }
     if (type === "withdrawal" || type === "deposit") {
       conditions.push(eq(transactions.type, type));

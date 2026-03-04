@@ -12,8 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequireAuth } from "@/modules/auth/hooks";
-import { useTransactions, useNotificationLogs, useReparse } from "@/modules/spending/hooks";
-import type { SpendingFilters, ReparseItem } from "@/modules/spending/hooks";
+import { useTransactions, useNotificationLogs, useReparse, useCleanup } from "@/modules/spending/hooks";
+import type { SpendingFilters, ReparseItem, CleanupItem } from "@/modules/spending/hooks";
 import { Header } from "@/components/Layout/Header";
 import {
   Loader2,
@@ -26,6 +26,7 @@ import {
   X,
   Plus,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
@@ -116,6 +117,31 @@ const DATE_PRESETS: DatePreset[] = [
   },
 ];
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function CleanupItemRow({ item }: { item: CleanupItem }) {
+  return (
+    <div className="flex items-start gap-3 py-2 border-b last:border-b-0">
+      <div className="flex-shrink-0 mt-0.5">
+        <Trash2 className="h-3.5 w-3.5 text-red-400" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-red-600">{item.reason}</span>
+          <span className="text-[11px] text-muted-foreground">{formatBytes(item.bytes)}</span>
+        </div>
+        <p className="text-xs text-muted-foreground truncate">
+          {item.title || "(제목 없음)"} — {item.text || "(내용 없음)"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function ReparseItemRow({ item }: { item: ReparseItem }) {
   const actionIcon = {
     create: <Plus className="h-3.5 w-3.5 text-green-500" />,
@@ -199,6 +225,15 @@ export default function SpendingPage() {
     isLoading: reparseLoading,
     clear: clearReparse,
   } = useReparse();
+
+  const {
+    preview: cleanupPreview,
+    execute: cleanupExecute,
+    result: cleanupResult,
+    progress: cleanupProgress,
+    isLoading: cleanupLoading,
+    clear: clearCleanup,
+  } = useCleanup();
 
   if (isAuthLoading) {
     return (
@@ -544,6 +579,155 @@ export default function SpendingPage() {
                       <p className="text-xs text-muted-foreground mt-2">
                         + {reparseResult.skipped}건 무시됨 (파싱 불가 또는 중복)
                       </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 알림 정리 섹션 */}
+            <Card className="mb-4">
+              <CardContent className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">알림 정리</p>
+                    <p className="text-xs text-muted-foreground">
+                      재파싱 후에도 파싱 불가능한 알림(광고, 이벤트 등)을 삭제합니다.
+                    </p>
+                  </div>
+                  {!cleanupResult && !cleanupProgress && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={cleanupPreview}
+                      disabled={cleanupLoading}
+                    >
+                      <Trash2 className="h-4 w-4 mr-1.5" />
+                      미리보기
+                    </Button>
+                  )}
+                  {cleanupResult && !cleanupResult.dryRun && (
+                    <Button variant="ghost" size="sm" onClick={() => { clearCleanup(); refreshLogs(); }}>
+                      닫기
+                    </Button>
+                  )}
+                </div>
+
+                {/* 진행 상황 */}
+                {cleanupProgress && (
+                  <div className="mt-3 border-t pt-3">
+                    {cleanupProgress.phase === "reparse" && (
+                      <>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs text-muted-foreground">
+                            1단계: 재파싱 중... {cleanupProgress.reparseProcessed} / {cleanupProgress.reparseTotal}건
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {(cleanupProgress.reparseTotal ?? 0) > 0
+                              ? Math.round(((cleanupProgress.reparseProcessed ?? 0) / (cleanupProgress.reparseTotal ?? 1)) * 100)
+                              : 0}%
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all duration-300"
+                            style={{
+                              width: `${(cleanupProgress.reparseTotal ?? 0) > 0 ? ((cleanupProgress.reparseProcessed ?? 0) / (cleanupProgress.reparseTotal ?? 1)) * 100 : 0}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="flex gap-3 mt-2 text-[11px]">
+                          <span className="text-green-600">신규 {cleanupProgress.reparseCreated ?? 0}</span>
+                          <span className="text-blue-600">수정 {cleanupProgress.reparseUpdated ?? 0}</span>
+                        </div>
+                      </>
+                    )}
+                    {cleanupProgress.phase === "cleanup" && (
+                      <>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs text-muted-foreground">
+                            2단계: 삭제 중... {cleanupProgress.deleted} / {cleanupProgress.deletableTotal}건
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {(cleanupProgress.deletableTotal ?? 0) > 0
+                              ? Math.round(((cleanupProgress.deleted ?? 0) / (cleanupProgress.deletableTotal ?? 1)) * 100)
+                              : 0}%
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-red-500 transition-all duration-300"
+                            style={{
+                              width: `${(cleanupProgress.deletableTotal ?? 0) > 0 ? ((cleanupProgress.deleted ?? 0) / (cleanupProgress.deletableTotal ?? 1)) * 100 : 0}%`,
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* 정리 결과 */}
+                {cleanupResult && (
+                  <div className="mt-3 border-t pt-3">
+                    {/* 재파싱 결과 요약 */}
+                    <div className="flex gap-4 mb-2 text-xs">
+                      <span>
+                        재파싱: 신규 <strong>{cleanupResult.reparseCreated}</strong>건, 수정{" "}
+                        <strong>{cleanupResult.reparseUpdated}</strong>건
+                      </span>
+                    </div>
+
+                    {cleanupResult.dryRun ? (
+                      <>
+                        {/* 삭제 대상 요약 */}
+                        <div className="flex items-center gap-2 mb-3 text-xs">
+                          <span className="text-red-600">
+                            삭제 대상: <strong>{cleanupResult.deletable}</strong>건
+                            (~{formatBytes(cleanupResult.estimatedBytes)})
+                          </span>
+                        </div>
+
+                        {/* 삭제 대상 목록 */}
+                        {cleanupResult.items.length > 0 && (
+                          <div className="max-h-60 overflow-y-auto mb-3">
+                            {cleanupResult.items.map((item) => (
+                              <CleanupItemRow key={item.logId} item={item} />
+                            ))}
+                          </div>
+                        )}
+
+                        {cleanupResult.deletable === 0 ? (
+                          <div className="flex items-center gap-2 text-xs text-green-600">
+                            <Check className="h-3.5 w-3.5" />
+                            삭제할 알림이 없습니다.
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 justify-end">
+                            <Button variant="ghost" size="sm" onClick={clearCleanup}>
+                              취소
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={async () => { await cleanupExecute(); refreshLogs(); }}
+                              disabled={cleanupLoading}
+                            >
+                              {cleanupLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                              ) : (
+                                <Trash2 className="h-4 w-4 mr-1.5" />
+                              )}
+                              삭제 ({cleanupResult.deletable}건, ~{formatBytes(cleanupResult.estimatedBytes)})
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2 text-xs text-green-600">
+                        <Check className="h-3.5 w-3.5" />
+                        {cleanupResult.deleted}건 삭제 완료 (~{formatBytes(cleanupResult.estimatedBytes)} 확보)
+                      </div>
                     )}
                   </div>
                 )}

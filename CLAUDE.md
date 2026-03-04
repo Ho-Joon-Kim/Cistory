@@ -234,3 +234,4 @@ Drizzle config loads env from `.env.local` (not `.env`).
 - Prefer Drizzle ORM query builder (avoid raw SQL)
 - Follow Next.js App Router conventions (Server Components by default)
 - Korean language used for user-facing strings in API responses and UI
+- **Date parsing**: Never use `new Date("YYYY-MM-DD")` for date-only strings — ECMAScript spec parses this as UTC midnight, causing timezone offset issues (e.g., KST is UTC+9, so "2026-03-04" becomes March 3rd 15:00 KST). Instead use `new Date(year, month - 1, day)` which creates local timezone midnight. Established helpers: `parseDateLocal()` in `src/app/api/timeline/route.ts`, `_toLocalDate()` in `src/modules/report/service.ts`

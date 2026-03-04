@@ -4,6 +4,18 @@ import { getDb } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
 import { eq, and, desc, gt, gte, lte, sql, inArray } from "drizzle-orm";
 
+/** Parse date string to local-timezone Date. Handles both "YYYY-MM-DD" and full ISO strings. */
+function parseDateLocal(str: string): Date | null {
+  // YYYY-MM-DD → local midnight
+  const dateOnly = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  // Full ISO or other format
+  const d = new Date(str);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
@@ -30,26 +42,27 @@ export async function GET(request: NextRequest) {
     }
 
     if (afterDate) {
-      const parsed = new Date(afterDate);
-      if (Number.isNaN(parsed.getTime())) {
+      const parsed = parseDateLocal(afterDate);
+      if (!parsed) {
         return NextResponse.json({ error: "Invalid 'after' date format" }, { status: 400 });
       }
       conditions.push(gt(commits.committedAt, parsed));
     }
 
     if (fromDate) {
-      const parsed = new Date(fromDate);
-      if (Number.isNaN(parsed.getTime())) {
+      const parsed = parseDateLocal(fromDate);
+      if (!parsed) {
         return NextResponse.json({ error: "Invalid 'from' date format" }, { status: 400 });
       }
       conditions.push(gte(commits.committedAt, parsed));
     }
 
     if (toDate) {
-      const parsed = new Date(toDate);
-      if (Number.isNaN(parsed.getTime())) {
+      const parsed = parseDateLocal(toDate);
+      if (!parsed) {
         return NextResponse.json({ error: "Invalid 'to' date format" }, { status: 400 });
       }
+      // Include the entire "to" day
       conditions.push(lte(commits.committedAt, parsed));
     }
 

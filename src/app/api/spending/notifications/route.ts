@@ -26,12 +26,12 @@ export async function GET(request: NextRequest) {
     const conditions = [eq(notificationLogs.userId, user.id)];
 
     if (from) {
-      conditions.push(gte(notificationLogs.receivedAt, new Date(from)));
+      const [fy, fm, fd] = from.split("-").map(Number);
+      conditions.push(gte(notificationLogs.receivedAt, new Date(fy, fm - 1, fd)));
     }
     if (to) {
-      const toDate = new Date(to);
-      toDate.setDate(toDate.getDate() + 1);
-      conditions.push(lte(notificationLogs.receivedAt, toDate));
+      const [ty, tm, td] = to.split("-").map(Number);
+      conditions.push(lte(notificationLogs.receivedAt, new Date(ty, tm - 1, td + 1)));
     }
 
     const db = getDb();
