@@ -126,3 +126,170 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
     refresh,
   };
 }
+
+// ============ Notification Logs ============
+
+export interface NotificationLogItem {
+  id: string;
+  source: string;
+  title: string;
+  text: string;
+  rawPayload: string;
+  receivedAt: string;
+  parsed: boolean;
+}
+
+interface UseNotificationLogsOptions {
+  perPage?: number;
+  filters?: { from?: string; to?: string };
+  enabled?: boolean;
+}
+
+interface UseNotificationLogsReturn {
+  logs: NotificationLogItem[];
+  total: number;
+  isLoading: boolean;
+  hasMore: boolean;
+  loadMore: () => void;
+  refresh: () => void;
+}
+
+export function useNotificationLogs(
+  options: UseNotificationLogsOptions = {},
+): UseNotificationLogsReturn {
+  const { perPage = 30, filters, enabled = true } = options;
+
+  const [logs, setLogs] = useState<NotificationLogItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+
+  const fetchLogs = useCallback(
+    async (currentOffset: number, append: boolean, signal?: AbortSignal) => {
+      setIsLoading(true);
+      try {
+        const params = new URLSearchParams({
+          limit: String(perPage),
+          offset: String(currentOffset),
+        });
+
+        if (filters?.from) params.set("from", filters.from);
+        if (filters?.to) params.set("to", filters.to);
+
+        const response = await fetch(`/api/spending/notifications?${params}`, { signal });
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch notification logs");
+        }
+
+        const data = (await response.json()) as {
+          logs: NotificationLogItem[];
+          total: number;
+          hasMore: boolean;
+        };
+
+        setLogs((prev) => (append ? [...prev, ...data.logs] : data.logs));
+        setTotal(data.total);
+        setHasMore(data.hasMore);
+        setOffset(currentOffset + data.logs.length);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        console.error("Failed to fetch notification logs:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [perPage, filters],
+  );
+
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    setOffset(0);
+    setLogs([]);
+    fetchLogs(0, false, controller.signal);
+    return () => controller.abort();
+  }, [enabled, fetchLogs]);
+
+  const loadMore = useCallback(() => {
+    if (hasMore && !isLoading) {
+      fetchLogs(offset, true);
+    }
+  }, [hasMore, isLoading, offset, fetchLogs]);
+
+  const refresh = useCallback(() => {
+    setOffset(0);
+    setLogs([]);
+    fetchLogs(0, false);
+  }, [fetchLogs]);
+
+  return { logs, total, isLoading, hasMore, loadMore, refresh };
+}
+
+// ============ Reparse ============
+
+export interface ReparseItem {
+  logId: string;
+  title: string;
+  text: string;
+  receivedAt: string;
+  action: "create" | "update" | "skip";
+  reason?: string;
+  parsed?: {
+    type: string;
+    amount: number;
+    merchant: string;
+    accountName: string;
+  };
+}
+
+export interface ReparseResult {
+  dryRun: boolean;
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  items: ReparseItem[];
+}
+
+interface UseReparseReturn {
+  preview: () => Promise<void>;
+  apply: () => Promise<void>;
+  result: ReparseResult | null;
+  isLoading: boolean;
+  clear: () => void;
+}
+
+export function useReparse(): UseReparseReturn {
+  const [result, setResult] = useState<ReparseResult | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const run = useCallback(async (dryRun: boolean) => {
+    setIsLoading(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/spending/reparse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun }),
+      });
+      if (!response.ok) {
+        throw new Error("Reparse failed");
+      }
+      const data = (await response.json()) as ReparseResult;
+      setResult(data);
+    } catch (err) {
+      console.error("Reparse failed:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const preview = useCallback(() => run(true), [run]);
+  const apply = useCallback(() => run(false), [run]);
+  const clear = useCallback(() => setResult(null), []);
+
+  return { preview, apply, result, isLoading, clear };
+}
