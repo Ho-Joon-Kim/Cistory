@@ -88,11 +88,20 @@ export function DataUsageCard() {
           <>
             <div className="flex items-center gap-2">
               {/* Pie donut chart (semi-circle) */}
+              {/*
+                Semi-circle layout math:
+                - Container: 260w × 150h (CSS)
+                - SVG viewBox auto-sized by ResponsiveContainer inside ChartContainer
+                - cy={130}: arc center near bottom, leaving 20px below for "건" text
+                - outerRadius=120: arc top at y=10, fits within 150h
+                - innerRadius=70: donut hole for center text
+                - cx="50%": horizontally centered, 120 fits within 130 (260/2)
+              */}
               <ChartContainer
                 config={chartConfig}
-                className="w-[280px] h-[180px] shrink-0"
+                className="w-[260px] h-[150px] shrink-0 overflow-hidden"
               >
-                <PieChart margin={{ top: 0, right: 0, bottom: 20, left: 0 }}>
+                <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
@@ -122,11 +131,11 @@ export function DataUsageCard() {
                     dataKey="bytes"
                     nameKey="category"
                     cx="50%"
-                    cy="55%"
+                    cy={130}
                     startAngle={180}
                     endAngle={0}
-                    innerRadius={80}
-                    outerRadius={140}
+                    innerRadius={70}
+                    outerRadius={120}
                     paddingAngle={1.5}
                     strokeWidth={0}
                   >
@@ -141,7 +150,7 @@ export function DataUsageCard() {
                               <tspan
                                 x={viewBox.cx}
                                 y={(viewBox.cy || 0) - 16}
-                                className="fill-foreground text-2xl font-bold"
+                                className="fill-foreground text-xl font-bold"
                               >
                                 {formatBytes(data!.grandTotalBytes)}
                               </tspan>
