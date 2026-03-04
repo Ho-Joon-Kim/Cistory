@@ -97,6 +97,62 @@ export function useSettings() {
   };
 }
 
+export interface DataUsageCategoryData {
+  category: string;
+  label: string;
+  tables: { tableName: string; rowCount: number; estimatedBytes: number }[];
+  totalRows: number;
+  totalBytes: number;
+}
+
+export interface DataUsageData {
+  categories: DataUsageCategoryData[];
+  grandTotalRows: number;
+  grandTotalBytes: number;
+  calculatedAt: string | null;
+}
+
+export function useDataUsage() {
+  const [data, setData] = useState<DataUsageData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const response = await fetch("/api/settings/data-usage");
+      if (!response.ok) throw new Error("Failed to fetch data usage");
+      const result = (await response.json()) as DataUsageData;
+      setData(result);
+    } catch {
+      // ignore - will show empty state
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const response = await fetch("/api/settings/data-usage", {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Failed to refresh data usage");
+      const result = (await response.json()) as DataUsageData;
+      setData(result);
+    } catch {
+      // ignore
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { data, isLoading, isRefreshing, refresh };
+}
+
 export function useOwnTracksKey(hasKey: boolean) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);

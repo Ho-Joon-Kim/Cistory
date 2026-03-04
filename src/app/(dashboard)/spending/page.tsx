@@ -28,7 +28,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatBytes } from "@/lib/utils";
 
 type Tab = "transactions" | "notifications";
 
@@ -116,12 +116,6 @@ const DATE_PRESETS: DatePreset[] = [
     },
   },
 ];
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function CleanupItemRow({ item }: { item: CleanupItem }) {
   return (

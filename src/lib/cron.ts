@@ -12,6 +12,7 @@ import { createSummaryService } from '@/modules/summary/service';
 import { createWakaTimeSyncService } from '@/modules/wakatime/service';
 import { sql, eq, and, gte, lt, inArray } from 'drizzle-orm';
 import { logger } from '@/lib/logger';
+import { maybeRefreshDataUsage } from '@/lib/data-usage';
 
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
@@ -155,6 +156,17 @@ async function syncAllUsers() {
               });
             }
           }
+        }
+
+        // Data usage cache refresh (once per 24h)
+        try {
+          await maybeRefreshDataUsage(db, user.id);
+        } catch (usageError) {
+          logger.error('[Cron] Data usage refresh error', {
+            userId: user.id,
+            githubLogin: user.githubLogin,
+            error: usageError instanceof Error ? usageError.message : String(usageError),
+          });
         }
 
         const duration = Date.now() - userStartTime;

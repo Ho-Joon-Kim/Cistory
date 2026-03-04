@@ -283,6 +283,26 @@ export const transactions = pgTable(
   ]
 );
 
+// ============ Data Usage Cache ============
+export const dataUsageCache = pgTable(
+  "data_usage_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: text("category").notNull(), // 'commits' | 'location' | 'coding' | 'spending' | 'system'
+    tableName: text("table_name").notNull(),
+    rowCount: integer("row_count").notNull().default(0),
+    estimatedBytes: integer("estimated_bytes").notNull().default(0),
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_data_usage_user_table").on(table.userId, table.tableName),
+    index("idx_data_usage_user").on(table.userId),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -319,4 +339,7 @@ export type NewNotificationLog = typeof notificationLogs.$inferInsert;
 
 export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
+
+export type DataUsageCache = typeof dataUsageCache.$inferSelect;
+export type NewDataUsageCache = typeof dataUsageCache.$inferInsert;
 
