@@ -90,19 +90,23 @@ export function DataUsageCard() {
               {/* Pie donut chart (semi-circle) */}
               <ChartContainer
                 config={chartConfig}
-                className="w-[280px] h-[160px] shrink-0"
+                className="w-[280px] h-[180px] shrink-0"
               >
-                <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                <PieChart margin={{ top: 0, right: 0, bottom: 20, left: 0 }}>
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
                         hideLabel
                         nameKey="category"
                         formatter={(value, _name, item) => {
-                          const cat = item.payload as { category: string; bytes: number; rows: number };
+                          const cat = item.payload as { category: string; bytes: number; rows: number; fill: string };
                           const label = chartConfig[cat.category]?.label ?? cat.category;
                           return (
                             <div className="flex items-center gap-2 text-xs">
+                              <span
+                                className="inline-block h-2.5 w-2.5 rounded-[2px] shrink-0"
+                                style={{ backgroundColor: cat.fill }}
+                              />
                               <span className="text-muted-foreground">{label as string}</span>
                               <span className="font-medium tabular-nums text-foreground">
                                 {formatBytes(cat.bytes)} · {cat.rows.toLocaleString()}건
@@ -118,7 +122,7 @@ export function DataUsageCard() {
                     dataKey="bytes"
                     nameKey="category"
                     cx="50%"
-                    cy="100%"
+                    cy="55%"
                     startAngle={180}
                     endAngle={0}
                     innerRadius={80}
@@ -136,7 +140,7 @@ export function DataUsageCard() {
                             <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle">
                               <tspan
                                 x={viewBox.cx}
-                                y={(viewBox.cy || 0) - 18}
+                                y={(viewBox.cy || 0) - 16}
                                 className="fill-foreground text-2xl font-bold"
                               >
                                 {formatBytes(data!.grandTotalBytes)}
