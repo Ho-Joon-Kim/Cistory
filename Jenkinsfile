@@ -9,6 +9,7 @@ pipeline {
         IMAGE_NAME = 'cistory'
         CONTAINER_NAME = 'cistory'
         APP_PORT = '3000'
+        ENV_FILE = '/home/hojoon-1/git/Cistory/.env'
     }
 
     stages {
@@ -25,20 +26,16 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'cistory-supabase-url', variable: 'SUPABASE_URL'),
-                    string(credentialsId: 'cistory-supabase-anon-key', variable: 'SUPABASE_ANON_KEY'),
-                    string(credentialsId: 'cistory-app-url', variable: 'APP_URL'),
-                    string(credentialsId: 'cistory-mapbox-token', variable: 'MAPBOX_TOKEN'),
-                    string(credentialsId: 'cistory-sentry-dsn', variable: 'SENTRY_DSN')
-                ]) {
+                script {
+                    def buildArgs = ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+                                     'NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_MAPBOX_TOKEN', 'NEXT_PUBLIC_SENTRY_DSN']
+                        .collect { key ->
+                            def val = sh(script: "grep '^${key}=' ${ENV_FILE} | cut -d'=' -f2-", returnStdout: true).trim()
+                            "--build-arg ${key}=\"${val}\""
+                        }.join(' ')
+
                     sh """
-                        docker build \
-                            --build-arg NEXT_PUBLIC_SUPABASE_URL="\${SUPABASE_URL}" \
-                            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="\${SUPABASE_ANON_KEY}" \
-                            --build-arg NEXT_PUBLIC_APP_URL="\${APP_URL}" \
-                            --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="\${MAPBOX_TOKEN}" \
-                            --build-arg NEXT_PUBLIC_SENTRY_DSN="\${SENTRY_DSN}" \
+                        docker build ${buildArgs} \
                             -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
                             -t ${IMAGE_NAME}:latest \
                             .
@@ -52,7 +49,7 @@ pipeline {
                 sh """
                     docker build --target builder -t ${IMAGE_NAME}:builder .
                     docker run --rm \
-                        --env-file .env.local \
+                        --env-file ${ENV_FILE} \
                         ${IMAGE_NAME}:builder \
                         npx drizzle-kit migrate
                 """
@@ -68,7 +65,7 @@ pipeline {
                     docker run -d \
                         --name ${CONTAINER_NAME} \
                         --restart unless-stopped \
-                        --env-file .env.local \
+                        --env-file ${ENV_FILE} \
                         -e NODE_ENV=production \
                         -e TZ=Asia/Seoul \
                         -p ${APP_PORT}:3000 \
