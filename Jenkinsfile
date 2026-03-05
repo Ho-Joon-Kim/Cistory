@@ -31,9 +31,11 @@ pipeline {
                                    'NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_MAPBOX_TOKEN', 'NEXT_PUBLIC_SENTRY_DSN']
                     def buildArgs = envVars.collect { key ->
                         def val = sh(script: "set -a && . ${ENV_FILE} && set +a && printf '%s' \"\$${key}\"", returnStdout: true)
+                        echo "[DEBUG] ${key} = '${val}'"
                         return "--build-arg ${key}=${val}"
                     }.join(' ')
 
+                    echo "[DEBUG] buildArgs = ${buildArgs}"
                     sh "docker build ${buildArgs} -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} -t ${IMAGE_NAME}:latest ."
                 }
             }
