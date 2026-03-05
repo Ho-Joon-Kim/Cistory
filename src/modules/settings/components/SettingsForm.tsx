@@ -3,6 +3,7 @@
 import { useSettings } from "../hooks";
 import { useAuth } from "@/modules/auth/hooks";
 import { DataUsageCard } from "./DataUsageCard";
+import { DbBenchmarkCard } from "./DbBenchmarkCard";
 import { SummaryStats } from "./SummaryStats";
 import { OwnTracksSettings } from "./OwnTracksSettings";
 import { TossNotificationSettings } from "./TossNotificationSettings";
@@ -69,6 +70,9 @@ export function SettingsForm() {
     <div className="space-y-6">
       {/* 데이터 용량 */}
       <DataUsageCard />
+
+      {/* DB 벤치마크 */}
+      <DbBenchmarkCard />
 
       {/* GitHub 연결 */}
       <Card>

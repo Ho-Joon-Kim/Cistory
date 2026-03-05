@@ -286,6 +286,104 @@ export interface WakaTimeSyncStats {
   unsyncedDays: number;
 }
 
+// ============ DB Benchmark ============
+
+export interface BenchmarkStats {
+  mean: number;
+  median: number;
+  min: number;
+  max: number;
+  p95: number;
+}
+
+export interface BenchmarkItem {
+  name: string;
+  label: string;
+  runs: number[];
+  stats: BenchmarkStats;
+}
+
+export interface BenchmarkRun {
+  id: string;
+  dbHost: string;
+  timestamp: string;
+  benchmarks: BenchmarkItem[];
+}
+
+const BENCHMARK_STORAGE_KEY = "db-benchmark-history";
+const MAX_HISTORY = 20;
+
+function loadHistory(): BenchmarkRun[] {
+  try {
+    const raw = localStorage.getItem(BENCHMARK_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { runs: BenchmarkRun[] };
+    return parsed.runs ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(runs: BenchmarkRun[]) {
+  localStorage.setItem(BENCHMARK_STORAGE_KEY, JSON.stringify({ runs: runs.slice(0, MAX_HISTORY) }));
+}
+
+export function useDbBenchmark() {
+  const [isRunning, setIsRunning] = useState(false);
+  const [currentResult, setCurrentResult] = useState<BenchmarkRun | null>(null);
+  const [history, setHistory] = useState<BenchmarkRun[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load history on mount
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
+
+  const runBenchmark = useCallback(async () => {
+    setIsRunning(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/settings/db-benchmark", { method: "POST" });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        throw new Error(data.error || "벤치마크 실행에 실패했습니다");
+      }
+      const data = (await response.json()) as { dbHost: string; timestamp: string; benchmarks: BenchmarkItem[] };
+      const run: BenchmarkRun = {
+        id: `${Date.now()}`,
+        dbHost: data.dbHost,
+        timestamp: data.timestamp,
+        benchmarks: data.benchmarks,
+      };
+      setCurrentResult(run);
+      const updated = [run, ...loadHistory()].slice(0, MAX_HISTORY);
+      saveHistory(updated);
+      setHistory(updated);
+      return run;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "알 수 없는 오류");
+      return null;
+    } finally {
+      setIsRunning(false);
+    }
+  }, []);
+
+  const deleteRun = useCallback((id: string) => {
+    const updated = loadHistory().filter((r) => r.id !== id);
+    saveHistory(updated);
+    setHistory(updated);
+    if (currentResult?.id === id) setCurrentResult(null);
+  }, [currentResult]);
+
+  const clearHistory = useCallback(() => {
+    localStorage.removeItem(BENCHMARK_STORAGE_KEY);
+    setHistory([]);
+    setCurrentResult(null);
+  }, []);
+
+  return { isRunning, currentResult, history, error, runBenchmark, deleteRun, clearHistory };
+}
+
 export function useWakaTimeKey(hasKey: boolean) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);

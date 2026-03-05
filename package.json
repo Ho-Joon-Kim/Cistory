@@ -13,12 +13,7 @@
     "check": "biome check --write ./src",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio",
-    "pm2:start": "pm2 start ecosystem.config.js",
-    "pm2:stop": "pm2 stop cistory",
-    "pm2:restart": "pm2 restart cistory",
-    "pm2:logs": "pm2 logs cistory",
-    "pm2:status": "pm2 status"
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

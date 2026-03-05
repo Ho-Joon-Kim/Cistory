@@ -28,11 +28,6 @@ yarn db:studio         # Open Drizzle Studio
 
 # Production
 yarn start             # Start production server (binds to 0.0.0.0, includes Cron)
-yarn pm2:start         # Start with PM2 process manager
-yarn pm2:stop          # Stop PM2 process
-yarn pm2:restart       # Restart PM2 process
-yarn pm2:logs          # View PM2 logs
-yarn pm2:status        # Check PM2 status
 ```
 
 No test infrastructure is currently configured.
