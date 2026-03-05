@@ -121,29 +121,34 @@ pipeline {
 
     post {
         success {
-            withCredentials([
-                string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
-                string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
-            ]) {
-                sh """
-                    curl -s -X POST "https://api.telegram.org/bot\${BOT_TOKEN}/sendMessage" \
-                        -d chat_id="\${CHAT_ID}" \
-                        -d parse_mode="Markdown" \
-                        -d text="✅ *Cistory 배포 성공*%0A%0A📦 \`${GIT_COMMIT_SHORT}\` ${GIT_COMMIT_MSG}%0A👤 ${GIT_AUTHOR}%0A⏱ ${currentBuild.durationString.replace(' and counting', '')}"
-                """
+            script {
+                def duration = currentBuild.durationString.replace(' and counting', '')
+                withCredentials([
+                    string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
+                    string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
+                ]) {
+                    sh '''
+                        curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+                            -d chat_id="${CHAT_ID}" \
+                            -d parse_mode="HTML" \
+                            -d text="''' + "✅ <b>Cistory 배포 성공</b>%0A%0A📦 <code>${env.GIT_COMMIT_SHORT}</code> ${env.GIT_COMMIT_MSG}%0A👤 ${env.GIT_AUTHOR}%0A⏱ ${duration}" + '''"
+                    '''
+                }
             }
         }
         failure {
-            withCredentials([
-                string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
-                string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
-            ]) {
-                sh """
-                    curl -s -X POST "https://api.telegram.org/bot\${BOT_TOKEN}/sendMessage" \
-                        -d chat_id="\${CHAT_ID}" \
-                        -d parse_mode="Markdown" \
-                        -d text="❌ *Cistory 배포 실패*%0A%0A📦 \`${GIT_COMMIT_SHORT}\` ${GIT_COMMIT_MSG}%0A👤 ${GIT_AUTHOR}%0A🔗 ${BUILD_URL}"
-                """
+            script {
+                withCredentials([
+                    string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
+                    string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
+                ]) {
+                    sh '''
+                        curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+                            -d chat_id="${CHAT_ID}" \
+                            -d parse_mode="HTML" \
+                            -d text="''' + "❌ <b>Cistory 배포 실패</b>%0A%0A📦 <code>${env.GIT_COMMIT_SHORT}</code> ${env.GIT_COMMIT_MSG}%0A👤 ${env.GIT_AUTHOR}%0A🔗 ${env.BUILD_URL}" + '''"
+                    '''
+                }
             }
         }
     }
