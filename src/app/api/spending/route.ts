@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     // Build filters
     const conditions = [eq(transactions.userId, user.id)];
 
-    // Exclude self-transfers if tossMyName is set
+    // Exclude self-transfers (covers transactions stored before tossMyName was set)
     const db = getDb();
     const [userRow] = await db
       .select({ tossMyName: users.tossMyName })

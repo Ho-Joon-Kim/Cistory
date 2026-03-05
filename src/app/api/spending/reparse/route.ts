@@ -14,7 +14,7 @@
 
 import { NextRequest } from "next/server";
 import { getDb } from "@/db";
-import { notificationLogs, transactions } from "@/db/schema";
+import { notificationLogs, transactions, users } from "@/db/schema";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { logger } from "@/lib/logger";
@@ -58,6 +58,14 @@ export async function POST(request: NextRequest) {
       };
 
       try {
+        // Load user's tossMyName for self-transfer filtering
+        const [userRow] = await db
+          .select({ tossMyName: users.tossMyName })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+        const tossMyName = userRow?.tossMyName ?? null;
+
         // Fetch all notification logs
         const logs = await db
           .select({
@@ -136,7 +144,7 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          const parsed = parseTossNotification(title, text);
+          const parsed = parseTossNotification(title, text, { myName: tossMyName });
           if (!parsed) {
             skipCount++;
             items.push({

@@ -21,22 +21,24 @@ async function authenticateByApiKey(apikey: string | null) {
 
   const db = getDb();
   const result = await db
-    .select({ id: users.id })
+    .select({ id: users.id, tossMyName: users.tossMyName })
     .from(users)
     .where(eq(users.tossNotificationApiKey, apikey))
     .limit(1);
 
-  return result.length > 0 ? result[0].id : null;
+  return result.length > 0 ? result[0] : null;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const apikey = request.nextUrl.searchParams.get("apikey");
-    const userId = await authenticateByApiKey(apikey);
+    const authResult = await authenticateByApiKey(apikey);
 
-    if (!userId) {
+    if (!authResult) {
       return NextResponse.json({ error: "인증 실패" }, { status: 401 });
     }
+
+    const { id: userId, tossMyName } = authResult;
 
     // Always read as text first — MacroDroid may send malformed JSON
     // with control characters (newlines, tabs in notification text)
@@ -70,7 +72,7 @@ export async function POST(request: NextRequest) {
       const text = typeof payload.text === "string" ? payload.text : "";
 
       if (title && text) {
-        parsed = parseTossNotification(title, text);
+        parsed = parseTossNotification(title, text, { myName: tossMyName });
         if (parsed) {
           await db.insert(transactions).values({
             userId,
@@ -107,11 +109,13 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const apikey = request.nextUrl.searchParams.get("apikey");
-    const userId = await authenticateByApiKey(apikey);
+    const authResult = await authenticateByApiKey(apikey);
 
-    if (!userId) {
+    if (!authResult) {
       return NextResponse.json({ error: "인증 실패" }, { status: 401 });
     }
+
+    const userId = authResult.id;
 
     const limit = Math.min(Number(request.nextUrl.searchParams.get("limit")) || 50, 200);
     const offset = Number(request.nextUrl.searchParams.get("offset")) || 0;

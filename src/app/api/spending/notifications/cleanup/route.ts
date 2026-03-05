@@ -20,7 +20,7 @@
 
 import { NextRequest } from "next/server";
 import { getDb } from "@/db";
-import { notificationLogs, transactions } from "@/db/schema";
+import { notificationLogs, transactions, users } from "@/db/schema";
 import { eq, and, gte, lte, desc, sql, isNull, inArray } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { logger } from "@/lib/logger";
@@ -49,6 +49,14 @@ export async function POST(request: NextRequest) {
       };
 
       try {
+        // Load user's tossMyName for self-transfer filtering
+        const [userRow] = await db
+          .select({ tossMyName: users.tossMyName })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+        const tossMyName = userRow?.tossMyName ?? null;
+
         // ===== Phase 1: Reparse (always applied) =====
         const allLogs = await db
           .select({
@@ -103,7 +111,7 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          const parsed = parseTossNotification(title, text);
+          const parsed = parseTossNotification(title, text, { myName: tossMyName });
           if (!parsed) {
             skipCount++;
             if ((i + 1) % progressInterval === 0) {
@@ -258,7 +266,7 @@ export async function POST(request: NextRequest) {
 
           // Double-check: if it's parseable, skip (shouldn't happen after reparse, but safety)
           if (title && text) {
-            const parsed = parseTossNotification(title, text);
+            const parsed = parseTossNotification(title, text, { myName: tossMyName });
             if (parsed) continue;
             reason = "패턴 불일치";
           } else if (!title && !text) {

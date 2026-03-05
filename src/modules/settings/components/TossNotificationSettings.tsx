@@ -154,7 +154,7 @@ export function TossNotificationSettings({ hasKey, tossMyName, onUpdateMyName }:
               <Input
                 value={myName}
                 onChange={(e) => setMyName(e.target.value)}
-                placeholder="예: 김호준"
+                placeholder="예: 홍길동"
                 className="h-8 text-sm max-w-[200px]"
               />
               <Button

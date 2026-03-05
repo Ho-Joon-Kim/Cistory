@@ -258,7 +258,7 @@ async function reparseTodayNotifications() {
   try {
     // Find users with toss notification key
     const tossUsers = await db
-      .select({ id: users.id, githubLogin: users.githubLogin })
+      .select({ id: users.id, githubLogin: users.githubLogin, tossMyName: users.tossMyName })
       .from(users)
       .where(sql`${users.tossNotificationApiKey} IS NOT NULL`);
 
@@ -309,7 +309,7 @@ async function reparseTodayNotifications() {
             continue;
           }
 
-          const parsed = parseTossNotification(title, text);
+          const parsed = parseTossNotification(title, text, { myName: user.tossMyName });
           if (!parsed) {
             totalSkipped++;
             continue;

@@ -128,7 +128,7 @@ const db = getDb();
 ```
 
 **Database Schema** (13 tables in `src/db/schema.ts`):
-- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Supabase `auth.users`)
+- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Supabase `auth.users`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
 - `syncJobs` - Sync tracking (status: fetching/summarizing/completed/failed)
@@ -243,6 +243,13 @@ NEXT_PUBLIC_SENTRY_DSN=...           # Sentry error tracking
 3. `yarn db:migrate` to apply to PostgreSQL
 
 Drizzle config loads env from `.env.local` (not `.env`).
+
+### CI/CD & Deployment
+
+- **Jenkins pipeline** (`Jenkinsfile`): GitHub push trigger → Docker build → Drizzle migrations → deploy → health check → Telegram notification
+- **Docker** (`Dockerfile`): Multi-stage build (Node 22 Alpine). `.env` mounted as Docker build secret for `NEXT_PUBLIC_*` vars. Production uses `output: "standalone"` from `next.config.ts`
+- **Timezone**: Production container runs with `TZ=Asia/Seoul` (KST, UTC+9) — relevant to date parsing and cron scheduling
+- Migrations run in a temporary builder container before the new production container starts
 
 ## Code Style
 
