@@ -171,14 +171,20 @@ export async function POST(request: NextRequest) {
 
           // Check for existing transaction for this exact log
           const existingForLog = await db
-            .select({ id: transactions.id })
+            .select({
+              id: transactions.id,
+              type: transactions.type,
+              amount: transactions.amount,
+              merchant: transactions.merchant,
+              accountName: transactions.accountName,
+            })
             .from(transactions)
             .where(
               and(eq(transactions.userId, userId), eq(transactions.notificationLogId, log.id)),
             )
             .limit(1);
 
-          const hasExistingForLog = existingForLog.length > 0;
+          const existing = existingForLog.length > 0 ? existingForLog[0] : null;
 
           // Check for duplicate transactions within ±2 minutes
           const windowMs = 2 * 60 * 1000;
@@ -226,7 +232,46 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          const action = hasExistingForLog ? "update" : "create";
+          // Determine action: skip if existing data is identical
+          let action: "create" | "update" | "skip";
+          if (!existing) {
+            action = "create";
+          } else if (
+            existing.type === parsed.type &&
+            existing.amount === parsed.amount &&
+            existing.merchant === parsed.merchant &&
+            existing.accountName === parsed.accountName
+          ) {
+            action = "skip";
+          } else {
+            action = "update";
+          }
+
+          if (action === "skip") {
+            skipCount++;
+            items.push({
+              logId: log.id,
+              title,
+              text,
+              receivedAt: log.receivedAt.toISOString(),
+              action: "skip",
+              reason: "변경 없음",
+              parsed,
+            });
+            if ((i + 1) % progressInterval === 0) {
+              send({
+                type: "progress",
+                processed: i + 1,
+                total: logs.length,
+                created: createCount,
+                updated: updateCount,
+                skipped: skipCount,
+                failed: failCount,
+              });
+            }
+            continue;
+          }
+
           if (action === "create") createCount++;
           else updateCount++;
 

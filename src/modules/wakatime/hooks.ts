@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { usePageVisible } from "@/lib/hooks/usePageVisible";
 
 const POLL_INTERVAL_MS = 60_000;
 
@@ -28,6 +29,7 @@ export function useCodingSessions(date: string) {
   const [sessions, setSessions] = useState<CodingSessionData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const cache = useRef<Map<string, CodingSessionData[]>>(new Map());
+  const visible = usePageVisible();
 
   const fetchSessions = useCallback(
     async (targetDate: string, signal: AbortSignal, silent = false) => {
@@ -81,7 +83,7 @@ export function useCodingSessions(date: string) {
     const controller = new AbortController();
     fetchSessions(date, controller.signal);
 
-    if (!isToday(date)) return () => controller.abort();
+    if (!isToday(date) || !visible) return () => controller.abort();
 
     const interval = setInterval(() => {
       fetchSessions(date, controller.signal, true);
@@ -91,7 +93,7 @@ export function useCodingSessions(date: string) {
       controller.abort();
       clearInterval(interval);
     };
-  }, [date, fetchSessions]);
+  }, [date, visible, fetchSessions]);
 
   return { sessions, isLoading };
 }
@@ -113,6 +115,7 @@ export function useCodingStats(dateFrom: string, dateTo: string) {
   const [stats, setStats] = useState<CodingStatData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const cache = useRef<Map<string, CodingStatData[]>>(new Map());
+  const visible = usePageVisible();
 
   const fetchStats = useCallback(
     async (from: string, to: string, signal: AbortSignal, silent = false) => {
@@ -157,7 +160,7 @@ export function useCodingStats(dateFrom: string, dateTo: string) {
     fetchStats(dateFrom, dateTo, controller.signal);
 
     const today = new Date().toISOString().slice(0, 10);
-    if (today >= dateFrom && today <= dateTo) {
+    if (visible && today >= dateFrom && today <= dateTo) {
       const interval = setInterval(() => {
         cache.current.delete(`${dateFrom}:${dateTo}`);
         fetchStats(dateFrom, dateTo, controller.signal, true);
@@ -170,7 +173,7 @@ export function useCodingStats(dateFrom: string, dateTo: string) {
     }
 
     return () => controller.abort();
-  }, [dateFrom, dateTo, fetchStats]);
+  }, [dateFrom, dateTo, visible, fetchStats]);
 
   return { stats, isLoading };
 }

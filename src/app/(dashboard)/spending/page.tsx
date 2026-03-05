@@ -479,14 +479,17 @@ export default function SpendingPage() {
                       <Button
                         size="sm"
                         onClick={handleApply}
-                        disabled={reparseLoading || reparseResult.created === 0}
+                        disabled={reparseLoading || (reparseResult.created === 0 && reparseResult.updated === 0)}
                       >
                         {reparseLoading && !reparseProgress ? (
                           <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
                         ) : (
                           <Check className="h-4 w-4 mr-1.5" />
                         )}
-                        적용 ({reparseResult.created}건 신규)
+                        적용 ({[
+                          reparseResult.created > 0 && `${reparseResult.created}건 신규`,
+                          reparseResult.updated > 0 && `${reparseResult.updated}건 수정`,
+                        ].filter(Boolean).join(", ")})
                       </Button>
                     </div>
                   ) : reparseResult ? (

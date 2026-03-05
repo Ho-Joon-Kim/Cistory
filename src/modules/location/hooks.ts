@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { usePageVisible } from "@/lib/hooks/usePageVisible";
 
 export interface LocationData {
   lat: number;
@@ -45,6 +46,7 @@ export function useStayPoints(date: string) {
   const [stayPoints, setStayPoints] = useState<StayPointData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const cache = useRef<Map<string, StayPointData[]>>(new Map());
+  const visible = usePageVisible();
 
   const fetchStayPoints = useCallback(
     async (targetDate: string, signal: AbortSignal, silent = false) => {
@@ -98,7 +100,7 @@ export function useStayPoints(date: string) {
     const controller = new AbortController();
     fetchStayPoints(date, controller.signal);
 
-    if (!isToday(date)) return () => controller.abort();
+    if (!isToday(date) || !visible) return () => controller.abort();
 
     const interval = setInterval(() => {
       fetchStayPoints(date, controller.signal, true);
@@ -108,7 +110,7 @@ export function useStayPoints(date: string) {
       controller.abort();
       clearInterval(interval);
     };
-  }, [date, fetchStayPoints]);
+  }, [date, visible, fetchStayPoints]);
 
   return { stayPoints, isLoading };
 }
@@ -121,6 +123,7 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
   const [distances, setDistances] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(false);
   const cache = useRef<Map<string, Record<string, number>>>(new Map());
+  const visible = usePageVisible();
 
   const fetchDistances = useCallback(
     async (from: string, to: string, signal: AbortSignal, silent = false) => {
@@ -166,7 +169,7 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
 
     // Poll if today is in range
     const today = new Date().toISOString().slice(0, 10);
-    if (today >= dateFrom && today <= dateTo) {
+    if (visible && today >= dateFrom && today <= dateTo) {
       const interval = setInterval(() => {
         // Invalidate cache for polling
         cache.current.delete(`${dateFrom}:${dateTo}`);
@@ -180,7 +183,7 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
     }
 
     return () => controller.abort();
-  }, [dateFrom, dateTo, fetchDistances]);
+  }, [dateFrom, dateTo, visible, fetchDistances]);
 
   return { distances, isLoading };
 }
@@ -190,6 +193,7 @@ export function useLocations(date: string) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cache = useRef<Map<string, LocationData[]>>(new Map());
+  const visible = usePageVisible();
 
   const fetchLocations = useCallback(
     async (targetDate: string, signal: AbortSignal, silent = false) => {
@@ -249,8 +253,8 @@ export function useLocations(date: string) {
     const controller = new AbortController();
     fetchLocations(date, controller.signal);
 
-    // Poll every minute when viewing today
-    if (!isToday(date)) return () => controller.abort();
+    // Poll every minute when viewing today (only if tab is visible)
+    if (!isToday(date) || !visible) return () => controller.abort();
 
     const interval = setInterval(() => {
       fetchLocations(date, controller.signal, true);
@@ -260,7 +264,7 @@ export function useLocations(date: string) {
       controller.abort();
       clearInterval(interval);
     };
-  }, [date, fetchLocations]);
+  }, [date, visible, fetchLocations]);
 
   return { locations, isLoading, error };
 }

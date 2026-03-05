@@ -16,6 +16,7 @@ import {
   useContext,
   type ReactNode,
 } from "react";
+import { usePageVisible } from "@/lib/hooks/usePageVisible";
 
 export interface SyncJob {
   id: string;
@@ -97,6 +98,7 @@ export function SyncStatusProvider({
   const processedCompletedJobsRef = useRef<Set<string>>(new Set());
   const isInitialLoadRef = useRef(true);
   const prevHasActiveSyncRef = useRef<boolean | null>(null);
+  const visible = usePageVisible();
 
   // 콜백을 ref로 관리하여 connect가 재생성되지 않도록 함
   const onSyncCompletedRef = useRef(onSyncCompleted);
@@ -193,11 +195,15 @@ export function SyncStatusProvider({
   }, []);
 
   useEffect(() => {
-    connect();
+    if (visible) {
+      connect();
+    } else {
+      disconnect();
+    }
     return () => {
       disconnect();
     };
-  }, [connect, disconnect]);
+  }, [visible, connect, disconnect]);
 
   const value = useMemo(
     () => ({ status, isConnected, error, reconnect: connect, disconnect }),
