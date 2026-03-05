@@ -62,7 +62,7 @@ pipeline {
                     # Ensure PostgreSQL is running via compose
                     docker compose up -d postgres
 
-                    COMPOSE_NETWORK=\$(docker network ls --format '{{.Name}}' | grep cistory | grep default | head -1)
+                    COMPOSE_NETWORK=\$(docker inspect cistory-db --format '{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}}{{end}}')
 
                     docker run -d \
                         --name ${CONTAINER_NAME} \
