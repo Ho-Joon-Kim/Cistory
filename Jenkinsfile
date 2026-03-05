@@ -26,18 +26,13 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    def envVars = ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-                                   'NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_MAPBOX_TOKEN', 'NEXT_PUBLIC_SENTRY_DSN']
-                    def buildArgs = envVars.collect { key ->
-                        def val = sh(script: "set -a && . ${ENV_FILE} && set +a && printf '%s' \"\$${key}\"", returnStdout: true)
-                        echo "[DEBUG] ${key} = '${val}'"
-                        return "--build-arg ${key}=${val}"
-                    }.join(' ')
-
-                    echo "[DEBUG] buildArgs = ${buildArgs}"
-                    sh "docker build ${buildArgs} -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} -t ${IMAGE_NAME}:latest ."
-                }
+                sh """
+                    DOCKER_BUILDKIT=1 docker build \
+                        --secret id=env,src=${ENV_FILE} \
+                        -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
+                        -t ${IMAGE_NAME}:latest \
+                        .
+                """
             }
         }
 

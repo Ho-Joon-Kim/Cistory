@@ -13,19 +13,12 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-ARG NEXT_PUBLIC_APP_URL
-ARG NEXT_PUBLIC_MAPBOX_TOKEN
-ARG NEXT_PUBLIC_SENTRY_DSN
-
-ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
-ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
-
-RUN mkdir -p public && yarn build
+# .env is mounted as a secret at build time
+# Extract NEXT_PUBLIC_* vars, strip surrounding quotes, export them, then build
+RUN --mount=type=secret,id=env,target=/tmp/.env \
+    grep '^NEXT_PUBLIC_' /tmp/.env | sed "s/=\([\"']\)\(.*\)\1$/=\2/" > /tmp/.env.public && \
+    set -a && . /tmp/.env.public && set +a && \
+    mkdir -p public && yarn build
 
 # Stage 4: Production runner
 FROM node:22-alpine AS runner
