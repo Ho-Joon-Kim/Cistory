@@ -46,3 +46,5 @@ services:
 
 volumes:
   postgres_data:
+    external: true
+    name: cistory_postgres_data
