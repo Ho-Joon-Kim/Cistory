@@ -1,0 +1,17 @@
+services:
+  cistory:
+    image: cistory:latest
+    container_name: cistory
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    environment:
+      - NODE_ENV=production
+      - TZ=Asia/Seoul
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"

@@ -2,17 +2,16 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is not set");
-}
-
 // Singleton database connection
 let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let pool: Pool | null = null;
 
 export function getDb() {
   if (!dbInstance) {
+    const DATABASE_URL = process.env.DATABASE_URL;
+    if (!DATABASE_URL) {
+      throw new Error("DATABASE_URL environment variable is not set");
+    }
     pool = new Pool({
       connectionString: DATABASE_URL,
       max: 20,
