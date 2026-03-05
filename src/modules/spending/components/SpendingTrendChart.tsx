@@ -61,8 +61,10 @@ export function SpendingTrendChart({ data, todayDayNumber, predictedTotal }: Spe
             borderRadius: "8px",
             color: "hsl(var(--foreground))",
           }}
+          itemStyle={{ color: "hsl(var(--foreground))" }}
           labelFormatter={(label) => `${label}일`}
-          formatter={(value: number, name: string) => {
+          formatter={(value, name: string) => {
+            if (value == null || typeof value !== "number") return ["", ""];
             const formatted = `${value.toLocaleString("ko-KR")}원`;
             const labels: Record<string, string> = {
               actual: "실제 누적",
@@ -127,7 +129,7 @@ export function SpendingTrendChart({ data, todayDayNumber, predictedTotal }: Spe
             label={{
               value: `예측: ~${formatManwon(predictedTotal)}원`,
               position: "insideTopRight",
-              fill: "hsl(var(--muted-foreground))",
+              className: "fill-muted-foreground text-xs",
               fontSize: 12,
             }}
           />

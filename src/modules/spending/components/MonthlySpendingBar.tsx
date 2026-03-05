@@ -52,17 +52,19 @@ export function MonthlySpendingBar({ data }: MonthlySpendingBarProps) {
             borderRadius: "8px",
             color: "hsl(var(--foreground))",
           }}
+          itemStyle={{ color: "hsl(var(--foreground))" }}
+          cursor={{ fill: "hsl(var(--muted))", opacity: 0.5 }}
           labelFormatter={(label) => `${Number.parseInt(label)}월`}
-          formatter={(value: number, name: string) => {
-            return [`${value.toLocaleString("ko-KR")}원`, name === "predicted" ? "예측" : "지출"];
+          formatter={(value: number) => {
+            return [`${value.toLocaleString("ko-KR")}원`, "지출"];
           }}
         />
         <Bar dataKey="total" radius={[4, 4, 0, 0]} maxBarSize={32}>
-          {data.map((entry, index) => (
+          {data.map((entry) => (
             <Cell
               key={`cell-${entry.month}`}
-              fill={entry.isCurrent ? "#ef4444" : "#ef4444"}
-              fillOpacity={entry.isCurrent ? 0.5 : 0.8}
+              fill={entry.isCurrent ? "#f87171" : "#ef4444"}
+              fillOpacity={entry.isCurrent ? 0.45 : 0.75}
               stroke={entry.isCurrent ? "#ef4444" : "none"}
               strokeWidth={entry.isCurrent ? 1.5 : 0}
               strokeDasharray={entry.isCurrent ? "4 3" : ""}
