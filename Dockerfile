@@ -15,9 +15,13 @@ COPY . .
 
 # .env is mounted as a secret at build time
 # Extract NEXT_PUBLIC_* vars, strip surrounding quotes, export them, then build
+# Dummy DATABASE_URL for build (Better Auth imports pool at module scope)
+# Real value is injected at runtime via env_file
 RUN --mount=type=secret,id=env,target=/tmp/.env \
     grep '^NEXT_PUBLIC_' /tmp/.env | sed "s/=\([\"']\)\(.*\)\1$/=\2/" > /tmp/.env.public && \
     set -a && . /tmp/.env.public && set +a && \
+    DATABASE_URL=postgresql://build:build@localhost:5432/build \
+    BETTER_AUTH_SECRET=build-placeholder \
     mkdir -p public && yarn build
 
 # Stage 4: Production runner
