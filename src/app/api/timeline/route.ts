@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getDb } from "@/db";
 import { commits, commitSummaries } from "@/db/schema";
 import { eq, and, desc, gt, gte, lte, sql, inArray } from "drizzle-orm";

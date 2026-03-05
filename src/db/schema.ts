@@ -1,12 +1,10 @@
 import { pgTable, text, integer, boolean, timestamp, uniqueIndex, index, uuid, doublePrecision } from "drizzle-orm/pg-core";
 
-// Note: Better Auth tables removed - Supabase manages auth.users and auth.sessions
-
 // ============ App Users (Extended) ============
 export const users = pgTable(
   "users",
   {
-    id: uuid("id").primaryKey(), // References Supabase auth.users.id
+    id: uuid("id").primaryKey(), // References Better Auth user.id
     githubId: integer("github_id").notNull().unique(),
     githubLogin: text("github_login").notNull(),
     githubAvatarUrl: text("github_avatar_url"),

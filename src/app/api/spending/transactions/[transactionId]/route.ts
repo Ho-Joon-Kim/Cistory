@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { transactions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 
 export async function DELETE(

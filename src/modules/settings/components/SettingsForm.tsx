@@ -21,8 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Moon, Sun, Monitor, Github, ExternalLink, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
-import { getAppUrl } from "@/lib/utils";
+import { authClient } from "@/lib/auth-client";
 
 export function SettingsForm() {
   const { settings, isLoading, isSaving, updateSettings } = useSettings();
@@ -51,17 +50,10 @@ export function SettingsForm() {
   };
 
   const handleReconnectGithub = async () => {
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOAuth({
+    await authClient.signIn.social({
       provider: "github",
-      options: {
-        redirectTo: `${getAppUrl()}/api/auth/callback?next=/settings`,
-        scopes: "repo read:user",
-      },
+      callbackURL: "/settings",
     });
-    if (error) {
-      toast.error("GitHub 재연결에 실패했습니다");
-    }
   };
 
   const githubUsername = user?.githubUsername;

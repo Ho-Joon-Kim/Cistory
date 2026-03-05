@@ -9,7 +9,7 @@
  */
 
 import { getDb } from "@/db";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { createReportService } from "@/modules/report/service";
 import { type NextRequest, NextResponse } from "next/server";
 

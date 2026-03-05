@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getDb } from "@/db";
 import { locationPoints } from "@/db/schema";
 import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";

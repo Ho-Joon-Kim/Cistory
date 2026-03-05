@@ -39,9 +39,14 @@ pipeline {
         stage('Run Migrations') {
             steps {
                 sh """
+                    # Ensure PostgreSQL is running
+                    docker compose up -d postgres
+
                     docker build --target builder -t ${IMAGE_NAME}:builder .
                     docker run --rm \
                         --env-file ${ENV_FILE} \
+                        --network cistory_default \
+                        -e DATABASE_URL=postgresql://cistory:cistory@postgres:5432/cistory \
                         ${IMAGE_NAME}:builder \
                         npx drizzle-kit migrate
                 """
@@ -54,12 +59,17 @@ pipeline {
                     docker stop ${CONTAINER_NAME} 2>/dev/null || true
                     docker rm ${CONTAINER_NAME} 2>/dev/null || true
 
+                    # Ensure PostgreSQL is running via compose
+                    docker compose up -d postgres
+
                     docker run -d \
                         --name ${CONTAINER_NAME} \
                         --restart unless-stopped \
                         --env-file ${ENV_FILE} \
+                        --network cistory_default \
                         -e NODE_ENV=production \
                         -e TZ=Asia/Seoul \
+                        -e DATABASE_URL=postgresql://cistory:cistory@postgres:5432/cistory \
                         -p ${APP_PORT}:3000 \
                         --log-driver json-file \
                         --log-opt max-size=50m \

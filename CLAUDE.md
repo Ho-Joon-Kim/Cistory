@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks, monitors coding activity via WakaTime, and logs Toss financial transactions via MacroDroid push notifications. Built with Next.js 16, Supabase Auth (GitHub OAuth), Drizzle ORM with Supabase PostgreSQL, and the Anthropic SDK. Includes comprehensive monthly/yearly report generation with AI narratives, map visualization (Mapbox/Kakao), and automatic background sync via integrated Cron worker with Sentry error tracking and Better Stack structured logging.
+Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks, monitors coding activity via WakaTime, and logs Toss financial transactions via MacroDroid push notifications. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL, and the Anthropic SDK. Includes comprehensive monthly/yearly report generation with AI narratives, map visualization (Mapbox/Kakao), and automatic background sync via integrated Cron worker with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -39,7 +39,7 @@ Package manager is **Yarn 4** (Berry, via Corepack). Use `yarn` for all package 
 ### Core Stack
 - **Next.js 16** (App Router) with Turbopack
 - **TypeScript 5** (strict mode)
-- **Supabase** - Authentication + hosted PostgreSQL with Row Level Security
+- **Better Auth** - Authentication (GitHub OAuth) with cookie-based sessions
 - **Drizzle ORM** - Type-safe PostgreSQL access via `pg.Pool` singleton
 - **Anthropic SDK** - Claude AI for commit summaries (`claude-sonnet-4-20250514`)
 - **shadcn/ui** + **Tailwind CSS v4** - UI components and styling
@@ -69,7 +69,9 @@ src/
 │   │   ├── geocoding/      # Geocoding adapter (kakao.ts, mapbox.ts, google.ts, index.ts)
 │   │   ├── vcs/            # VCS adapter (interface.ts + github.ts)
 │   │   └── wakatime/       # WakaTime adapter (interface.ts + wakatime.ts)
-│   ├── supabase/            # Client configs (client.ts, server.ts, service.ts, auth-helpers.ts)
+│   ├── auth.ts              # Better Auth server config (GitHub OAuth, session, DB hooks)
+│   ├── auth-client.ts       # Better Auth client (signIn, signOut, useSession)
+│   ├── auth-helpers.ts      # getAuthenticatedUser() and getGitHubToken() for API routes
 │   ├── cron.ts              # Cron service (auto-sync commits, summaries, WakaTime, Toss reparse)
 │   ├── data-usage.ts        # Data usage cache refresh utility
 │   ├── geo.ts               # Geospatial utilities (Haversine distance)
@@ -95,7 +97,7 @@ sentry.edge.config.ts        # Sentry edge config
 
 ### Key Patterns
 
-**API Route Authentication**: All API routes use shared helpers from `src/lib/supabase/auth-helpers.ts`:
+**API Route Authentication**: All API routes use shared helpers from `src/lib/auth-helpers.ts`:
 ```typescript
 // Auth-only routes (most routes)
 const { user, error } = await getAuthenticatedUser(request);
@@ -122,8 +124,8 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (13 tables in `src/db/schema.ts`):
-- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Supabase `auth.users`)
+**Database Schema** (13 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+- `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Better Auth `user.id`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
 - `syncJobs` - Sync tracking (status: fetching/summarizing/completed/failed)
@@ -137,11 +139,12 @@ const db = getDb();
 - `transactions` - Parsed Toss financial transactions (type: withdrawal/deposit, amount, merchant, accountName). Unique on `(userId, notificationLogId)`
 - `dataUsageCache` - Per-user per-table row count and estimated byte size cache
 
-**Supabase Client Variants** (`src/lib/supabase/`):
-- `client.ts` - Browser client for Client Components (`createClient()`)
-- `server.ts` - Server Component client (silently catches cookie errors) and Route Handler client (`createRouteHandlerClient()`, throws on cookie errors)
-- `service.ts` - Service role client bypassing RLS (`createServiceClient()`), used by Cron worker only
-- `auth-helpers.ts` - `getAuthenticatedUser()` and `getGitHubToken()` for API routes
+**Better Auth Setup** (`src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/lib/auth-helpers.ts`):
+- Server: `betterAuth()` with `pg.Pool`, GitHub OAuth, cookie cache (5min), UUID ID generation
+- Client: `createAuthClient()` exports `signIn`, `signOut`, `useSession`
+- Auth helpers: `getAuthenticatedUser(request)` reads session via `auth.api.getSession()`, `getGitHubToken()` reads from DB
+- API catch-all route: `src/app/api/auth/[...all]/route.ts` handles login, callback, session, signout
+- Database hook: `session.create.after` syncs GitHub user data to app `users` table on each sign-in
 
 **Sync Strategy** (`src/modules/sync/service.ts`):
 - Uses `getAllRepoCommits()` which iterates `/user/repos` + `/repos/:owner/:repo/commits`
@@ -155,9 +158,9 @@ const db = getDb();
 - Daily cron at 23:00: reparses today's Toss notifications to pick up parser improvements
 
 **Session/Token Management**:
-- JWT sessions managed by Supabase with automatic refresh
-- Hybrid GitHub token strategy: prefer `session.provider_token` (short-lived), fallback to DB-stored `users.githubAccessToken` (for Cron worker)
-- Cron worker uses `SUPABASE_SERVICE_ROLE_KEY` to bypass RLS
+- Cookie-based sessions managed by Better Auth with cookie cache (5-minute TTL to minimize DB lookups)
+- GitHub access token stored in Better Auth `account` table and synced to `users.githubAccessToken` on each sign-in
+- Cron worker reads `githubAccessToken` directly from `users` table via `getDb()`
 
 **Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`. Also initializes Sentry and registers graceful shutdown handlers (SIGINT/SIGTERM). Set `RUN_ON_START=true` to trigger an immediate sync on boot.
 
@@ -185,14 +188,16 @@ const db = getDb();
 
 ### Authentication Flow
 
-1. User signs in with GitHub via Supabase OAuth (scopes: `repo read:user`)
-2. Callback redirects to `/callback` page which calls `/api/auth/ensure-user`
-3. Ensure-user creates/updates application `users` record with GitHub token
-4. GitHub access token stored in DB for Cron worker access
+1. User clicks "GitHub로 로그인" → `authClient.signIn.social({ provider: "github" })`
+2. Better Auth redirects to GitHub OAuth (scopes: `repo read:user`)
+3. GitHub redirects back to `/api/auth/callback/github` (handled by `[...all]` catch-all route)
+4. Better Auth creates `user` + `account` + `session` records, sets session cookie
+5. `session.create.after` database hook syncs GitHub data to app `users` table
+6. User redirected to `/dashboard`
 
 ### API Routes
 
-- `/api/auth/*` - OAuth callback, ensure-user, disconnect
+- `/api/auth/[...all]` - Better Auth catch-all (login, callback, session, signout); `/api/auth/disconnect` - DELETE account
 - `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key; `/api/settings/wakatime-key` - POST/DELETE WakaTime key; `/api/settings/wakatime-sync` - POST manual WakaTime sync
 - `/api/sync` - POST manual sync; `/api/sync/status` - GET status; `/api/sync/jobs` - GET history
 - `/api/timeline` - GET paginated commits with filters
@@ -214,12 +219,13 @@ const db = getDb();
 
 Required env vars (in `.env.local`):
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...     # For Cron worker (bypasses RLS)
 DATABASE_URL=postgresql://...         # Required, no fallback
+BETTER_AUTH_SECRET=...               # Session signing secret
+BETTER_AUTH_URL=https://your-domain.com  # Base URL for auth callbacks
+GITHUB_CLIENT_ID=...                 # GitHub OAuth App client ID
+GITHUB_CLIENT_SECRET=...            # GitHub OAuth App client secret
 ANTHROPIC_API_KEY=sk-ant-...
-NEXT_PUBLIC_APP_URL=https://your-domain.com  # For OAuth redirects
+NEXT_PUBLIC_APP_URL=https://your-domain.com  # For client-side URL resolution
 ```
 
 Optional:

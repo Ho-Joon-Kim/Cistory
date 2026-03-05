@@ -4,20 +4,26 @@ import * as schema from "./schema";
 
 // Singleton database connection
 let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
-let pool: Pool | null = null;
+let poolInstance: Pool | null = null;
 
-export function getDb() {
-  if (!dbInstance) {
+export function getPool() {
+  if (!poolInstance) {
     const DATABASE_URL = process.env.DATABASE_URL;
     if (!DATABASE_URL) {
       throw new Error("DATABASE_URL environment variable is not set");
     }
-    pool = new Pool({
+    poolInstance = new Pool({
       connectionString: DATABASE_URL,
       max: 20,
       idleTimeoutMillis: 30000,
     });
-    dbInstance = drizzle(pool, { schema });
+  }
+  return poolInstance;
+}
+
+export function getDb() {
+  if (!dbInstance) {
+    dbInstance = drizzle(getPool(), { schema });
   }
   return dbInstance;
 }

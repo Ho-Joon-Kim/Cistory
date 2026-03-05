@@ -9,6 +9,6 @@ export default {
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL || "postgresql://localhost:5432/cistory",
+    url: process.env.DATABASE_URL || "postgresql://cistory:cistory@localhost:5432/cistory",
   },
 } satisfies Config;

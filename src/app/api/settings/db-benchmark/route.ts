@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getDb, commits, commitSummaries, syncJobs } from "@/db";
 import { eq, sql, desc, count } from "drizzle-orm";
 

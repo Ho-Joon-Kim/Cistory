@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getDb, locationPoints, placeCache, savedPlaces } from "@/db";
 import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";
 import { getGeocodingAdapter } from "@/lib/adapters/geocoding";

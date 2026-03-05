@@ -1,4 +1,28 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: cistory-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: cistory
+      POSTGRES_USER: cistory
+      POSTGRES_PASSWORD: cistory
+      TZ: Asia/Seoul
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cistory -d cistory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   cistory:
     image: cistory:latest
     container_name: cistory
@@ -10,8 +34,15 @@ services:
     environment:
       - NODE_ENV=production
       - TZ=Asia/Seoul
+      - DATABASE_URL=postgresql://cistory:cistory@postgres:5432/cistory
+    depends_on:
+      postgres:
+        condition: service_healthy
     logging:
       driver: json-file
       options:
         max-size: "50m"
         max-file: "5"
+
+volumes:
+  postgres_data:

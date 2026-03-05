@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser, getGitHubToken } from "@/lib/supabase/auth-helpers";
+import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
 import { getDb } from "@/db";
 import { users, commits, commitSummaries } from "@/db/schema";
 import { eq, inArray, sql } from "drizzle-orm";

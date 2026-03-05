@@ -22,7 +22,7 @@ import { NextRequest } from "next/server";
 import { getDb } from "@/db";
 import { notificationLogs, transactions, users } from "@/db/schema";
 import { eq, and, gte, lte, desc, sql, isNull, inArray } from "drizzle-orm";
-import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { parseTossNotification } from "@/modules/transaction/parser";
 
