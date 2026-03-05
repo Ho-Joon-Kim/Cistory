@@ -26,21 +26,20 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    def buildArgs = ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-                                     'NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_MAPBOX_TOKEN', 'NEXT_PUBLIC_SENTRY_DSN']
-                        .collect { key ->
-                            def val = sh(script: "grep '^${key}=' ${ENV_FILE} | cut -d'=' -f2-", returnStdout: true).trim()
-                            "--build-arg ${key}=\"${val}\""
-                        }.join(' ')
-
-                    sh """
-                        docker build ${buildArgs} \
-                            -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
-                            -t ${IMAGE_NAME}:latest \
-                            .
-                    """
-                }
+                sh """
+                    set -a
+                    . ${ENV_FILE}
+                    set +a
+                    docker build \
+                        --build-arg NEXT_PUBLIC_SUPABASE_URL="\${NEXT_PUBLIC_SUPABASE_URL}" \
+                        --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="\${NEXT_PUBLIC_SUPABASE_ANON_KEY}" \
+                        --build-arg NEXT_PUBLIC_APP_URL="\${NEXT_PUBLIC_APP_URL}" \
+                        --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="\${NEXT_PUBLIC_MAPBOX_TOKEN}" \
+                        --build-arg NEXT_PUBLIC_SENTRY_DSN="\${NEXT_PUBLIC_SENTRY_DSN}" \
+                        -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
+                        -t ${IMAGE_NAME}:latest \
+                        .
+                """
             }
         }
 

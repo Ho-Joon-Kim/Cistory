@@ -6,14 +6,11 @@ WORKDIR /app
 # Stage 2: Install dependencies
 FROM base AS deps
 COPY package.json yarn.lock .yarnrc.yml ./
-COPY .yarn .yarn
 RUN yarn install --immutable
 
 # Stage 3: Build the application
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/.yarn ./.yarn
-COPY --from=deps /app/.pnp.* ./
 COPY . .
 
 ARG NEXT_PUBLIC_SUPABASE_URL
