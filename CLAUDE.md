@@ -59,7 +59,7 @@ src/
 │   ├── api/                 # API routes (~30 endpoints)
 │   ├── report/              # Monthly/yearly report pages
 │   └── dashboard/           # Main dashboard page
-├── components/              # Shared components (Layout/, ui/ with 15 shadcn components)
+├── components/              # Shared components (Layout/, ui/ with 19 shadcn components)
 ├── db/
 │   ├── schema.ts            # Drizzle schema (13 tables)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
@@ -75,6 +75,7 @@ src/
 │   ├── cron.ts              # Cron service (auto-sync commits, summaries, WakaTime, Toss reparse)
 │   ├── data-usage.ts        # Data usage cache refresh utility
 │   ├── geo.ts               # Geospatial utilities (Haversine distance)
+│   ├── hooks/               # Shared React hooks (usePageVisible)
 │   ├── logger.ts            # Structured logging (Better Stack / console fallback)
 │   └── utils.ts             # Shared utilities (cn, generateId, now, formatRelativeTime, etc.)
 ├── modules/                 # Feature modules (hooks.ts, service.ts, components/)
@@ -198,7 +199,7 @@ const db = getDb();
 ### API Routes
 
 - `/api/auth/[...all]` - Better Auth catch-all (login, callback, session, signout); `/api/auth/disconnect` - DELETE account
-- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key; `/api/settings/wakatime-key` - POST/DELETE WakaTime key; `/api/settings/wakatime-sync` - POST manual WakaTime sync
+- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key; `/api/settings/wakatime-key` - POST/DELETE WakaTime key; `/api/settings/toss-key` - POST/DELETE Toss key; `/api/settings/wakatime-sync` - POST manual WakaTime sync; `/api/settings/data-usage` - GET data usage stats; `/api/settings/db-benchmark` - GET DB benchmark
 - `/api/sync` - POST manual sync; `/api/sync/status` - GET status; `/api/sync/jobs` - GET history
 - `/api/timeline` - GET paginated commits with filters
 - `/api/timeline/repos` - GET user repos; `/api/timeline/stats` - GET commit stats
@@ -210,10 +211,11 @@ const db = getDb();
 - `/api/reports/yearly` - GET yearly report data (supports `?section=`); POST AI narrative
 - `/api/summaries/process` - POST batch summary generation
 - `/api/owntracks` - POST location data ingestion
-- `/api/saved-places` - GET/POST/PUT/DELETE saved places
+- `/api/saved-places` - GET/POST saved places; `/api/saved-places/[id]` - PUT/DELETE individual place; `/api/saved-places/search` - GET place search
 - `/api/toss-notifications` - POST Toss notification ingestion (via MacroDroid)
+- `/api/health` - GET health check
 - `/api/transactions` - GET parsed Toss transactions
-- `/api/spending/*` - Spending analytics endpoints
+- `/api/spending` - GET spending analytics; `/api/spending/reparse` - POST reparse notifications; `/api/spending/transactions/[transactionId]` - DELETE transaction; `/api/spending/notifications` - GET raw notifications; `/api/spending/notifications/cleanup` - POST cleanup
 
 ### Environment Setup
 
@@ -256,7 +258,7 @@ Drizzle config loads env from `.env.local` (not `.env`).
 
 - **Biome** for linting/formatting (configured in `biome.json`)
 - Formatting: 2-space indent, double quotes, semicolons, trailing commas (ES5), 100 char line width
-- Lint: unused imports are errors, `useImportType` enforced, `noNonNullAssertion` off, `noExplicitAny` warn, `noExcessiveCognitiveComplexity` warn, `useExhaustiveDependencies` warn
+- Lint: unused imports are errors, unused variables are warnings, `useImportType` enforced, `noNonNullAssertion` off, `noExplicitAny` warn, `noExcessiveCognitiveComplexity` warn, `useExhaustiveDependencies` warn
 - Path alias: `@/*` maps to `./src/*`
 - Prefer Drizzle ORM query builder (avoid raw SQL)
 - Follow Next.js App Router conventions (Server Components by default)

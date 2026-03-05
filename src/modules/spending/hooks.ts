@@ -152,6 +152,37 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
   };
 }
 
+// ============ Spending Trend ============
+
+export function useSpendingTrend() {
+  const [data, setData] = useState<import("./types").SpendingTrendResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function fetchTrend() {
+      setIsLoading(true);
+      try {
+        const response = await fetch("/api/spending/trend", { signal: controller.signal });
+        if (!response.ok) throw new Error("Failed to fetch spending trend");
+        const json = await response.json();
+        setData(json);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        console.error("Failed to fetch spending trend:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchTrend();
+    return () => controller.abort();
+  }, []);
+
+  return { data, isLoading };
+}
+
 // ============ Notification Logs ============
 
 export interface NotificationLogItem {

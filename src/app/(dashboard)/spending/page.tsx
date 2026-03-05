@@ -12,8 +12,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequireAuth } from "@/modules/auth/hooks";
-import { useTransactions, useNotificationLogs, useReparse, useCleanup, useDeleteTransaction } from "@/modules/spending/hooks";
+import { useTransactions, useNotificationLogs, useReparse, useCleanup, useDeleteTransaction, useSpendingTrend } from "@/modules/spending/hooks";
 import type { SpendingFilters, ReparseItem, CleanupItem } from "@/modules/spending/hooks";
+import { SpendingTrendChart } from "@/modules/spending/components/SpendingTrendChart";
+import { MonthlySpendingBar } from "@/modules/spending/components/MonthlySpendingBar";
 import { Header } from "@/components/Layout/Header";
 import {
   Loader2,
@@ -232,6 +234,8 @@ export default function SpendingPage() {
     clear: clearCleanup,
   } = useCleanup();
 
+  const { data: trendData, isLoading: trendLoading } = useSpendingTrend();
+
   if (isAuthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -291,6 +295,36 @@ export default function SpendingPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* 소비 추세 차트 */}
+        {trendData && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
+            <Card className="lg:col-span-2">
+              <CardContent className="px-3 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium">이번 달 누적 지출</p>
+                  <span className="text-xs text-muted-foreground">
+                    {trendData.forecast.algorithmTier === "proportional" && "비례 추정"}
+                    {trendData.forecast.algorithmTier === "ses" && "지수평활"}
+                    {trendData.forecast.algorithmTier === "weekday-holt" && "요일 가중치"}
+                    {trendData.forecast.algorithmTier === "bayesian-holt" && "베이지안 예측"}
+                  </span>
+                </div>
+                <SpendingTrendChart
+                  data={trendData.cumulativeCurve}
+                  todayDayNumber={trendData.forecast.todayDayNumber}
+                  predictedTotal={trendData.forecast.predictedTotal}
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="px-3 py-3">
+                <p className="text-sm font-medium mb-2">월별 지출</p>
+                <MonthlySpendingBar data={trendData.monthlyBars} />
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* 기간 프리셋 */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
