@@ -234,7 +234,11 @@ export function SettingsForm() {
       <SavedPlacesSettings />
 
       {/* 소비 추적 */}
-      <TossNotificationSettings hasKey={settings.hasTossKey} />
+      <TossNotificationSettings
+        hasKey={settings.hasTossKey}
+        tossMyName={settings.tossMyName}
+        onUpdateMyName={async (name) => updateSettings({ tossMyName: name } as Partial<typeof settings>)}
+      />
 
       {/* Coding */}
       <WakaTimeSettings hasKey={settings.hasWakaTimeKey} />

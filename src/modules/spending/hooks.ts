@@ -48,6 +48,28 @@ const emptySummary: TransactionSummary = {
   depositCount: 0,
 };
 
+export function useDeleteTransaction() {
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const deleteTransaction = useCallback(async (transactionId: string) => {
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/spending/transactions/${transactionId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Failed to delete transaction");
+      return true;
+    } catch (err) {
+      console.error("Failed to delete transaction:", err);
+      return false;
+    } finally {
+      setIsDeleting(false);
+    }
+  }, []);
+
+  return { deleteTransaction, isDeleting };
+}
+
 export function useTransactions(options: UseTransactionsOptions = {}): UseTransactionsReturn {
   const { perPage = 30, filters, enabled = true } = options;
   const filterFrom = filters?.from;
@@ -140,6 +162,7 @@ export interface NotificationLogItem {
   rawPayload: string;
   receivedAt: string;
   parsed: boolean;
+  transactionId: string | null;
 }
 
 interface UseNotificationLogsOptions {

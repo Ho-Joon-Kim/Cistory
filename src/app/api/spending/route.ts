@@ -7,8 +7,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { transactions } from "@/db/schema";
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { users, transactions } from "@/db/schema";
+import { eq, desc, and, gte, lte, sql, ne } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/supabase/auth-helpers";
 import { logger } from "@/lib/logger";
 
@@ -27,6 +27,17 @@ export async function GET(request: NextRequest) {
     // Build filters
     const conditions = [eq(transactions.userId, user.id)];
 
+    // Exclude self-transfers if tossMyName is set
+    const db = getDb();
+    const [userRow] = await db
+      .select({ tossMyName: users.tossMyName })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+    if (userRow?.tossMyName) {
+      conditions.push(ne(transactions.merchant, userRow.tossMyName));
+    }
+
     if (from) {
       // "2026-03-04" → local midnight 2026-03-04T00:00:00+09:00
       const [fy, fm, fd] = from.split("-").map(Number);
@@ -41,7 +52,6 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(transactions.type, type));
     }
 
-    const db = getDb();
     const where = and(...conditions);
 
     // Fetch transactions and summary in parallel

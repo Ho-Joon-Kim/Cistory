@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
         rawPayload: row.rawPayload,
         receivedAt: row.receivedAt,
         parsed: row.transactionId !== null,
+        transactionId: row.transactionId,
       };
     });
 

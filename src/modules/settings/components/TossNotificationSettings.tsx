@@ -1,17 +1,21 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useTossKey } from "../hooks";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CreditCard, Key, Copy, Trash2, RefreshCw, Loader2, AlertTriangle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { CreditCard, Key, Copy, Trash2, RefreshCw, Loader2, AlertTriangle, User } from "lucide-react";
 import { toast } from "sonner";
 import { getAppUrl } from "@/lib/utils";
 
 interface TossNotificationSettingsProps {
   hasKey: boolean;
+  tossMyName: string | null;
+  onUpdateMyName: (name: string | null) => Promise<boolean>;
 }
 
-export function TossNotificationSettings({ hasKey }: TossNotificationSettingsProps) {
+export function TossNotificationSettings({ hasKey, tossMyName, onUpdateMyName }: TossNotificationSettingsProps) {
   const {
     hasTossKey,
     newKey,
@@ -20,6 +24,13 @@ export function TossNotificationSettings({ hasKey }: TossNotificationSettingsPro
     generate,
     revoke,
   } = useTossKey(hasKey);
+
+  const [myName, setMyName] = useState(tossMyName ?? "");
+  const [isSavingName, setIsSavingName] = useState(false);
+
+  useEffect(() => {
+    setMyName(tossMyName ?? "");
+  }, [tossMyName]);
 
   const handleGenerate = async () => {
     const success = await generate();
@@ -124,6 +135,44 @@ export function TossNotificationSettings({ hasKey }: TossNotificationSettingsPro
                   <Trash2 className="h-4 w-4 mr-2" />
                 )}
                 삭제
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 내 이름 설정 */}
+        {hasTossKey && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-medium">내 이름 (자기이체 제외)</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              설정하면 이 이름으로 송금받은 내역(자기 계좌 간 이체)이 소비 집계에서 제외됩니다.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                value={myName}
+                onChange={(e) => setMyName(e.target.value)}
+                placeholder="예: 김호준"
+                className="h-8 text-sm max-w-[200px]"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isSavingName || (myName.trim() || "") === (tossMyName || "")}
+                onClick={async () => {
+                  setIsSavingName(true);
+                  const success = await onUpdateMyName(myName.trim() || null);
+                  setIsSavingName(false);
+                  if (success) {
+                    toast.success(myName.trim() ? "내 이름이 저장되었습니다" : "내 이름이 삭제되었습니다");
+                  } else {
+                    toast.error("저장에 실패했습니다");
+                  }
+                }}
+              >
+                {isSavingName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "저장"}
               </Button>
             </div>
           </div>

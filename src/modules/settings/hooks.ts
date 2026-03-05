@@ -9,6 +9,7 @@ export interface UserSettings {
   lastSyncedAt: string | null;
   hasOwnTracksKey: boolean;
   hasTossKey: boolean;
+  tossMyName: string | null;
   hasWakaTimeKey: boolean;
   lastLat: number | null;
   lastLon: number | null;

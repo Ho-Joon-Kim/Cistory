@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequireAuth } from "@/modules/auth/hooks";
-import { useTransactions, useNotificationLogs, useReparse, useCleanup } from "@/modules/spending/hooks";
+import { useTransactions, useNotificationLogs, useReparse, useCleanup, useDeleteTransaction } from "@/modules/spending/hooks";
 import type { SpendingFilters, ReparseItem, CleanupItem } from "@/modules/spending/hooks";
 import { Header } from "@/components/Layout/Header";
 import {
@@ -29,6 +29,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { formatDate, formatBytes } from "@/lib/utils";
+import { toast } from "sonner";
 
 type Tab = "transactions" | "notifications";
 
@@ -219,6 +220,8 @@ export default function SpendingPage() {
     isLoading: reparseLoading,
     clear: clearReparse,
   } = useReparse();
+
+  const { deleteTransaction, isDeleting } = useDeleteTransaction();
 
   const {
     preview: cleanupPreview,
@@ -755,9 +758,31 @@ export default function SpendingPage() {
                             {log.text || ""}
                           </span>
                         </div>
-                        <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
-                          {formatDate(log.receivedAt)}
-                        </span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {log.parsed && log.transactionId && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-red-500"
+                              disabled={isDeleting}
+                              onClick={async () => {
+                                const success = await deleteTransaction(log.transactionId!);
+                                if (success) {
+                                  toast.success("거래 기록이 삭제되었습니다");
+                                  refreshTransactions();
+                                  refreshLogs();
+                                } else {
+                                  toast.error("삭제에 실패했습니다");
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {formatDate(log.receivedAt)}
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </CardContent>
