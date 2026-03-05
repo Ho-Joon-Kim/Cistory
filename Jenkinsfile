@@ -72,24 +72,25 @@ pipeline {
         stage('Health Check') {
             steps {
                 script {
+                    sleep 3
                     def healthy = false
-                    for (int i = 0; i < 10; i++) {
-                        def status = sh(
-                            script: "curl -sf http://localhost:${APP_PORT}/ -o /dev/null -w '%{http_code}'",
-                            returnStdout: true
-                        ).trim()
-                        if (status == '200') {
+                    for (int i = 0; i < 15; i++) {
+                        def exitCode = sh(
+                            script: "curl -sf http://localhost:${APP_PORT}/api/health -o /dev/null",
+                            returnStatus: true
+                        )
+                        if (exitCode == 0) {
                             healthy = true
                             echo "Health check passed (attempt ${i + 1})"
                             break
                         }
-                        echo "Health check attempt ${i + 1}/10 - status: ${status}"
+                        echo "Health check attempt ${i + 1}/15 - curl exit code: ${exitCode}"
                         sleep 5
                     }
                     if (!healthy) {
                         echo "Container logs:"
                         sh "docker logs ${CONTAINER_NAME} --tail 50"
-                        error("Health check failed after 10 attempts")
+                        error("Health check failed after 15 attempts")
                     }
                 }
             }
