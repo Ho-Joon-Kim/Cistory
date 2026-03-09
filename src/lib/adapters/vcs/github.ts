@@ -5,8 +5,6 @@ import type {
   VCSCommitDiff,
   VCSFileDiff,
   VCSFileContent,
-  VCSPushEvent,
-  VCSEventCommit,
   VCSSearchCommit,
   GetCommitsOptions,
   GetRepositoriesOptions,
@@ -284,70 +282,6 @@ export class GitHubAdapter implements VCSAdapter {
       id: user.id,
       avatarUrl: user.avatar_url,
     };
-  }
-
-  /**
-   * Get user's recent push events from Events API
-   * Note: Events API only returns events from the last 90 days
-   */
-  async getUserEvents(username: string, perPage: number = 100): Promise<VCSPushEvent[]> {
-    interface GitHubEvent {
-      id: string;
-      type: string;
-      repo: {
-        id: number;
-        name: string; // 'owner/repo' format
-      };
-      payload: {
-        commits?: Array<{
-          sha: string;
-          message: string;
-          author: {
-            name: string;
-            email: string;
-          };
-        }>;
-        ref?: string;
-      };
-      public: boolean;
-      created_at: string;
-    }
-
-    const params = new URLSearchParams({
-      per_page: String(perPage),
-    });
-
-    const events = await this.fetch<GitHubEvent[]>(
-      `/users/${username}/events?${params}`
-    );
-
-    // Filter only PushEvents and transform
-    const pushEvents: VCSPushEvent[] = [];
-
-    for (const event of events) {
-      if (event.type !== "PushEvent" || !event.payload.commits) {
-        continue;
-      }
-
-      const commits: VCSEventCommit[] = event.payload.commits.map((commit) => ({
-        sha: commit.sha,
-        message: commit.message,
-        authorName: commit.author.name,
-        authorEmail: commit.author.email,
-        committedAt: event.created_at, // Events API doesn't have individual commit timestamps
-      }));
-
-      pushEvents.push({
-        eventId: event.id,
-        repoFullName: event.repo.name,
-        repoId: event.repo.id,
-        repoIsPrivate: !event.public,
-        commits,
-        pushedAt: event.created_at,
-      });
-    }
-
-    return pushEvents;
   }
 
   /**

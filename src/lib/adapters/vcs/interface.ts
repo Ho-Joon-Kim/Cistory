@@ -70,23 +70,6 @@ export interface SearchCommitsOptions {
   page?: number;
 }
 
-export interface VCSPushEvent {
-  eventId: string;
-  repoFullName: string;
-  repoId: number;
-  repoIsPrivate: boolean;
-  commits: VCSEventCommit[];
-  pushedAt: string;
-}
-
-export interface VCSEventCommit {
-  sha: string;
-  message: string;
-  authorName: string;
-  authorEmail: string | null;
-  committedAt: string;
-}
-
 export interface VCSSearchCommit {
   sha: string;
   message: string;
@@ -147,11 +130,6 @@ export interface VCSAdapter {
    * Verify if the access token is still valid
    */
   verifyToken(): Promise<boolean>;
-
-  /**
-   * Get user's recent push events from Events API
-   */
-  getUserEvents(username: string, perPage?: number): Promise<VCSPushEvent[]>;
 
   /**
    * Search commits authored by user via Search API

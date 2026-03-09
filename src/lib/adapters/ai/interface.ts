@@ -5,11 +5,6 @@
  * Currently supports Claude, designed for future extensibility (GPT, Gemini).
  */
 
-export interface AIMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
 export interface AIGenerateOptions {
   /** System prompt to set context */
   system?: string;

@@ -1,5 +1,4 @@
 import type { LocationData, StayPointData } from "./hooks";
-import { distanceM } from "@/lib/geo";
 
 /** Generate a GeoJSON polygon circle from center + radius in meters */
 export function createGeoCircle(
@@ -132,16 +131,6 @@ export function segmentLocations(
   }
 
   return segments;
-}
-
-/** Compute total Haversine distance of a moving segment's coords (metres). coords are [lon, lat]. */
-export function computeSegmentDistance(coords: [number, number][]): number {
-  let total = 0;
-  for (let i = 1; i < coords.length; i++) {
-    // coords are [lon, lat], distanceM expects (lat1, lon1, lat2, lon2)
-    total += distanceM(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
-  }
-  return total;
 }
 
 /** Find the segment index matching a given stay point by startTime + coordinates */

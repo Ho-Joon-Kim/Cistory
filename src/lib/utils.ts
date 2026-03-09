@@ -64,14 +64,6 @@ export function formatDate(date: string | Date): string {
 }
 
 /**
- * Truncate string with ellipsis
- */
-export function truncate(str: string, length: number): string {
-  if (str.length <= length) return str;
-  return str.slice(0, length - 3) + "...";
-}
-
-/**
  * Truncate diff content for AI processing
  */
 export function truncateDiff(diff: string, maxChars: number = 8000): string {
@@ -104,40 +96,6 @@ export function parseRepoFullName(fullName: string): { owner: string; repo: stri
  */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Retry a function with exponential backoff
- */
-export async function retry<T>(
-  fn: () => Promise<T>,
-  options: {
-    maxRetries?: number;
-    initialDelay?: number;
-    maxDelay?: number;
-  } = {}
-): Promise<T> {
-  const { maxRetries = 3, initialDelay = 1000, maxDelay = 30000 } = options;
-
-  let lastError: Error | undefined;
-  let delay = initialDelay;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error as Error;
-
-      if (attempt === maxRetries) {
-        break;
-      }
-
-      await sleep(delay);
-      delay = Math.min(delay * 2, maxDelay);
-    }
-  }
-
-  throw lastError;
 }
 
 /**
