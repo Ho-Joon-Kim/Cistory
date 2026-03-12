@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { useRepositories } from "@/modules/timeline/hooks";
 import { Header } from "@/components/Layout/Header";
+import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { Loader2, GitFork, Lock, Globe, GitCommit } from "lucide-react";
 import { formatRelativeTime } from "@/lib/utils";
 
@@ -27,10 +28,11 @@ export default function RepositoriesPage() {
   const totalCommits = repositories.reduce((sum, r) => sum + Number(r.commitCount), 0);
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
+    <SyncStatusProvider>
+      <div className="min-h-screen bg-background">
+        <Header />
 
-      <main className="container mx-auto px-4 py-6">
+        <main className="container mx-auto px-4 py-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold">레포지토리</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -87,6 +89,7 @@ export default function RepositoriesPage() {
           </div>
         )}
       </main>
-    </div>
+      </div>
+    </SyncStatusProvider>
   );
 }
