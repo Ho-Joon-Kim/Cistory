@@ -51,6 +51,18 @@ export async function GET(request: NextRequest) {
       .from(locationPoints)
       .where(eq(locationPoints.userId, user.id));
 
+    // Days fully scanned = all points on that day have anomaly IS NOT NULL
+    const scannedDaysResult = await db.execute<{ scanned_days: number; [key: string]: unknown }>(sql`
+      SELECT count(*)::int as scanned_days FROM (
+        SELECT date(timestamp) as d
+        FROM location_points
+        WHERE user_id = ${user.id}
+        GROUP BY date(timestamp)
+        HAVING count(*) filter (where anomaly IS NULL) = 0
+      ) scanned
+    `);
+    const scannedDays = scannedDaysResult.rows[0]?.scanned_days ?? 0;
+
     const [visitStats] = await db
       .select({ daysWithVisits: sql<number>`count(distinct start_time::date)::int` })
       .from(visits)
@@ -98,24 +110,28 @@ export async function GET(request: NextRequest) {
       warnings.push(`국내 좌표 ${uncachedKorea}건이 ${RATE_LIMITS.kakao.label} 한도를 초과합니다. 하루에 나눠서 실행하세요.`);
     }
 
-    const daysToBackfill = dateRange.totalDays - visitStats.daysWithVisits;
-    const transportDaysToBackfill = dateRange.totalDays - transportStats.daysWithSegments;
+    // Use scannedDays as the ground truth for all three phases
+    // A day is "done" when all its points have anomaly IS NOT NULL (= anomaly pass completed)
+    // Since backfill always runs anomaly → visits → transport in order,
+    // scannedDays represents days that have been fully processed through the pipeline
+    const anomalyDaysRemaining = dateRange.totalDays - scannedDays;
+    const visitsDaysRemaining = dateRange.totalDays - scannedDays;
+    const transportDaysRemaining = dateRange.totalDays - scannedDays;
 
-    // Total steps = anomaly days + visit days + transport days
-    const needsAnomaly = anomalyStats.unscanned > 0;
-    const needsVisits = daysToBackfill > 0;
-    const needsTransport = transportDaysToBackfill > 0;
+    const needsAnomaly = anomalyDaysRemaining > 0;
+    const needsVisits = visitsDaysRemaining > 0;
+    const needsTransport = transportDaysRemaining > 0;
     const totalSteps =
-      (needsAnomaly ? dateRange.totalDays : 0) +
-      (needsVisits ? daysToBackfill : 0) +
-      (needsTransport ? transportDaysToBackfill : 0);
+      (needsAnomaly ? anomalyDaysRemaining : 0) +
+      (needsVisits ? visitsDaysRemaining : 0) +
+      (needsTransport ? transportDaysRemaining : 0);
 
     return NextResponse.json({
       hasData: true,
       dateRange: { earliest: dateRange.earliest, latest: dateRange.latest, totalDays: dateRange.totalDays },
-      anomaly: { totalPoints: anomalyStats.total, scanned: anomalyStats.scanned, unscanned: anomalyStats.unscanned, anomaliesFound: anomalyStats.anomalies, needsBackfill: needsAnomaly },
-      visits: { totalDays: dateRange.totalDays, daysProcessed: visitStats.daysWithVisits, daysRemaining: daysToBackfill, needsBackfill: needsVisits },
-      transport: { totalDays: dateRange.totalDays, daysProcessed: transportStats.daysWithSegments, daysRemaining: transportDaysToBackfill, needsBackfill: needsTransport },
+      anomaly: { totalPoints: anomalyStats.total, scanned: anomalyStats.scanned, unscanned: anomalyStats.unscanned, anomaliesFound: anomalyStats.anomalies, daysProcessed: scannedDays, daysRemaining: anomalyDaysRemaining, needsBackfill: needsAnomaly },
+      visits: { totalDays: dateRange.totalDays, daysProcessed: scannedDays, daysRemaining: visitsDaysRemaining, needsBackfill: needsVisits },
+      transport: { totalDays: dateRange.totalDays, daysProcessed: scannedDays, daysRemaining: transportDaysRemaining, needsBackfill: needsTransport },
       geocoding: { uncachedTotal, uncachedKorea, uncachedOverseas, provider: hasGoogleKey ? "Google Places" : "Mapbox" },
       warnings,
       totalSteps,
@@ -149,13 +165,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "위치 데이터가 없습니다" }, { status: 400 });
   }
 
-  // Build date list
-  const dates: string[] = [];
-  const cursor = new Date(`${dateRange.earliest}T00:00:00.000Z`);
-  const end = new Date(`${dateRange.latest}T00:00:00.000Z`);
-  while (cursor <= end) {
-    dates.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  // Build date list — only dates that still need processing
+  // A date is "done" when all its points have anomaly IS NOT NULL
+  const unprocessedDatesResult = await db.execute<{ d: string; [key: string]: unknown }>(sql`
+    SELECT to_char(d, 'YYYY-MM-DD') as d FROM (
+      SELECT date(timestamp) as d
+      FROM location_points
+      WHERE user_id = ${user.id}
+      GROUP BY date(timestamp)
+      HAVING count(*) filter (where anomaly IS NULL) > 0
+    ) unprocessed
+    ORDER BY d
+  `);
+  const dates = unprocessedDatesResult.rows.map((r) => r.d);
+
+  if (dates.length === 0) {
+    return NextResponse.json({ message: "모든 날짜가 이미 처리되었습니다" });
   }
 
   const totalSteps = dates.length * 3; // anomaly + visits + transport per day

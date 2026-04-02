@@ -124,6 +124,16 @@ export async function runAnomalyDetectionForDay(
   `);
   const speedMarked = Number(speedResult.rowCount ?? 0);
 
+  // Mark remaining NULL points as false (scanned, not anomaly)
+  await db.execute(sql`
+    UPDATE location_points
+    SET anomaly = false
+    WHERE user_id = ${userId}
+      AND timestamp >= ${dayStart}
+      AND timestamp < ${dayEnd}
+      AND anomaly IS NULL
+  `);
+
   return {
     accuracyMarked,
     speedMarked,
