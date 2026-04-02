@@ -191,7 +191,7 @@ export function LocationBackfillCard() {
                 done={!dryRun.visits.needsBackfill}
                 detail={
                   dryRun.visits.needsBackfill
-                    ? `${dryRun.visits.daysRemaining}일 미처리 (geocoding: 국내 ${dryRun.geocoding.uncachedKorea} + 해외 ${dryRun.geocoding.uncachedOverseas}건)`
+                    ? `${dryRun.visits.daysRemaining}일 미처리`
                     : `${dryRun.visits.daysProcessed}일 처리 완료`
                 }
               />
