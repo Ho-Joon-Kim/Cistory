@@ -39,8 +39,8 @@ pipeline {
         stage('Run Migrations') {
             steps {
                 sh """
-                    # Ensure PostgreSQL is running (force recreate to pick up image changes)
-                    docker compose up -d --force-recreate postgres
+                    # Ensure PostgreSQL is running (skip if container already exists from manual setup)
+                    docker start cistory-db 2>/dev/null || docker compose up -d postgres
 
                     docker build --target builder -t ${IMAGE_NAME}:builder .
                     docker run --rm \
@@ -59,8 +59,8 @@ pipeline {
                     docker stop ${CONTAINER_NAME} 2>/dev/null || true
                     docker rm ${CONTAINER_NAME} 2>/dev/null || true
 
-                    # Ensure PostgreSQL is running via compose
-                    docker compose up -d --force-recreate postgres
+                    # Ensure PostgreSQL is running
+                    docker start cistory-db 2>/dev/null || docker compose up -d postgres
 
                     COMPOSE_NETWORK=\$(docker inspect cistory-db --format '{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}}{{end}}')
 
