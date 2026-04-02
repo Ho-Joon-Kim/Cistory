@@ -9,6 +9,7 @@ import { OwnTracksSettings } from "./OwnTracksSettings";
 import { TossNotificationSettings } from "./TossNotificationSettings";
 import { WakaTimeSettings } from "./WakaTimeSettings";
 import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
+import { LocationBackfillCard } from "./LocationBackfillCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -228,6 +229,9 @@ export function SettingsForm() {
 
       {/* 저장된 장소 */}
       <SavedPlacesSettings />
+
+      {/* 위치 데이터 백필 */}
+      <LocationBackfillCard />
 
       {/* 소비 추적 */}
       <TossNotificationSettings

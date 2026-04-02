@@ -6,12 +6,12 @@
  */
 
 import * as cron from 'node-cron';
-import { getDb, users, commits, commitSummaries, syncJobs, notificationLogs, transactions } from '@/db';
+import { getDb, users, commits, commitSummaries, syncJobs, notificationLogs, transactions, locationPoints, transportationSegments } from '@/db';
 import { createSyncService } from '@/modules/sync/service';
 import { createSummaryService } from '@/modules/summary/service';
 import { createWakaTimeSyncService } from '@/modules/wakatime/service';
 import { parseTossNotification } from '@/modules/transaction/parser';
-import { sql, eq, and, gte, lt, lte, inArray, desc } from 'drizzle-orm';
+import { sql, eq, and, gte, lt, lte, inArray, desc, or, isNull, asc } from 'drizzle-orm';
 import { logger } from '@/lib/logger';
 import { maybeRefreshDataUsage } from '@/lib/data-usage';
 
@@ -278,12 +278,72 @@ async function processYesterdayLocations() {
     const from = new Date(yesterday.toISOString().slice(0, 10) + 'T00:00:00.000Z');
     const to = new Date(yesterday.toISOString().slice(0, 10) + 'T23:59:59.999Z');
 
+    const { detectAndPersistVisits } = await import('@/modules/location/services/visit-persister');
+    const { detectTransportModes } = await import('@/modules/location/services/transportation/detector');
+    const { transportationSegments } = await import('@/db/schema');
+
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
     for (const user of allUsers) {
       try {
         // 1. Anomaly detection
         const anomalyResult = await runAnomalyDetection(user.id, from, to);
         if (anomalyResult.total > 0) {
           logger.info(`[Cron] Anomaly detection for ${user.id}: ${anomalyResult.total} anomalies marked`);
+        }
+
+        // 2. Visit detection + persist
+        const detectedVisits = await detectAndPersistVisits(user.id, yesterdayStr);
+        if (detectedVisits.length > 0) {
+          logger.info(`[Cron] Visit detection for ${user.id}: ${detectedVisits.length} visits persisted`);
+        }
+
+        // 3. Transportation mode detection + persist
+        const points = await db
+          .select({
+            lat: locationPoints.lat,
+            lon: locationPoints.lon,
+            velocity: locationPoints.velocity,
+            timestamp: locationPoints.timestamp,
+          })
+          .from(locationPoints)
+          .where(
+            and(
+              eq(locationPoints.userId, user.id),
+              gte(locationPoints.timestamp, from),
+              lt(locationPoints.timestamp, to),
+              or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200)),
+              or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false)),
+            ),
+          )
+          .orderBy(asc(locationPoints.timestamp));
+
+        const segments = detectTransportModes(points);
+        if (segments.length > 0) {
+          const now2 = new Date();
+          await db.delete(transportationSegments).where(
+            and(
+              eq(transportationSegments.userId, user.id),
+              eq(transportationSegments.date, yesterdayStr),
+            ),
+          );
+          await db.insert(transportationSegments).values(
+            segments.map((s) => ({
+              userId: user.id,
+              date: yesterdayStr,
+              mode: s.mode,
+              confidence: s.confidence,
+              startTime: s.startTime,
+              endTime: s.endTime,
+              distanceMeters: s.distanceMeters,
+              durationSeconds: s.durationSeconds,
+              avgSpeedKmh: s.avgSpeedKmh,
+              maxSpeedKmh: s.maxSpeedKmh,
+              avgAcceleration: s.avgAcceleration,
+              calculatedAt: now2,
+            })),
+          );
+          logger.info(`[Cron] Transport detection for ${user.id}: ${segments.length} segments persisted`);
         }
       } catch (err) {
         logger.error(`[Cron] Location processing failed for user ${user.id}`, {

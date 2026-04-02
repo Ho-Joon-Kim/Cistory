@@ -2,12 +2,13 @@
  * Transportation Mode Detection API
  *
  * GET /api/timeline/locations/transport-modes?date=YYYY-MM-DD
- * Returns detected transportation mode segments for a given day.
+ * Detects transportation mode segments, persists to transportation_segments table,
+ * and returns the results.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { getDb, locationPoints } from "@/db";
+import { getDb, locationPoints, transportationSegments } from "@/db";
 import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";
 import { detectTransportModes } from "@/modules/location/services/transportation/detector";
 
@@ -48,6 +49,34 @@ export async function GET(request: NextRequest) {
       .orderBy(asc(locationPoints.timestamp));
 
     const segments = detectTransportModes(rows);
+
+    // Persist: delete existing segments for this date, then insert fresh
+    const now = new Date();
+    await db.delete(transportationSegments).where(
+      and(
+        eq(transportationSegments.userId, user.id),
+        eq(transportationSegments.date, dateParam),
+      ),
+    );
+
+    if (segments.length > 0) {
+      await db.insert(transportationSegments).values(
+        segments.map((s) => ({
+          userId: user.id,
+          date: dateParam,
+          mode: s.mode,
+          confidence: s.confidence,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          distanceMeters: s.distanceMeters,
+          durationSeconds: s.durationSeconds,
+          avgSpeedKmh: s.avgSpeedKmh,
+          maxSpeedKmh: s.maxSpeedKmh,
+          avgAcceleration: s.avgAcceleration,
+          calculatedAt: now,
+        })),
+      );
+    }
 
     return NextResponse.json({
       segments: segments.map((s) => ({
