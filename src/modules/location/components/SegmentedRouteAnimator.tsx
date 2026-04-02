@@ -45,6 +45,30 @@ const LINE_LAYER: LayerProps = {
   },
 };
 
+/** Speed-colored route layer — uses data-driven line color based on speed property */
+const SPEED_LINE_LAYER: LayerProps = {
+  id: "route-line-speed",
+  type: "line" as const,
+  paint: {
+    "line-color": [
+      "interpolate",
+      ["linear"],
+      ["get", "speed"],
+      0, "#3b82f6",     // blue: stationary/walking
+      7, "#22c55e",     // green: walking/running
+      20, "#eab308",    // yellow: cycling
+      50, "#f97316",    // orange: driving
+      100, "#ef4444",   // red: high speed
+    ],
+    "line-width": 3,
+    "line-opacity": 0.85,
+  },
+  layout: {
+    "line-cap": "round" as const,
+    "line-join": "round" as const,
+  },
+};
+
 const NEAREST_POINT_LAYER: LayerProps = {
   id: "route-nearest-point",
   type: "circle" as const,
@@ -77,12 +101,53 @@ function makeSegmentedGeoJSON(
   };
 }
 
+/**
+ * Build a FeatureCollection of 2-point LineStrings, each with a speed property (km/h).
+ * Used for data-driven speed-colored routes.
+ */
+function makeSpeedGeoJSON(
+  locations: LocationData[],
+  lines: Position[][],
+  segmentIndices: number[],
+): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+
+  // Map locations by coordinate string for quick lookup
+  const locMap = new Map<string, LocationData>();
+  for (const loc of locations) {
+    locMap.set(`${loc.lon},${loc.lat}`, loc);
+  }
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    for (let i = 0; i < line.length - 1; i++) {
+      const from = line[i];
+      const to = line[i + 1];
+      const loc = locMap.get(`${to[0]},${to[1]}`);
+      // velocity from OwnTracks is in km/h (or null)
+      const speed = loc?.velocity != null ? Math.abs(loc.velocity) : 0;
+
+      features.push({
+        type: "Feature",
+        properties: { segmentIndex: segmentIndices[li], speed },
+        geometry: {
+          type: "LineString",
+          coordinates: [from, to],
+        },
+      });
+    }
+  }
+
+  return { type: "FeatureCollection", features };
+}
+
 interface SegmentedRouteAnimatorProps {
   locations: LocationData[];
   stayPoints: StayPointData[];
   date: string;
   selectedSegmentIndex?: number | null;
   hoveredSegmentIndex?: number | null;
+  speedColorMode?: boolean;
 }
 
 export function SegmentedRouteAnimator({
@@ -91,6 +156,7 @@ export function SegmentedRouteAnimator({
   date,
   selectedSegmentIndex = null,
   hoveredSegmentIndex = null,
+  speedColorMode = false,
 }: SegmentedRouteAnimatorProps) {
   const { current: map } = useMap();
   const [markerState, setMarkerState] = useState<{
@@ -146,8 +212,13 @@ export function SegmentedRouteAnimator({
       if (src) src.setData(geojson);
       const hitSrc = map.getSource("route-hit") as GeoJSONSource | undefined;
       if (hitSrc) hitSrc.setData(geojson);
+      // Update speed source
+      const speedSrc = map.getSource("route-speed") as GeoJSONSource | undefined;
+      if (speedSrc) {
+        speedSrc.setData(makeSpeedGeoJSON(locations, lines, segIndices));
+      }
     },
-    [map],
+    [map, locations],
   );
 
   // Update paint properties when selection/hover changes (after animation completes)
@@ -182,6 +253,18 @@ export function SegmentedRouteAnimator({
       gl.setPaintProperty("route-line", "line-width", 3);
     }
   }, [map, selectedSegmentIndex, hoveredSegmentIndex]);
+
+  // Toggle visibility between normal and speed-colored route layers
+  useEffect(() => {
+    if (!map) return;
+    const gl = map.getMap();
+    if (gl.getLayer("route-line")) {
+      gl.setLayoutProperty("route-line", "visibility", speedColorMode ? "none" : "visible");
+    }
+    if (gl.getLayer("route-line-speed")) {
+      gl.setLayoutProperty("route-line-speed", "visibility", speedColorMode ? "visible" : "none");
+    }
+  }, [map, speedColorMode]);
 
   // Show nearest point on route hover, hide on leave
   useEffect(() => {
@@ -336,6 +419,10 @@ export function SegmentedRouteAnimator({
         <>
           <Source id="route" type="geojson" data={EMPTY_FC_GEOJSON}>
             <Layer {...LINE_LAYER} />
+          </Source>
+          {/* Speed-colored route layer */}
+          <Source id="route-speed" type="geojson" data={EMPTY_FC_GEOJSON}>
+            <Layer {...SPEED_LINE_LAYER} />
           </Source>
           {/* Invisible wider hit-test layer for hover detection */}
           <Source id="route-hit" type="geojson" data={EMPTY_FC_GEOJSON}>

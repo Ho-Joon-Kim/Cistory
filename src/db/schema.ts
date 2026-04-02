@@ -110,6 +110,7 @@ export const syncJobs = pgTable(
 );
 
 // ============ Location Points (OwnTracks) ============
+// Note: `lonlat` geography(Point, 4326) column is managed via PostGIS migration + trigger (not in Drizzle schema)
 export const locationPoints = pgTable(
   "location_points",
   {
@@ -125,6 +126,9 @@ export const locationPoints = pgTable(
     battery: integer("battery"),
     trackerId: text("tracker_id"),
     trigger: text("trigger"),
+    anomaly: boolean("anomaly"),
+    city: text("city"),
+    countryName: text("country_name"),
     timestamp: timestamp("timestamp").notNull(),
     createdAt: timestamp("created_at").notNull(),
   },
@@ -237,6 +241,60 @@ export const savedPlaces = pgTable(
   ]
 );
 
+// ============ Visits (Detected Stay Points) ============
+export const visits = pgTable(
+  "visits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    centerLat: doublePrecision("center_lat").notNull(),
+    centerLon: doublePrecision("center_lon").notNull(),
+    radiusM: doublePrecision("radius_m").notNull(),
+    startTime: timestamp("start_time").notNull(),
+    endTime: timestamp("end_time").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    placeName: text("place_name"),
+    address: text("address"),
+    category: text("category"),
+    city: text("city"),
+    countryName: text("country_name"),
+    savedPlaceId: uuid("saved_place_id").references(() => savedPlaces.id, { onDelete: "set null" }),
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    index("idx_visit_user_start").on(table.userId, table.startTime),
+    index("idx_visit_user_city").on(table.userId, table.city),
+  ]
+);
+
+// ============ Transportation Segments ============
+export const transportationSegments = pgTable(
+  "transportation_segments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(), // "YYYY-MM-DD"
+    mode: text("mode").notNull(), // stationary/walking/running/cycling/driving/train/flying/unknown
+    confidence: text("confidence").notNull(), // high/medium/low
+    startTime: timestamp("start_time").notNull(),
+    endTime: timestamp("end_time").notNull(),
+    distanceMeters: doublePrecision("distance_meters").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    avgSpeedKmh: doublePrecision("avg_speed_kmh"),
+    maxSpeedKmh: doublePrecision("max_speed_kmh"),
+    avgAcceleration: doublePrecision("avg_acceleration"),
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    index("idx_transport_user_date").on(table.userId, table.date),
+    index("idx_transport_user_start").on(table.userId, table.startTime),
+  ]
+);
+
 // ============ Notification Logs (Toss / MacroDroid) ============
 export const notificationLogs = pgTable(
   "notification_logs",
@@ -341,4 +399,10 @@ export type NewTransaction = typeof transactions.$inferInsert;
 
 export type DataUsageCache = typeof dataUsageCache.$inferSelect;
 export type NewDataUsageCache = typeof dataUsageCache.$inferInsert;
+
+export type Visit = typeof visits.$inferSelect;
+export type NewVisit = typeof visits.$inferInsert;
+
+export type TransportationSegment = typeof transportationSegments.$inferSelect;
+export type NewTransportationSegment = typeof transportationSegments.$inferInsert;
 

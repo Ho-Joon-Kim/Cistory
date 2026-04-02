@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       eq(locationPoints.userId, user.id),
       gte(locationPoints.timestamp, dayStart),
       lt(locationPoints.timestamp, dayEnd),
+      or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false)),
     ];
 
     if (useAccuracy) {

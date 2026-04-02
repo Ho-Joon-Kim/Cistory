@@ -18,6 +18,7 @@ import { maybeRefreshDataUsage } from '@/lib/data-usage';
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
 let dailyReparseTask: cron.ScheduledTask | null = null;
+let locationProcessingTask: cron.ScheduledTask | null = null;
 
 async function syncAllUsers() {
   const startTime = Date.now();
@@ -249,6 +250,58 @@ async function syncAllUsers() {
 }
 
 /**
+ * Process yesterday's location data: anomaly detection, visit detection, transport modes.
+ * Runs daily at 01:00 KST.
+ */
+async function processYesterdayLocations() {
+  const startTime = Date.now();
+  logger.info('[Cron] Starting daily location processing');
+
+  try {
+    const { runAnomalyDetection } = await import('@/modules/location/services/anomaly-filter');
+
+    const db = getDb();
+    const allUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`${users.ownTracksApiKey} IS NOT NULL`);
+
+    if (allUsers.length === 0) {
+      logger.info('[Cron] No users with OwnTracks configured. Skipping location processing.');
+      return;
+    }
+
+    // Yesterday date range (KST)
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const from = new Date(yesterday.toISOString().slice(0, 10) + 'T00:00:00.000Z');
+    const to = new Date(yesterday.toISOString().slice(0, 10) + 'T23:59:59.999Z');
+
+    for (const user of allUsers) {
+      try {
+        // 1. Anomaly detection
+        const anomalyResult = await runAnomalyDetection(user.id, from, to);
+        if (anomalyResult.total > 0) {
+          logger.info(`[Cron] Anomaly detection for ${user.id}: ${anomalyResult.total} anomalies marked`);
+        }
+      } catch (err) {
+        logger.error(`[Cron] Location processing failed for user ${user.id}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    logger.info(`[Cron] Daily location processing completed in ${elapsed}s`);
+  } catch (error) {
+    logger.error('[Cron] Daily location processing failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Reparse today's Toss notifications for all users
  * Runs daily — picks up notifications that failed to parse with older parser versions
  */
@@ -442,6 +495,16 @@ export function initializeCron() {
     });
   });
 
+  // Daily location processing (01:00 — anomaly detection, visit detection, transport modes)
+  const LOCATION_PROCESSING_SCHEDULE = '0 1 * * *';
+  locationProcessingTask = cron.schedule(LOCATION_PROCESSING_SCHEDULE, () => {
+    processYesterdayLocations().catch(error => {
+      logger.error('[Cron] Unhandled error in location processing', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+
   isInitialized = true;
 
   // Run immediately on start if environment variable is set
@@ -469,6 +532,10 @@ export async function stopCron() {
   if (dailyReparseTask) {
     dailyReparseTask.stop();
     dailyReparseTask = null;
+  }
+  if (locationProcessingTask) {
+    locationProcessingTask.stop();
+    locationProcessingTask = null;
   }
   if (isInitialized) {
     await logger.flush();

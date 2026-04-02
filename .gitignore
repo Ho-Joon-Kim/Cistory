@@ -40,3 +40,6 @@ drizzle/meta/_journal.json.bak
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# reference codebases
+/dawarich-master/

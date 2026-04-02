@@ -194,6 +194,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
 
   // Bidirectional state
   const [selectedSegmentIndex, setSelectedSegmentIndex] = useState<number | null>(null);
+  const [speedColorMode, setSpeedColorMode] = useState(false);
   const [hoveredSegmentIndex, setHoveredSegmentIndex] = useState<number | null>(null);
 
   const segments = useMemo(
@@ -330,6 +331,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
               date={date}
               selectedSegmentIndex={selectedSegmentIndex}
               hoveredSegmentIndex={hoveredSegmentIndex}
+              speedColorMode={speedColorMode}
             />
           )}
           {mapLoaded && stayPoints.length > 0 && (
@@ -345,6 +347,22 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
             <SavedPlacesOverlay places={savedPlaces} />
           )}
         </Map>
+
+        {/* Speed color mode toggle */}
+        {locations.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setSpeedColorMode((prev) => !prev)}
+            className={`absolute top-3 right-3 z-10 px-2.5 py-1.5 rounded-lg text-xs font-medium border shadow-sm transition-colors ${
+              speedColorMode
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background/80 backdrop-blur-sm text-muted-foreground border-border/50 hover:bg-accent"
+            }`}
+            title={speedColorMode ? "일반 경로 색상" : "속도 기반 경로 색상"}
+          >
+            {speedColorMode ? "🌈 속도" : "속도"}
+          </button>
+        )}
 
         {/* Loading indicator */}
         {(isLocationsLoading || isStayPointsLoading) && (

@@ -4,39 +4,70 @@
  * GET /api/timeline/locations/distances?from=YYYY-MM-DD&to=YYYY-MM-DD
  * Returns total travel distance per day (in metres) for the given date range.
  * Past dates are cached in DB; today is always calculated on-the-fly.
+ *
+ * Uses PostGIS ST_Distance with LAG window function for accurate geodesic distance.
+ * Ported from Dawarich: app/queries/stats/daily_distance_query.rb
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getDb } from "@/db";
-import { locationPoints, dailyDistances } from "@/db/schema";
-import { eq, and, gte, lt, lte, asc, or, isNull, inArray } from "drizzle-orm";
-import { distanceM } from "@/lib/geo";
-
-const MIN_DISTANCE_M = 100;
+import { dailyDistances } from "@/db/schema";
+import { eq, and, inArray, sql } from "drizzle-orm";
 
 function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Calculate distance for a single day from raw location points */
-function calculateDayDistance(
-  points: { lat: number; lon: number }[],
-): number {
-  if (points.length < 2) return 0;
+/**
+ * Calculate daily distances using PostGIS window function.
+ * Returns Record<"YYYY-MM-DD", distance_meters>.
+ */
+async function calculateDistancesPostGIS(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  from: Date,
+  to: Date,
+): Promise<Record<string, number>> {
+  const rows = await db.execute<{ day_date: string; distance_meters: number; [key: string]: unknown }>(sql`
+    WITH points_with_distances AS (
+      SELECT
+        to_char(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS day_date,
+        CASE
+          WHEN LAG(lonlat) OVER (
+            PARTITION BY to_char(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD')
+            ORDER BY timestamp
+          ) IS NOT NULL THEN
+            ST_Distance(
+              lonlat,
+              LAG(lonlat) OVER (
+                PARTITION BY to_char(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD')
+                ORDER BY timestamp
+              )
+            )
+          ELSE 0
+        END AS segment_distance
+      FROM location_points
+      WHERE user_id = ${userId}
+        AND timestamp >= ${from}
+        AND timestamp < ${to}
+        AND (anomaly IS NOT TRUE)
+        AND (accuracy IS NULL OR accuracy <= 200)
+        AND lonlat IS NOT NULL
+    )
+    SELECT
+      day_date,
+      ROUND(COALESCE(SUM(segment_distance), 0))::int AS distance_meters
+    FROM points_with_distances
+    GROUP BY day_date
+    ORDER BY day_date
+  `);
 
-  let total = 0;
-  let prev = points[0];
-
-  for (let i = 1; i < points.length; i++) {
-    const d = distanceM(prev.lat, prev.lon, points[i].lat, points[i].lon);
-    if (d >= MIN_DISTANCE_M) {
-      total += d;
-      prev = points[i];
-    }
+  const result: Record<string, number> = {};
+  for (const row of rows.rows) {
+    result[row.day_date] = row.distance_meters;
   }
-
-  return total;
+  return result;
 }
 
 export async function GET(request: NextRequest) {
@@ -70,7 +101,7 @@ export async function GET(request: NextRequest) {
 
     // 2. Separate past dates vs today
     const pastDates = allDates.filter((d) => d < today);
-    const includestoday = allDates.includes(today);
+    const includesToday = allDates.includes(today);
 
     // 3. Look up cached past distances
     let uncachedPastDates: string[] = pastDates;
@@ -96,10 +127,10 @@ export async function GET(request: NextRequest) {
       uncachedPastDates = pastDates.filter((d) => !cachedSet.has(d));
     }
 
-    // 4. Calculate uncached past dates + today from raw points
+    // 4. Calculate uncached past dates + today via PostGIS
     const datesToCalculate = [
       ...uncachedPastDates,
-      ...(includestoday ? [today] : []),
+      ...(includesToday ? [today] : []),
     ];
 
     if (datesToCalculate.length > 0) {
@@ -108,40 +139,15 @@ export async function GET(request: NextRequest) {
         `${datesToCalculate[datesToCalculate.length - 1]}T23:59:59.999Z`,
       );
 
-      const rows = await db
-        .select({
-          lat: locationPoints.lat,
-          lon: locationPoints.lon,
-          timestamp: locationPoints.timestamp,
-        })
-        .from(locationPoints)
-        .where(
-          and(
-            eq(locationPoints.userId, user.id),
-            gte(locationPoints.timestamp, calcStart),
-            lt(locationPoints.timestamp, calcEnd),
-            or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200)),
-          ),
-        )
-        .orderBy(asc(locationPoints.timestamp));
+      const calculated = await calculateDistancesPostGIS(db, user.id, calcStart, calcEnd);
 
-      // Group points by date
-      const pointsByDate: Record<string, { lat: number; lon: number }[]> = {};
-      for (const row of rows) {
-        const dateKey = row.timestamp.toISOString().slice(0, 10);
-        if (!pointsByDate[dateKey]) pointsByDate[dateKey] = [];
-        pointsByDate[dateKey].push({ lat: row.lat, lon: row.lon });
-      }
-
-      // Calculate and store
+      // Merge results and prepare cache entries
       const toCache: { userId: string; date: string; distanceMeters: number; calculatedAt: Date }[] = [];
 
       for (const dateKey of datesToCalculate) {
-        const points = pointsByDate[dateKey] ?? [];
-        const dist = calculateDayDistance(points);
+        const dist = calculated[dateKey] ?? 0;
         distances[dateKey] = dist;
 
-        // Cache past dates only (not today)
         if (dateKey < today) {
           toCache.push({
             userId: user.id,
@@ -152,7 +158,6 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Batch insert cache
       if (toCache.length > 0) {
         await db
           .insert(dailyDistances)
