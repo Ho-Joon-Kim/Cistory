@@ -287,12 +287,44 @@ export async function POST(request: NextRequest) {
           sendProgress("transport", dateStr, `${segments.length}개 세그먼트`);
         }
 
+        // Phase 4: Backfill locationPoints.city/countryName from placeCache (DB-only, no API calls)
+        const enrichResult = await db.execute<{ updated: number; [key: string]: unknown }>(sql`
+          WITH updated AS (
+            UPDATE location_points lp
+            SET
+              city = CASE
+                WHEN lp.lat BETWEEN 33.0 AND 38.7 AND lp.lon BETWEEN 124.5 AND 132.0
+                  THEN split_part(pc.address, ' ', 1)
+                ELSE (string_to_array(pc.address, ', '))[array_length(string_to_array(pc.address, ', '), 1) - 1]
+              END,
+              country_name = CASE
+                WHEN lp.lat BETWEEN 33.0 AND 38.7 AND lp.lon BETWEEN 124.5 AND 132.0
+                  THEN '대한민국'
+                ELSE (string_to_array(pc.address, ', '))[array_length(string_to_array(pc.address, ', '), 1)]
+              END
+            FROM place_cache pc
+            WHERE round(lp.lat::numeric, 3) = pc.lat_key
+              AND round(lp.lon::numeric, 3) = pc.lon_key
+              AND lp.user_id = ${user.id}
+              AND lp.city IS NULL
+            RETURNING lp.id
+          )
+          SELECT count(*)::int AS updated FROM updated
+        `);
+        const pointsEnriched = enrichResult.rows[0]?.updated ?? 0;
+
+        completedSteps++;
+        controller.enqueue(encoder.encode(
+          `data: ${JSON.stringify({ phase: "enrich", detail: `${pointsEnriched.toLocaleString()}개 포인트 enriched`, progress: 99 })}\n\n`,
+        ));
+
         // Final summary
         const summary = JSON.stringify({
           phase: "done",
           totalAnomalies,
           totalVisits,
           totalSegments,
+          pointsEnriched,
           progress: 100,
         });
         controller.enqueue(encoder.encode(`data: ${summary}\n\n`));
