@@ -50,33 +50,34 @@ export async function GET(request: NextRequest) {
 
     const segments = detectTransportModes(rows);
 
-    // Persist: delete existing segments for this date, then insert fresh
+    // Persist: delete + insert in a transaction
     const now = new Date();
-    await db.delete(transportationSegments).where(
-      and(
-        eq(transportationSegments.userId, user.id),
-        eq(transportationSegments.date, dateParam),
-      ),
-    );
-
-    if (segments.length > 0) {
-      await db.insert(transportationSegments).values(
-        segments.map((s) => ({
-          userId: user.id,
-          date: dateParam,
-          mode: s.mode,
-          confidence: s.confidence,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          distanceMeters: s.distanceMeters,
-          durationSeconds: s.durationSeconds,
-          avgSpeedKmh: s.avgSpeedKmh,
-          maxSpeedKmh: s.maxSpeedKmh,
-          avgAcceleration: s.avgAcceleration,
-          calculatedAt: now,
-        })),
+    await db.transaction(async (tx) => {
+      await tx.delete(transportationSegments).where(
+        and(
+          eq(transportationSegments.userId, user.id),
+          eq(transportationSegments.date, dateParam),
+        ),
       );
-    }
+      if (segments.length > 0) {
+        await tx.insert(transportationSegments).values(
+          segments.map((s) => ({
+            userId: user.id,
+            date: dateParam,
+            mode: s.mode,
+            confidence: s.confidence,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            distanceMeters: s.distanceMeters,
+            durationSeconds: s.durationSeconds,
+            avgSpeedKmh: s.avgSpeedKmh,
+            maxSpeedKmh: s.maxSpeedKmh,
+            avgAcceleration: s.avgAcceleration,
+            calculatedAt: now,
+          })),
+        );
+      }
+    });
 
     return NextResponse.json({
       segments: segments.map((s) => ({

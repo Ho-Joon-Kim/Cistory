@@ -258,7 +258,7 @@ async function processYesterdayLocations() {
   logger.info('[Cron] Starting daily location processing');
 
   try {
-    const { runAnomalyDetection } = await import('@/modules/location/services/anomaly-filter');
+    const { runAnomalyDetectionForDay } = await import('@/modules/location/services/anomaly-filter');
 
     const db = getDb();
     const allUsers = await db
@@ -287,7 +287,7 @@ async function processYesterdayLocations() {
     for (const user of allUsers) {
       try {
         // 1. Anomaly detection
-        const anomalyResult = await runAnomalyDetection(user.id, from, to);
+        const anomalyResult = await runAnomalyDetectionForDay(user.id, yesterdayStr);
         if (anomalyResult.total > 0) {
           logger.info(`[Cron] Anomaly detection for ${user.id}: ${anomalyResult.total} anomalies marked`);
         }
@@ -321,28 +321,30 @@ async function processYesterdayLocations() {
         const segments = detectTransportModes(points);
         if (segments.length > 0) {
           const now2 = new Date();
-          await db.delete(transportationSegments).where(
-            and(
-              eq(transportationSegments.userId, user.id),
-              eq(transportationSegments.date, yesterdayStr),
-            ),
-          );
-          await db.insert(transportationSegments).values(
-            segments.map((s) => ({
-              userId: user.id,
-              date: yesterdayStr,
-              mode: s.mode,
-              confidence: s.confidence,
-              startTime: s.startTime,
-              endTime: s.endTime,
-              distanceMeters: s.distanceMeters,
-              durationSeconds: s.durationSeconds,
-              avgSpeedKmh: s.avgSpeedKmh,
-              maxSpeedKmh: s.maxSpeedKmh,
-              avgAcceleration: s.avgAcceleration,
-              calculatedAt: now2,
-            })),
-          );
+          await db.transaction(async (tx) => {
+            await tx.delete(transportationSegments).where(
+              and(
+                eq(transportationSegments.userId, user.id),
+                eq(transportationSegments.date, yesterdayStr),
+              ),
+            );
+            await tx.insert(transportationSegments).values(
+              segments.map((s) => ({
+                userId: user.id,
+                date: yesterdayStr,
+                mode: s.mode,
+                confidence: s.confidence,
+                startTime: s.startTime,
+                endTime: s.endTime,
+                distanceMeters: s.distanceMeters,
+                durationSeconds: s.durationSeconds,
+                avgSpeedKmh: s.avgSpeedKmh,
+                maxSpeedKmh: s.maxSpeedKmh,
+                avgAcceleration: s.avgAcceleration,
+                calculatedAt: now2,
+              })),
+            );
+          });
           logger.info(`[Cron] Transport detection for ${user.id}: ${segments.length} segments persisted`);
         }
       } catch (err) {

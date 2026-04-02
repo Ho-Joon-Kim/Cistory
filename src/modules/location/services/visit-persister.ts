@@ -206,18 +206,19 @@ export async function detectAndPersistVisits(
     });
   }
 
-  // 5. Persist: delete existing visits for this date, then insert fresh
-  await db.delete(visits).where(
-    and(
-      eq(visits.userId, userId),
-      gte(visits.startTime, dayStart),
-      lt(visits.startTime, dayEnd),
-    ),
-  );
-
-  if (visitRows.length > 0) {
-    await db.insert(visits).values(visitRows);
-  }
+  // 5. Persist: delete + insert in a transaction to avoid partial state
+  await db.transaction(async (tx) => {
+    await tx.delete(visits).where(
+      and(
+        eq(visits.userId, userId),
+        gte(visits.startTime, dayStart),
+        lt(visits.startTime, dayEnd),
+      ),
+    );
+    if (visitRows.length > 0) {
+      await tx.insert(visits).values(visitRows);
+    }
+  });
 
   return enrichedVisits;
 }

@@ -1,58 +1,56 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MapPin, AlertTriangle, CheckCircle2, Loader2, Navigation, Car, Shield } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { MapPin, AlertTriangle, CheckCircle2, Loader2, Shield, Navigation, Car } from "lucide-react";
 import { toast } from "sonner";
 
 interface DryRunResult {
   hasData: boolean;
   dateRange: { earliest: string; latest: string; totalDays: number };
-  anomaly: {
-    totalPoints: number;
-    scanned: number;
-    unscanned: number;
-    anomaliesFound: number;
-    needsBackfill: boolean;
-  };
-  visits: {
-    totalDays: number;
-    daysProcessed: number;
-    daysRemaining: number;
-    needsBackfill: boolean;
-  };
-  transport: {
-    totalDays: number;
-    daysProcessed: number;
-    daysRemaining: number;
-    needsBackfill: boolean;
-  };
-  geocoding: {
-    uncachedTotal: number;
-    uncachedKorea: number;
-    uncachedOverseas: number;
-    provider: string;
-  };
+  anomaly: { totalPoints: number; scanned: number; unscanned: number; anomaliesFound: number; needsBackfill: boolean };
+  visits: { totalDays: number; daysProcessed: number; daysRemaining: number; needsBackfill: boolean };
+  transport: { totalDays: number; daysProcessed: number; daysRemaining: number; needsBackfill: boolean };
+  geocoding: { uncachedTotal: number; uncachedKorea: number; uncachedOverseas: number; provider: string };
   warnings: string[];
+  totalSteps: number;
 }
 
-type BackfillType = "anomaly" | "visits" | "transport" | "all";
+interface ProgressEvent {
+  phase: "anomaly" | "visits" | "transport" | "done" | "error";
+  day?: string;
+  detail?: string;
+  progress: number;
+  completedSteps?: number;
+  totalSteps?: number;
+  totalAnomalies?: number;
+  totalVisits?: number;
+  totalSegments?: number;
+  error?: string;
+}
+
+const PHASE_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
+  anomaly: { label: "이상치 탐지", icon: <Shield className="h-3.5 w-3.5" /> },
+  visits: { label: "방문 감지", icon: <Navigation className="h-3.5 w-3.5" /> },
+  transport: { label: "교통수단 감지", icon: <Car className="h-3.5 w-3.5" /> },
+};
 
 export function LocationBackfillCard() {
   const [dryRun, setDryRun] = useState<DryRunResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isRunning, setIsRunning] = useState<BackfillType | null>(null);
-  const [results, setResults] = useState<Record<string, unknown> | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+  const [progress, setProgress] = useState<ProgressEvent | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchDryRun = useCallback(async () => {
     setIsLoading(true);
     try {
       const res = await fetch("/api/settings/location-backfill");
-      if (!res.ok) throw new Error("분석 실패");
-      const data = await res.json();
-      setDryRun(data);
-    } catch (e) {
+      if (!res.ok) throw new Error();
+      setDryRun(await res.json());
+    } catch {
       toast.error("백필 분석에 실패했습니다");
     } finally {
       setIsLoading(false);
@@ -63,24 +61,59 @@ export function LocationBackfillCard() {
     fetchDryRun();
   }, [fetchDryRun]);
 
-  const runBackfill = async (type: BackfillType) => {
-    setIsRunning(type);
-    setResults(null);
+  const runBackfill = async () => {
+    setIsRunning(true);
+    setProgress(null);
+
+    const abort = new AbortController();
+    abortRef.current = abort;
+
     try {
       const res = await fetch("/api/settings/location-backfill", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type }),
+        signal: abort.signal,
       });
-      if (!res.ok) throw new Error("백필 실패");
-      const data = await res.json();
-      setResults(data.results);
-      toast.success("백필이 완료되었습니다");
-      fetchDryRun(); // Refresh stats
+
+      if (!res.ok || !res.body) throw new Error("백필 시작 실패");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event: ProgressEvent = JSON.parse(line.slice(6));
+            setProgress(event);
+
+            if (event.phase === "done") {
+              toast.success(
+                `백필 완료: 이상치 ${event.totalAnomalies}건, 방문 ${event.totalVisits}건, 교통수단 ${event.totalSegments}건`,
+              );
+              fetchDryRun();
+            } else if (event.phase === "error") {
+              toast.error(`백필 실패: ${event.error}`);
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
     } catch (e) {
-      toast.error("백필 실행에 실패했습니다");
+      if ((e as Error).name !== "AbortError") {
+        toast.error("백필 실행에 실패했습니다");
+      }
     } finally {
-      setIsRunning(null);
+      setIsRunning(false);
+      abortRef.current = null;
     }
   };
 
@@ -98,13 +131,15 @@ export function LocationBackfillCard() {
             <div>
               <CardTitle className="text-base">위치 데이터 백필</CardTitle>
               <CardDescription>
-                과거 위치 데이터에 이상치 탐지, 방문 감지, 교통수단 분류를 적용합니다
+                이상치 탐지 → 방문 감지 → 교통수단 분류 순서로 처리합니다
               </CardDescription>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={fetchDryRun} disabled={isLoading}>
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "새로고침"}
-          </Button>
+          {!isRunning && (
+            <Button variant="ghost" size="sm" onClick={fetchDryRun} disabled={isLoading}>
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "새로고침"}
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -121,7 +156,7 @@ export function LocationBackfillCard() {
 
         {dryRun?.hasData && (
           <>
-            {/* Date range info */}
+            {/* Date range */}
             <div className="text-sm text-muted-foreground">
               {dryRun.dateRange.earliest} ~ {dryRun.dateRange.latest} ({dryRun.dateRange.totalDays}일, {dryRun.anomaly.totalPoints.toLocaleString()}개 포인트)
             </div>
@@ -130,10 +165,7 @@ export function LocationBackfillCard() {
             {dryRun.warnings.length > 0 && (
               <div className="space-y-2">
                 {dryRun.warnings.map((w, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
-                  >
+                  <div key={i} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                     <span>{w}</span>
                   </div>
@@ -141,76 +173,69 @@ export function LocationBackfillCard() {
               </div>
             )}
 
-            {/* Backfill items */}
-            <div className="space-y-3">
-              {/* Anomaly Detection */}
-              <BackfillItem
+            {/* Status items */}
+            <div className="space-y-2">
+              <StatusRow
                 icon={<Shield className="h-4 w-4" />}
-                title="이상치 탐지"
-                description={`GPS 노이즈 감지 (정확도 + 속도 샌드위치 테스트)`}
-                stats={
+                label="이상치 탐지"
+                done={!dryRun.anomaly.needsBackfill}
+                detail={
                   dryRun.anomaly.needsBackfill
-                    ? `${dryRun.anomaly.unscanned.toLocaleString()}개 포인트 미스캔`
-                    : `완료 (${dryRun.anomaly.anomaliesFound.toLocaleString()}개 이상치 감지됨)`
+                    ? `${dryRun.anomaly.unscanned.toLocaleString()}개 미스캔`
+                    : `${dryRun.anomaly.anomaliesFound.toLocaleString()}개 이상치 감지됨`
                 }
-                needsBackfill={dryRun.anomaly.needsBackfill}
-                isRunning={isRunning === "anomaly" || isRunning === "all"}
-                onRun={() => runBackfill("anomaly")}
-                result={results?.anomaly as Record<string, number> | undefined}
               />
-
-              {/* Visit Detection */}
-              <BackfillItem
+              <StatusRow
                 icon={<Navigation className="h-4 w-4" />}
-                title="방문 감지"
-                description={`체류 장소 탐지 + 역지오코딩 (미캐시 ${dryRun.geocoding.uncachedTotal.toLocaleString()}건: 국내 ${dryRun.geocoding.uncachedKorea.toLocaleString()} + 해외 ${dryRun.geocoding.uncachedOverseas.toLocaleString()})`}
-                stats={
+                label="방문 감지"
+                done={!dryRun.visits.needsBackfill}
+                detail={
                   dryRun.visits.needsBackfill
-                    ? `${dryRun.visits.daysRemaining}일 / ${dryRun.visits.totalDays}일 미처리`
-                    : `완료 (${dryRun.visits.daysProcessed}일 처리됨)`
+                    ? `${dryRun.visits.daysRemaining}일 미처리 (geocoding: 국내 ${dryRun.geocoding.uncachedKorea} + 해외 ${dryRun.geocoding.uncachedOverseas}건)`
+                    : `${dryRun.visits.daysProcessed}일 처리 완료`
                 }
-                needsBackfill={dryRun.visits.needsBackfill}
-                isRunning={isRunning === "visits" || isRunning === "all"}
-                onRun={() => runBackfill("visits")}
-                result={results?.visits as Record<string, number> | undefined}
               />
-
-              {/* Transportation Mode */}
-              <BackfillItem
+              <StatusRow
                 icon={<Car className="h-4 w-4" />}
-                title="교통수단 감지"
-                description="속도/가속도 패턴 기반 이동 수단 분류"
-                stats={
+                label="교통수단 감지"
+                done={!dryRun.transport.needsBackfill}
+                detail={
                   dryRun.transport.needsBackfill
-                    ? `${dryRun.transport.daysRemaining}일 / ${dryRun.transport.totalDays}일 미처리`
-                    : `완료 (${dryRun.transport.daysProcessed}일 처리됨)`
+                    ? `${dryRun.transport.daysRemaining}일 미처리`
+                    : `${dryRun.transport.daysProcessed}일 처리 완료`
                 }
-                needsBackfill={dryRun.transport.needsBackfill}
-                isRunning={isRunning === "transport" || isRunning === "all"}
-                onRun={() => runBackfill("transport")}
-                result={results?.transport as Record<string, number> | undefined}
               />
             </div>
 
-            {/* Run All button */}
-            {needsAny && (
-              <Button
-                onClick={() => runBackfill("all")}
-                disabled={isRunning !== null}
-                className="w-full"
-              >
-                {isRunning === "all" ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    전체 백필 실행 중...
-                  </>
-                ) : (
-                  "전체 백필 실행"
-                )}
+            {/* Progress bar during execution */}
+            {isRunning && progress && (
+              <div className="space-y-2">
+                <Progress value={progress.progress} className="h-2" />
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    {progress.phase !== "done" && progress.phase !== "error" && (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        {PHASE_LABELS[progress.phase]?.icon}
+                        <span>{PHASE_LABELS[progress.phase]?.label}</span>
+                        {progress.day && <span className="text-foreground">{progress.day}</span>}
+                        {progress.detail && <span>— {progress.detail}</span>}
+                      </>
+                    )}
+                  </div>
+                  <span>{progress.progress}%</span>
+                </div>
+              </div>
+            )}
+
+            {/* Action / Complete */}
+            {!isRunning && needsAny && (
+              <Button onClick={runBackfill} className="w-full">
+                전체 백필 실행
               </Button>
             )}
 
-            {!needsAny && (
+            {!isRunning && !needsAny && (
               <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
                 <CheckCircle2 className="h-4 w-4" />
                 모든 백필이 완료되었습니다
@@ -223,47 +248,24 @@ export function LocationBackfillCard() {
   );
 }
 
-function BackfillItem({
+function StatusRow({
   icon,
-  title,
-  description,
-  stats,
-  needsBackfill,
-  isRunning,
-  onRun,
-  result,
+  label,
+  done,
+  detail,
 }: {
   icon: React.ReactNode;
-  title: string;
-  description: string;
-  stats: string;
-  needsBackfill: boolean;
-  isRunning: boolean;
-  onRun: () => void;
-  result?: Record<string, number>;
+  label: string;
+  done: boolean;
+  detail: string;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border p-3">
-      <div className="flex items-start gap-3 min-w-0 flex-1">
-        <div className="mt-0.5 text-muted-foreground">{icon}</div>
-        <div className="min-w-0">
-          <div className="text-sm font-medium">{title}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
-          <div className={`text-xs mt-1 ${needsBackfill ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
-            {stats}
-          </div>
-          {result && (
-            <div className="text-xs text-green-600 dark:text-green-400 mt-1">
-              결과: {Object.entries(result).map(([k, v]) => `${k}: ${v}`).join(", ")}
-            </div>
-          )}
-        </div>
-      </div>
-      {needsBackfill && (
-        <Button variant="outline" size="sm" onClick={onRun} disabled={isRunning} className="shrink-0 ml-2">
-          {isRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "실행"}
-        </Button>
-      )}
+    <div className="flex items-center gap-3 text-sm">
+      <div className={done ? "text-green-500" : "text-muted-foreground"}>{icon}</div>
+      <span className="font-medium w-24">{label}</span>
+      <span className={`text-xs ${done ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
+        {done ? "✓ " : ""}{detail}
+      </span>
     </div>
   );
 }

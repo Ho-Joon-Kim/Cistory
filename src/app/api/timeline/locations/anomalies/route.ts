@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getDb, locationPoints } from "@/db";
 import { eq, and, gte, lt, sql } from "drizzle-orm";
-import { runAnomalyDetection } from "@/modules/location/services/anomaly-filter";
+import { runAnomalyDetectionForDay } from "@/modules/location/services/anomaly-filter";
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,12 +26,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const fromDate = new Date(`${from}T00:00:00.000Z`);
-    const toDate = new Date(`${to}T23:59:59.999Z`);
+    // Process day by day
+    let totalMarked = 0;
+    const cursor = new Date(`${from}T00:00:00.000Z`);
+    const end = new Date(`${to}T00:00:00.000Z`);
 
-    const result = await runAnomalyDetection(user.id, fromDate, toDate);
+    while (cursor <= end) {
+      const dateStr = cursor.toISOString().slice(0, 10);
+      const result = await runAnomalyDetectionForDay(user.id, dateStr);
+      totalMarked += result.total;
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
 
-    return NextResponse.json(result);
+    return NextResponse.json({ marked: totalMarked });
   } catch (error) {
     console.error("Anomaly detection error:", error);
     return NextResponse.json(
