@@ -48,7 +48,7 @@ pipeline {
                         --network host \
                         -e DATABASE_URL=postgresql://cistory:cistory@localhost:5432/cistory \
                         ${IMAGE_NAME}:migrator \
-                        node -e "process.on('SIGUSR1',()=>{});require('child_process').execSync('npx drizzle-kit migrate',{stdio:'inherit'})"
+                        npx drizzle-kit migrate
                 """
             }
         }
