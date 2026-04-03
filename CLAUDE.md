@@ -32,7 +32,7 @@ yarn start             # Start production server (binds to 0.0.0.0, includes Cro
 
 No test infrastructure is currently configured.
 
-Package manager is **Yarn 4** (Berry, via Corepack). Use `yarn` for all package operations.
+Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `yarn` for all package operations.
 
 ## Architecture Overview
 
@@ -40,7 +40,7 @@ Package manager is **Yarn 4** (Berry, via Corepack). Use `yarn` for all package 
 - **Next.js 16** (App Router) with Turbopack
 - **TypeScript 5** (strict mode)
 - **Better Auth** - Authentication (GitHub OAuth) with cookie-based sessions
-- **Drizzle ORM** - Type-safe PostgreSQL access via `pg.Pool` singleton
+- **Drizzle ORM** - Type-safe PostgreSQL access via `pg.Pool` singleton (PostGIS-enabled PostgreSQL in production)
 - **Anthropic SDK** - Claude AI for commit summaries (`claude-sonnet-4-20250514`)
 - **shadcn/ui** + **Tailwind CSS v4** - UI components and styling
 - **Biome** - Linter and formatter (replaces ESLint + Prettier)
@@ -245,18 +245,19 @@ NEXT_PUBLIC_SENTRY_DSN=...           # Sentry error tracking
 2. `yarn db:generate` to create migration files in `drizzle/`
 3. `yarn db:migrate` to apply to PostgreSQL
 
-Drizzle config loads env from `.env.local` (not `.env`).
+Drizzle config loads env from `.env.local` (not `.env`). Fallback `DATABASE_URL` for local dev: `postgresql://cistory:cistory@localhost:5432/cistory`.
 
 ### CI/CD & Deployment
 
-- **Jenkins pipeline** (`Jenkinsfile`): GitHub push trigger → Docker build → Drizzle migrations → deploy → health check → Telegram notification
-- **Docker** (`Dockerfile`): Multi-stage build (Node 22 Alpine). `.env` mounted as Docker build secret for `NEXT_PUBLIC_*` vars. Production uses `output: "standalone"` from `next.config.ts`
+- **Jenkins pipeline** (`Jenkinsfile`): GitHub webhook trigger → Docker build → Drizzle migrations (separate builder-stage container) → deploy → health check (15 attempts, 5s interval) → Telegram notification (success/failure)
+- **Docker** (`Dockerfile`): 4-stage build (base → deps → builder → runner) on Node 22 Alpine. `.env` mounted as build secret; only `NEXT_PUBLIC_*` vars extracted for the build. Runs as non-root `nextjs` user (UID 1001). Production uses `output: "standalone"` from `next.config.ts`
+- **Docker Compose** (`docker-compose.yml`): App + `postgis/postgis:17-3.5-alpine` database with external volume `cistory_postgres_data`
 - **Timezone**: Production container runs with `TZ=Asia/Seoul` (KST, UTC+9) — relevant to date parsing and cron scheduling
-- Migrations run in a temporary builder container before the new production container starts
+- Jenkins cleanup keeps only the last 3 Docker image tags
 
 ## Code Style
 
-- **Biome** for linting/formatting (configured in `biome.json`)
+- **Biome** for linting/formatting (configured in `biome.json`); auto-organizes imports
 - Formatting: 2-space indent, double quotes, semicolons, trailing commas (ES5), 100 char line width
 - Lint: unused imports are errors, unused variables are warnings, `useImportType` enforced, `noNonNullAssertion` off, `noExplicitAny` warn, `noExcessiveCognitiveComplexity` warn, `useExhaustiveDependencies` warn
 - Path alias: `@/*` maps to `./src/*`

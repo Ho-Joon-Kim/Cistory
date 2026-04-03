@@ -42,7 +42,9 @@ pipeline {
                     # Ensure PostgreSQL is running (skip if container already exists from manual setup)
                     docker start cistory-db 2>/dev/null || docker compose up -d postgres
 
-                    docker build --target builder -t ${IMAGE_NAME}:builder .
+                    DOCKER_BUILDKIT=1 docker build \
+                        --secret id=env,src=${ENV_FILE} \
+                        --target builder -t ${IMAGE_NAME}:builder .
                     docker run --rm \
                         --env-file ${ENV_FILE} \
                         --network host \
