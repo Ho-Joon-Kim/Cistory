@@ -269,6 +269,31 @@ export const visits = pgTable(
   ]
 );
 
+// ============ Tracks (Movement Journeys) ============
+export const tracks = pgTable(
+  "tracks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    startTime: timestamp("start_time").notNull(),
+    endTime: timestamp("end_time").notNull(),
+    distanceMeters: doublePrecision("distance_meters").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    pointCount: integer("point_count").notNull(),
+    startPlaceName: text("start_place_name"),
+    endPlaceName: text("end_place_name"),
+    dominantMode: text("dominant_mode"), // walking/driving/train etc
+    elevationGain: doublePrecision("elevation_gain"), // meters
+    elevationLoss: doublePrecision("elevation_loss"), // meters
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    index("idx_track_user_start").on(table.userId, table.startTime),
+  ]
+);
+
 // ============ Transportation Segments ============
 export const transportationSegments = pgTable(
   "transportation_segments",
@@ -277,6 +302,7 @@ export const transportationSegments = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "set null" }),
     date: text("date").notNull(), // "YYYY-MM-DD"
     mode: text("mode").notNull(), // stationary/walking/running/cycling/driving/train/flying/unknown
     confidence: text("confidence").notNull(), // high/medium/low
@@ -292,6 +318,32 @@ export const transportationSegments = pgTable(
   (table) => [
     index("idx_transport_user_date").on(table.userId, table.date),
     index("idx_transport_user_start").on(table.userId, table.startTime),
+    index("idx_transport_track").on(table.trackId),
+  ]
+);
+
+// ============ Trips (Travel Detection) ============
+export const trips = pgTable(
+  "trips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    startDate: text("start_date").notNull(), // "YYYY-MM-DD"
+    endDate: text("end_date").notNull(), // "YYYY-MM-DD"
+    totalDistanceMeters: doublePrecision("total_distance_meters"),
+    visitedCities: text("visited_cities"), // JSON array
+    visitedCountries: text("visited_countries"), // JSON array
+    isOverseas: boolean("is_overseas").notNull().default(false),
+    autoDetected: boolean("auto_detected").notNull().default(false),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_trip_user_start").on(table.userId, table.startDate),
   ]
 );
 
@@ -403,6 +455,12 @@ export type NewDataUsageCache = typeof dataUsageCache.$inferInsert;
 export type Visit = typeof visits.$inferSelect;
 export type NewVisit = typeof visits.$inferInsert;
 
+export type Track = typeof tracks.$inferSelect;
+export type NewTrack = typeof tracks.$inferInsert;
+
 export type TransportationSegment = typeof transportationSegments.$inferSelect;
 export type NewTransportationSegment = typeof transportationSegments.$inferInsert;
+
+export type Trip = typeof trips.$inferSelect;
+export type NewTrip = typeof trips.$inferInsert;
 

@@ -99,6 +99,13 @@
       "when": 1775111400000,
       "tag": "0013_postgis_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1775198882173,
+      "tag": "0014_curvy_nextwave",
+      "breakpoints": true
     }
   ]
 }

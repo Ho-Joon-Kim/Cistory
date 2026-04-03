@@ -66,10 +66,10 @@ export async function getCountriesAndCities(
   if (rows.length === 0) return [];
 
   // Group by country → city
+  // Collect start/end times per city for Dawarich-style interval-based duration
   const countryMap = new Map<string, Map<string, {
     visitCount: number;
-    timestamps: Date[];
-    totalDuration: number;
+    timePoints: Date[]; // interleaved start/end timestamps
   }>>();
 
   for (const row of rows) {
@@ -82,35 +82,31 @@ export async function getCountriesAndCities(
     const cityMap = countryMap.get(country)!;
 
     if (!cityMap.has(city)) {
-      cityMap.set(city, { visitCount: 0, timestamps: [], totalDuration: 0 });
+      cityMap.set(city, { visitCount: 0, timePoints: [] });
     }
 
     const cityData = cityMap.get(city)!;
     cityData.visitCount++;
-    cityData.timestamps.push(row.startTime);
-    cityData.totalDuration += row.durationSeconds;
+    cityData.timePoints.push(row.startTime, row.endTime);
   }
 
-  // Calculate stay duration per city and filter
+  // Calculate stay duration per city using interval summation (Dawarich algorithm)
+  // Sort all time points chronologically, then sum consecutive intervals <= MAX_GAP
   const result: CountryData[] = [];
 
   for (const [country, cityMap] of countryMap) {
     const cities: CityData[] = [];
 
     for (const [city, data] of cityMap) {
-      // Sort timestamps and calculate cumulative duration
-      // Skip gaps > MAX_GAP_MINUTES between consecutive visits
-      data.timestamps.sort((a, b) => a.getTime() - b.getTime());
+      data.timePoints.sort((a, b) => a.getTime() - b.getTime());
 
-      let totalSec = data.totalDuration;
-      // Add gaps between consecutive visits if they're close enough
-      for (let i = 1; i < data.timestamps.length; i++) {
-        const gapSec =
-          (data.timestamps[i].getTime() - data.timestamps[i - 1].getTime()) /
+      let totalSec = 0;
+      for (let i = 1; i < data.timePoints.length; i++) {
+        const intervalSec =
+          (data.timePoints[i].getTime() - data.timePoints[i - 1].getTime()) /
           1000;
-        if (gapSec <= MAX_GAP_SEC) {
-          // Gap is part of staying in the city (e.g., moving within the city)
-          // But don't double-count — only add the gap, not the visit duration again
+        if (intervalSec <= MAX_GAP_SEC) {
+          totalSec += intervalSec;
         }
       }
 
@@ -121,7 +117,7 @@ export async function getCountriesAndCities(
           city,
           visitCount: data.visitCount,
           stayedForMinutes: totalMinutes,
-          latestVisit: data.timestamps[data.timestamps.length - 1].toISOString(),
+          latestVisit: data.timePoints[data.timePoints.length - 1].toISOString(),
         });
       }
     }
