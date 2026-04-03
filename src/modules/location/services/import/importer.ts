@@ -2,6 +2,7 @@
  * Location Data Importer
  *
  * Orchestrates parsing and batch insertion of location points.
+ * Supports progress callbacks for SSE streaming (Dawarich-inspired).
  * Uses the same deduplication strategy as OwnTracks ingestion (onConflictDoNothing).
  */
 
@@ -12,13 +13,26 @@ import { parseGeoJson } from "./geojson-parser";
 import { parseGoogleTakeout } from "./google-takeout-parser";
 import { detectFormat } from "./format-detector";
 
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 1000; // Dawarich default
 
 export interface ImportResult {
   imported: number;
   duplicates: number;
   totalParsed: number;
   dateRange: { from: string; to: string } | null;
+}
+
+export interface ImportProgress {
+  phase: "parsing" | "inserting" | "done" | "error";
+  totalParsed?: number;
+  inserted?: number;
+  duplicates?: number;
+  batchIndex?: number;
+  totalBatches?: number;
+  progress?: number; // 0-100
+  dateRange?: { from: string; to: string } | null;
+  format?: string;
+  error?: string;
 }
 
 /**
@@ -53,12 +67,13 @@ export function parseFile(
 }
 
 /**
- * Import parsed points into the database.
- * Uses batch upsert with onConflictDoNothing for deduplication.
+ * Import parsed points into the database with progress reporting.
+ * Calls onProgress after each batch (Dawarich: every 1000 points).
  */
 export async function importPoints(
   userId: string,
   points: ParsedPoint[],
+  onProgress?: (progress: ImportProgress) => void,
 ): Promise<ImportResult> {
   if (points.length === 0) {
     return { imported: 0, duplicates: 0, totalParsed: 0, dateRange: null };
@@ -67,10 +82,12 @@ export async function importPoints(
   const db = getDb();
   const now = new Date();
   let imported = 0;
+  const totalBatches = Math.ceil(points.length / BATCH_SIZE);
 
-  // Batch insert
   for (let i = 0; i < points.length; i += BATCH_SIZE) {
     const batch = points.slice(i, i + BATCH_SIZE);
+    const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
+
     const values = batch.map((p) => ({
       userId,
       lat: p.lat,
@@ -98,9 +115,18 @@ export async function importPoints(
       });
 
     imported += result.rowCount ?? 0;
+
+    onProgress?.({
+      phase: "inserting",
+      totalParsed: points.length,
+      inserted: imported,
+      duplicates: (i + batch.length) - imported,
+      batchIndex,
+      totalBatches,
+      progress: Math.round((batchIndex / totalBatches) * 100),
+    });
   }
 
-  // Calculate date range
   const from = points[0].timestamp.toISOString().slice(0, 10);
   const to = points[points.length - 1].timestamp.toISOString().slice(0, 10);
 
