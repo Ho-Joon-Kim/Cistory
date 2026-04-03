@@ -48,7 +48,7 @@ pipeline {
                         --network host \
                         -e DATABASE_URL=postgresql://cistory:cistory@localhost:5432/cistory \
                         ${IMAGE_NAME}:migrator \
-                        npx drizzle-kit migrate
+                        npx tsx scripts/migrate.ts
                 """
             }
         }
