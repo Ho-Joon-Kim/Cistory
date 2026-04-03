@@ -43,13 +43,11 @@ pipeline {
                     docker start cistory-db 2>/dev/null || docker compose up -d postgres
 
                     DOCKER_BUILDKIT=1 docker build \
-                        --secret id=env,src=${ENV_FILE} \
-                        --target builder -t ${IMAGE_NAME}:builder .
+                        --target migrator -t ${IMAGE_NAME}:migrator .
                     docker run --rm \
-                        --env-file ${ENV_FILE} \
                         --network host \
                         -e DATABASE_URL=postgresql://cistory:cistory@localhost:5432/cistory \
-                        ${IMAGE_NAME}:builder \
+                        ${IMAGE_NAME}:migrator \
                         npx drizzle-kit migrate
                 """
             }

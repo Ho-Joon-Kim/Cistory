@@ -24,6 +24,13 @@ RUN --mount=type=secret,id=env,target=/tmp/.env \
     export BETTER_AUTH_SECRET=build-placeholder && \
     mkdir -p public && yarn build
 
+# Stage: Lightweight migration runner (no build, no secrets needed)
+FROM base AS migrator
+COPY --from=deps /app/node_modules ./node_modules
+COPY drizzle ./drizzle
+COPY drizzle.config.ts ./
+COPY src/db/schema.ts ./src/db/schema.ts
+
 # Stage 4: Production runner
 FROM node:22-alpine AS runner
 WORKDIR /app
