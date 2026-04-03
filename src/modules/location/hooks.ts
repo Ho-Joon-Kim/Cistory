@@ -269,6 +269,221 @@ export function useLocations(date: string) {
   return { locations, isLoading, error };
 }
 
+// ── Track Data ───────────────────────────────────────────────────────────────
+
+export interface TrackSegmentData {
+  mode: string;
+  confidence: string;
+  startTime: string;
+  endTime: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  avgSpeedKmh: number | null;
+  maxSpeedKmh: number | null;
+}
+
+export interface TrackData {
+  id: string;
+  startTime: string;
+  endTime: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  pointCount: number;
+  startPlaceName: string | null;
+  endPlaceName: string | null;
+  dominantMode: string | null;
+  elevationGain: number | null;
+  elevationLoss: number | null;
+  segments: TrackSegmentData[];
+}
+
+interface TracksResponse {
+  tracks: TrackData[];
+}
+
+export function useTracks(date: string) {
+  const [tracks, setTracks] = useState<TrackData[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const cache = useRef<Map<string, TrackData[]>>(new Map());
+  const visible = usePageVisible();
+
+  const fetchTracks = useCallback(
+    async (targetDate: string, signal: AbortSignal, silent = false) => {
+      if (!silent) {
+        const cached = cache.current.get(targetDate);
+        if (cached) {
+          setTracks(cached);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      if (!silent) setIsLoading(true);
+
+      try {
+        const response = await fetch(
+          `/api/timeline/locations/tracks?date=${targetDate}`,
+          { signal },
+        );
+        if (!response.ok) throw new Error("Failed to fetch tracks");
+
+        const data = (await response.json()) as TracksResponse;
+
+        if (silent) {
+          const prev = cache.current.get(targetDate);
+          if (
+            prev &&
+            prev.length === data.tracks.length &&
+            prev.at(-1)?.id === data.tracks.at(-1)?.id
+          ) {
+            return;
+          }
+        }
+
+        cache.current.set(targetDate, data.tracks);
+        setTracks(data.tracks);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!silent) setTracks([]);
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!date) return;
+
+    const controller = new AbortController();
+    fetchTracks(date, controller.signal);
+
+    if (!isToday(date) || !visible) return () => controller.abort();
+
+    const interval = setInterval(() => {
+      fetchTracks(date, controller.signal, true);
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [date, visible, fetchTracks]);
+
+  return { tracks, isLoading };
+}
+
+// ── Trip Data ────────────────────────────────────────────────────────────────
+
+export interface TripData {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  totalDistanceMeters: number | null;
+  visitedCities: string[];
+  visitedCountries: string[];
+  isOverseas: boolean;
+  autoDetected: boolean;
+  notes: string | null;
+}
+
+export function useTrips(year: string | null) {
+  const [trips, setTrips] = useState<TripData[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!year) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/trips?year=${year}`);
+      if (!res.ok) throw new Error("Failed to fetch trips");
+      const data = await res.json();
+      setTrips(data.trips);
+    } catch {
+      setTrips([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [year]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const deleteTrip = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/trips/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete");
+      setTrips((prev) => prev.filter((t) => t.id !== id));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  return { trips, isLoading, refresh, deleteTrip };
+}
+
+export interface DetectedTripData {
+  name: string;
+  startDate: string;
+  endDate: string;
+  visitedCities: string[];
+  visitedCountries: string[];
+  isOverseas: boolean;
+  totalDistanceMeters: number | null;
+}
+
+export function useTripDetection() {
+  const [detected, setDetected] = useState<DetectedTripData[]>([]);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const detect = useCallback(async (from: string, to: string) => {
+    setIsDetecting(true);
+    try {
+      const res = await fetch("/api/trips/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to }),
+      });
+      if (!res.ok) throw new Error("Failed to detect");
+      const data = await res.json();
+      setDetected(data.trips);
+      return data.trips as DetectedTripData[];
+    } catch {
+      setDetected([]);
+      return [];
+    } finally {
+      setIsDetecting(false);
+    }
+  }, []);
+
+  const confirmTrips = useCallback(async (trips: DetectedTripData[]) => {
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/trips/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: "", to: "", confirm: true, trips }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      const data = await res.json();
+      setDetected([]);
+      return data.saved as number;
+    } catch {
+      return 0;
+    } finally {
+      setIsSaving(false);
+    }
+  }, []);
+
+  return { detected, isDetecting, isSaving, detect, confirmTrips };
+}
+
+// ── Saved Places ─────────────────────────────────────────────────────────────
+
 export interface SavedPlaceData {
   id: string;
   name: string;

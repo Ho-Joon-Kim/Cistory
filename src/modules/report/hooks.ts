@@ -12,6 +12,7 @@ import type {
   YearlyCodingSectionData,
   YearlyCommitsSectionData,
 } from "./types";
+import type { YearComparisonData } from "./comparison-service";
 
 export interface SectionState<T> {
   data: T | null;
@@ -236,4 +237,44 @@ export function useYearlyReport(
     error: narrativeError || error,
     generateNarrative,
   };
+}
+
+// ── Year Comparison ──────────────────────────────────────────────────────────
+
+export function useYearComparison(year1: string | null, year2: string | null) {
+  const [data, setData] = useState<YearComparisonData | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!year1 || !year2) {
+      setData(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    fetch(`/api/reports/comparison?year1=${year1}&year2=${year2}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch comparison");
+        return res.json();
+      })
+      .then((json: YearComparisonData) => {
+        if (!cancelled) setData(json);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Unknown error");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [year1, year2]);
+
+  return { data, isLoading, error };
 }
