@@ -10,6 +10,8 @@ import { TossNotificationSettings } from "./TossNotificationSettings";
 import { WakaTimeSettings } from "./WakaTimeSettings";
 import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
 import { LocationBackfillCard } from "./LocationBackfillCard";
+import { LocationImport } from "@/modules/location/components/LocationImport";
+import { TripDetectionCard } from "./TripDetectionCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -230,8 +232,14 @@ export function SettingsForm() {
       {/* 저장된 장소 */}
       <SavedPlacesSettings />
 
+      {/* 위치 데이터 임포트 */}
+      <LocationImport />
+
       {/* 위치 데이터 백필 */}
       <LocationBackfillCard />
+
+      {/* 여행 자동 감지 */}
+      <TripDetectionCard />
 
       {/* 소비 추적 */}
       <TossNotificationSettings

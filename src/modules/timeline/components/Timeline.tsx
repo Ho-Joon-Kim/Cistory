@@ -15,7 +15,8 @@ import {
   getRepoColor,
   groupCommitsByTimeOfDay,
 } from "../utils";
-import { useDailyDistances } from "@/modules/location/hooks";
+import { useDailyDistances, useTracks, type TrackData } from "@/modules/location/hooks";
+import { TrackCard } from "@/modules/location/components/TrackCard";
 import { useCodingSessions, useCodingStats } from "@/modules/wakatime/hooks";
 import type { CodingSessionData, CodingStatData } from "@/modules/wakatime/hooks";
 import { CodingSessionCard } from "@/modules/wakatime/components/CodingSessionCard";
@@ -85,6 +86,7 @@ interface DateGroupSectionProps {
   codingSeconds?: number;
   codingSessions?: CodingSessionData[];
   codingStats?: CodingStatData;
+  tracks?: TrackData[];
 }
 
 const DateGroupSection = memo(function DateGroupSection({
@@ -99,6 +101,7 @@ const DateGroupSection = memo(function DateGroupSection({
   codingSeconds,
   codingSessions,
   codingStats,
+  tracks,
 }: DateGroupSectionProps) {
   const { date, commits: dateCommits, isEmpty } = entry;
   const { label, isToday } = formatDateHeader(date);
@@ -199,6 +202,13 @@ const DateGroupSection = memo(function DateGroupSection({
             {codingSessions && codingSessions.length > 0 && (
               <CodingSessionCard sessions={codingSessions} stats={codingStats} />
             )}
+            {tracks && tracks.length > 0 && (
+              <div className="space-y-1">
+                {tracks.map((track) => (
+                  <TrackCard key={track.id} track={track} />
+                ))}
+              </div>
+            )}
             {subGroups.map((subGroup, sgIndex) => (
               <div key={sgIndex}>
                 {subGroup.label && (
@@ -233,9 +243,18 @@ const DateGroupSection = memo(function DateGroupSection({
             {codingSessions && codingSessions.length > 0 && (
               <CodingSessionCard sessions={codingSessions} stats={codingStats} />
             )}
-            <p className="text-sm text-muted-foreground/60 py-2">
-              이 날의 커밋이 없습니다
-            </p>
+            {tracks && tracks.length > 0 && (
+              <div className="space-y-1">
+                {tracks.map((track) => (
+                  <TrackCard key={track.id} track={track} />
+                ))}
+              </div>
+            )}
+            {(!tracks || tracks.length === 0) && (
+              <p className="text-sm text-muted-foreground/60 py-2">
+                이 날의 커밋이 없습니다
+              </p>
+            )}
           </div>
         )}
 
@@ -379,6 +398,9 @@ export function Timeline({
   // Coding sessions for selected date
   const { sessions: codingSessions } = useCodingSessions(selectedDate);
 
+  // Tracks for selected date
+  const { tracks: selectedDateTracks } = useTracks(selectedDate);
+
   // Fallback: compute coding seconds from sessions for selected date badge
   const selectedDateSessionSeconds = useMemo(() => {
     if (codingSessions.length === 0) return 0;
@@ -466,6 +488,7 @@ export function Timeline({
             codingSeconds={codingSecondsMap[entry.date] ?? (entry.date === selectedDate ? selectedDateSessionSeconds : undefined)}
             codingSessions={entry.date === selectedDate ? codingSessions : undefined}
             codingStats={codingStatsMap[entry.date]}
+            tracks={entry.date === selectedDate ? selectedDateTracks : undefined}
           />
         ))}
       </div>

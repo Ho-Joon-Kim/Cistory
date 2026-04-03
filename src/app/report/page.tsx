@@ -11,6 +11,7 @@ import { CategoryBreakdownChart } from "@/modules/report/components/CategoryBrea
 import { ContextSwitchingCard } from "@/modules/report/components/ContextSwitchingCard";
 import { DeepWorkCard } from "@/modules/report/components/DeepWorkCard";
 import { NarrativeSection } from "@/modules/report/components/NarrativeSection";
+import { FirstVisitCards } from "@/modules/report/components/FirstVisitCards";
 import { OverseasTripCards } from "@/modules/report/components/OverseasTripCards";
 import { PlaceProductivityCard } from "@/modules/report/components/PlaceProductivityCard";
 import { StatCards } from "@/modules/report/components/StatCards";
@@ -360,6 +361,13 @@ function ReportPeriodSelector({
         >
           연간
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          asChild
+        >
+          <a href="/report/comparison">비교</a>
+        </Button>
       </div>
 
       <div className="flex items-center gap-2">
@@ -551,6 +559,16 @@ function LocationSection({
               />
             </div>
           </ChartCard>
+        </div>
+      )}
+
+      {((locationData.newCities && locationData.newCities.length > 0) ||
+        (locationData.newCountries && locationData.newCountries.length > 0)) && (
+        <div className="mt-6">
+          <FirstVisitCards
+            cities={locationData.newCities}
+            countries={locationData.newCountries}
+          />
         </div>
       )}
     </Section>

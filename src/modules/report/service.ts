@@ -16,6 +16,7 @@ import {
   locationPoints,
   placeCache,
   savedPlaces,
+  trips,
 } from "@/db/schema";
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { distanceM } from "@/lib/geo";
@@ -24,6 +25,7 @@ import { detectCommitType } from "@/modules/summary/prompts";
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { buildMonthlyNarrativePrompt, buildYearlyNarrativePrompt } from "./prompts";
 import { detectOverseasTrips, isOverseas } from "./travel";
+import { getFirstVisitsByMonth, getFirstVisitsByYear } from "@/modules/location/services/first-visits";
 import type {
   CodingSectionData,
   CommitsSectionData,
@@ -598,6 +600,21 @@ export class ReportService {
       this._monthEnd(prevYearMonth)
     );
 
+    // First-time visits this month
+    const firstVisits = await getFirstVisitsByMonth(userId, yearMonth);
+
+    // Trips this month
+    const monthTrips = await tx
+      .select()
+      .from(trips)
+      .where(
+        and(
+          eq(trips.userId, userId),
+          gte(trips.startDate, startDate),
+          lt(trips.startDate, endDate),
+        )
+      );
+
     return {
       totalDistanceMeters,
       dailyDistances: dailyDistancesArr,
@@ -605,6 +622,17 @@ export class ReportService {
       overseasTrips,
       locationHeatmapPoints,
       prevDistanceMeters,
+      newCities: firstVisits.cities,
+      newCountries: firstVisits.countries,
+      trips: monthTrips.map((t) => ({
+        id: t.id,
+        name: t.name,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        visitedCities: t.visitedCities ? JSON.parse(t.visitedCities) : [],
+        visitedCountries: t.visitedCountries ? JSON.parse(t.visitedCountries) : [],
+        isOverseas: t.isOverseas,
+      })),
     };
   }
 
@@ -937,6 +965,21 @@ export class ReportService {
       startDate
     );
 
+    // First-time visits this year
+    const firstVisits = await getFirstVisitsByYear(userId, year);
+
+    // Trips this year
+    const yearTrips = await tx
+      .select()
+      .from(trips)
+      .where(
+        and(
+          eq(trips.userId, userId),
+          gte(trips.startDate, startDate),
+          lt(trips.startDate, endDate),
+        )
+      );
+
     return {
       totalDistanceMeters,
       dailyDistances: dailyDistancesArr,
@@ -944,6 +987,17 @@ export class ReportService {
       overseasTrips,
       locationHeatmapPoints,
       prevDistanceMeters,
+      newCities: firstVisits.cities,
+      newCountries: firstVisits.countries,
+      trips: yearTrips.map((t) => ({
+        id: t.id,
+        name: t.name,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        visitedCities: t.visitedCities ? JSON.parse(t.visitedCities) : [],
+        visitedCountries: t.visitedCountries ? JSON.parse(t.visitedCountries) : [],
+        isOverseas: t.isOverseas,
+      })),
     };
   }
 

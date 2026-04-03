@@ -197,6 +197,19 @@ export interface MonthlyReportData {
   overseasTrips: { country: string; startDate: string; endDate: string; places: string[] }[];
   locationHeatmapPoints: { lat: number; lon: number; weight: number }[];
 
+  // 처음 방문 / 여행
+  newCities?: { city: string; countryName: string; firstVisitDate: string }[];
+  newCountries?: { countryName: string; firstVisitDate: string }[];
+  trips?: {
+    id: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    visitedCities: string[];
+    visitedCountries: string[];
+    isOverseas: boolean;
+  }[];
+
   // 전월 대비
   prevMonth?: {
     totalCommits: number;

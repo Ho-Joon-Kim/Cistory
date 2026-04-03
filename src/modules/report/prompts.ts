@@ -98,6 +98,20 @@ export function buildMonthlyNarrativePrompt(
     }
   }
 
+  if (data.newCities && data.newCities.length > 0) {
+    prompt += "\n\n### 처음 방문한 곳";
+    for (const c of data.newCities) {
+      prompt += `\n- ${c.city} (${c.countryName}): ${c.firstVisitDate}`;
+    }
+  }
+
+  if (data.trips && data.trips.length > 0) {
+    prompt += "\n\n### 여행";
+    for (const t of data.trips) {
+      prompt += `\n- ${t.name}: ${t.startDate} ~ ${t.endDate}${t.isOverseas ? " (해외)" : ""} — ${t.visitedCities.join(", ")}`;
+    }
+  }
+
   if (data.prevMonth) {
     prompt += "\n\n### 전월 대비";
     const commitDiff = data.totalCommits - data.prevMonth.totalCommits;
@@ -238,6 +252,20 @@ export function buildYearlyNarrativePrompt(
     prompt += "\n\n### 해외여행";
     for (const trip of data.overseasTrips) {
       prompt += `\n- ${trip.country}: ${trip.startDate} ~ ${trip.endDate}`;
+    }
+  }
+
+  if (data.newCities && data.newCities.length > 0) {
+    prompt += `\n\n### 올해 처음 방문한 곳 (${data.newCities.length}곳)`;
+    for (const c of data.newCities.slice(0, 10)) {
+      prompt += `\n- ${c.city} (${c.countryName})`;
+    }
+  }
+
+  if (data.trips && data.trips.length > 0) {
+    prompt += `\n\n### 여행 (${data.trips.length}건)`;
+    for (const t of data.trips) {
+      prompt += `\n- ${t.name}: ${t.startDate} ~ ${t.endDate}${t.isOverseas ? " (해외)" : ""} — ${t.visitedCities.join(", ")}`;
     }
   }
 
