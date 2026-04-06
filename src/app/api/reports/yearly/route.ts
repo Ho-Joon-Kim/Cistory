@@ -38,21 +38,16 @@ export async function GET(request: NextRequest) {
     const service = createReportService(db);
 
     if (section === "commits") {
-      const data = enriched
-        ? await service.aggregateEnrichedMonthlyCommits(user.id, year)
-        : await service.aggregateYearlyCommits(user.id, year);
+      // Enriched yearly not yet implemented — return base yearly data
+      const data = await service.aggregateYearlyCommits(user.id, year);
       return NextResponse.json({ data });
     }
     if (section === "coding") {
-      const data = enriched
-        ? await service.aggregateEnrichedMonthlyCoding(user.id, year)
-        : await service.aggregateYearlyCoding(user.id, year);
+      const data = await service.aggregateYearlyCoding(user.id, year);
       return NextResponse.json({ data });
     }
     if (section === "location") {
-      const data = enriched
-        ? await service.aggregateEnrichedMonthlyLocation(user.id, year)
-        : await service.aggregateYearlyLocation(user.id, year);
+      const data = await service.aggregateYearlyLocation(user.id, year);
       return NextResponse.json({ data });
     }
     if (section === "cross") {

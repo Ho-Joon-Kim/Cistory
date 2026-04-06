@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/modules/auth/hooks";
 import { useInsights } from "@/modules/insights/hooks";
 import { Header } from "@/components/Layout/Header";
+import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { CodingHeatmap } from "@/modules/insights/components/CodingHeatmap";
 import { StreakGamification } from "@/modules/insights/components/StreakGamification";
 import { WorkPatternCard } from "@/modules/insights/components/WorkPatternCard";
@@ -50,6 +51,7 @@ function InsightsContent() {
   }
 
   return (
+    <SyncStatusProvider>
     <div className="min-h-screen bg-background">
       <Header />
 
@@ -112,6 +114,7 @@ function InsightsContent() {
         </div>
       </main>
     </div>
+    </SyncStatusProvider>
   );
 }
 
