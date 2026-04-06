@@ -519,13 +519,15 @@ function CodingSection({
       </div>
       {enrichedData && (
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {enrichedData.deepWorkStats.totalSessions > 0 && (
+          {enrichedData.deepWorkStats?.totalSessions > 0 && (
             <DeepWorkCard
               sessions={enrichedData.deepWorkSessions}
               stats={enrichedData.deepWorkStats}
             />
           )}
-          <ContextSwitchingCard metrics={enrichedData.contextSwitching} />
+          {enrichedData.contextSwitching && (
+            <ContextSwitchingCard metrics={enrichedData.contextSwitching} />
+          )}
         </div>
       )}
     </Section>

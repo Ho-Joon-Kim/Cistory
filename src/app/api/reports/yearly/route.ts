@@ -51,8 +51,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data });
     }
     if (section === "cross") {
-      const data = await service.aggregateCrossAnalysis(user.id, year);
-      return NextResponse.json({ data });
+      // Cross analysis uses monthly functions internally — not supported for yearly
+      return NextResponse.json({ data: null });
     }
 
     // No section → full aggregation (backward compat)
