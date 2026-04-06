@@ -76,23 +76,27 @@ export async function GET(request: NextRequest) {
     >();
 
     for (const cell of cells) {
-      const address = findNearestAddress(addressMap, cell.cellLat, cell.cellLon);
-      const regionName =
-        extractRegion(address) || `${cell.cellLat.toFixed(2)}, ${cell.cellLon.toFixed(2)}`;
+      // SQL ROUND() may return string via numeric type — ensure numbers
+      const lat = Number(cell.cellLat);
+      const lon = Number(cell.cellLon);
+      const visits = Number(cell.pointCount);
+
+      const address = findNearestAddress(addressMap, lat, lon);
+      const regionName = extractRegion(address) || `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
 
       const existing = regionMap.get(regionName);
       if (existing) {
-        existing.visits += cell.pointCount;
+        existing.visits += visits;
         if (cell.firstVisit < existing.firstVisit) existing.firstVisit = cell.firstVisit;
         if (cell.lastVisit > existing.lastVisit) existing.lastVisit = cell.lastVisit;
       } else {
         regionMap.set(regionName, {
           name: regionName,
-          visits: cell.pointCount,
+          visits,
           firstVisit: cell.firstVisit,
           lastVisit: cell.lastVisit,
-          lat: cell.cellLat,
-          lon: cell.cellLon,
+          lat,
+          lon,
         });
       }
     }

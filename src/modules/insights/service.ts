@@ -1,8 +1,24 @@
-import { getDb } from "@/db";
 import { commits, codingDailyStats, codingSessions, transactions } from "@/db/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
+import type { Database } from "@/db";
 
-type Database = ReturnType<typeof getDb>;
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function toDateKey(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function yearRange(year: number) {
+  return {
+    start: new Date(year, 0, 1),
+    end: new Date(year, 11, 31, 23, 59, 59),
+  };
+}
+
+// ── Result Types ───────────────────────────────────────────────────────────
 
 export interface StreaksResult {
   currentCommitStreak: number;
@@ -11,13 +27,13 @@ export interface StreaksResult {
 }
 
 export interface WorkPatternsResult {
-  avgFirstCommitHour: number;
-  avgLastCommitHour: number;
-  mostProductiveHour: number;
-  mostProductiveDay: number;
+  avgFirstCommitHour: number | null;
+  avgLastCommitHour: number | null;
+  mostProductiveHour: number | null;
+  mostProductiveDay: number | null;
   nightRatio: number;
   weekendRatio: number;
-  totalCommits: number;
+  hourDistribution: number[];
 }
 
 export interface RoutinePatternsResult {
@@ -29,346 +45,350 @@ export interface RoutinePatternsResult {
   }[];
 }
 
-export interface MonthlyDigest {
-  month: number;
-  totalCommits: number;
-  totalCodingSeconds: number;
-  topProject: string | null;
-}
-
 export interface MonthlyDigestsResult {
-  months: MonthlyDigest[];
+  months: {
+    month: number;
+    totalCommits: number;
+    totalCodingSeconds: number;
+    topProject: string | null;
+  }[];
 }
 
 export interface CommitHeatmapResult {
   days: { date: string; count: number }[];
 }
 
-function toDateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+// ── Service ────────────────────────────────────────────────────────────────
 
 export class InsightsService {
+  /**
+   * Calculate current/max commit streaks and a calendar of active days for the year.
+   */
   static async calculateStreaks(
     db: Database,
     userId: string,
-    year: number,
+    year: number
   ): Promise<StreaksResult> {
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31, 23, 59, 59);
+    const { start, end } = yearRange(year);
 
-    const yearCommits = await db
+    const rows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(
-        and(
-          eq(commits.userId, userId),
-          gte(commits.committedAt, startDate),
-          lte(commits.committedAt, endDate),
-        ),
-      );
+      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
 
-    const commitDates = new Set<string>();
-    for (const c of yearCommits) {
-      commitDates.add(toDateKey(c.committedAt));
+    // Build set of active dates
+    const activeDates = new Set<string>();
+    for (const row of rows) {
+      activeDates.add(toDateKey(row.committedAt));
     }
 
+    // Build calendar
     const calendar: Record<string, { hasCommit: boolean }> = {};
-    const today = new Date();
-    const todayStr = toDateKey(today);
-
-    const allDates: string[] = [];
     const cursor = new Date(year, 0, 1);
-    while (cursor.getFullYear() === year) {
-      const dateStr = toDateKey(cursor);
-      allDates.push(dateStr);
-      calendar[dateStr] = { hasCommit: commitDates.has(dateStr) };
+    const endDate = new Date(year, 11, 31);
+    while (cursor <= endDate) {
+      const key = toDateKey(cursor);
+      calendar[key] = { hasCommit: activeDates.has(key) };
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    let maxStreak = 0;
-    let currentRun = 0;
-    for (const dateStr of allDates) {
-      if (commitDates.has(dateStr)) {
-        currentRun++;
-        maxStreak = Math.max(maxStreak, currentRun);
-      } else {
-        currentRun = 0;
-      }
-    }
-
+    // Walk all dates in the year to find streaks
     let currentStreak = 0;
-    const todayIndex = allDates.indexOf(todayStr);
-    if (todayIndex >= 0) {
-      for (let i = todayIndex; i >= 0; i--) {
-        if (commitDates.has(allDates[i])) {
-          currentStreak++;
+    let maxStreak = 0;
+    let runningStreak = 0;
+
+    const today = toDateKey(new Date());
+
+    const walker = new Date(year, 0, 1);
+    while (walker <= endDate) {
+      const key = toDateKey(walker);
+      if (activeDates.has(key)) {
+        runningStreak++;
+        if (runningStreak > maxStreak) maxStreak = runningStreak;
+      } else {
+        runningStreak = 0;
+      }
+
+      // Current streak: must include today (or the latest active day up to today)
+      if (key <= today) {
+        if (activeDates.has(key)) {
+          currentStreak = runningStreak;
         } else {
-          break;
+          currentStreak = 0;
         }
       }
+
+      walker.setDate(walker.getDate() + 1);
     }
 
     return { currentCommitStreak: currentStreak, maxCommitStreak: maxStreak, calendar };
   }
 
+  /**
+   * Analyze work patterns from commit timestamps.
+   */
   static async calculateWorkPatterns(
     db: Database,
     userId: string,
-    year: number,
+    year: number
   ): Promise<WorkPatternsResult> {
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31, 23, 59, 59);
+    const { start, end } = yearRange(year);
 
-    const yearCommits = await db
+    const rows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(
-        and(
-          eq(commits.userId, userId),
-          gte(commits.committedAt, startDate),
-          lte(commits.committedAt, endDate),
-        ),
-      );
+      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
 
-    if (yearCommits.length === 0) {
+    if (rows.length === 0) {
       return {
-        avgFirstCommitHour: 0,
-        avgLastCommitHour: 0,
-        mostProductiveHour: 0,
-        mostProductiveDay: 0,
+        avgFirstCommitHour: null,
+        avgLastCommitHour: null,
+        mostProductiveHour: null,
+        mostProductiveDay: null,
         nightRatio: 0,
         weekendRatio: 0,
-        totalCommits: 0,
+        hourDistribution: new Array(24).fill(0),
       };
     }
 
+    // Group commits by date, track hours
     const hourCounts = new Array(24).fill(0);
-    const dayCounts = new Array(7).fill(0);
-    const dailyFirstHour: Record<string, number> = {};
-    const dailyLastHour: Record<string, number> = {};
-    let nightCount = 0;
+    const dayCounts = new Array(7).fill(0); // 0=Sun, 6=Sat
+    const dateFirstHour: Record<string, number> = {};
+    const dateLastHour: Record<string, number> = {};
+    let nightCount = 0; // 22:00 ~ 05:59
     let weekendCount = 0;
 
-    for (const c of yearCommits) {
-      const date = c.committedAt;
-      const hour = date.getHours();
-      const day = date.getDay();
-      const dateKey = toDateKey(date);
+    for (const row of rows) {
+      const d = row.committedAt;
+      const hour = d.getHours();
+      const day = d.getDay();
+      const key = toDateKey(d);
 
       hourCounts[hour]++;
       dayCounts[day]++;
 
-      if (dailyFirstHour[dateKey] === undefined || hour < dailyFirstHour[dateKey]) {
-        dailyFirstHour[dateKey] = hour;
-      }
-      if (dailyLastHour[dateKey] === undefined || hour > dailyLastHour[dateKey]) {
-        dailyLastHour[dateKey] = hour;
-      }
-
       if (hour >= 22 || hour < 6) nightCount++;
       if (day === 0 || day === 6) weekendCount++;
+
+      if (dateFirstHour[key] === undefined || hour < dateFirstHour[key]) {
+        dateFirstHour[key] = hour;
+      }
+      if (dateLastHour[key] === undefined || hour > dateLastHour[key]) {
+        dateLastHour[key] = hour;
+      }
     }
+
+    const total = rows.length;
+    const dates = Object.keys(dateFirstHour);
+    const avgFirstCommitHour =
+      dates.length > 0
+        ? Math.round(dates.reduce((s, k) => s + dateFirstHour[k], 0) / dates.length)
+        : null;
+    const avgLastCommitHour =
+      dates.length > 0
+        ? Math.round(dates.reduce((s, k) => s + dateLastHour[k], 0) / dates.length)
+        : null;
 
     const mostProductiveHour = hourCounts.indexOf(Math.max(...hourCounts));
     const mostProductiveDay = dayCounts.indexOf(Math.max(...dayCounts));
-
-    const firstHours = Object.values(dailyFirstHour);
-    const lastHours = Object.values(dailyLastHour);
-    const avgFirstCommitHour =
-      firstHours.length > 0
-        ? Math.round((firstHours.reduce((a, b) => a + b, 0) / firstHours.length) * 10) / 10
-        : 0;
-    const avgLastCommitHour =
-      lastHours.length > 0
-        ? Math.round((lastHours.reduce((a, b) => a + b, 0) / lastHours.length) * 10) / 10
-        : 0;
 
     return {
       avgFirstCommitHour,
       avgLastCommitHour,
       mostProductiveHour,
       mostProductiveDay,
-      nightRatio: Math.round((nightCount / yearCommits.length) * 100) / 100,
-      weekendRatio: Math.round((weekendCount / yearCommits.length) * 100) / 100,
-      totalCommits: yearCommits.length,
+      nightRatio: total > 0 ? nightCount / total : 0,
+      weekendRatio: total > 0 ? weekendCount / total : 0,
+      hourDistribution: hourCounts,
     };
   }
 
+  /**
+   * Aggregate activity by day-of-week: commits, coding seconds, and transactions.
+   */
   static async calculateRoutinePatterns(
     db: Database,
     userId: string,
-    year: number,
+    year: number
   ): Promise<RoutinePatternsResult> {
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31, 23, 59, 59);
+    const { start, end } = yearRange(year);
+    const startStr = `${year}-01-01`;
+    const endStr = `${year}-12-31`;
 
-    const yearCommits = await db
+    // Commits by day of week
+    const commitRows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(
-        and(
-          eq(commits.userId, userId),
-          gte(commits.committedAt, startDate),
-          lte(commits.committedAt, endDate),
-        ),
-      );
+      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
 
-    const commitDayCounts = new Array(7).fill(0);
-    for (const c of yearCommits) {
-      commitDayCounts[c.committedAt.getDay()]++;
+    const dayCommits = new Array(7).fill(0);
+    for (const r of commitRows) {
+      dayCommits[r.committedAt.getDay()]++;
     }
 
-    // Coding sessions by day of week
-    const codingDayCounts = new Array(7).fill(0);
-    try {
-      const yearCoding = await db
-        .select({ startedAt: codingSessions.startedAt, durationSeconds: codingSessions.durationSeconds })
-        .from(codingSessions)
-        .where(
-          and(
-            eq(codingSessions.userId, userId),
-            gte(codingSessions.startedAt, startDate),
-            lte(codingSessions.startedAt, endDate),
-          ),
-        );
-      for (const c of yearCoding) {
-        codingDayCounts[c.startedAt.getDay()] += c.durationSeconds;
-      }
-    } catch {
-      // codingSessions table may not have data
+    // Coding seconds by day of week (from codingDailyStats, text date)
+    const codingRows = await db
+      .select({
+        date: codingDailyStats.date,
+        totalSeconds: codingDailyStats.totalSeconds,
+      })
+      .from(codingDailyStats)
+      .where(
+        and(
+          eq(codingDailyStats.userId, userId),
+          gte(codingDailyStats.date, startStr),
+          lte(codingDailyStats.date, endStr)
+        )
+      );
+
+    const dayCoding = new Array(7).fill(0);
+    for (const r of codingRows) {
+      // Parse "YYYY-MM-DD" safely as local date
+      const [y, m, d] = r.date.split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      dayCoding[dt.getDay()] += r.totalSeconds;
     }
 
     // Transactions by day of week
-    const txDayCounts = new Array(7).fill(0);
-    try {
-      const yearTx = await db
-        .select({ transactedAt: transactions.transactedAt })
-        .from(transactions)
-        .where(
-          and(
-            eq(transactions.userId, userId),
-            gte(transactions.transactedAt, startDate),
-            lte(transactions.transactedAt, endDate),
-          ),
-        );
-      for (const t of yearTx) {
-        txDayCounts[t.transactedAt.getDay()]++;
-      }
-    } catch {
-      // transactions table may not have data
+    const txRows = await db
+      .select({ transactedAt: transactions.transactedAt })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          gte(transactions.transactedAt, start),
+          lte(transactions.transactedAt, end)
+        )
+      );
+
+    const dayTx = new Array(7).fill(0);
+    for (const r of txRows) {
+      dayTx[r.transactedAt.getDay()]++;
     }
 
-    const dayPatterns = commitDayCounts.map((count: number, day: number) => ({
-      day,
-      commits: count,
-      codingSeconds: codingDayCounts[day],
-      transactions: txDayCounts[day],
+    const dayPatterns = Array.from({ length: 7 }, (_, i) => ({
+      day: i,
+      commits: dayCommits[i],
+      codingSeconds: dayCoding[i],
+      transactions: dayTx[i],
     }));
 
     return { dayPatterns };
   }
 
+  /**
+   * Monthly digests: per-month commit count, coding seconds, and top project.
+   */
   static async calculateMonthlyDigests(
     db: Database,
     userId: string,
-    year: number,
+    year: number
   ): Promise<MonthlyDigestsResult> {
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31, 23, 59, 59);
+    const { start, end } = yearRange(year);
+    const startStr = `${year}-01-01`;
+    const endStr = `${year}-12-31`;
 
-    const yearCommits = await db
-      .select({ committedAt: commits.committedAt, repoFullName: commits.repoFullName })
+    // Commits per month
+    const commitRows = await db
+      .select({ committedAt: commits.committedAt })
       .from(commits)
+      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
+
+    const monthCommits = new Array(12).fill(0);
+    for (const r of commitRows) {
+      monthCommits[r.committedAt.getMonth()]++;
+    }
+
+    // Coding per month (from codingDailyStats)
+    const codingRows = await db
+      .select({
+        date: codingDailyStats.date,
+        totalSeconds: codingDailyStats.totalSeconds,
+        projects: codingDailyStats.projects,
+      })
+      .from(codingDailyStats)
       .where(
         and(
-          eq(commits.userId, userId),
-          gte(commits.committedAt, startDate),
-          lte(commits.committedAt, endDate),
-        ),
+          eq(codingDailyStats.userId, userId),
+          gte(codingDailyStats.date, startStr),
+          lte(codingDailyStats.date, endStr)
+        )
       );
 
-    const monthData: Record<number, { count: number; repoCounts: Record<string, number>; codingSeconds: number }> = {};
-    for (let m = 1; m <= 12; m++) {
-      monthData[m] = { count: 0, repoCounts: {}, codingSeconds: 0 };
-    }
+    const monthCoding = new Array(12).fill(0);
+    const monthProjectMap: Record<string, number>[] = Array.from({ length: 12 }, () => ({}));
 
-    for (const c of yearCommits) {
-      const month = c.committedAt.getMonth() + 1;
-      if (monthData[month]) {
-        monthData[month].count++;
-        const repo = c.repoFullName;
-        monthData[month].repoCounts[repo] = (monthData[month].repoCounts[repo] || 0) + 1;
-      }
-    }
+    for (const r of codingRows) {
+      const [y, m] = r.date.split("-").map(Number);
+      const monthIdx = m - 1;
+      monthCoding[monthIdx] += r.totalSeconds;
 
-    // Coding stats per month (date is text "YYYY-MM-DD")
-    try {
-      const yearStr = String(year);
-      const codingStats = await db
-        .select({ date: codingDailyStats.date, totalSeconds: codingDailyStats.totalSeconds })
-        .from(codingDailyStats)
-        .where(
-          and(
-            eq(codingDailyStats.userId, userId),
-            gte(codingDailyStats.date, `${yearStr}-01-01`),
-            lte(codingDailyStats.date, `${yearStr}-12-31`),
-          ),
-        );
-      for (const s of codingStats) {
-        const month = parseInt(s.date.split("-")[1], 10);
-        if (monthData[month]) {
-          monthData[month].codingSeconds += s.totalSeconds;
+      if (r.projects) {
+        try {
+          const projects = JSON.parse(r.projects) as { name: string; totalSeconds: number }[];
+          for (const p of projects) {
+            monthProjectMap[monthIdx][p.name] = (monthProjectMap[monthIdx][p.name] || 0) + p.totalSeconds;
+          }
+        } catch {
+          // skip malformed JSON
         }
       }
-    } catch {
-      // codingDailyStats may not have data
     }
 
-    const months: MonthlyDigest[] = [];
-    for (let m = 1; m <= 12; m++) {
-      const data = monthData[m];
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const projectMap = monthProjectMap[i];
       let topProject: string | null = null;
-      if (data.count > 0) {
-        const entries = Object.entries(data.repoCounts).sort((a, b) => b[1] - a[1]);
-        if (entries.length > 0) {
-          const parts = entries[0][0].split("/");
-          topProject = parts.length > 1 ? parts[1] : entries[0][0];
+      let maxSeconds = 0;
+      for (const [name, secs] of Object.entries(projectMap)) {
+        if (secs > maxSeconds) {
+          maxSeconds = secs;
+          topProject = name;
         }
       }
-      months.push({ month: m, totalCommits: data.count, totalCodingSeconds: data.codingSeconds, topProject });
-    }
+
+      return {
+        month: i + 1,
+        totalCommits: monthCommits[i],
+        totalCodingSeconds: monthCoding[i],
+        topProject,
+      };
+    });
 
     return { months };
   }
 
+  /**
+   * Daily commit counts for heatmap visualization.
+   */
   static async getCommitHeatmapData(
     db: Database,
     userId: string,
-    year: number,
+    year: number
   ): Promise<CommitHeatmapResult> {
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31, 23, 59, 59);
+    const { start, end } = yearRange(year);
 
-    const yearCommits = await db
+    const rows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(
-        and(
-          eq(commits.userId, userId),
-          gte(commits.committedAt, startDate),
-          lte(commits.committedAt, endDate),
-        ),
-      );
+      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
 
-    const dayCounts: Record<string, number> = {};
-    for (const c of yearCommits) {
-      const dateStr = toDateKey(c.committedAt);
-      dayCounts[dateStr] = (dayCounts[dateStr] || 0) + 1;
+    const dateCounts: Record<string, number> = {};
+    for (const r of rows) {
+      const key = toDateKey(r.committedAt);
+      dateCounts[key] = (dateCounts[key] || 0) + 1;
     }
 
-    return {
-      days: Object.entries(dayCounts).map(([date, count]) => ({ date, count })),
-    };
+    // Build full year array
+    const days: { date: string; count: number }[] = [];
+    const cursor = new Date(year, 0, 1);
+    const endDate = new Date(year, 11, 31);
+    while (cursor <= endDate) {
+      const key = toDateKey(cursor);
+      days.push({ date: key, count: dateCounts[key] || 0 });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return { days };
   }
 }

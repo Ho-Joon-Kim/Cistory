@@ -19,7 +19,7 @@ export interface ScratchMapData {
 
 export function useScratchMap(year?: number) {
   const [data, setData] = useState<ScratchMapData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();

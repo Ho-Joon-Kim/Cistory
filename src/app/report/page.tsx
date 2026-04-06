@@ -304,12 +304,29 @@ function ReportContent() {
                 crossAnalysisData={crossAnalysisData}
               />
 
-              {/* Scratch Map Section (yearly) */}
-              {reportType === "yearly" && (
-                <ScratchMapSection
-                  isLoading={scratchMap.isLoading}
-                  data={scratchMap.data}
-                />
+              {/* Scratch Map (yearly only) */}
+              {reportType === "yearly" && scratchMap.data && scratchMap.data.regions.length > 0 && (
+                <div className="space-y-4">
+                  <h2 className="text-lg font-semibold">방문 지도</h2>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="h-[400px]">
+                            <ScratchMap regions={scratchMap.data.regions} />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <div>
+                      <ScratchMapStats
+                        totalRegions={scratchMap.data.totalRegions}
+                        totalCells={scratchMap.data.totalCells}
+                        regions={scratchMap.data.regions}
+                      />
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* Yearly-only sections */}

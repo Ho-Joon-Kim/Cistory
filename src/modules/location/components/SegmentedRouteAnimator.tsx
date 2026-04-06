@@ -148,7 +148,6 @@ interface SegmentedRouteAnimatorProps {
   selectedSegmentIndex?: number | null;
   hoveredSegmentIndex?: number | null;
   speedColorMode?: boolean;
-  /** When set (0-1), route up to this progress is full opacity, rest is dimmed */
   replayProgress?: number;
 }
 
@@ -224,7 +223,7 @@ export function SegmentedRouteAnimator({
     [map, locations],
   );
 
-  // Update paint properties when selection/hover changes (after animation completes)
+  // Update paint properties when selection/hover/replay changes (after animation completes)
   useEffect(() => {
     if (!map || !animationCompletedRef.current) return;
     // Skip selection-based opacity when replay is active (replay effect handles it)
@@ -232,8 +231,26 @@ export function SegmentedRouteAnimator({
     const gl = map.getMap();
     if (!gl.getLayer("route-line")) return;
 
-    // Line opacity: selected segment full, others dimmed
-    if (selectedSegmentIndex != null) {
+    // Replay mode: progressive opacity based on progress
+    if (replayProgress != null) {
+      const totalSegments = segments.length;
+      const progressSegment = Math.floor(replayProgress * totalSegments);
+      gl.setPaintProperty("route-line", "line-opacity", [
+        "case",
+        ["<=", ["get", "segmentIndex"], progressSegment],
+        0.8,
+        0.15,
+      ]);
+      if (gl.getLayer("route-speed-line")) {
+        gl.setPaintProperty("route-speed-line", "line-opacity", [
+          "case",
+          ["<=", ["get", "segmentIndex"], progressSegment],
+          0.85,
+          0.1,
+        ]);
+      }
+    } else if (selectedSegmentIndex != null) {
+      // Line opacity: selected segment full, others dimmed
       gl.setPaintProperty("route-line", "line-opacity", [
         "match",
         ["get", "segmentIndex"],
@@ -243,6 +260,9 @@ export function SegmentedRouteAnimator({
       ]);
     } else {
       gl.setPaintProperty("route-line", "line-opacity", 0.8);
+      if (gl.getLayer("route-speed-line")) {
+        gl.setPaintProperty("route-speed-line", "line-opacity", 0.85);
+      }
     }
 
     // Line width: hovered segment thicker
@@ -257,65 +277,7 @@ export function SegmentedRouteAnimator({
     } else {
       gl.setPaintProperty("route-line", "line-width", 3);
     }
-  }, [map, selectedSegmentIndex, hoveredSegmentIndex, replayProgress]);
-
-  // Route replay: dim segments after the current replay progress point
-  useEffect(() => {
-    if (!map || !animationCompletedRef.current) return;
-    const gl = map.getMap();
-    if (!gl.getLayer("route-line")) return;
-
-    if (replayProgress == null) {
-      // Restore default opacity when replay ends
-      gl.setPaintProperty("route-line", "line-opacity", 0.8);
-      if (gl.getLayer("route-line-speed")) {
-        gl.setPaintProperty("route-line-speed", "line-opacity", 0.85);
-      }
-      return;
-    }
-
-    // Determine which segments are "played" vs "unplayed"
-    const totalCoords = movingCoordsFlat.length;
-    if (totalCoords === 0) return;
-
-    const playedCount = Math.round(replayProgress * totalCoords);
-    let accumulated = 0;
-    const playedSegments: number[] = [];
-
-    for (let li = 0; li < movingLines.length; li++) {
-      const lineLen = movingLines[li].length;
-      if (accumulated + lineLen <= playedCount) {
-        playedSegments.push(movingSegmentIndices[li]);
-        accumulated += lineLen;
-      } else {
-        // This segment is partially played — treat as played for opacity
-        playedSegments.push(movingSegmentIndices[li]);
-        break;
-      }
-    }
-
-    if (playedSegments.length > 0) {
-      gl.setPaintProperty("route-line", "line-opacity", [
-        "match",
-        ["get", "segmentIndex"],
-        ...playedSegments.flatMap((idx) => [idx, 0.8]),
-        0.15,
-      ]);
-      if (gl.getLayer("route-line-speed")) {
-        gl.setPaintProperty("route-line-speed", "line-opacity", [
-          "match",
-          ["get", "segmentIndex"],
-          ...playedSegments.flatMap((idx) => [idx, 0.85]),
-          0.15,
-        ]);
-      }
-    } else {
-      gl.setPaintProperty("route-line", "line-opacity", 0.15);
-      if (gl.getLayer("route-line-speed")) {
-        gl.setPaintProperty("route-line-speed", "line-opacity", 0.15);
-      }
-    }
-  }, [map, replayProgress, movingLines, movingSegmentIndices, movingCoordsFlat]);
+  }, [map, selectedSegmentIndex, hoveredSegmentIndex, replayProgress, segments.length]);
 
   // Toggle visibility between normal and speed-colored route layers
   useEffect(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/modules/auth/hooks";
 import { useInsights } from "@/modules/insights/hooks";
@@ -14,7 +14,7 @@ import { MonthlyDigestCard } from "@/modules/insights/components/MonthlyDigestCa
 import { Button } from "@/components/ui/button";
 import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 
-export default function InsightsPage() {
+function InsightsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -25,7 +25,6 @@ export default function InsightsPage() {
 
   const { streaks, patterns, routines, digests, commitHeatmap } = useInsights(year);
 
-  // Auth check
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) {
       router.replace("/login");
@@ -81,36 +80,30 @@ export default function InsightsPage() {
 
         {/* Grid layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Commit heatmap - full width */}
           <CodingHeatmap
             data={commitHeatmap.data}
             isLoading={commitHeatmap.isLoading}
             year={year}
           />
 
-          {/* Streak gamification */}
           <StreakGamification
             data={streaks.data}
             isLoading={streaks.isLoading}
             year={year}
           />
 
-          {/* Work patterns */}
           <WorkPatternCard
             data={patterns.data}
             isLoading={patterns.isLoading}
           />
 
-          {/* Routine discovery */}
           <RoutineDiscovery
             data={routines.data}
             isLoading={routines.isLoading}
           />
 
-          {/* Productivity by location - placeholder */}
           <ProductivityByLocation />
 
-          {/* Monthly digest - full width */}
           <MonthlyDigestCard
             data={digests.data}
             isLoading={digests.isLoading}
@@ -119,5 +112,19 @@ export default function InsightsPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function InsightsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <InsightsContent />
+    </Suspense>
   );
 }

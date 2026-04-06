@@ -1,15 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { StreaksResult } from "../service";
 
 interface StreakGamificationProps {
-  data: {
-    currentCommitStreak: number;
-    maxCommitStreak: number;
-    calendar: Record<string, { hasCommit: boolean }>;
-  } | null;
+  data: StreaksResult | null;
   isLoading: boolean;
   year: number;
 }
@@ -17,37 +14,44 @@ interface StreakGamificationProps {
 const MONTH_LABELS = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
 
 export function StreakGamification({ data, isLoading, year }: StreakGamificationProps) {
-  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const calendarWeeks = useMemo(() => {
+    if (!data?.calendar) return [];
 
-  const monthGrid = useMemo(() => {
-    if (!data) return null;
+    const entries = Object.entries(data.calendar).sort(([a], [b]) => a.localeCompare(b));
+    if (entries.length === 0) return [];
 
-    const month = selectedMonth ?? new Date().getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startDow = firstDay.getDay();
-    const daysInMonth = lastDay.getDate();
+    const weeks: { date: string; hasCommit: boolean; dayOfWeek: number; month: number }[][] = [];
+    let currentWeek: { date: string; hasCommit: boolean; dayOfWeek: number; month: number }[] = [];
 
-    const cells: { date: string; hasCommit: boolean; inMonth: boolean }[] = [];
+    // Parse first date to get day of week
+    const [firstY, firstM, firstD] = entries[0][0].split("-").map(Number);
+    const firstDate = new Date(firstY, firstM - 1, firstD);
+    const firstDow = firstDate.getDay();
 
-    // Fill leading empty cells
-    for (let i = 0; i < startDow; i++) {
-      cells.push({ date: "", hasCommit: false, inMonth: false });
+    // Pad first week
+    for (let i = 0; i < firstDow; i++) {
+      currentWeek.push({ date: "", hasCommit: false, dayOfWeek: i, month: -1 });
     }
 
-    // Fill month days
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      const entry = data.calendar[dateStr];
-      cells.push({
-        date: dateStr,
-        hasCommit: entry?.hasCommit ?? false,
-        inMonth: true,
-      });
+    for (const [dateStr, val] of entries) {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      const dow = dt.getDay();
+
+      if (dow === 0 && currentWeek.length > 0) {
+        weeks.push(currentWeek);
+        currentWeek = [];
+      }
+
+      currentWeek.push({ date: dateStr, hasCommit: val.hasCommit, dayOfWeek: dow, month: m });
     }
 
-    return cells;
-  }, [data, year, selectedMonth]);
+    if (currentWeek.length > 0) {
+      weeks.push(currentWeek);
+    }
+
+    return weeks;
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -55,10 +59,9 @@ export function StreakGamification({ data, isLoading, year }: StreakGamification
         <CardHeader>
           <CardTitle>스트릭</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
-            불러오는 중...
-          </div>
+        <CardContent className="space-y-4">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-24 w-full" />
         </CardContent>
       </Card>
     );
@@ -71,15 +74,11 @@ export function StreakGamification({ data, isLoading, year }: StreakGamification
           <CardTitle>스트릭</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
-            데이터 없음
-          </div>
+          <p className="text-sm text-muted-foreground">데이터가 없습니다</p>
         </CardContent>
       </Card>
     );
   }
-
-  const currentMonth = selectedMonth ?? new Date().getMonth();
 
   return (
     <Card>
@@ -88,73 +87,42 @@ export function StreakGamification({ data, isLoading, year }: StreakGamification
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Streak numbers */}
-        <div className="flex gap-4">
-          <div className="flex-1 text-center p-3 rounded-lg bg-muted/50">
-            <div className="text-3xl font-bold">
-              {data.currentCommitStreak > 0 && "🔥 "}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="text-center p-3 rounded-lg bg-muted/50">
+            <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
               {data.currentCommitStreak}
             </div>
             <div className="text-xs text-muted-foreground mt-1">현재 스트릭</div>
           </div>
-          <div className="flex-1 text-center p-3 rounded-lg bg-muted/50">
-            <div className="text-3xl font-bold">{data.maxCommitStreak}</div>
+          <div className="text-center p-3 rounded-lg bg-muted/50">
+            <div className="text-3xl font-bold text-amber-600 dark:text-amber-400">
+              {data.maxCommitStreak}
+            </div>
             <div className="text-xs text-muted-foreground mt-1">최대 스트릭</div>
           </div>
         </div>
 
-        {/* Month selector */}
-        <div className="flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSelectedMonth(Math.max(0, currentMonth - 1))}
-            disabled={currentMonth === 0}
-          >
-            &lt;
-          </Button>
-          <span className="text-sm font-medium">{MONTH_LABELS[currentMonth]}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSelectedMonth(Math.min(11, currentMonth + 1))}
-            disabled={currentMonth === 11}
-          >
-            &gt;
-          </Button>
-        </div>
-
         {/* Mini calendar */}
-        <div>
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
-              <div key={d} className="text-center text-[10px] text-muted-foreground">
-                {d}
+        <div className="overflow-x-auto">
+          <div className="flex gap-[2px]" style={{ minWidth: "fit-content" }}>
+            {calendarWeeks.map((week, wi) => (
+              <div key={wi} className="flex flex-col gap-[2px]">
+                {week.map((cell, ci) => (
+                  <div
+                    key={cell.date || `empty-${wi}-${ci}`}
+                    className={`w-2.5 h-2.5 rounded-[2px] ${
+                      !cell.date
+                        ? "bg-transparent"
+                        : cell.hasCommit
+                          ? "bg-emerald-500 dark:bg-emerald-400"
+                          : "bg-muted"
+                    }`}
+                    title={cell.date ? `${cell.date}: ${cell.hasCommit ? "활동" : "비활동"}` : ""}
+                  />
+                ))}
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-1">
-            {monthGrid?.map((cell, i) => (
-              <div
-                key={cell.date || `empty-${i}`}
-                className={`aspect-square rounded-sm flex items-center justify-center text-[10px] ${
-                  !cell.inMonth
-                    ? "bg-transparent"
-                    : cell.hasCommit
-                      ? "bg-emerald-500 dark:bg-emerald-400 text-white dark:text-black font-medium"
-                      : "bg-muted/40 text-muted-foreground"
-                }`}
-              >
-                {cell.inMonth ? parseInt(cell.date.slice(-2), 10) : ""}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Active days count */}
-        <div className="text-center text-xs text-muted-foreground">
-          {monthGrid
-            ? `${monthGrid.filter((c) => c.inMonth && c.hasCommit).length}일 활동`
-            : ""}
         </div>
       </CardContent>
     </Card>
