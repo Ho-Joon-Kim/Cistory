@@ -13,11 +13,30 @@ import {
 } from "../hooks";
 import { segmentLocations, createGeoCircle, findSegmentIndexByStayPoint } from "../utils";
 import { SegmentedRouteAnimator } from "./SegmentedRouteAnimator";
+import { RouteReplayController } from "./RouteReplayController";
+import { FogOfWarLayer } from "./FogOfWarLayer";
+import { MapSidePanel } from "./MapSidePanel";
 import { TimelineSegmentBar } from "./TimelineSegmentBar";
 import { MapSkeleton } from "./MapSkeleton";
-import { MapPin, Clock, Navigation, Bookmark, Loader2 } from "lucide-react";
+import { useRouteReplay } from "../hooks/useRouteReplay";
+import { useFogOfWar } from "../hooks/useFogOfWar";
+import type { LayerVisibility } from "./panels/LayersPanel";
+import { MapPin, Clock, Navigation, Bookmark, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import "mapbox-gl/dist/mapbox-gl.css";
+
+function loadLayerVisibility(): LayerVisibility {
+  if (typeof window === "undefined") return { routes: true, stayPoints: true, savedPlaces: true, speedColors: false, fogOfWar: false };
+  try {
+    const saved = sessionStorage.getItem("cistory-layer-visibility");
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return { routes: true, stayPoints: true, savedPlaces: true, speedColors: false, fogOfWar: false };
+}
+
+function saveLayerVisibility(v: LayerVisibility) {
+  try { sessionStorage.setItem("cistory-layer-visibility", JSON.stringify(v)); } catch {}
+}
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 
@@ -192,10 +211,26 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
   const [mapLoaded, setMapLoaded] = useState(false);
   const mapRef = useRef<MapRef>(null);
 
+  // Layer visibility state
+  const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>(loadLayerVisibility);
+  const handleVisibilityChange = useCallback((key: keyof LayerVisibility, value: boolean) => {
+    setLayerVisibility((prev) => {
+      const next = { ...prev, [key]: value };
+      saveLayerVisibility(next);
+      return next;
+    });
+  }, []);
+
+  // Fog of War
+  const { cells: fogCells } = useFogOfWar(layerVisibility.fogOfWar);
+
   // Bidirectional state
   const [selectedSegmentIndex, setSelectedSegmentIndex] = useState<number | null>(null);
-  const [speedColorMode, setSpeedColorMode] = useState(false);
   const [hoveredSegmentIndex, setHoveredSegmentIndex] = useState<number | null>(null);
+
+  // Route replay state
+  const [replayMode, setReplayMode] = useState(false);
+  const replay = useRouteReplay({ locations, stayPoints });
 
   const segments = useMemo(
     () => segmentLocations(locations, stayPoints),
@@ -291,6 +326,13 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
     setSelectedSegmentIndex(null);
   }, []);
 
+  // Search panel → fly to place
+  const handlePlaceSelect = useCallback((place: { lat: number; lon: number; name: string }) => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.flyTo({ center: [place.lon, place.lat], zoom: 15, duration: 1000 });
+  }, []);
+
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
   const center = initialCenter ?? SEOUL_CENTER;
 
@@ -324,17 +366,31 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
           onClick={handleMapClick}
           reuseMaps
         >
-          {mapLoaded && (
+          {mapLoaded && layerVisibility.routes && (
             <SegmentedRouteAnimator
               locations={locations}
               stayPoints={stayPoints}
               date={date}
               selectedSegmentIndex={selectedSegmentIndex}
               hoveredSegmentIndex={hoveredSegmentIndex}
-              speedColorMode={speedColorMode}
+              speedColorMode={layerVisibility.speedColors}
+              replayProgress={replayMode ? replay.progress : undefined}
             />
           )}
-          {mapLoaded && stayPoints.length > 0 && (
+          {/* Route replay animated marker */}
+          {replayMode && replay.currentCoord && (
+            <Marker
+              longitude={replay.currentCoord.lon}
+              latitude={replay.currentCoord.lat}
+              anchor="center"
+            >
+              <div className="replay-marker-container">
+                <div className="replay-marker-pulse" />
+                <div className="replay-marker-dot" />
+              </div>
+            </Marker>
+          )}
+          {mapLoaded && layerVisibility.stayPoints && stayPoints.length > 0 && (
             <StayPointMarkers
               stayPoints={stayPoints}
               selectedSegmentIndex={selectedSegmentIndex}
@@ -343,25 +399,49 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
               onStayPointSelect={handleMapStayPointSelect}
             />
           )}
-          {mapLoaded && savedPlaces.length > 0 && (
+          {mapLoaded && layerVisibility.savedPlaces && savedPlaces.length > 0 && (
             <SavedPlacesOverlay places={savedPlaces} />
+          )}
+          {/* Fog of War canvas overlay */}
+          {mapLoaded && layerVisibility.fogOfWar && fogCells.length > 0 && (
+            <FogOfWarLayer cells={fogCells} />
           )}
         </Map>
 
-        {/* Speed color mode toggle */}
+        {/* Map Side Panel */}
+        <MapSidePanel
+          layerVisibility={layerVisibility}
+          onLayerVisibilityChange={handleVisibilityChange}
+          segments={segments}
+          selectedSegmentIndex={selectedSegmentIndex}
+          onSegmentClick={handleSegmentClick}
+          onPlaceSelect={handlePlaceSelect}
+        />
+
+        {/* Replay toggle */}
         {locations.length > 1 && (
-          <button
-            type="button"
-            onClick={() => setSpeedColorMode((prev) => !prev)}
-            className={`absolute top-3 right-3 z-10 px-2.5 py-1.5 rounded-lg text-xs font-medium border shadow-sm transition-colors ${
-              speedColorMode
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-background/80 backdrop-blur-sm text-muted-foreground border-border/50 hover:bg-accent"
-            }`}
-            title={speedColorMode ? "일반 경로 색상" : "속도 기반 경로 색상"}
-          >
-            {speedColorMode ? "🌈 속도" : "속도"}
-          </button>
+          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                if (replayMode) {
+                  replay.stop();
+                  setReplayMode(false);
+                } else {
+                  setReplayMode(true);
+                  replay.play();
+                }
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border shadow-sm transition-colors ${
+                replayMode
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background/80 backdrop-blur-sm text-muted-foreground border-border/50 hover:bg-accent"
+              }`}
+              title={replayMode ? "재생 중지" : "경로 재생"}
+            >
+              <Play className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
 
         {/* Loading indicator */}
@@ -392,6 +472,24 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
               <span className="text-sm text-muted-foreground">위치 데이터가 없습니다</span>
             </div>
           </div>
+        )}
+
+        {/* Route Replay Controller */}
+        {replayMode && (
+          <RouteReplayController
+            state={replay.state}
+            progress={replay.progress}
+            currentTimestamp={replay.currentTimestamp}
+            speed={replay.speed}
+            onPlay={replay.play}
+            onPause={replay.pause}
+            onStop={() => {
+              replay.stop();
+              setReplayMode(false);
+            }}
+            onSeek={replay.seek}
+            onSpeedChange={replay.setSpeed}
+          />
         )}
       </div>
 

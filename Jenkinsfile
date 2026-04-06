@@ -27,8 +27,14 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh """
-                    DOCKER_BUILDKIT=1 docker build \
-                        --secret id=env,src=${ENV_FILE} \
+                    NEXT_PUBLIC_APP_URL=\$(grep '^NEXT_PUBLIC_APP_URL=' ${ENV_FILE} | cut -d= -f2- | sed "s/^[\"']//;s/[\"']\$//")
+                    NEXT_PUBLIC_MAPBOX_TOKEN=\$(grep '^NEXT_PUBLIC_MAPBOX_TOKEN=' ${ENV_FILE} | cut -d= -f2- | sed "s/^[\"']//;s/[\"']\$//")
+                    NEXT_PUBLIC_SENTRY_DSN=\$(grep '^NEXT_PUBLIC_SENTRY_DSN=' ${ENV_FILE} | cut -d= -f2- | sed "s/^[\"']//;s/[\"']\$//")
+
+                    docker build \
+                        --build-arg NEXT_PUBLIC_APP_URL="\${NEXT_PUBLIC_APP_URL}" \
+                        --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="\${NEXT_PUBLIC_MAPBOX_TOKEN}" \
+                        --build-arg NEXT_PUBLIC_SENTRY_DSN="\${NEXT_PUBLIC_SENTRY_DSN}" \
                         -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
                         -t ${IMAGE_NAME}:latest \
                         .
@@ -42,7 +48,7 @@ pipeline {
                     # Ensure PostgreSQL is running (skip if container already exists from manual setup)
                     docker start cistory-db 2>/dev/null || docker compose up -d postgres
 
-                    DOCKER_BUILDKIT=1 docker build \
+                    docker build \
                         --target migrator -t ${IMAGE_NAME}:migrator .
                     docker run --rm \
                         --network host \

@@ -7,7 +7,7 @@ import { CommitHeatmap } from "@/components/CommitHeatmap";
 import { UserMenu } from "@/modules/auth/components/UserMenu";
 import { SyncStatus } from "@/modules/sync/components/SyncStatus";
 import { SyncButton } from "@/modules/sync/components/SyncButton";
-import { BarChart3, Wallet } from "lucide-react";
+import { BarChart3, Lightbulb, Wallet } from "lucide-react";
 
 interface HeaderProps {
   showSync?: boolean;
@@ -18,6 +18,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
   const pathname = usePathname();
   const isReportPage = pathname === "/report";
   const isSpendingPage = pathname === "/spending";
+  const isInsightsPage = pathname === "/insights";
 
   return (
     <header className="shrink-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -45,6 +46,17 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
           >
             <Wallet className="h-4 w-4" />
             <span className="hidden sm:inline">소비</span>
+          </Link>
+          <Link
+            href="/insights"
+            className={`flex items-center gap-1.5 text-sm transition-colors ${
+              isInsightsPage
+                ? "text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Lightbulb className="h-4 w-4" />
+            <span className="hidden sm:inline">인사이트</span>
           </Link>
           <Link
             href={isReportPage ? "/" : "/report"}

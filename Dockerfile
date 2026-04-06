@@ -13,16 +13,18 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# .env is mounted as a secret at build time
-# Extract NEXT_PUBLIC_* vars, strip surrounding quotes, export them, then build
+# NEXT_PUBLIC_* vars passed as build args (inlined into client bundle by Next.js)
 # Dummy DATABASE_URL/BETTER_AUTH_SECRET for build (Better Auth imports pool at module scope)
-# Real values are injected at runtime via env_file
-RUN --mount=type=secret,id=env,target=/tmp/.env \
-    grep '^NEXT_PUBLIC_' /tmp/.env | sed "s/=\([\"']\)\(.*\)\1$/=\2/" > /tmp/.env.public && \
-    set -a && . /tmp/.env.public && set +a && \
-    export DATABASE_URL=postgresql://build:build@localhost:5432/build && \
-    export BETTER_AUTH_SECRET=build-placeholder && \
-    mkdir -p public && yarn build
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_MAPBOX_TOKEN
+ARG NEXT_PUBLIC_SENTRY_DSN
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
+ENV BETTER_AUTH_SECRET=build-placeholder
+
+RUN mkdir -p public && yarn build
 
 # Stage: Lightweight migration runner (no build, no secrets needed)
 FROM base AS migrator

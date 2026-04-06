@@ -20,6 +20,8 @@ import { TopPlaces } from "@/modules/report/components/TopPlaces";
 import { WeekdayHourBubble } from "@/modules/report/components/WeekdayHourBubble";
 import { WorkLifeBalanceCard } from "@/modules/report/components/WorkLifeBalanceCard";
 import { useMonthlyReport, useYearlyReport } from "@/modules/report/hooks";
+import { useScratchMap } from "@/modules/report/hooks/useScratchMap";
+import { ScratchMapStats } from "@/modules/report/components/ScratchMapStats";
 import type {
   CodingSectionData,
   CrossAnalysisData,
@@ -82,6 +84,10 @@ const TravelMap = dynamic(
   () => import("@/modules/report/components/TravelMap").then((m) => m.TravelMap),
   { ssr: false }
 );
+const ScratchMap = dynamic(
+  () => import("@/modules/report/components/ScratchMap").then((m) => m.ScratchMap),
+  { ssr: false }
+);
 
 type ReportType = "monthly" | "yearly";
 
@@ -109,6 +115,9 @@ function ReportContent() {
 
   const monthly = useMonthlyReport(yearMonth);
   const yearly = useYearlyReport(year);
+  const scratchMap = useScratchMap(
+    reportType === "yearly" && year ? Number(year) : undefined
+  );
 
   // Pick the active report based on type
   const report = reportType === "monthly" ? monthly : yearly;
@@ -294,6 +303,14 @@ function ReportContent() {
                 locationData={locationData as LocationSectionData | null}
                 crossAnalysisData={crossAnalysisData}
               />
+
+              {/* Scratch Map Section (yearly) */}
+              {reportType === "yearly" && (
+                <ScratchMapSection
+                  isLoading={scratchMap.isLoading}
+                  data={scratchMap.data}
+                />
+              )}
 
               {/* Yearly-only sections */}
               {reportType === "yearly" && (
@@ -571,6 +588,40 @@ function LocationSection({
           />
         </div>
       )}
+    </Section>
+  );
+}
+
+function ScratchMapSection({
+  isLoading,
+  data,
+}: {
+  isLoading: boolean;
+  data: { regions: { name: string; visits: number; firstVisit: string; lastVisit: string; lat: number; lon: number }[]; totalCells: number; totalRegions: number } | null;
+}) {
+  if (isLoading) return <SectionSkeleton title="방문 지도" />;
+  if (!data || data.regions.length === 0) return null;
+
+  return (
+    <Section title="방문 지도">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <Card>
+            <CardContent className="pt-4">
+              <div className="h-[400px]">
+                <ScratchMap regions={data.regions} />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        <div>
+          <ScratchMapStats
+            totalRegions={data.totalRegions}
+            totalCells={data.totalCells}
+            regions={data.regions}
+          />
+        </div>
+      </div>
     </Section>
   );
 }

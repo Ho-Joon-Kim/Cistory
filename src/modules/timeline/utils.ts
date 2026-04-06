@@ -1,4 +1,5 @@
 import type { TimelineCommit } from "./hooks";
+import type { TimelineEvent, TimeEventSubGroup } from "./types";
 
 // --- 1a. Repository color palette ---
 const REPO_COLORS = [
@@ -121,7 +122,44 @@ export function groupCommitsByTimeOfDay(commits: TimelineCommit[]): TimeSubGroup
   return groups;
 }
 
-// --- 1d. Distance formatting ---
+// --- 1d. Unified event time-of-day grouping ---
+
+export function groupEventsByTimeOfDay(events: TimelineEvent[]): TimeEventSubGroup[] {
+  if (events.length === 0) return [];
+
+  const sorted = [...events].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+
+  const groups: TimeEventSubGroup[] = [];
+  let currentGroup: TimelineEvent[] = [sorted[0]];
+  let currentTod = getTimeOfDay(new Date(sorted[0].timestamp).getHours());
+
+  for (let i = 1; i < sorted.length; i++) {
+    const eventDate = new Date(sorted[i].timestamp);
+    const prevDate = new Date(sorted[i - 1].timestamp);
+    const hoursDiff = Math.abs(prevDate.getTime() - eventDate.getTime()) / (1000 * 60 * 60);
+    const tod = getTimeOfDay(eventDate.getHours());
+
+    if (hoursDiff >= 3 && tod !== currentTod) {
+      groups.push({ label: TIME_OF_DAY_LABELS[currentTod], events: currentGroup });
+      currentGroup = [sorted[i]];
+      currentTod = tod;
+    } else {
+      currentGroup.push(sorted[i]);
+    }
+  }
+
+  groups.push({ label: TIME_OF_DAY_LABELS[currentTod], events: currentGroup });
+
+  if (groups.length === 1) {
+    groups[0].label = null;
+  }
+
+  return groups;
+}
+
+// --- 1e. Distance formatting ---
 export function formatDistance(meters: number): string {
   if (meters < 1000) return `${Math.round(meters)}m`;
   const km = meters / 1000;
