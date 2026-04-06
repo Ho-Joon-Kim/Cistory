@@ -26,19 +26,22 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh """
-                    NEXT_PUBLIC_APP_URL=\$(grep '^NEXT_PUBLIC_APP_URL=' ${ENV_FILE} | cut -d= -f2- | sed "s/^[\"']//;s/[\"']\$//")
-                    NEXT_PUBLIC_MAPBOX_TOKEN=\$(grep '^NEXT_PUBLIC_MAPBOX_TOKEN=' ${ENV_FILE} | cut -d= -f2- | sed "s/^[\"']//;s/[\"']\$//")
-                    NEXT_PUBLIC_SENTRY_DSN=\$(grep '^NEXT_PUBLIC_SENTRY_DSN=' ${ENV_FILE} | cut -d= -f2- | sed "s/^[\"']//;s/[\"']\$//")
-
-                    docker build \
-                        --build-arg NEXT_PUBLIC_APP_URL="\${NEXT_PUBLIC_APP_URL}" \
-                        --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="\${NEXT_PUBLIC_MAPBOX_TOKEN}" \
-                        --build-arg NEXT_PUBLIC_SENTRY_DSN="\${NEXT_PUBLIC_SENTRY_DSN}" \
-                        -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
-                        -t ${IMAGE_NAME}:latest \
-                        .
-                """
+                script {
+                    def envVars = [:]
+                    ['NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_MAPBOX_TOKEN', 'NEXT_PUBLIC_SENTRY_DSN'].each { key ->
+                        def val = sh(script: "grep '^${key}=' ${ENV_FILE} | cut -d= -f2- | tr -d \"'\\\"\"", returnStdout: true).trim()
+                        envVars[key] = val
+                    }
+                    sh """
+                        docker build \
+                            --build-arg NEXT_PUBLIC_APP_URL="${envVars.NEXT_PUBLIC_APP_URL}" \
+                            --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="${envVars.NEXT_PUBLIC_MAPBOX_TOKEN}" \
+                            --build-arg NEXT_PUBLIC_SENTRY_DSN="${envVars.NEXT_PUBLIC_SENTRY_DSN}" \
+                            -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
+                            -t ${IMAGE_NAME}:latest \
+                            .
+                    """
+                }
             }
         }
 
