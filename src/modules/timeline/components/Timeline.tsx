@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import type { TimelineCommit } from "../hooks";
+import { useTransactionsForDate } from "../hooks";
 import type { DateEntry } from "../utils";
 import { CommitCard } from "./CommitCard";
 import { CompactCommitCard } from "./CompactCommitCard";
+import { StayPointCard } from "./StayPointCard";
+import { TransactionCard } from "./TransactionCard";
 import { TimelineSkeleton } from "./TimelineSkeleton";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { Code, Loader2, MapPin } from "lucide-react";
@@ -13,13 +16,15 @@ import {
   formatCodingTime,
   formatDistance,
   getRepoColor,
-  groupCommitsByTimeOfDay,
+  groupEventsByTimeOfDay,
 } from "../utils";
-import { useDailyDistances, useTracks, type TrackData } from "@/modules/location/hooks";
+import type { TimelineEvent } from "../types";
+import { useDailyDistances, useStayPoints, useTracks, type StayPointData, type TrackData } from "@/modules/location/hooks";
 import { TrackCard } from "@/modules/location/components/TrackCard";
 import { useCodingSessions, useCodingStats } from "@/modules/wakatime/hooks";
 import type { CodingSessionData, CodingStatData } from "@/modules/wakatime/hooks";
 import { CodingSessionCard } from "@/modules/wakatime/components/CodingSessionCard";
+import type { TransactionItem } from "@/modules/spending/hooks";
 
 interface TimelineProps {
   commits: TimelineCommit[];
@@ -87,6 +92,8 @@ interface DateGroupSectionProps {
   codingSessions?: CodingSessionData[];
   codingStats?: CodingStatData;
   tracks?: TrackData[];
+  stayPoints?: StayPointData[];
+  transactions?: TransactionItem[];
 }
 
 const DateGroupSection = memo(function DateGroupSection({
@@ -102,10 +109,55 @@ const DateGroupSection = memo(function DateGroupSection({
   codingSessions,
   codingStats,
   tracks,
+  stayPoints,
+  transactions,
 }: DateGroupSectionProps) {
   const { date, commits: dateCommits, isEmpty } = entry;
   const { label, isToday } = formatDateHeader(date);
-  const subGroups = isSelected ? groupCommitsByTimeOfDay(dateCommits) : [];
+
+  // Build unified timeline events for the selected date
+  const hasAnyData = !isEmpty || (stayPoints && stayPoints.length > 0) || (tracks && tracks.length > 0) || (codingSessions && codingSessions.length > 0) || (transactions && transactions.length > 0);
+  const unifiedEventGroups = useMemo(() => {
+    if (!isSelected || !hasAnyData) return null;
+
+    const events: TimelineEvent[] = [];
+
+    for (const commit of dateCommits) {
+      events.push({ type: "commit", timestamp: commit.committedAt, data: commit });
+    }
+
+    if (stayPoints) {
+      for (const sp of stayPoints) {
+        events.push({ type: "stay", timestamp: sp.startTime, data: sp });
+      }
+    }
+
+    if (codingSessions && codingSessions.length > 0) {
+      const earliest = codingSessions.reduce((a, b) =>
+        new Date(a.startedAt).getTime() < new Date(b.startedAt).getTime() ? a : b,
+      );
+      events.push({
+        type: "coding",
+        timestamp: earliest.startedAt,
+        data: { sessions: codingSessions, stats: codingStats },
+      });
+    }
+
+    if (tracks) {
+      for (const track of tracks) {
+        events.push({ type: "track", timestamp: track.startTime, data: track });
+      }
+    }
+
+    if (transactions) {
+      for (const tx of transactions) {
+        events.push({ type: "transaction", timestamp: tx.transactedAt, data: tx });
+      }
+    }
+
+    if (events.length === 0) return null;
+    return groupEventsByTimeOfDay(events);
+  }, [isSelected, hasAnyData, dateCommits, stayPoints, codingSessions, codingStats, tracks, transactions]);
 
   return (
     <div
@@ -196,20 +248,10 @@ const DateGroupSection = memo(function DateGroupSection({
 
       {/* Content */}
       <div className="ml-10 md:ml-14">
-        {/* Selected date: full layout */}
-        {isSelected && !isEmpty && (
+        {/* Selected date: unified timeline */}
+        {isSelected && unifiedEventGroups && (
           <div className="space-y-1">
-            {codingSessions && codingSessions.length > 0 && (
-              <CodingSessionCard sessions={codingSessions} stats={codingStats} />
-            )}
-            {tracks && tracks.length > 0 && (
-              <div className="space-y-1">
-                {tracks.map((track) => (
-                  <TrackCard key={track.id} track={track} />
-                ))}
-              </div>
-            )}
-            {subGroups.map((subGroup, sgIndex) => (
+            {unifiedEventGroups.map((subGroup, sgIndex) => (
               <div key={sgIndex}>
                 {subGroup.label && (
                   <div className="flex items-center gap-2 py-2">
@@ -220,42 +262,61 @@ const DateGroupSection = memo(function DateGroupSection({
                   </div>
                 )}
                 <div className="space-y-1">
-                  {subGroup.commits.map((commit, index) => (
-                    <div key={commit.id} className="relative commit-card-stagger">
-                      <div className="timeline-tick absolute -left-[23px] md:-left-[31px] top-1/2 -translate-y-1/2" />
-                      <CommitCard
-                        commit={commit}
-                        isNew={newCommitIds.has(commit.id)}
-                        animationDelay={index * 50}
-                        repoColor={repoColorMap.get(commit.repository.fullName)}
-                      />
-                    </div>
-                  ))}
+                  {subGroup.events.map((event, index) => {
+                    switch (event.type) {
+                      case "commit":
+                        return (
+                          <div key={`commit-${event.data.id}`} className="relative commit-card-stagger">
+                            <div className="timeline-tick absolute -left-[23px] md:-left-[31px] top-1/2 -translate-y-1/2" />
+                            <CommitCard
+                              commit={event.data}
+                              isNew={newCommitIds.has(event.data.id)}
+                              animationDelay={index * 50}
+                              repoColor={repoColorMap.get(event.data.repository.fullName)}
+                            />
+                          </div>
+                        );
+                      case "coding":
+                        return (
+                          <CodingSessionCard
+                            key="coding-summary"
+                            sessions={event.data.sessions}
+                            stats={event.data.stats}
+                          />
+                        );
+                      case "stay":
+                        return (
+                          <StayPointCard
+                            key={`stay-${event.data.lat}-${event.data.lon}-${event.data.startTime}`}
+                            stayPoint={event.data}
+                          />
+                        );
+                      case "track":
+                        return (
+                          <TrackCard key={`track-${event.data.id}`} track={event.data} />
+                        );
+                      case "transaction":
+                        return (
+                          <TransactionCard
+                            key={`tx-${event.data.id}`}
+                            transaction={event.data}
+                          />
+                        );
+                      default:
+                        return null;
+                    }
+                  })}
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Selected but empty */}
-        {isSelected && isEmpty && (
-          <div className="space-y-1">
-            {codingSessions && codingSessions.length > 0 && (
-              <CodingSessionCard sessions={codingSessions} stats={codingStats} />
-            )}
-            {tracks && tracks.length > 0 && (
-              <div className="space-y-1">
-                {tracks.map((track) => (
-                  <TrackCard key={track.id} track={track} />
-                ))}
-              </div>
-            )}
-            {(!tracks || tracks.length === 0) && (
-              <p className="text-sm text-muted-foreground/60 py-2">
-                이 날의 커밋이 없습니다
-              </p>
-            )}
-          </div>
+        {/* Selected but truly empty */}
+        {isSelected && !unifiedEventGroups && (
+          <p className="text-sm text-muted-foreground/60 py-2">
+            이 날의 활동이 없습니다
+          </p>
         )}
 
         {/* Non-selected: compact commits */}
@@ -401,6 +462,12 @@ export function Timeline({
   // Tracks for selected date
   const { tracks: selectedDateTracks } = useTracks(selectedDate);
 
+  // Stay points for selected date
+  const { stayPoints: selectedDateStayPoints } = useStayPoints(selectedDate);
+
+  // Transactions for selected date
+  const { transactions: selectedDateTransactions } = useTransactionsForDate(selectedDate);
+
   // Fallback: compute coding seconds from sessions for selected date badge
   const selectedDateSessionSeconds = useMemo(() => {
     if (codingSessions.length === 0) return 0;
@@ -489,6 +556,8 @@ export function Timeline({
             codingSessions={entry.date === selectedDate ? codingSessions : undefined}
             codingStats={codingStatsMap[entry.date]}
             tracks={entry.date === selectedDate ? selectedDateTracks : undefined}
+            stayPoints={entry.date === selectedDate ? selectedDateStayPoints : undefined}
+            transactions={entry.date === selectedDate ? selectedDateTransactions : undefined}
           />
         ))}
       </div>

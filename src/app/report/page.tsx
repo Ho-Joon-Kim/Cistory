@@ -20,6 +20,8 @@ import { TopPlaces } from "@/modules/report/components/TopPlaces";
 import { WeekdayHourBubble } from "@/modules/report/components/WeekdayHourBubble";
 import { WorkLifeBalanceCard } from "@/modules/report/components/WorkLifeBalanceCard";
 import { useMonthlyReport, useYearlyReport } from "@/modules/report/hooks";
+import { useScratchMap } from "@/modules/report/hooks/useScratchMap";
+import { ScratchMapStats } from "@/modules/report/components/ScratchMapStats";
 import type {
   CodingSectionData,
   CrossAnalysisData,
@@ -82,6 +84,10 @@ const TravelMap = dynamic(
   () => import("@/modules/report/components/TravelMap").then((m) => m.TravelMap),
   { ssr: false }
 );
+const ScratchMap = dynamic(
+  () => import("@/modules/report/components/ScratchMap").then((m) => m.ScratchMap),
+  { ssr: false }
+);
 
 type ReportType = "monthly" | "yearly";
 
@@ -109,6 +115,9 @@ function ReportContent() {
 
   const monthly = useMonthlyReport(yearMonth);
   const yearly = useYearlyReport(year);
+  const scratchMap = useScratchMap(
+    reportType === "yearly" && year ? Number(year) : undefined
+  );
 
   // Pick the active report based on type
   const report = reportType === "monthly" ? monthly : yearly;
@@ -294,6 +303,31 @@ function ReportContent() {
                 locationData={locationData as LocationSectionData | null}
                 crossAnalysisData={crossAnalysisData}
               />
+
+              {/* Scratch Map (yearly only) */}
+              {reportType === "yearly" && scratchMap.data && scratchMap.data.regions.length > 0 && (
+                <div className="space-y-4">
+                  <h2 className="text-lg font-semibold">방문 지도</h2>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="h-[400px]">
+                            <ScratchMap regions={scratchMap.data.regions} />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <div>
+                      <ScratchMapStats
+                        totalRegions={scratchMap.data.totalRegions}
+                        totalCells={scratchMap.data.totalCells}
+                        regions={scratchMap.data.regions}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Yearly-only sections */}
               {reportType === "yearly" && (
