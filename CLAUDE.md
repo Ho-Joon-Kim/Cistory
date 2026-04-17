@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks, monitors coding activity via WakaTime, and logs Toss financial transactions via MacroDroid push notifications. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL, and the Anthropic SDK. Includes comprehensive monthly/yearly report generation with AI narratives, map visualization (Mapbox/Kakao), and automatic background sync via integrated Cron worker with Sentry error tracking and Better Stack structured logging.
+Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks (with visit/track/transport-mode/trip detection), monitors coding activity via WakaTime, and logs Toss financial transactions via MacroDroid push notifications. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL, and the Anthropic SDK. Includes comprehensive monthly/yearly reports and an "insights" dashboard with AI narratives, map visualization (Mapbox/Kakao), and automatic background sync via an integrated Cron worker, with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -55,13 +55,14 @@ Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `y
 src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
-│   ├── (dashboard)/         # Dashboard route group (settings, repositories)
-│   ├── api/                 # API routes (~30 endpoints)
-│   ├── report/              # Monthly/yearly report pages
-│   └── dashboard/           # Main dashboard page
+│   ├── (dashboard)/         # Dashboard route group (settings, repositories, spending)
+│   ├── api/                 # API routes (14 top-level groups, ~50+ endpoints)
+│   ├── dashboard/           # Main dashboard page
+│   ├── insights/            # Insights dashboard (places, transportation, residency, etc.)
+│   └── report/              # Monthly/yearly report pages
 ├── components/              # Shared components (Layout/, ui/ with 19 shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (13 tables)
+│   ├── schema.ts            # Drizzle schema (17 app tables)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
 │   ├── adapters/            # Adapter pattern interfaces + implementations
@@ -80,13 +81,13 @@ src/
 │   └── utils.ts             # Shared utilities (cn, generateId, now, formatRelativeTime, etc.)
 ├── modules/                 # Feature modules (hooks.ts, service.ts, components/)
 │   ├── auth/               # Auth hooks (useAuth, useUser)
-│   ├── github/             # GitHub service wrapper (GitHubService class)
-│   ├── location/           # Location tracking (OwnTracks, stay points, map)
-│   ├── settings/           # User settings (theme, sync interval, OwnTracks key, WakaTime key)
+│   ├── insights/           # Insights dashboard (hooks, service, components)
+│   ├── location/           # Location tracking + processing (services/: anomaly-filter, visit-detector, visit-persister, track-builder, track-persister, trip-detector, transportation/, residency, first-visits, time-of-day, countries-cities, import)
+│   ├── report/             # Monthly/yearly reports (service, hooks, AI narratives, 20+ chart components, comparison-service, travel)
+│   ├── settings/           # User settings (theme, sync interval, OwnTracks/WakaTime/Toss keys)
+│   ├── spending/           # Spending data hooks (Toss transactions)
 │   ├── summary/            # AI commit summary service
 │   ├── sync/               # Commit sync service (SyncService class)
-│   ├── report/             # Monthly/yearly reports (service, hooks, AI narratives, 20+ chart components)
-│   ├── spending/           # Spending data hooks (Toss transactions)
 │   ├── timeline/           # Timeline display (hooks, CommitCard, Timeline, Filters)
 │   ├── transaction/        # Toss notification parser (parser.ts)
 │   └── wakatime/           # WakaTime coding activity (service, hooks, components)
@@ -125,7 +126,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (13 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (17 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 - `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Better Auth `user.id`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
@@ -136,9 +137,15 @@ const db = getDb();
 - `codingDailyStats` - Daily aggregated coding statistics (projects, languages, editors, categories)
 - `dailyDistances` - Cached daily travel distances
 - `savedPlaces` - User-defined named locations with radius, category, icon, color
+- `visits` - Persisted stay points (center lat/lon, radius, start/end time, duration, reverse-geocoded placeName/address/city/countryName, optional `savedPlaceId` link). Indexed on `(userId, startTime)` and `(userId, city)`
+- `tracks` - Persisted movement journeys between visits (start/end time, distanceMeters, pointCount, start/end place names, dominantMode, elevation gain/loss)
+- `transportationSegments` - Fine-grained transport-mode segments (mode: stationary/walking/running/cycling/driving/train/flying/unknown; confidence; avg/max speed; optional `trackId` link)
+- `trips` - Travel detection (name, startDate/endDate as "YYYY-MM-DD", visitedCities/Countries JSON, `isOverseas`, `autoDetected`)
 - `notificationLogs` - Raw Toss/MacroDroid push notification payloads (source, rawPayload, headers)
 - `transactions` - Parsed Toss financial transactions (type: withdrawal/deposit, amount, merchant, accountName). Unique on `(userId, notificationLogId)`
 - `dataUsageCache` - Per-user per-table row count and estimated byte size cache
+
+PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` columns rather than a `geography` type, but the extension is expected to be available for spatial queries.
 
 **Better Auth Setup** (`src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/lib/auth-helpers.ts`):
 - Server: `betterAuth()` with `pg.Pool`, GitHub OAuth, cookie cache (5min), UUID ID generation
@@ -154,9 +161,9 @@ const db = getDb();
 - Both flows use shared `_executeSyncCommits()` private method
 - Deduplication via SHA batch lookup (batch size: 500)
 - Rate limiting: 100ms delay between commit saves
-- Cron runs every 10 minutes, respects per-user `syncIntervalHours`
-- Cron also processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, refreshes data usage cache, and auto-deletes sync jobs older than 7 days
-- Daily cron at 23:00: reparses today's Toss notifications to pick up parser improvements
+- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, refreshes data usage cache, and auto-deletes sync jobs older than 7 days
+- Daily Toss reparse cron (`0 23 * * *` — 23:00 KST): reparses today's Toss notifications to pick up parser improvements
+- Daily location-processing cron (`0 1 * * *` — 01:00 KST): for each user with OwnTracks configured, runs anomaly detection, visit detection + persist, track building + persist, and transportation-mode detection for the previous day (see `src/modules/location/services/`)
 
 **Session/Token Management**:
 - Cookie-based sessions managed by Better Auth with cookie cache (5-minute TTL to minimize DB lookups)
@@ -165,10 +172,13 @@ const db = getDb();
 
 **Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`. Also initializes Sentry and registers graceful shutdown handlers (SIGINT/SIGTERM). Set `RUN_ON_START=true` to trigger an immediate sync on boot.
 
-**Location Tracking**:
+**Location Tracking & Processing** (`src/modules/location/services/`):
 - OwnTracks app sends GPS data to `/api/owntracks?apikey={key}` (returns `[]` per OwnTracks protocol)
-- Stay point detection: clusters points within 100m radius, minimum 10-minute stay duration
-- Geocoding auto-selects Kakao (Korean coordinates), Google Places, or Mapbox (international)
+- On-demand stay-point detection for client views: clusters points within 100m radius, minimum 10-minute stay
+- Persisted `visits`/`tracks`/`transportationSegments` are computed by the daily 01:00 cron (previous-day KST window) and exposed via `/api/timeline/locations/*` and insights endpoints
+- Pipeline stages: `anomaly-filter` → `visit-detector`/`visit-persister` → `track-builder`/`track-persister` → `transportation/detector`. `trip-detector` + `/api/trips/detect` group visits into multi-day trips (overseas detection included)
+- Geocoding auto-selects Kakao (Korean coordinates), Google Places, or Mapbox (international); results cached in `placeCache`
+- Backfill & import: `/api/settings/location-backfill` and `/api/timeline/locations/import` re-run processing or ingest GPX/external data
 - Location hooks poll every 60 seconds when viewing today's date
 
 **Reports** (`src/modules/report/`):
@@ -199,14 +209,16 @@ const db = getDb();
 ### API Routes
 
 - `/api/auth/[...all]` - Better Auth catch-all (login, callback, session, signout); `/api/auth/disconnect` - DELETE account
-- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key; `/api/settings/wakatime-key` - POST/DELETE WakaTime key; `/api/settings/toss-key` - POST/DELETE Toss key; `/api/settings/wakatime-sync` - POST manual WakaTime sync; `/api/settings/data-usage` - GET data usage stats; `/api/settings/db-benchmark` - GET DB benchmark
+- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key; `/api/settings/wakatime-key` - POST/DELETE WakaTime key; `/api/settings/toss-key` - POST/DELETE Toss key; `/api/settings/wakatime-sync` - POST manual WakaTime sync; `/api/settings/data-usage` - GET data usage stats; `/api/settings/db-benchmark` - GET DB benchmark; `/api/settings/location-backfill` - POST re-run location processing pipeline
 - `/api/sync` - POST manual sync; `/api/sync/status` - GET status; `/api/sync/jobs` - GET history
 - `/api/timeline` - GET paginated commits with filters
 - `/api/timeline/repos` - GET user repos; `/api/timeline/stats` - GET commit stats
 - `/api/timeline/commits/[commitId]` - GET details; `.../stats` - GET file stats; `.../summary` - GET/POST summary
-- `/api/timeline/locations` - GET location points; `.../stay-points` - GET detected stay points; `.../distances` - GET daily travel distances
+- `/api/timeline/locations` - GET location points; `.../stay-points` - detected stay points; `.../distances` - daily travel distances; `.../anomalies` - anomaly-flagged points; `.../tracks` - movement tracks; `.../transport-modes` - transportation segments; `.../activity` - activity summary; `.../first-visits` - first-time city/country visits; `.../residency` - residency analysis; `.../fog-cells` - visited-area fog-of-war grid; `.../stats` - location stats; `.../import` - GPX/external import
 - `/api/timeline/coding-sessions` - GET WakaTime coding sessions
 - `/api/timeline/coding-stats` - GET WakaTime coding statistics
+- `/api/trips` - GET/POST trips; `/api/trips/[id]` - PUT/DELETE trip; `/api/trips/detect` - POST auto-detect trips from visits
+- `/api/insights` - GET insights dashboard data (places, transport, residency aggregates)
 - `/api/reports/monthly` - GET monthly report data (supports `?section=` for commits/coding/location); POST AI narrative
 - `/api/reports/yearly` - GET yearly report data (supports `?section=`); POST AI narrative
 - `/api/summaries/process` - POST batch summary generation
