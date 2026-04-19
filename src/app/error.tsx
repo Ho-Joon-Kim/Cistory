@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+// biome-ignore lint/suspicious/noShadowRestrictedNames: Next.js App Router requires this export name
 export default function Error({
   error,
   reset,

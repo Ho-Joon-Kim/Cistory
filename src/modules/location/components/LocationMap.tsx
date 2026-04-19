@@ -4,7 +4,7 @@ import { Bookmark, Clock, Loader2, MapPin, Navigation, Play } from "lucide-react
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayerProps, MapRef } from "react-map-gl/mapbox";
-import Map, { Layer, Marker, Popup, Source } from "react-map-gl/mapbox";
+import { Layer, default as MapGL, Marker, Popup, Source } from "react-map-gl/mapbox";
 import { toast } from "sonner";
 import {
   type SavedPlaceData,
@@ -352,7 +352,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
   return (
     <div className={`relative flex flex-col ${className ?? ""}`}>
       <div className="relative flex-1">
-        <Map
+        <MapGL
           ref={mapRef}
           id="location-map"
           mapboxAccessToken={MAPBOX_TOKEN}
@@ -407,7 +407,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
           {mapLoaded && layerVisibility.fogOfWar && fogCells.length > 0 && (
             <FogOfWarLayer cells={fogCells} />
           )}
-        </Map>
+        </MapGL>
 
         {/* Map Side Panel */}
         <MapSidePanel

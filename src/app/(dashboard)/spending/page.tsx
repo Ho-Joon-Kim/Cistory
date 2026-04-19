@@ -241,7 +241,7 @@ export default function SpendingPage() {
     clear: clearCleanup,
   } = useCleanup();
 
-  const { data: trendData, isLoading: trendLoading } = useSpendingTrend();
+  const { data: trendData } = useSpendingTrend();
 
   if (isAuthLoading) {
     return (

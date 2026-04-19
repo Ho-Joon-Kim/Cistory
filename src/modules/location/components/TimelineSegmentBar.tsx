@@ -101,7 +101,7 @@ function StepperTooltip({
 export function TimelineSegmentBar({
   segments,
   selectedIndex,
-  hoveredIndex,
+  hoveredIndex: _hoveredIndex,
   onSegmentClick,
   onSegmentHover,
 }: TimelineSegmentBarProps) {
@@ -152,7 +152,7 @@ export function TimelineSegmentBar({
 
             return (
               <button
-                key={`track-${i}`}
+                key={`stay-${sp.startTime}`}
                 ref={(el) => {
                   if (el) dotRefs.current.set(i, el);
                 }}
@@ -176,7 +176,7 @@ export function TimelineSegmentBar({
           // Moving segment
           return (
             <div
-              key={`track-${i}`}
+              key={`move-${seg.startTime}`}
               className={`stepper-dash ${isDimmed ? "stepper-dash-dimmed" : ""}`}
               style={{ left: `${pos.leftPercent}%`, width: `${pos.widthPercent}%` }}
               onClick={() => onSegmentClick(i)}

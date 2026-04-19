@@ -58,6 +58,7 @@ export function CommitHeatmap() {
       <div className="flex items-end gap-[2px] h-6">
         {Array.from({ length: 30 }).map((_, i) => (
           <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length skeleton shimmer bars
             key={i}
             className="w-1 bg-muted rounded-sm animate-shimmer"
             style={{ height: `${Math.random() * 16 + 4}px` }}

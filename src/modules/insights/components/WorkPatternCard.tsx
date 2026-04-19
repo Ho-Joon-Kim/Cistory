@@ -109,6 +109,7 @@ export function WorkPatternCard({ data, isLoading }: WorkPatternCardProps) {
           <div className="flex items-end gap-[2px] h-16">
             {data.hourDistribution.map((count, hour) => (
               <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: fixed 24-element hour array; hour is the stable id
                 key={hour}
                 className="flex-1 bg-emerald-500 dark:bg-emerald-400 rounded-t-sm min-h-[1px] transition-all"
                 style={{ height: `${(count / maxHourCount) * 100}%` }}

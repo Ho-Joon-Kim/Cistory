@@ -269,6 +269,7 @@ const DateGroupSection = memo(function DateGroupSection({
         {isSelected && unifiedEventGroups && (
           <div className="space-y-1">
             {unifiedEventGroups.map((subGroup, sgIndex) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: subGroups are fixed time-of-day buckets; order is stable
               <div key={sgIndex}>
                 {subGroup.label && (
                   <div className="flex items-center gap-2 py-2">

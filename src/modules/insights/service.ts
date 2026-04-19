@@ -60,6 +60,7 @@ export interface CommitHeatmapResult {
 
 // ── Service ────────────────────────────────────────────────────────────────
 
+// biome-ignore lint/complexity/noStaticOnlyClass: namespace-style grouping for service methods; scheduled to convert to plain functions in Phase 6 refactor
 export class InsightsService {
   /**
    * Calculate current/max commit streaks and a calendar of active days for the year.

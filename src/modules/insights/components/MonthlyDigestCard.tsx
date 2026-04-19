@@ -51,6 +51,7 @@ export function MonthlyDigestCard({ data, isLoading, year }: MonthlyDigestCardPr
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {Array.from({ length: 12 }, (_, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length skeleton placeholders
               <Skeleton key={i} className="h-24" />
             ))}
           </div>

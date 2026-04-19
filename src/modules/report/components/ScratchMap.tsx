@@ -2,7 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { useMemo, useState } from "react";
-import Map, { Layer, Popup, Source } from "react-map-gl/mapbox";
+import { Layer, default as MapGL, Popup, Source } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -56,7 +56,7 @@ export function ScratchMap({ regions }: ScratchMapProps) {
       : "mapbox://styles/mapbox/light-v11";
 
   return (
-    <Map
+    <MapGL
       mapboxAccessToken={MAPBOX_TOKEN}
       initialViewState={{
         latitude: 36.5,
@@ -135,6 +135,6 @@ export function ScratchMap({ regions }: ScratchMapProps) {
           </div>
         </Popup>
       )}
-    </Map>
+    </MapGL>
   );
 }

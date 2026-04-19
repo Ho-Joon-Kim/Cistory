@@ -15,6 +15,7 @@ function parseMarkdownInline(text: string): React.ReactNode[] {
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex.exec iteration idiom
   while ((match = regex.exec(text)) !== null) {
     // Text before the match
     if (match.index > lastIndex) {

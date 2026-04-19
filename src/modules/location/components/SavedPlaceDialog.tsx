@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { LayerProps, MarkerDragEvent } from "react-map-gl/mapbox";
 // Conditionally import map components — only render when token available
-import Map, { Layer, Marker, Source } from "react-map-gl/mapbox";
+import { Layer, default as MapGL, Marker, Source } from "react-map-gl/mapbox";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -215,7 +215,7 @@ function DialogMiniMap({
   );
 
   return (
-    <Map
+    <MapGL
       mapboxAccessToken={MAPBOX_TOKEN}
       initialViewState={{
         longitude: lon,
@@ -237,7 +237,7 @@ function DialogMiniMap({
           <MapPin className="h-6 w-6" />
         </div>
       </Marker>
-    </Map>
+    </MapGL>
   );
 }
 

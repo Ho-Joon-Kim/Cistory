@@ -160,6 +160,7 @@ export function CodingHeatmap({ data, isLoading, year }: CodingHeatmapProps) {
           {DAY_LABELS.map((label, i) =>
             label ? (
               <text
+                // biome-ignore lint/suspicious/noArrayIndexKey: fixed DAY_LABELS array; index is the stable weekday id
                 key={i}
                 x={0}
                 y={monthLabelHeight + i * step + cellSize - 1}

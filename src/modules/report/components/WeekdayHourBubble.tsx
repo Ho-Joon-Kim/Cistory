@@ -53,6 +53,7 @@ export function WeekdayHourBubble({ commitsByDayOfWeek, commitsByHour }: Weekday
 
               {/* Hour labels */}
               {Array.from({ length: 24 }, (_, h) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: fixed 24-hour grid; h is the stable hour id
                 <div key={`h-${h}`} className="text-[10px] text-muted-foreground text-center">
                   {h % 3 === 0 ? `${h}` : ""}
                 </div>
@@ -60,6 +61,7 @@ export function WeekdayHourBubble({ commitsByDayOfWeek, commitsByHour }: Weekday
 
               {/* Rows */}
               {DAY_LABELS.map((dayLabel, dayIdx) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: fixed DAY_LABELS; dayIdx is the stable weekday id
                 <Fragment key={`row-${dayIdx}`}>
                   {/* Day label */}
                   <div className="text-[10px] text-muted-foreground pr-1.5 flex items-center justify-end">
@@ -74,6 +76,7 @@ export function WeekdayHourBubble({ commitsByDayOfWeek, commitsByHour }: Weekday
                     const opacity = Math.max(normalizedSize * 0.9 + 0.1, 0.1);
 
                     return (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 7x24 fixed grid; (dayIdx,hourIdx) is the stable cell id
                       <Tooltip key={`${dayIdx}-${hourIdx}`}>
                         <TooltipTrigger asChild>
                           <div className="flex items-center justify-center h-6 w-full min-w-[14px]">

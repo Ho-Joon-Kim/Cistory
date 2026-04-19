@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Calendar, GitCommit, Map, Timer } from "lucide-react";
+import { ArrowDown, ArrowUp, Calendar, GitCommit, Map as MapIcon, Timer } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -140,7 +140,7 @@ export function StatCards({
       yearOverYear: yoyCodingChange,
     },
     {
-      icon: <Map className="h-5 w-5 text-blue-500" />,
+      icon: <MapIcon className="h-5 w-5 text-blue-500" />,
       label: "총 이동 거리",
       value: location ? formatKm(location.totalDistanceMeters) : null,
       change:

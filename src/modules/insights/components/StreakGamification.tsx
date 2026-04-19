@@ -26,7 +26,7 @@ const _MONTH_LABELS = [
   "12월",
 ];
 
-export function StreakGamification({ data, isLoading, year }: StreakGamificationProps) {
+export function StreakGamification({ data, isLoading, year: _year }: StreakGamificationProps) {
   const calendarWeeks = useMemo(() => {
     if (!data?.calendar) return [];
 
@@ -119,6 +119,7 @@ export function StreakGamification({ data, isLoading, year }: StreakGamification
         <div className="overflow-x-auto">
           <div className="flex gap-[2px]" style={{ minWidth: "fit-content" }}>
             {calendarWeeks.map((week, wi) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: fixed calendar week grid; wi is the stable week position
               <div key={wi} className="flex flex-col gap-[2px]">
                 {week.map((cell, ci) => (
                   <div

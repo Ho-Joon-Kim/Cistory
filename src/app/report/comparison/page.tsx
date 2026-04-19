@@ -85,6 +85,7 @@ function ComparisonContent() {
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length skeleton placeholders have no stable id
               <Skeleton key={i} className="h-28 rounded-lg" />
             ))}
           </div>

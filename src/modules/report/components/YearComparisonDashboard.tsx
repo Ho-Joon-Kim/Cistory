@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, GitCommit, Map, Minus, Timer } from "lucide-react";
+import { ArrowDown, ArrowUp, GitCommit, Map as MapIcon, Minus, Timer } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { YearComparisonData } from "../comparison-service";
 
@@ -125,7 +125,7 @@ export function YearComparisonDashboard({ data }: YearComparisonDashboardProps) 
         />
         <CompareCard
           label="이동 거리"
-          icon={<Map className="h-4 w-4 text-orange-500" />}
+          icon={<MapIcon className="h-4 w-4 text-orange-500" />}
           value1={formatKm(metrics.year1.totalDistanceMeters)}
           value2={formatKm(metrics.year2.totalDistanceMeters)}
           growthPercent={deltas.distanceMeters.growthPercent}

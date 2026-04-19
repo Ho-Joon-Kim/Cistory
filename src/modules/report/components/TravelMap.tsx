@@ -4,7 +4,7 @@ import { Plane } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useState } from "react";
 import type { LayerProps } from "react-map-gl/mapbox";
-import Map, { Layer, Marker, Popup, Source } from "react-map-gl/mapbox";
+import { Layer, default as MapGL, Marker, Popup, Source } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -106,7 +106,7 @@ export function TravelMap({ trips, topPlaces, className }: TravelMapProps) {
 
   return (
     <div className={`relative rounded-lg overflow-hidden ${className ?? ""}`}>
-      <Map
+      <MapGL
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={{ latitude: 35, longitude: 130, zoom: 3 }}
         mapStyle={mapStyle}
@@ -174,7 +174,7 @@ export function TravelMap({ trips, topPlaces, className }: TravelMapProps) {
             )}
           </>
         )}
-      </Map>
+      </MapGL>
     </div>
   );
 }

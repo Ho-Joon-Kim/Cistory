@@ -44,7 +44,7 @@ export function TimelinePanel({ segments, selectedIndex, onSegmentClick }: Timel
             const sp = seg.stayPoint;
             return (
               <button
-                key={`tl-${i}`}
+                key={`stay-${sp.startTime}`}
                 type="button"
                 className={`flex items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50 ${
                   isSelected ? "bg-accent" : ""
@@ -84,7 +84,7 @@ export function TimelinePanel({ segments, selectedIndex, onSegmentClick }: Timel
 
           return (
             <button
-              key={`tl-${i}`}
+              key={`move-${seg.startTime}`}
               type="button"
               className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/50 ${
                 isSelected ? "bg-accent" : ""

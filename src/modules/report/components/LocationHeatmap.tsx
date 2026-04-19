@@ -3,7 +3,7 @@
 import { useTheme } from "next-themes";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { LayerProps, MapRef } from "react-map-gl/mapbox";
-import Map, { Layer, Source } from "react-map-gl/mapbox";
+import { Layer, default as MapGL, Source } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -101,7 +101,7 @@ export function LocationHeatmap({ points, className }: LocationHeatmapProps) {
 
   return (
     <div className={`relative rounded-lg overflow-hidden ${className ?? ""}`}>
-      <Map
+      <MapGL
         ref={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={{ latitude: avgLat, longitude: avgLon, zoom: 10 }}
@@ -115,7 +115,7 @@ export function LocationHeatmap({ points, className }: LocationHeatmapProps) {
             <Layer {...HEATMAP_LAYER} />
           </Source>
         )}
-      </Map>
+      </MapGL>
     </div>
   );
 }
