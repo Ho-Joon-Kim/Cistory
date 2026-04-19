@@ -128,6 +128,37 @@ export function checkBodySize(request: NextRequest): {
 }
 
 /**
+ * Check that the request's Origin (or Referer) matches one of the configured
+ * app URLs. Returns null on pass, NextResponse(403) on reject. Use on
+ * destructive same-origin-only endpoints (e.g. account deletion) to harden
+ * against cross-site form/fetch attacks beyond SameSite cookies.
+ */
+export function checkSameOrigin(
+  request: NextRequest
+): { ok: true } | { ok: false; reason: string } {
+  const allowed = [process.env.BETTER_AUTH_URL, process.env.NEXT_PUBLIC_APP_URL]
+    .filter((s): s is string => typeof s === "string" && s.length > 0)
+    .map((s) => s.replace(/\/$/, ""));
+
+  if (allowed.length === 0) {
+    // Nothing configured — treat as open deployment (dev). Allow.
+    return { ok: true };
+  }
+
+  const origin = request.headers.get("origin");
+  const referer = request.headers.get("referer");
+
+  const candidate = origin ?? (referer ? new URL(referer).origin : null);
+  if (!candidate) return { ok: false, reason: "missing Origin/Referer" };
+
+  const normalized = candidate.replace(/\/$/, "");
+  if (!allowed.some((a) => normalized === a || normalized.startsWith(`${a}/`))) {
+    return { ok: false, reason: `origin ${candidate} not allowed` };
+  }
+  return { ok: true };
+}
+
+/**
  * Log a throttling or auth failure in a structured way without leaking the key.
  */
 export function logIngestionFailure(
