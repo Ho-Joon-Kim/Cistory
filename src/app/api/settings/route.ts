@@ -6,10 +6,11 @@
  */
 
 import { eq } from "drizzle-orm";
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { withAuth, withValidation } from "@/lib/api-handler";
 
 interface UserSettings {
   theme: "light" | "dark" | "system";
@@ -23,12 +24,17 @@ const DEFAULT_SETTINGS: UserSettings = {
   lastSyncedAt: null,
 };
 
-export async function GET(request: NextRequest) {
-  try {
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError) return authError;
-    const db = getDb();
+const SettingsUpdateBody = z
+  .object({
+    theme: z.enum(["light", "dark", "system"]).optional(),
+    syncIntervalHours: z.number().int().min(1).max(24).optional(),
+    tossMyName: z.string().nullable().optional(),
+  })
+  .strict();
 
+export const GET = withAuth(
+  async ({ user }) => {
+    const db = getDb();
     const userResult = await db
       .select({
         theme: users.theme,
@@ -57,7 +63,6 @@ export async function GET(request: NextRequest) {
     }
 
     const userSettings = userResult[0];
-
     return NextResponse.json({
       theme: (userSettings.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
       syncIntervalHours: userSettings.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
@@ -69,49 +74,32 @@ export async function GET(request: NextRequest) {
       lastLat: userSettings.lastLat ?? null,
       lastLon: userSettings.lastLon ?? null,
     });
-  } catch (error) {
-    console.error("Get settings error:", error);
-    return NextResponse.json({ error: "Failed to get settings" }, { status: 500 });
-  }
-}
+  },
+  { errorMessage: "Failed to get settings" }
+);
 
-export async function PUT(request: NextRequest) {
-  try {
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError) return authError;
+export const PUT = withValidation(
+  SettingsUpdateBody,
+  async ({ user, body }) => {
     const db = getDb();
-
-    const body = (await request.json()) as Partial<UserSettings>;
     const updates: Partial<{
       theme: string;
       syncIntervalHours: number;
       tossMyName: string | null;
       updatedAt: Date;
-    }> = {
-      updatedAt: new Date(),
-    };
+    }> = { updatedAt: new Date() };
 
-    // 유효성 검사
-    if (body.theme && ["light", "dark", "system"].includes(body.theme)) {
-      updates.theme = body.theme;
-    }
-
-    if (
-      typeof body.syncIntervalHours === "number" &&
-      body.syncIntervalHours >= 1 &&
-      body.syncIntervalHours <= 24
-    ) {
+    if (body.theme) updates.theme = body.theme;
+    if (typeof body.syncIntervalHours === "number") {
       updates.syncIntervalHours = body.syncIntervalHours;
     }
-
     if ("tossMyName" in body) {
-      const name = (body as { tossMyName?: string | null }).tossMyName;
+      const name = body.tossMyName;
       updates.tossMyName = typeof name === "string" && name.trim() ? name.trim() : null;
     }
 
     await db.update(users).set(updates).where(eq(users.id, user.id));
 
-    // 업데이트된 설정 반환
     const updatedUserResult = await db
       .select({
         theme: users.theme,
@@ -122,14 +110,11 @@ export async function PUT(request: NextRequest) {
       .where(eq(users.id, user.id));
 
     const updatedSettings = updatedUserResult[0];
-
     return NextResponse.json({
       theme: (updatedSettings?.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
       syncIntervalHours: updatedSettings?.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
       lastSyncedAt: updatedSettings?.lastSyncedAt?.toISOString() ?? null,
     });
-  } catch (error) {
-    console.error("Update settings error:", error);
-    return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
-  }
-}
+  },
+  { errorMessage: "Failed to update settings" }
+);
