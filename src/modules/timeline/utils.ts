@@ -1,5 +1,5 @@
 import type { TimelineCommit } from "./hooks";
-import type { TimelineEvent, TimeEventSubGroup } from "./types";
+import type { TimeEventSubGroup, TimelineEvent } from "./types";
 
 // --- 1a. Repository color palette ---
 const REPO_COLORS = [
@@ -40,9 +40,7 @@ function toLocalDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export function fillDateRange(
-  groupedCommits: Record<string, TimelineCommit[]>,
-): DateEntry[] {
+export function fillDateRange(groupedCommits: Record<string, TimelineCommit[]>): DateEntry[] {
   const dates = Object.keys(groupedCommits);
   if (dates.length === 0) return [];
 
@@ -128,7 +126,7 @@ export function groupEventsByTimeOfDay(events: TimelineEvent[]): TimeEventSubGro
   if (events.length === 0) return [];
 
   const sorted = [...events].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 
   const groups: TimeEventSubGroup[] = [];

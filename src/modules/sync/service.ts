@@ -1,13 +1,13 @@
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
-  users,
-  commits,
   commitSummaries,
-  syncJobs,
+  commits,
   type NewCommit,
   type NewCommitSummary,
   type NewSyncJob,
+  syncJobs,
+  users,
 } from "@/db/schema";
 import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
 import type { VCSSearchCommit } from "@/lib/adapters/vcs/interface";
@@ -80,9 +80,7 @@ export class SyncService {
     let sinceDate: string;
     const lastSyncedAt = userResult[0]?.lastSyncedAt;
     if (lastSyncedAt) {
-      sinceDate = lastSyncedAt instanceof Date
-        ? lastSyncedAt.toISOString()
-        : String(lastSyncedAt);
+      sinceDate = lastSyncedAt instanceof Date ? lastSyncedAt.toISOString() : String(lastSyncedAt);
     } else {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -167,11 +165,15 @@ export class SyncService {
         userId,
         allSearchCommits.map((c) => c.sha)
       );
-      const newSearchCommits = allSearchCommits.filter(
-        (c) => !existingShas.has(c.sha)
-      );
+      const newSearchCommits = allSearchCommits.filter((c) => !existingShas.has(c.sha));
 
-      console.log("[Sync] After filtering:", newSearchCommits.length, "new commits (", existingShas.size, "already exist)");
+      console.log(
+        "[Sync] After filtering:",
+        newSearchCommits.length,
+        "new commits (",
+        existingShas.size,
+        "already exist)"
+      );
 
       if (newSearchCommits.length === 0) {
         await this.completeSyncJob(syncJobId, 0, 0);
@@ -232,10 +234,7 @@ export class SyncService {
 
       return { newCommits: newSearchCommits.length, syncJobId };
     } catch (error) {
-      await this.failSyncJob(
-        syncJobId,
-        error instanceof Error ? error.message : "Unknown error"
-      );
+      await this.failSyncJob(syncJobId, error instanceof Error ? error.message : "Unknown error");
 
       onProgress?.({
         status: "failed",
@@ -248,10 +247,7 @@ export class SyncService {
     }
   }
 
-  private async getExistingCommitShas(
-    userId: string,
-    shas: string[]
-  ): Promise<Set<string>> {
+  private async getExistingCommitShas(userId: string, shas: string[]): Promise<Set<string>> {
     if (shas.length === 0) return new Set();
 
     // Batch query to avoid too large IN clause
@@ -300,76 +296,28 @@ export class SyncService {
     }
 
     // Save commit (onConflictDoNothing handles race conditions with concurrent syncs)
-    const insertResult = await this.db.insert(commits).values({
-      id: commitId,
-      userId,
-      sha: searchCommit.sha,
-      message: searchCommit.message,
-      authorName: searchCommit.authorName,
-      authorEmail: searchCommit.authorEmail,
-      authorAvatarUrl: searchCommit.authorAvatarUrl,
-      committedAt: new Date(searchCommit.committedAt),
-      additions,
-      deletions,
-      changedFilesCount,
-      isMergeCommit: searchCommit.isMergeCommit,
-      parentShas: JSON.stringify(searchCommit.parentShas),
-      repoFullName: searchCommit.repoFullName,
-      repoId: searchCommit.repoId,
-      repoIsPrivate: searchCommit.repoIsPrivate,
-      createdAt: timestamp,
-    } satisfies NewCommit).onConflictDoNothing({ target: [commits.userId, commits.sha] });
-
-    // Only create summary if commit was actually inserted (not a duplicate)
-    if (insertResult.rowCount && insertResult.rowCount > 0) {
-      await this.db.insert(commitSummaries).values({
-        id: generateId(),
-        commitId,
-        status: "pending",
+    const insertResult = await this.db
+      .insert(commits)
+      .values({
+        id: commitId,
+        userId,
+        sha: searchCommit.sha,
+        message: searchCommit.message,
+        authorName: searchCommit.authorName,
+        authorEmail: searchCommit.authorEmail,
+        authorAvatarUrl: searchCommit.authorAvatarUrl,
+        committedAt: new Date(searchCommit.committedAt),
+        additions,
+        deletions,
+        changedFilesCount,
+        isMergeCommit: searchCommit.isMergeCommit,
+        parentShas: JSON.stringify(searchCommit.parentShas),
+        repoFullName: searchCommit.repoFullName,
+        repoId: searchCommit.repoId,
+        repoIsPrivate: searchCommit.repoIsPrivate,
         createdAt: timestamp,
-        updatedAt: timestamp,
-      } satisfies NewCommitSummary);
-    }
-
-    return commitId;
-  }
-
-  private async saveEventCommit(
-    userId: string,
-    commit: {
-      sha: string;
-      message: string;
-      authorName: string;
-      authorEmail: string | null;
-      committedAt: string;
-      repoFullName: string;
-      repoId: number;
-      repoIsPrivate: boolean;
-    }
-  ): Promise<string> {
-    const commitId = generateId();
-    const timestamp = now();
-
-    // Save commit (onConflictDoNothing handles race conditions with concurrent syncs)
-    const insertResult = await this.db.insert(commits).values({
-      id: commitId,
-      userId,
-      sha: commit.sha,
-      message: commit.message,
-      authorName: commit.authorName,
-      authorEmail: commit.authorEmail,
-      authorAvatarUrl: null, // Events API doesn't provide avatar URL
-      committedAt: new Date(commit.committedAt),
-      additions: 0, // Events API doesn't provide stats
-      deletions: 0,
-      changedFilesCount: 0,
-      isMergeCommit: false, // Events API doesn't provide parent info
-      parentShas: JSON.stringify([]),
-      repoFullName: commit.repoFullName,
-      repoId: commit.repoId,
-      repoIsPrivate: commit.repoIsPrivate,
-      createdAt: timestamp,
-    } satisfies NewCommit).onConflictDoNothing({ target: [commits.userId, commits.sha] });
+      } satisfies NewCommit)
+      .onConflictDoNothing({ target: [commits.userId, commits.sha] });
 
     // Only create summary if commit was actually inserted (not a duplicate)
     if (insertResult.rowCount && insertResult.rowCount > 0) {
@@ -401,10 +349,7 @@ export class SyncService {
       .where(eq(syncJobs.id, syncJobId));
   }
 
-  private async failSyncJob(
-    syncJobId: string,
-    errorMessage: string
-  ): Promise<void> {
+  private async failSyncJob(syncJobId: string, errorMessage: string): Promise<void> {
     await this.db
       .update(syncJobs)
       .set({
@@ -421,7 +366,7 @@ export class SyncService {
   async getRecentSyncJobs(
     userId: string,
     limit: number = 10
-  ): Promise<typeof syncJobs.$inferSelect[]> {
+  ): Promise<(typeof syncJobs.$inferSelect)[]> {
     return this.db
       .select()
       .from(syncJobs)
@@ -444,9 +389,6 @@ export class SyncService {
   }
 }
 
-export function createSyncService(
-  db: Database,
-  accessToken: string
-): SyncService {
+export function createSyncService(db: Database, accessToken: string): SyncService {
   return new SyncService(db, accessToken);
 }

@@ -1,8 +1,8 @@
 "use client";
 
+import { Github, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Github, Loader2 } from "lucide-react";
 import { useAuth } from "@/modules/auth/hooks";
 
 export default function LoginPage() {
@@ -24,12 +24,7 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button
-            onClick={handleGitHubLogin}
-            className="w-full"
-            size="lg"
-            disabled={isLoading}
-          >
+          <Button onClick={handleGitHubLogin} className="w-full" size="lg" disabled={isLoading}>
             {isLoading ? (
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             ) : (

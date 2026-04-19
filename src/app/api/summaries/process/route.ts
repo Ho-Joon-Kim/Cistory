@@ -4,11 +4,11 @@
  * Manually trigger processing of pending summaries for the authenticated user
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
-import { getDb } from "@/db";
-import { users, commits, commitSummaries } from "@/db/schema";
 import { eq, inArray, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/db";
+import { commitSummaries, commits, users } from "@/db/schema";
+import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
 import { createSummaryService } from "@/modules/summary/service";
 
 export async function POST(request: NextRequest) {
@@ -24,17 +24,10 @@ export async function POST(request: NextRequest) {
     // Get user's GitHub token
     const accessToken = await getGitHubToken(user.id, db, users);
     if (!accessToken) {
-      return NextResponse.json(
-        { error: "GitHub access token not found" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "GitHub access token not found" }, { status: 400 });
     }
 
-    const summaryService = createSummaryService(
-      db,
-      process.env.ANTHROPIC_API_KEY!,
-      accessToken
-    );
+    const summaryService = createSummaryService(db, process.env.ANTHROPIC_API_KEY!, accessToken);
 
     // Process in background
     (async () => {
@@ -46,17 +39,16 @@ export async function POST(request: NextRequest) {
       }
     })();
 
-    return NextResponse.json({
-      message: `요약 생성이 시작되었습니다 (최대 ${limit}개)`,
-      limit,
-    }, { status: 202 });
-
+    return NextResponse.json(
+      {
+        message: `요약 생성이 시작되었습니다 (최대 ${limit}개)`,
+        limit,
+      },
+      { status: 202 }
+    );
   } catch (error) {
     console.error("Process summaries error:", error);
-    return NextResponse.json(
-      { error: "Failed to process summaries" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to process summaries" }, { status: 500 });
   }
 }
 
@@ -75,7 +67,7 @@ export async function GET(request: NextRequest) {
       .from(commits)
       .where(eq(commits.userId, user.id));
 
-    const commitIds = userCommits.map(c => c.id);
+    const commitIds = userCommits.map((c) => c.id);
 
     if (commitIds.length === 0) {
       return NextResponse.json({
@@ -113,12 +105,8 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(result);
-
   } catch (error) {
     console.error("Get summary stats error:", error);
-    return NextResponse.json(
-      { error: "Failed to get summary stats" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to get summary stats" }, { status: 500 });
   }
 }

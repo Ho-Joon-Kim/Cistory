@@ -1,7 +1,7 @@
 "use client";
 
+import { Gauge, Pause, Play, Square } from "lucide-react";
 import { useCallback } from "react";
-import { Play, Pause, Square, Gauge } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 
 interface RouteReplayControllerProps {
@@ -57,7 +57,7 @@ export function RouteReplayController({
     (value: number[]) => {
       onSeek(value[0] / 100);
     },
-    [onSeek],
+    [onSeek]
   );
 
   return (
@@ -70,11 +70,7 @@ export function RouteReplayController({
           className="flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent transition-colors"
           aria-label={state === "playing" ? "Pause" : "Play"}
         >
-          {state === "playing" ? (
-            <Pause className="h-4 w-4" />
-          ) : (
-            <Play className="h-4 w-4" />
-          )}
+          {state === "playing" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </button>
 
         {/* Stop */}

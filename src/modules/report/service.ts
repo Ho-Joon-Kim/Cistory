@@ -6,6 +6,7 @@
  * 섹션별(commits/coding/location) 독립 집계 메서드를 제공하여 병렬 로딩 지원
  */
 
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   codingDailyStats,
@@ -21,11 +22,13 @@ import {
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { distanceM } from "@/lib/geo";
 import { safeJsonParse } from "@/lib/utils";
+import {
+  getFirstVisitsByMonth,
+  getFirstVisitsByYear,
+} from "@/modules/location/services/first-visits";
 import { detectCommitType } from "@/modules/summary/prompts";
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { buildMonthlyNarrativePrompt, buildYearlyNarrativePrompt } from "./prompts";
 import { detectOverseasTrips, isOverseas } from "./travel";
-import { getFirstVisitsByMonth, getFirstVisitsByYear } from "@/modules/location/services/first-visits";
 import type {
   CodingSectionData,
   CommitsSectionData,
@@ -608,11 +611,7 @@ export class ReportService {
       .select()
       .from(trips)
       .where(
-        and(
-          eq(trips.userId, userId),
-          gte(trips.startDate, startDate),
-          lt(trips.startDate, endDate),
-        )
+        and(eq(trips.userId, userId), gte(trips.startDate, startDate), lt(trips.startDate, endDate))
       );
 
     return {
@@ -973,11 +972,7 @@ export class ReportService {
       .select()
       .from(trips)
       .where(
-        and(
-          eq(trips.userId, userId),
-          gte(trips.startDate, startDate),
-          lt(trips.startDate, endDate),
-        )
+        and(eq(trips.userId, userId), gte(trips.startDate, startDate), lt(trips.startDate, endDate))
       );
 
     return {

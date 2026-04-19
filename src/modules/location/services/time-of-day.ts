@@ -5,8 +5,8 @@
  * Extended to combine location + commits + coding sessions into a unified 7×24 matrix.
  */
 
-import { getDb, locationPoints, commits, codingSessions } from "@/db";
-import { eq, and, gte, lt, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/db";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ async function getLocationActivity(
   db: ReturnType<typeof getDb>,
   userId: string,
   from: Date,
-  to: Date,
+  to: Date
 ): Promise<HourCount[]> {
   const rows = await db.execute<HourCount>(sql`
     SELECT
@@ -60,7 +60,7 @@ async function getCommitActivity(
   db: ReturnType<typeof getDb>,
   userId: string,
   from: Date,
-  to: Date,
+  to: Date
 ): Promise<HourCount[]> {
   const rows = await db.execute<HourCount>(sql`
     SELECT
@@ -79,7 +79,7 @@ async function getCodingActivity(
   db: ReturnType<typeof getDb>,
   userId: string,
   from: Date,
-  to: Date,
+  to: Date
 ): Promise<HourCount[]> {
   const rows = await db.execute<HourCount>(sql`
     SELECT
@@ -100,7 +100,7 @@ async function calculateStreaks(
   db: ReturnType<typeof getDb>,
   userId: string,
   from: Date,
-  to: Date,
+  to: Date
 ): Promise<{ current: number; longest: number }> {
   // Get distinct active dates from all sources
   const rows = await db.execute<{ active_date: string; [key: string]: unknown }>(sql`
@@ -130,8 +130,7 @@ async function calculateStreaks(
   for (let i = 1; i < dates.length; i++) {
     const prev = new Date(dates[i - 1]);
     const curr = new Date(dates[i]);
-    const diffDays =
-      (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+    const diffDays = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
 
     if (diffDays === 1) {
       current++;
@@ -149,7 +148,7 @@ async function calculateStreaks(
 export async function getTimeOfDayAnalysis(
   userId: string,
   from: Date,
-  to: Date,
+  to: Date
 ): Promise<TimeOfDayResult> {
   const db = getDb();
 
@@ -162,9 +161,7 @@ export async function getTimeOfDayAnalysis(
   ]);
 
   // Build 7×24 matrix
-  const matrix: ActivityMatrix = Array.from({ length: 7 }, () =>
-    Array(24).fill(0),
-  );
+  const matrix: ActivityMatrix = Array.from({ length: 7 }, () => Array(24).fill(0));
 
   for (const source of [locationAct, commitAct, codingAct]) {
     for (const { dow, hour, count } of source) {

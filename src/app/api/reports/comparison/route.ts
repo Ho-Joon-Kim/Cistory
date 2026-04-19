@@ -5,7 +5,7 @@
  * Returns side-by-side metrics, deltas, growth rates, and monthly comparison.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { compareYears } from "@/modules/report/comparison-service";
 
@@ -17,15 +17,10 @@ export async function GET(request: NextRequest) {
     const year1 = request.nextUrl.searchParams.get("year1");
     const year2 = request.nextUrl.searchParams.get("year2");
 
-    if (
-      !year1 ||
-      !year2 ||
-      !/^\d{4}$/.test(year1) ||
-      !/^\d{4}$/.test(year2)
-    ) {
+    if (!year1 || !year2 || !/^\d{4}$/.test(year1) || !/^\d{4}$/.test(year2)) {
       return NextResponse.json(
         { error: "year1, year2 파라미터가 필요합니다 (YYYY)" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -33,9 +28,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Year comparison error:", error);
-    return NextResponse.json(
-      { error: "연도 비교에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "연도 비교에 실패했습니다" }, { status: 500 });
   }
 }

@@ -8,7 +8,7 @@
  * 둘 다 없으면 503
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 interface SearchResult {
@@ -44,7 +44,7 @@ async function searchKakao(query: string): Promise<SearchResult[]> {
       lat: parseFloat(d.y),
       lon: parseFloat(d.x),
       category: d.category_group_name || undefined,
-    }),
+    })
   );
 }
 
@@ -66,7 +66,7 @@ async function searchMapbox(query: string): Promise<SearchResult[]> {
       address: f.properties.full_address || f.properties.place_formatted || "",
       lat: f.geometry.coordinates[1],
       lon: f.geometry.coordinates[0],
-    }),
+    })
   );
 }
 
@@ -89,9 +89,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ results });
   } catch (error) {
     console.error("Address search error:", error);
-    return NextResponse.json(
-      { error: "주소 검색에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "주소 검색에 실패했습니다" }, { status: 500 });
   }
 }

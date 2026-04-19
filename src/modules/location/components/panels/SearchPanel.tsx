@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { Loader2, MapPin, Search } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
-import { Search, Loader2, MapPin } from "lucide-react";
 
 interface SearchResult {
   name: string;
@@ -43,10 +43,9 @@ export function SearchPanel({ onPlaceSelect }: SearchPanelProps) {
     setHasSearched(true);
 
     try {
-      const res = await fetch(
-        `/api/saved-places/search?q=${encodeURIComponent(q.trim())}`,
-        { signal: controller.signal },
-      );
+      const res = await fetch(`/api/saved-places/search?q=${encodeURIComponent(q.trim())}`, {
+        signal: controller.signal,
+      });
       if (!res.ok) throw new Error("Search failed");
       const data = await res.json();
       setResults(data.results ?? []);
@@ -124,9 +123,7 @@ export function SearchPanel({ onPlaceSelect }: SearchPanelProps) {
               <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{r.name}</p>
-                {r.address && (
-                  <p className="text-xs text-muted-foreground truncate">{r.address}</p>
-                )}
+                {r.address && <p className="text-xs text-muted-foreground truncate">{r.address}</p>}
                 {r.category && (
                   <span className="text-[10px] text-muted-foreground/70">{r.category}</span>
                 )}

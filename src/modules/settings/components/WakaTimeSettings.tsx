@@ -1,13 +1,23 @@
 "use client";
 
+import {
+  BarChart3,
+  Calendar,
+  Check,
+  Clock,
+  Code,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
-import { useWakaTimeKey } from "../hooks";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Code, Trash2, Loader2, ExternalLink, Check, RefreshCw, Calendar, BarChart3, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { formatRelativeTime } from "@/lib/utils";
+import { useWakaTimeKey } from "../hooks";
 
 interface WakaTimeSettingsProps {
   hasKey: boolean;
@@ -110,12 +120,7 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
                   </span>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRevoke}
-                disabled={isRevoking}
-              >
+              <Button variant="outline" size="sm" onClick={handleRevoke} disabled={isRevoking}>
                 {isRevoking ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
@@ -131,10 +136,11 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 rounded-lg bg-muted/50">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-                      <BarChart3 className="h-3.5 w-3.5" />
-                      총 세션 수
+                      <BarChart3 className="h-3.5 w-3.5" />총 세션 수
                     </div>
-                    <p className="text-lg font-semibold">{syncStats.totalSessions.toLocaleString()}</p>
+                    <p className="text-lg font-semibold">
+                      {syncStats.totalSessions.toLocaleString()}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/50">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
@@ -149,9 +155,7 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
                       마지막 동기화
                     </div>
                     <p className="text-sm font-medium">
-                      {syncStats.lastSyncedAt
-                        ? formatRelativeTime(syncStats.lastSyncedAt)
-                        : "없음"}
+                      {syncStats.lastSyncedAt ? formatRelativeTime(syncStats.lastSyncedAt) : "없음"}
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/50">
@@ -159,7 +163,9 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
                       <RefreshCw className="h-3.5 w-3.5" />
                       미동기화 일수
                     </div>
-                    <p className="text-lg font-semibold">{syncStats.unsyncedDays.toLocaleString()}</p>
+                    <p className="text-lg font-semibold">
+                      {syncStats.unsyncedDays.toLocaleString()}
+                    </p>
                   </div>
                 </div>
 
@@ -205,11 +211,7 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
           <p className="text-sm text-muted-foreground">
             WakaTime 계정의 Settings &gt; API Key에서 키를 복사하세요.
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            asChild
-          >
+          <Button variant="outline" size="sm" asChild>
             <a
               href="https://wakatime.com/settings/api-key"
               target="_blank"

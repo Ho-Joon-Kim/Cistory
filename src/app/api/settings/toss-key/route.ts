@@ -5,12 +5,12 @@
  * DELETE /api/settings/toss-key - Revoke API key
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,10 +28,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ apiKey });
   } catch (error) {
     console.error("Generate Toss key error:", error);
-    return NextResponse.json(
-      { error: "API 키 생성에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "API 키 생성에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -50,9 +47,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Revoke Toss key error:", error);
-    return NextResponse.json(
-      { error: "API 키 삭제에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "API 키 삭제에 실패했습니다" }, { status: 500 });
   }
 }

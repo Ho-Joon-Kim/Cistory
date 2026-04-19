@@ -10,8 +10,8 @@
  * All logic runs in SQL CTEs to avoid passing large arrays from JS.
  */
 
-import { getDb } from "@/db";
 import { sql } from "drizzle-orm";
+import { getDb } from "@/db";
 
 const ACCURACY_THRESHOLD = 100;
 const MAX_SPEED_KMH = 1000;
@@ -29,7 +29,7 @@ interface AnomalyResult {
  */
 export async function runAnomalyDetectionForDay(
   userId: string,
-  dateStr: string,
+  dateStr: string
 ): Promise<AnomalyResult> {
   const db = getDb();
   const dayStart = new Date(`${dateStr}T00:00:00.000Z`);

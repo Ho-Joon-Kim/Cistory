@@ -1,14 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 interface ActivityHeatmapProps {
   dailyCommits: { date: string; count: number }[];
@@ -40,11 +35,7 @@ interface DayCell {
   weekIndex: number;
 }
 
-export function ActivityHeatmap({
-  dailyCommits,
-  startDate,
-  endDate,
-}: ActivityHeatmapProps) {
+export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHeatmapProps) {
   const [hoveredCell, setHoveredCell] = useState<DayCell | null>(null);
 
   const { cells, totalWeeks, isYearly } = useMemo(() => {
@@ -55,9 +46,7 @@ export function ActivityHeatmap({
 
     const start = new Date(startDate);
     const end = new Date(endDate);
-    const diffDays = Math.ceil(
-      (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
-    );
+    const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     const yearly = diffDays > 60;
 
     const result: DayCell[] = [];
@@ -111,7 +100,7 @@ export function ActivityHeatmap({
                     key={label}
                     className={cn(
                       "h-[13px] text-[10px] leading-[13px] text-muted-foreground",
-                      i % 2 === 0 ? "invisible" : "",
+                      i % 2 === 0 ? "invisible" : ""
                     )}
                   >
                     {label}
@@ -134,9 +123,7 @@ export function ActivityHeatmap({
                   const firstDay = cells[0];
                   if (firstDay) {
                     for (let i = 0; i < firstDay.dayOfWeek; i++) {
-                      elements.push(
-                        <div key={`empty-${i}`} className="h-[13px] w-[13px]" />,
-                      );
+                      elements.push(<div key={`empty-${i}`} className="h-[13px] w-[13px]" />);
                     }
                   }
                   for (const cell of cells) {
@@ -147,7 +134,7 @@ export function ActivityHeatmap({
                             className={cn(
                               "h-[13px] w-[13px] rounded-sm transition-colors",
                               getColorClass(cell.count),
-                              hoveredCell?.date === cell.date && "ring-1 ring-foreground",
+                              hoveredCell?.date === cell.date && "ring-1 ring-foreground"
                             )}
                             onMouseEnter={() => setHoveredCell(cell)}
                             onMouseLeave={() => setHoveredCell(null)}
@@ -159,7 +146,7 @@ export function ActivityHeatmap({
                             {cell.count > 0 ? `${cell.count}개 커밋` : "커밋 없음"}
                           </p>
                         </TooltipContent>
-                      </Tooltip>,
+                      </Tooltip>
                     );
                   }
                   return elements;
@@ -201,7 +188,7 @@ export function ActivityHeatmap({
                       className={cn(
                         "h-8 w-8 rounded-md transition-colors",
                         getColorClass(cell.count),
-                        hoveredCell?.date === cell.date && "ring-1 ring-foreground",
+                        hoveredCell?.date === cell.date && "ring-1 ring-foreground"
                       )}
                       onMouseEnter={() => setHoveredCell(cell)}
                       onMouseLeave={() => setHoveredCell(null)}

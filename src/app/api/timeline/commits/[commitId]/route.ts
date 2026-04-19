@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { commits, commitSummaries } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { commitSummaries, commits } from "@/db/schema";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(
   request: NextRequest,
@@ -39,12 +39,7 @@ export async function GET(
       })
       .from(commits)
       .leftJoin(commitSummaries, eq(commits.id, commitSummaries.commitId))
-      .where(
-        and(
-          eq(commits.id, commitId),
-          eq(commits.userId, user.id)
-        )
-      );
+      .where(and(eq(commits.id, commitId), eq(commits.userId, user.id)));
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Commit not found" }, { status: 404 });
@@ -80,9 +75,6 @@ export async function GET(
     });
   } catch (error) {
     console.error("Get commit detail error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch commit detail" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch commit detail" }, { status: 500 });
   }
 }

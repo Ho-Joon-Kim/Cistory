@@ -90,9 +90,7 @@ export function LanguageEvolution({ quarterlyLanguages }: LanguageEvolutionProps
             dataKey={lang}
             stackId="languages"
             fill={EVOLUTION_COLORS[index % EVOLUTION_COLORS.length]}
-            radius={
-              index === allLanguages.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]
-            }
+            radius={index === allLanguages.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
           />
         ))}
       </BarChart>

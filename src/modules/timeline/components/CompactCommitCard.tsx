@@ -1,7 +1,7 @@
 "use client";
 
-import { memo } from "react";
 import { GitCommit } from "lucide-react";
+import { memo } from "react";
 import type { TimelineCommit } from "../hooks";
 
 interface CompactCommitCardProps {

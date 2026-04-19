@@ -6,11 +6,11 @@
  * Filters out low-accuracy points (>200m) and downsamples if >500 points.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, asc, eq, gte, isNull, lt, lte, or } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { locationPoints } from "@/db/schema";
-import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { distanceM } from "@/lib/geo";
 
 const MAX_POINTS = 500;
@@ -108,9 +108,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Get locations error:", error);
-    return NextResponse.json(
-      { error: "위치 데이터 조회에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "위치 데이터 조회에 실패했습니다" }, { status: 500 });
   }
 }

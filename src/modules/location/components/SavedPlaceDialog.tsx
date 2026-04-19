@@ -1,26 +1,25 @@
 "use client";
 
-import { useReducer, useEffect, useRef, useCallback, useMemo } from "react";
+import { Loader2, MapPin, Search } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import type { LayerProps, MarkerDragEvent } from "react-map-gl/mapbox";
+// Conditionally import map components — only render when token available
+import Map, { Layer, Marker, Source } from "react-map-gl/mapbox";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Loader2, Search, MapPin } from "lucide-react";
 import type { SavedPlaceData } from "../hooks";
 import { createGeoCircle } from "../utils";
-
-// Conditionally import map components — only render when token available
-import Map, { Source, Layer, Marker } from "react-map-gl/mapbox";
-import type { LayerProps, MarkerDragEvent } from "react-map-gl/mapbox";
-import { useTheme } from "next-themes";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -60,7 +59,13 @@ interface SavedPlaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   place?: SavedPlaceData | null;
-  defaultValues?: { name?: string; lat?: number; lon?: number; address?: string; category?: string };
+  defaultValues?: {
+    name?: string;
+    lat?: number;
+    lon?: number;
+    address?: string;
+    category?: string;
+  };
   onSave: (data: {
     name: string;
     lat: number;
@@ -92,7 +97,14 @@ type DialogAction =
   | { type: "INIT_FROM_PLACE"; place: SavedPlaceData }
   | { type: "INIT_FROM_DEFAULTS"; defaults: NonNullable<SavedPlaceDialogProps["defaultValues"]> }
   | { type: "RESET" }
-  | { type: "SET_FIELD"; field: keyof Pick<DialogState, "name" | "lat" | "lon" | "category" | "address" | "searchQuery">; value: string }
+  | {
+      type: "SET_FIELD";
+      field: keyof Pick<
+        DialogState,
+        "name" | "lat" | "lon" | "category" | "address" | "searchQuery"
+      >;
+      value: string;
+    }
   | { type: "SET_RADIUS"; value: number }
   | { type: "SELECT_RESULT"; result: SearchResult }
   | { type: "SET_COORDS"; lat: string; lon: string }
@@ -186,23 +198,20 @@ function DialogMiniMap({
   const { resolvedTheme } = useTheme();
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
 
-  const circleGeoJson = useMemo(
-    () => createGeoCircle(lon, lat, radiusM),
-    [lon, lat, radiusM],
-  );
+  const circleGeoJson = useMemo(() => createGeoCircle(lon, lat, radiusM), [lon, lat, radiusM]);
 
   const handleDragEnd = useCallback(
     (e: MarkerDragEvent) => {
       onMove(e.lngLat.lat, e.lngLat.lng);
     },
-    [onMove],
+    [onMove]
   );
 
   const handleMapClick = useCallback(
     (e: { lngLat: { lat: number; lng: number } }) => {
       onMove(e.lngLat.lat, e.lngLat.lng);
     },
-    [onMove],
+    [onMove]
   );
 
   return (
@@ -223,13 +232,7 @@ function DialogMiniMap({
         <Layer {...RADIUS_FILL_LAYER} />
         <Layer {...RADIUS_OUTLINE_LAYER} />
       </Source>
-      <Marker
-        longitude={lon}
-        latitude={lat}
-        anchor="bottom"
-        draggable
-        onDragEnd={handleDragEnd}
-      >
+      <Marker longitude={lon} latitude={lat} anchor="bottom" draggable onDragEnd={handleDragEnd}>
         <div className="dialog-map-pin">
           <MapPin className="h-6 w-6" />
         </div>
@@ -295,7 +298,7 @@ export function SavedPlaceDialog({
     e.preventDefault();
     const parsedLat = parseFloat(state.lat);
     const parsedLon = parseFloat(state.lon);
-    if (!state.name.trim() || isNaN(parsedLat) || isNaN(parsedLon)) return;
+    if (!state.name.trim() || Number.isNaN(parsedLat) || Number.isNaN(parsedLon)) return;
 
     const success = await onSave({
       name: state.name.trim(),
@@ -313,7 +316,7 @@ export function SavedPlaceDialog({
   const isEditing = !!place;
   const parsedLat = parseFloat(state.lat);
   const parsedLon = parseFloat(state.lon);
-  const hasValidCoords = !isNaN(parsedLat) && !isNaN(parsedLon);
+  const hasValidCoords = !Number.isNaN(parsedLat) && !Number.isNaN(parsedLon);
   const hasMapbox = !!MAPBOX_TOKEN;
 
   return (
@@ -323,9 +326,7 @@ export function SavedPlaceDialog({
           <DialogHeader>
             <DialogTitle>{isEditing ? "장소 수정" : "새 장소 추가"}</DialogTitle>
             <DialogDescription>
-              {isEditing
-                ? "저장된 장소의 정보를 수정합니다"
-                : "자주 방문하는 장소를 저장합니다"}
+              {isEditing ? "저장된 장소의 정보를 수정합니다" : "자주 방문하는 장소를 저장합니다"}
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -342,7 +343,10 @@ export function SavedPlaceDialog({
                   <Input
                     value={state.searchQuery}
                     onChange={(e) => handleSearchInput(e.target.value)}
-                    onFocus={() => state.searchResults.length > 0 && dispatch({ type: "SET_SEARCH_RESULTS", results: state.searchResults })}
+                    onFocus={() =>
+                      state.searchResults.length > 0 &&
+                      dispatch({ type: "SET_SEARCH_RESULTS", results: state.searchResults })
+                    }
                     placeholder="장소명 또는 주소를 검색하세요"
                     className="pl-9"
                   />
@@ -365,9 +369,12 @@ export function SavedPlaceDialog({
                     ))}
                   </div>
                 )}
-                {state.showResults && state.searchResults.length === 0 && state.searchQuery.length >= 2 && !state.isSearching && (
-                  <p className="text-xs text-muted-foreground px-1">검색 결과가 없습니다</p>
-                )}
+                {state.showResults &&
+                  state.searchResults.length === 0 &&
+                  state.searchQuery.length >= 2 &&
+                  !state.isSearching && (
+                    <p className="text-xs text-muted-foreground px-1">검색 결과가 없습니다</p>
+                  )}
               </div>
 
               <div className="space-y-1.5">
@@ -375,7 +382,9 @@ export function SavedPlaceDialog({
                 <Input
                   id="place-name"
                   value={state.name}
-                  onChange={(e) => dispatch({ type: "SET_FIELD", field: "name", value: e.target.value })}
+                  onChange={(e) =>
+                    dispatch({ type: "SET_FIELD", field: "name", value: e.target.value })
+                  }
                   placeholder="예: 집, 회사"
                   maxLength={100}
                   required
@@ -389,7 +398,9 @@ export function SavedPlaceDialog({
                     type="number"
                     step="any"
                     value={state.lat}
-                    onChange={(e) => dispatch({ type: "SET_FIELD", field: "lat", value: e.target.value })}
+                    onChange={(e) =>
+                      dispatch({ type: "SET_FIELD", field: "lat", value: e.target.value })
+                    }
                     placeholder="37.5665"
                     required
                   />
@@ -401,7 +412,9 @@ export function SavedPlaceDialog({
                     type="number"
                     step="any"
                     value={state.lon}
-                    onChange={(e) => dispatch({ type: "SET_FIELD", field: "lon", value: e.target.value })}
+                    onChange={(e) =>
+                      dispatch({ type: "SET_FIELD", field: "lon", value: e.target.value })
+                    }
                     placeholder="126.978"
                     required
                   />
@@ -425,7 +438,9 @@ export function SavedPlaceDialog({
                 <Input
                   id="place-category"
                   value={state.category}
-                  onChange={(e) => dispatch({ type: "SET_FIELD", field: "category", value: e.target.value })}
+                  onChange={(e) =>
+                    dispatch({ type: "SET_FIELD", field: "category", value: e.target.value })
+                  }
                   placeholder="예: 주거, 업무, 카페"
                 />
               </div>
@@ -434,7 +449,9 @@ export function SavedPlaceDialog({
                 <Input
                   id="place-address"
                   value={state.address}
-                  onChange={(e) => dispatch({ type: "SET_FIELD", field: "address", value: e.target.value })}
+                  onChange={(e) =>
+                    dispatch({ type: "SET_FIELD", field: "address", value: e.target.value })
+                  }
                   placeholder="예: 서울특별시 강남구..."
                 />
               </div>
@@ -474,14 +491,13 @@ export function SavedPlaceDialog({
 
           <div className="p-6 pt-4 border-t">
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 취소
               </Button>
-              <Button type="submit" disabled={isSaving || !state.name.trim() || !state.lat || !state.lon}>
+              <Button
+                type="submit"
+                disabled={isSaving || !state.name.trim() || !state.lat || !state.lon}
+              >
                 {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {isEditing ? "수정" : "저장"}
               </Button>

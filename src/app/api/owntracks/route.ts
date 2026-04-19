@@ -7,10 +7,10 @@
  * Always returns [] per OwnTracks protocol.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/db";
-import { users, locationPoints } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/db";
+import { locationPoints, users } from "@/db/schema";
 import { logger } from "@/lib/logger";
 
 interface OwnTracksPayload {
@@ -72,10 +72,7 @@ export async function POST(request: NextRequest) {
       createdAt: now,
     }));
 
-    await db
-      .insert(locationPoints)
-      .values(rows)
-      .onConflictDoNothing();
+    await db.insert(locationPoints).values(rows).onConflictDoNothing();
 
     // Update user's last known location (most recent by timestamp)
     const latest = rows.reduce((a, b) => (a.timestamp > b.timestamp ? a : b));

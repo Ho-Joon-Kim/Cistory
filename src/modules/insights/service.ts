@@ -1,6 +1,6 @@
-import { commits, codingDailyStats, codingSessions, transactions } from "@/db/schema";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import type { Database } from "@/db";
+import { codingDailyStats, commits, transactions } from "@/db/schema";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -74,7 +74,13 @@ export class InsightsService {
     const rows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
+      .where(
+        and(
+          eq(commits.userId, userId),
+          gte(commits.committedAt, start),
+          lte(commits.committedAt, end)
+        )
+      );
 
     // Build set of active dates
     const activeDates = new Set<string>();
@@ -137,7 +143,13 @@ export class InsightsService {
     const rows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
+      .where(
+        and(
+          eq(commits.userId, userId),
+          gte(commits.committedAt, start),
+          lte(commits.committedAt, end)
+        )
+      );
 
     if (rows.length === 0) {
       return {
@@ -220,7 +232,13 @@ export class InsightsService {
     const commitRows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
+      .where(
+        and(
+          eq(commits.userId, userId),
+          gte(commits.committedAt, start),
+          lte(commits.committedAt, end)
+        )
+      );
 
     const dayCommits = new Array(7).fill(0);
     for (const r of commitRows) {
@@ -293,7 +311,13 @@ export class InsightsService {
     const commitRows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
+      .where(
+        and(
+          eq(commits.userId, userId),
+          gte(commits.committedAt, start),
+          lte(commits.committedAt, end)
+        )
+      );
 
     const monthCommits = new Array(12).fill(0);
     for (const r of commitRows) {
@@ -320,7 +344,7 @@ export class InsightsService {
     const monthProjectMap: Record<string, number>[] = Array.from({ length: 12 }, () => ({}));
 
     for (const r of codingRows) {
-      const [y, m] = r.date.split("-").map(Number);
+      const [_y, m] = r.date.split("-").map(Number);
       const monthIdx = m - 1;
       monthCoding[monthIdx] += r.totalSeconds;
 
@@ -328,7 +352,8 @@ export class InsightsService {
         try {
           const projects = JSON.parse(r.projects) as { name: string; totalSeconds: number }[];
           for (const p of projects) {
-            monthProjectMap[monthIdx][p.name] = (monthProjectMap[monthIdx][p.name] || 0) + p.totalSeconds;
+            monthProjectMap[monthIdx][p.name] =
+              (monthProjectMap[monthIdx][p.name] || 0) + p.totalSeconds;
           }
         } catch {
           // skip malformed JSON
@@ -371,7 +396,13 @@ export class InsightsService {
     const rows = await db
       .select({ committedAt: commits.committedAt })
       .from(commits)
-      .where(and(eq(commits.userId, userId), gte(commits.committedAt, start), lte(commits.committedAt, end)));
+      .where(
+        and(
+          eq(commits.userId, userId),
+          gte(commits.committedAt, start),
+          lte(commits.committedAt, end)
+        )
+      );
 
     const dateCounts: Record<string, number> = {};
     for (const r of rows) {

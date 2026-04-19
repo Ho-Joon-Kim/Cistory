@@ -1,9 +1,24 @@
 "use client";
 
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Bell,
+  Check,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Wallet,
+  X,
+} from "lucide-react";
 import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { Header } from "@/components/Layout/Header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -11,27 +26,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatBytes, formatDate } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
-import { useTransactions, useNotificationLogs, useReparse, useCleanup, useDeleteTransaction, useSpendingTrend } from "@/modules/spending/hooks";
-import type { SpendingFilters, ReparseItem, CleanupItem } from "@/modules/spending/hooks";
-import { SpendingTrendChart } from "@/modules/spending/components/SpendingTrendChart";
 import { MonthlySpendingBar } from "@/modules/spending/components/MonthlySpendingBar";
-import { Header } from "@/components/Layout/Header";
+import { SpendingTrendChart } from "@/modules/spending/components/SpendingTrendChart";
+import type { CleanupItem, ReparseItem, SpendingFilters } from "@/modules/spending/hooks";
 import {
-  Loader2,
-  Wallet,
-  ArrowDownLeft,
-  ArrowUpRight,
-  Bell,
-  RefreshCw,
-  Check,
-  X,
-  Plus,
-  Pencil,
-  Trash2,
-} from "lucide-react";
-import { formatDate, formatBytes } from "@/lib/utils";
-import { toast } from "sonner";
+  useCleanup,
+  useDeleteTransaction,
+  useNotificationLogs,
+  useReparse,
+  useSpendingTrend,
+  useTransactions,
+} from "@/modules/spending/hooks";
 
 type Tab = "transactions" | "notifications";
 
@@ -416,71 +423,69 @@ export default function SpendingPage() {
           >
             <Bell className="h-4 w-4" />
             원본 알림
-            {logsTotal > 0 && (
-              <span className="text-xs text-muted-foreground">({logsTotal})</span>
-            )}
+            {logsTotal > 0 && <span className="text-xs text-muted-foreground">({logsTotal})</span>}
           </button>
         </div>
 
         {/* 거래내역 탭 */}
-        {tab === "transactions" && (
-          <>
-            {isLoading && transactions.length === 0 ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : transactions.length === 0 ? (
+        {tab === "transactions" &&
+          (isLoading && transactions.length === 0 ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : transactions.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                <Wallet className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>소비 내역이 없습니다.</p>
+                <p className="text-sm mt-2">설정에서 Toss 알림 연동을 확인해주세요.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
               <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  <Wallet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>소비 내역이 없습니다.</p>
-                  <p className="text-sm mt-2">설정에서 Toss 알림 연동을 확인해주세요.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                <Card>
-                  <CardContent className="p-0 divide-y">
-                    {transactions.map((tx) => (
-                      <div key={tx.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {tx.type === "withdrawal" ? (
-                            <ArrowUpRight className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
-                          ) : (
-                            <ArrowDownLeft className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                          )}
-                          <span className="text-sm font-medium truncate">{tx.merchant}</span>
-                          <span className="text-xs text-muted-foreground flex-shrink-0">
-                            {tx.accountName}
-                          </span>
-                          <span className="text-xs text-muted-foreground flex-shrink-0 hidden sm:inline">
-                            {formatDate(tx.transactedAt)}
-                          </span>
-                        </div>
-                        <span
-                          className={`text-sm tabular-nums font-medium flex-shrink-0 ${
-                            tx.type === "withdrawal" ? "text-red-500" : "text-green-500"
-                          }`}
-                        >
-                          {tx.type === "withdrawal" ? "-" : "+"}
-                          {formatAmount(tx.amount)}원
+                <CardContent className="p-0 divide-y">
+                  {transactions.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="flex items-center justify-between gap-3 px-3 py-1.5"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {tx.type === "withdrawal" ? (
+                          <ArrowUpRight className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
+                        ) : (
+                          <ArrowDownLeft className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                        )}
+                        <span className="text-sm font-medium truncate">{tx.merchant}</span>
+                        <span className="text-xs text-muted-foreground flex-shrink-0">
+                          {tx.accountName}
+                        </span>
+                        <span className="text-xs text-muted-foreground flex-shrink-0 hidden sm:inline">
+                          {formatDate(tx.transactedAt)}
                         </span>
                       </div>
-                    ))}
-                  </CardContent>
-                </Card>
-                {hasMore && (
-                  <div className="flex justify-center py-3">
-                    <Button variant="outline" size="sm" onClick={loadMore} disabled={isLoading}>
-                      {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-                      더 보기
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        )}
+                      <span
+                        className={`text-sm tabular-nums font-medium flex-shrink-0 ${
+                          tx.type === "withdrawal" ? "text-red-500" : "text-green-500"
+                        }`}
+                      >
+                        {tx.type === "withdrawal" ? "-" : "+"}
+                        {formatAmount(tx.amount)}원
+                      </span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+              {hasMore && (
+                <div className="flex justify-center py-3">
+                  <Button variant="outline" size="sm" onClick={loadMore} disabled={isLoading}>
+                    {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}더
+                    보기
+                  </Button>
+                </div>
+              )}
+            </>
+          ))}
 
         {/* 원본 알림 탭 */}
         {tab === "notifications" && (
@@ -496,12 +501,7 @@ export default function SpendingPage() {
                     </p>
                   </div>
                   {!reparseResult && !reparseProgress ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={preview}
-                      disabled={reparseLoading}
-                    >
+                    <Button variant="outline" size="sm" onClick={preview} disabled={reparseLoading}>
                       <RefreshCw className="h-4 w-4 mr-1.5" />
                       미리보기
                     </Button>
@@ -513,17 +513,24 @@ export default function SpendingPage() {
                       <Button
                         size="sm"
                         onClick={handleApply}
-                        disabled={reparseLoading || (reparseResult.created === 0 && reparseResult.updated === 0)}
+                        disabled={
+                          reparseLoading ||
+                          (reparseResult.created === 0 && reparseResult.updated === 0)
+                        }
                       >
                         {reparseLoading && !reparseProgress ? (
                           <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
                         ) : (
                           <Check className="h-4 w-4 mr-1.5" />
                         )}
-                        적용 ({[
+                        적용 (
+                        {[
                           reparseResult.created > 0 && `${reparseResult.created}건 신규`,
                           reparseResult.updated > 0 && `${reparseResult.updated}건 수정`,
-                        ].filter(Boolean).join(", ")})
+                        ]
+                          .filter(Boolean)
+                          .join(", ")}
+                        )
                       </Button>
                     </div>
                   ) : reparseResult ? (
@@ -556,15 +563,9 @@ export default function SpendingPage() {
                       />
                     </div>
                     <div className="flex gap-3 mt-2 text-[11px]">
-                      <span className="text-green-600">
-                        신규 {reparseProgress.created}
-                      </span>
-                      <span className="text-blue-600">
-                        수정 {reparseProgress.updated}
-                      </span>
-                      <span className="text-muted-foreground">
-                        무시 {reparseProgress.skipped}
-                      </span>
+                      <span className="text-green-600">신규 {reparseProgress.created}</span>
+                      <span className="text-blue-600">수정 {reparseProgress.updated}</span>
+                      <span className="text-muted-foreground">무시 {reparseProgress.skipped}</span>
                     </div>
                   </div>
                 )}
@@ -641,7 +642,14 @@ export default function SpendingPage() {
                     </Button>
                   )}
                   {cleanupResult && !cleanupResult.dryRun && (
-                    <Button variant="ghost" size="sm" onClick={() => { clearCleanup(); refreshLogs(); }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        clearCleanup();
+                        refreshLogs();
+                      }}
+                    >
                       닫기
                     </Button>
                   )}
@@ -654,12 +662,18 @@ export default function SpendingPage() {
                       <>
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="text-xs text-muted-foreground">
-                            1단계: 재파싱 중... {cleanupProgress.reparseProcessed} / {cleanupProgress.reparseTotal}건
+                            1단계: 재파싱 중... {cleanupProgress.reparseProcessed} /{" "}
+                            {cleanupProgress.reparseTotal}건
                           </span>
                           <span className="text-xs text-muted-foreground">
                             {(cleanupProgress.reparseTotal ?? 0) > 0
-                              ? Math.round(((cleanupProgress.reparseProcessed ?? 0) / (cleanupProgress.reparseTotal ?? 1)) * 100)
-                              : 0}%
+                              ? Math.round(
+                                  ((cleanupProgress.reparseProcessed ?? 0) /
+                                    (cleanupProgress.reparseTotal ?? 1)) *
+                                    100
+                                )
+                              : 0}
+                            %
                           </span>
                         </div>
                         <div className="h-2 rounded-full bg-muted overflow-hidden">
@@ -671,8 +685,12 @@ export default function SpendingPage() {
                           />
                         </div>
                         <div className="flex gap-3 mt-2 text-[11px]">
-                          <span className="text-green-600">신규 {cleanupProgress.reparseCreated ?? 0}</span>
-                          <span className="text-blue-600">수정 {cleanupProgress.reparseUpdated ?? 0}</span>
+                          <span className="text-green-600">
+                            신규 {cleanupProgress.reparseCreated ?? 0}
+                          </span>
+                          <span className="text-blue-600">
+                            수정 {cleanupProgress.reparseUpdated ?? 0}
+                          </span>
                         </div>
                       </>
                     )}
@@ -680,12 +698,18 @@ export default function SpendingPage() {
                       <>
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="text-xs text-muted-foreground">
-                            2단계: 삭제 중... {cleanupProgress.deleted} / {cleanupProgress.deletableTotal}건
+                            2단계: 삭제 중... {cleanupProgress.deleted} /{" "}
+                            {cleanupProgress.deletableTotal}건
                           </span>
                           <span className="text-xs text-muted-foreground">
                             {(cleanupProgress.deletableTotal ?? 0) > 0
-                              ? Math.round(((cleanupProgress.deleted ?? 0) / (cleanupProgress.deletableTotal ?? 1)) * 100)
-                              : 0}%
+                              ? Math.round(
+                                  ((cleanupProgress.deleted ?? 0) /
+                                    (cleanupProgress.deletableTotal ?? 1)) *
+                                    100
+                                )
+                              : 0}
+                            %
                           </span>
                         </div>
                         <div className="h-2 rounded-full bg-muted overflow-hidden">
@@ -717,8 +741,8 @@ export default function SpendingPage() {
                         {/* 삭제 대상 요약 */}
                         <div className="flex items-center gap-2 mb-3 text-xs">
                           <span className="text-red-600">
-                            삭제 대상: <strong>{cleanupResult.deletable}</strong>건
-                            (~{formatBytes(cleanupResult.estimatedBytes)})
+                            삭제 대상: <strong>{cleanupResult.deletable}</strong>건 (~
+                            {formatBytes(cleanupResult.estimatedBytes)})
                           </span>
                         </div>
 
@@ -744,7 +768,10 @@ export default function SpendingPage() {
                             <Button
                               variant="destructive"
                               size="sm"
-                              onClick={async () => { await cleanupExecute(); refreshLogs(); }}
+                              onClick={async () => {
+                                await cleanupExecute();
+                                refreshLogs();
+                              }}
                               disabled={cleanupLoading}
                             >
                               {cleanupLoading ? (
@@ -752,7 +779,8 @@ export default function SpendingPage() {
                               ) : (
                                 <Trash2 className="h-4 w-4 mr-1.5" />
                               )}
-                              삭제 ({cleanupResult.deletable}건, ~{formatBytes(cleanupResult.estimatedBytes)})
+                              삭제 ({cleanupResult.deletable}건, ~
+                              {formatBytes(cleanupResult.estimatedBytes)})
                             </Button>
                           </div>
                         )}
@@ -760,7 +788,8 @@ export default function SpendingPage() {
                     ) : (
                       <div className="flex items-center gap-2 text-xs text-green-600">
                         <Check className="h-3.5 w-3.5" />
-                        {cleanupResult.deleted}건 삭제 완료 (~{formatBytes(cleanupResult.estimatedBytes)} 확보)
+                        {cleanupResult.deleted}건 삭제 완료 (~
+                        {formatBytes(cleanupResult.estimatedBytes)} 확보)
                       </div>
                     )}
                   </div>
@@ -785,7 +814,10 @@ export default function SpendingPage() {
                 <Card>
                   <CardContent className="p-0 divide-y">
                     {logs.map((log) => (
-                      <div key={log.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                      <div
+                        key={log.id}
+                        className="flex items-center justify-between gap-3 px-3 py-1.5"
+                      >
                         <div className="min-w-0 flex items-center gap-1.5">
                           <span
                             className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${log.parsed ? "bg-green-500" : "bg-muted-foreground/40"}`}
@@ -826,7 +858,12 @@ export default function SpendingPage() {
                 </Card>
                 {logsHasMore && (
                   <div className="flex justify-center py-3">
-                    <Button variant="outline" size="sm" onClick={logsLoadMore} disabled={logsLoading}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={logsLoadMore}
+                      disabled={logsLoading}
+                    >
                       {logsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
                       더 보기
                     </Button>

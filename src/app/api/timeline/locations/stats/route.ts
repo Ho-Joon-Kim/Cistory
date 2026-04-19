@@ -5,10 +5,10 @@
  * Returns monthly location statistics: countries/cities, total distance, anomaly count.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb, locationPoints } from "@/db";
-import { eq, and, gte, lt, sql } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getCountriesAndCities } from "@/modules/location/services/countries-cities";
 
 export async function GET(request: NextRequest) {
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
       return NextResponse.json(
         { error: "yearMonth 파라미터가 필요합니다 (YYYY-MM)" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -44,8 +44,8 @@ export async function GET(request: NextRequest) {
         and(
           eq(locationPoints.userId, user.id),
           gte(locationPoints.timestamp, from),
-          lt(locationPoints.timestamp, to),
-        ),
+          lt(locationPoints.timestamp, to)
+        )
       );
 
     return NextResponse.json({
@@ -56,9 +56,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Location stats error:", error);
-    return NextResponse.json(
-      { error: "위치 통계 조회에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "위치 통계 조회에 실패했습니다" }, { status: 500 });
   }
 }

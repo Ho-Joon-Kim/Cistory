@@ -1,19 +1,9 @@
 "use client";
 
-import { useSettings } from "../hooks";
-import { useAuth } from "@/modules/auth/hooks";
-import { DataUsageCard } from "./DataUsageCard";
-import { DbBenchmarkCard } from "./DbBenchmarkCard";
-import { SummaryStats } from "./SummaryStats";
-import { OwnTracksSettings } from "./OwnTracksSettings";
-import { TossNotificationSettings } from "./TossNotificationSettings";
-import { WakaTimeSettings } from "./WakaTimeSettings";
-import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
-import { LocationBackfillCard } from "./LocationBackfillCard";
-import { LocationImport } from "@/modules/location/components/LocationImport";
-import { TripDetectionCard } from "./TripDetectionCard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ExternalLink, Github, Loader2, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -22,9 +12,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Moon, Sun, Monitor, Github, ExternalLink, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
+import { useAuth } from "@/modules/auth/hooks";
+import { LocationImport } from "@/modules/location/components/LocationImport";
+import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
+import { useSettings } from "../hooks";
+import { DataUsageCard } from "./DataUsageCard";
+import { DbBenchmarkCard } from "./DbBenchmarkCard";
+import { LocationBackfillCard } from "./LocationBackfillCard";
+import { OwnTracksSettings } from "./OwnTracksSettings";
+import { SummaryStats } from "./SummaryStats";
+import { TossNotificationSettings } from "./TossNotificationSettings";
+import { TripDetectionCard } from "./TripDetectionCard";
+import { WakaTimeSettings } from "./WakaTimeSettings";
 
 export function SettingsForm() {
   const { settings, isLoading, isSaving, updateSettings } = useSettings();
@@ -46,7 +46,7 @@ export function SettingsForm() {
   };
 
   const handleSyncIntervalChange = async (interval: string) => {
-    const success = await updateSettings({ syncIntervalHours: parseInt(interval) });
+    const success = await updateSettings({ syncIntervalHours: parseInt(interval, 10) });
     if (success) {
       toast.success("동기화 간격이 변경되었습니다");
     }
@@ -89,11 +89,7 @@ export function SettingsForm() {
                 <p className="text-sm text-muted-foreground">GitHub 계정</p>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReconnectGithub}
-            >
+            <Button variant="outline" size="sm" onClick={handleReconnectGithub}>
               <RefreshCw className="h-4 w-4 mr-2" />
               재연결
             </Button>
@@ -103,14 +99,11 @@ export function SettingsForm() {
           <div className="p-3 rounded-lg bg-muted/50 space-y-2">
             <p className="text-sm font-medium">Organization 레포지토리가 안 보이나요?</p>
             <p className="text-sm text-muted-foreground">
-              Organization 레포지토리에 접근하려면 해당 Organization에서 OAuth 앱 접근을 승인해야 합니다.
+              Organization 레포지토리에 접근하려면 해당 Organization에서 OAuth 앱 접근을 승인해야
+              합니다.
             </p>
             <div className="flex gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                asChild
-              >
+              <Button variant="outline" size="sm" asChild>
                 <a
                   href="https://github.com/settings/applications"
                   target="_blank"
@@ -120,11 +113,7 @@ export function SettingsForm() {
                   GitHub 앱 설정
                 </a>
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                asChild
-              >
+              <Button variant="outline" size="sm" asChild>
                 <a
                   href="https://docs.github.com/en/organizations/managing-oauth-access-to-your-organizations-data/approving-oauth-apps-for-your-organization"
                   target="_blank"
@@ -143,24 +132,16 @@ export function SettingsForm() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">외관</CardTitle>
-          <CardDescription>
-            앱의 테마와 표시 방식을 설정합니다
-          </CardDescription>
+          <CardDescription>앱의 테마와 표시 방식을 설정합니다</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* 테마 */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label>테마</Label>
-              <p className="text-sm text-muted-foreground">
-                앱의 색상 테마를 선택합니다
-              </p>
+              <p className="text-sm text-muted-foreground">앱의 색상 테마를 선택합니다</p>
             </div>
-            <Select
-              value={settings.theme}
-              onValueChange={handleThemeChange}
-              disabled={isSaving}
-            >
+            <Select value={settings.theme} onValueChange={handleThemeChange} disabled={isSaving}>
               <SelectTrigger className="w-[140px]">
                 <SelectValue />
               </SelectTrigger>
@@ -193,18 +174,14 @@ export function SettingsForm() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">동기화</CardTitle>
-          <CardDescription>
-            GitHub 레포지토리 동기화 설정을 관리합니다
-          </CardDescription>
+          <CardDescription>GitHub 레포지토리 동기화 설정을 관리합니다</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* 동기화 간격 */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label>동기화 간격</Label>
-              <p className="text-sm text-muted-foreground">
-                자동 동기화 실행 간격
-              </p>
+              <p className="text-sm text-muted-foreground">자동 동기화 실행 간격</p>
             </div>
             <Select
               value={settings.syncIntervalHours.toString()}
@@ -245,7 +222,9 @@ export function SettingsForm() {
       <TossNotificationSettings
         hasKey={settings.hasTossKey}
         tossMyName={settings.tossMyName}
-        onUpdateMyName={async (name) => updateSettings({ tossMyName: name } as Partial<typeof settings>)}
+        onUpdateMyName={async (name) =>
+          updateSettings({ tossMyName: name } as Partial<typeof settings>)
+        }
       />
 
       {/* Coding */}

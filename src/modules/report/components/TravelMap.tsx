@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import Map, { Source, Layer, Marker, Popup } from "react-map-gl/mapbox";
-import type { LayerProps } from "react-map-gl/mapbox";
-import { useTheme } from "next-themes";
 import { Plane } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useState } from "react";
+import type { LayerProps } from "react-map-gl/mapbox";
+import Map, { Layer, Marker, Popup, Source } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -37,11 +37,7 @@ const LINE_LAYER: LayerProps = {
 /**
  * Generate a curved great circle arc between two points
  */
-function generateArc(
-  from: [number, number],
-  to: [number, number],
-  steps = 50
-): [number, number][] {
+function generateArc(from: [number, number], to: [number, number], steps = 50): [number, number][] {
   const coords: [number, number][] = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;

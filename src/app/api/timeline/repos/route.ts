@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { desc, eq, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commits } from "@/db/schema";
-import { eq, sql, desc } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 /**
  * GET /api/timeline/repos - Get unique repositories from user's commits
@@ -38,9 +38,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Get repos error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch repositories" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch repositories" }, { status: 500 });
   }
 }

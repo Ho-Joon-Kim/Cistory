@@ -1,8 +1,8 @@
 "use client";
 
+import { CalendarDays, Moon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { CalendarDays, Moon } from "lucide-react";
 import type { WorkLifeBalanceMetrics } from "../types";
 
 interface WorkLifeBalanceCardProps {

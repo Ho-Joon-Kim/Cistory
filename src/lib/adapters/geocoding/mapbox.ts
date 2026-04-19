@@ -28,8 +28,7 @@ export class MapboxGeocodingAdapter implements GeocodingAdapter {
   private accessToken: string;
 
   constructor() {
-    const token =
-      process.env.MAPBOX_ACCESS_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    const token = process.env.MAPBOX_ACCESS_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
     if (!token) {
       throw new Error("MAPBOX_ACCESS_TOKEN 환경변수가 설정되지 않았습니다");
     }
@@ -55,11 +54,7 @@ export class MapboxGeocodingAdapter implements GeocodingAdapter {
     const address =
       props.full_address ||
       props.place_formatted ||
-      [
-        props.context?.place?.name,
-        props.context?.region?.name,
-        props.context?.country?.name,
-      ]
+      [props.context?.place?.name, props.context?.region?.name, props.context?.country?.name]
         .filter(Boolean)
         .join(", ");
 

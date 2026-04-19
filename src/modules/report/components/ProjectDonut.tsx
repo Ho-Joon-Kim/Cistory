@@ -53,7 +53,10 @@ export function ProjectDonut({ projects }: ProjectDonutProps) {
             dataKey="value"
           >
             {data.map((entry, index) => (
-              <Cell key={`cell-${entry.name}`} fill={PROJECT_COLORS[index % PROJECT_COLORS.length]} />
+              <Cell
+                key={`cell-${entry.name}`}
+                fill={PROJECT_COLORS[index % PROJECT_COLORS.length]}
+              />
             ))}
           </Pie>
           <Tooltip

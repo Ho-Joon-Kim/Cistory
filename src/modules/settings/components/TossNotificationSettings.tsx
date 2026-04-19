@@ -1,13 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useTossKey } from "../hooks";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CreditCard, Key, Copy, Trash2, RefreshCw, Loader2, AlertTriangle, User } from "lucide-react";
+import {
+  AlertTriangle,
+  Copy,
+  CreditCard,
+  Key,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  User,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { getAppUrl } from "@/lib/utils";
+import { useTossKey } from "../hooks";
 
 interface TossNotificationSettingsProps {
   hasKey: boolean;
@@ -15,15 +24,12 @@ interface TossNotificationSettingsProps {
   onUpdateMyName: (name: string | null) => Promise<boolean>;
 }
 
-export function TossNotificationSettings({ hasKey, tossMyName, onUpdateMyName }: TossNotificationSettingsProps) {
-  const {
-    hasTossKey,
-    newKey,
-    isGenerating,
-    isRevoking,
-    generate,
-    revoke,
-  } = useTossKey(hasKey);
+export function TossNotificationSettings({
+  hasKey,
+  tossMyName,
+  onUpdateMyName,
+}: TossNotificationSettingsProps) {
+  const { hasTossKey, newKey, isGenerating, isRevoking, generate, revoke } = useTossKey(hasKey);
 
   const [myName, setMyName] = useState(tossMyName ?? "");
   const [isSavingName, setIsSavingName] = useState(false);
@@ -92,11 +98,7 @@ export function TossNotificationSettings({ hasKey, tossMyName, onUpdateMyName }:
                   <code className="flex-1 p-2 rounded bg-muted text-sm font-mono break-all">
                     {newKey}
                   </code>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => handleCopy(newKey)}
-                  >
+                  <Button variant="outline" size="icon" onClick={() => handleCopy(newKey)}>
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
@@ -110,12 +112,7 @@ export function TossNotificationSettings({ hasKey, tossMyName, onUpdateMyName }:
             )}
 
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleGenerate}
-                disabled={isGenerating}
-              >
+              <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isGenerating}>
                 {isGenerating ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
@@ -123,12 +120,7 @@ export function TossNotificationSettings({ hasKey, tossMyName, onUpdateMyName }:
                 )}
                 재생성
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRevoke}
-                disabled={isRevoking}
-              >
+              <Button variant="outline" size="sm" onClick={handleRevoke} disabled={isRevoking}>
                 {isRevoking ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
@@ -166,7 +158,9 @@ export function TossNotificationSettings({ hasKey, tossMyName, onUpdateMyName }:
                   const success = await onUpdateMyName(myName.trim() || null);
                   setIsSavingName(false);
                   if (success) {
-                    toast.success(myName.trim() ? "내 이름이 저장되었습니다" : "내 이름이 삭제되었습니다");
+                    toast.success(
+                      myName.trim() ? "내 이름이 저장되었습니다" : "내 이름이 삭제되었습니다"
+                    );
                   } else {
                     toast.error("저장에 실패했습니다");
                   }
@@ -200,7 +194,8 @@ export function TossNotificationSettings({ hasKey, tossMyName, onUpdateMyName }:
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            Content-Type: application/json, Body 예시: {`{"title": "[v:notification_title]", "text": "[v:notification_text]"}`}
+            Content-Type: application/json, Body 예시:{" "}
+            {`{"title": "[v:notification_title]", "text": "[v:notification_text]"}`}
           </p>
           {hasTossKey && (
             <div className="pt-1">

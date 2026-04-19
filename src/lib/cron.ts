@@ -5,15 +5,24 @@
  * Runs independently of user sessions - works even if users haven't logged in for months
  */
 
-import * as cron from 'node-cron';
-import { getDb, users, commits, commitSummaries, syncJobs, notificationLogs, transactions, locationPoints, transportationSegments } from '@/db';
-import { createSyncService } from '@/modules/sync/service';
-import { createSummaryService } from '@/modules/summary/service';
-import { createWakaTimeSyncService } from '@/modules/wakatime/service';
-import { parseTossNotification } from '@/modules/transaction/parser';
-import { sql, eq, and, gte, lt, lte, inArray, desc, or, isNull, asc } from 'drizzle-orm';
-import { logger } from '@/lib/logger';
-import { maybeRefreshDataUsage } from '@/lib/data-usage';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import * as cron from "node-cron";
+import {
+  commitSummaries,
+  commits,
+  getDb,
+  locationPoints,
+  notificationLogs,
+  syncJobs,
+  transactions,
+  users,
+} from "@/db";
+import { maybeRefreshDataUsage } from "@/lib/data-usage";
+import { logger } from "@/lib/logger";
+import { createSummaryService } from "@/modules/summary/service";
+import { createSyncService } from "@/modules/sync/service";
+import { parseTossNotification } from "@/modules/transaction/parser";
+import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
@@ -47,7 +56,7 @@ async function syncAllUsers() {
     logger.info(`[Cron] Found ${usersToSync.length} user(s) requiring sync`);
 
     if (usersToSync.length === 0) {
-      logger.info('[Cron] No users to sync. Exiting.');
+      logger.info("[Cron] No users to sync. Exiting.");
       return;
     }
 
@@ -69,7 +78,7 @@ async function syncAllUsers() {
         });
 
         if (!user.githubAccessToken) {
-          throw new Error('GitHub access token not found');
+          throw new Error("GitHub access token not found");
         }
 
         const syncService = createSyncService(db, user.githubAccessToken);
@@ -78,7 +87,7 @@ async function syncAllUsers() {
         if (!user.initialSyncCompleted) {
           await syncService.initialSync(user.id, user.githubLogin);
         } else {
-          await syncService.syncUserCommits(user.id, user.githubLogin, 'scheduled');
+          await syncService.syncUserCommits(user.id, user.githubLogin, "scheduled");
         }
 
         // Process pending summaries for recent commits (last 7 days)
@@ -102,27 +111,30 @@ async function syncAllUsers() {
                 and(
                   eq(commits.userId, user.id),
                   gte(commits.committedAt, oneWeekAgo),
-                  inArray(commitSummaries.status, ['pending', 'failed'])
+                  inArray(commitSummaries.status, ["pending", "failed"])
                 )
               )
               .limit(5);
 
             if (recentCommitsWithPendingSummaries.length > 0) {
-              logger.info(`[Cron] Found ${recentCommitsWithPendingSummaries.length} recent commits needing summaries`, {
-                userId: user.id,
-                githubLogin: user.githubLogin,
-              });
+              logger.info(
+                `[Cron] Found ${recentCommitsWithPendingSummaries.length} recent commits needing summaries`,
+                {
+                  userId: user.id,
+                  githubLogin: user.githubLogin,
+                }
+              );
 
               let processed = 0;
               for (const { commitId } of recentCommitsWithPendingSummaries) {
                 try {
                   await summaryService.generateSummary(commitId);
                   processed++;
-                } catch (error) {
+                } catch (_error) {
                   // Continue with next commit even if one fails
                 }
                 // Rate limiting
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise((resolve) => setTimeout(resolve, 1000));
               }
 
               if (processed > 0) {
@@ -152,10 +164,11 @@ async function syncAllUsers() {
               const wakatimeService = createWakaTimeSyncService(db, user.wakatimeApiKey);
               await wakatimeService.syncUser(user.id);
             } catch (wakatimeError) {
-              logger.error('[Cron] WakaTime sync error', {
+              logger.error("[Cron] WakaTime sync error", {
                 userId: user.id,
                 githubLogin: user.githubLogin,
-                error: wakatimeError instanceof Error ? wakatimeError.message : String(wakatimeError),
+                error:
+                  wakatimeError instanceof Error ? wakatimeError.message : String(wakatimeError),
               });
             }
           }
@@ -165,7 +178,7 @@ async function syncAllUsers() {
         try {
           await maybeRefreshDataUsage(db, user.id);
         } catch (usageError) {
-          logger.error('[Cron] Data usage refresh error', {
+          logger.error("[Cron] Data usage refresh error", {
             userId: user.id,
             githubLogin: user.githubLogin,
             error: usageError instanceof Error ? usageError.message : String(usageError),
@@ -179,12 +192,12 @@ async function syncAllUsers() {
           userId: user.id,
           githubLogin: user.githubLogin,
           duration,
-          status: 'success',
+          status: "success",
         });
 
         results.push({
           user: user.githubLogin,
-          status: 'success',
+          status: "success",
         });
       } catch (error) {
         const duration = Date.now() - userStartTime;
@@ -196,30 +209,29 @@ async function syncAllUsers() {
           userId: user.id,
           githubLogin: user.githubLogin,
           duration,
-          status: 'failed',
+          status: "failed",
           error: errorMessage,
         });
 
         results.push({
           user: user.githubLogin,
-          status: 'failed',
+          status: "failed",
           error: errorMessage,
         });
-
-        // Continue with next user even if this one failed
-        continue;
       }
     }
 
     // Print summary
     const totalDuration = Date.now() - startTime;
 
-    logger.info('[Cron] Sync job completed', {
+    logger.info("[Cron] Sync job completed", {
       totalUsers: usersToSync.length,
       successCount,
       failCount,
       duration: totalDuration,
-      failedUsers: results.filter(r => r.status === 'failed').map(r => ({ user: r.user, error: r.error })),
+      failedUsers: results
+        .filter((r) => r.status === "failed")
+        .map((r) => ({ user: r.user, error: r.error })),
     });
 
     // Cleanup old sync jobs (older than 7 days)
@@ -236,13 +248,12 @@ async function syncAllUsers() {
         logger.info(`[Cron] Cleaned up ${deleted.length} old sync job(s)`);
       }
     } catch (error) {
-      logger.error('[Cron] Failed to cleanup old sync jobs', {
+      logger.error("[Cron] Failed to cleanup old sync jobs", {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-
   } catch (error) {
-    logger.error('[Cron] Fatal error during sync job', {
+    logger.error("[Cron] Fatal error during sync job", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -255,10 +266,12 @@ async function syncAllUsers() {
  */
 async function processYesterdayLocations() {
   const startTime = Date.now();
-  logger.info('[Cron] Starting daily location processing');
+  logger.info("[Cron] Starting daily location processing");
 
   try {
-    const { runAnomalyDetectionForDay } = await import('@/modules/location/services/anomaly-filter');
+    const { runAnomalyDetectionForDay } = await import(
+      "@/modules/location/services/anomaly-filter"
+    );
 
     const db = getDb();
     const allUsers = await db
@@ -267,7 +280,7 @@ async function processYesterdayLocations() {
       .where(sql`${users.ownTracksApiKey} IS NOT NULL`);
 
     if (allUsers.length === 0) {
-      logger.info('[Cron] No users with OwnTracks configured. Skipping location processing.');
+      logger.info("[Cron] No users with OwnTracks configured. Skipping location processing.");
       return;
     }
 
@@ -275,12 +288,14 @@ async function processYesterdayLocations() {
     const now = new Date();
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
-    const from = new Date(yesterday.toISOString().slice(0, 10) + 'T00:00:00.000Z');
-    const to = new Date(yesterday.toISOString().slice(0, 10) + 'T23:59:59.999Z');
+    const from = new Date(`${yesterday.toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const to = new Date(`${yesterday.toISOString().slice(0, 10)}T23:59:59.999Z`);
 
-    const { detectAndPersistVisits } = await import('@/modules/location/services/visit-persister');
-    const { detectTransportModes } = await import('@/modules/location/services/transportation/detector');
-    const { transportationSegments } = await import('@/db/schema');
+    const { detectAndPersistVisits } = await import("@/modules/location/services/visit-persister");
+    const { detectTransportModes } = await import(
+      "@/modules/location/services/transportation/detector"
+    );
+    const { transportationSegments } = await import("@/db/schema");
 
     const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
@@ -289,13 +304,17 @@ async function processYesterdayLocations() {
         // 1. Anomaly detection
         const anomalyResult = await runAnomalyDetectionForDay(user.id, yesterdayStr);
         if (anomalyResult.total > 0) {
-          logger.info(`[Cron] Anomaly detection for ${user.id}: ${anomalyResult.total} anomalies marked`);
+          logger.info(
+            `[Cron] Anomaly detection for ${user.id}: ${anomalyResult.total} anomalies marked`
+          );
         }
 
         // 2. Visit detection + persist
         const detectedVisits = await detectAndPersistVisits(user.id, yesterdayStr);
         if (detectedVisits.length > 0) {
-          logger.info(`[Cron] Visit detection for ${user.id}: ${detectedVisits.length} visits persisted`);
+          logger.info(
+            `[Cron] Visit detection for ${user.id}: ${detectedVisits.length} visits persisted`
+          );
         }
 
         // 3. Transportation mode detection + persist
@@ -313,8 +332,8 @@ async function processYesterdayLocations() {
               gte(locationPoints.timestamp, from),
               lt(locationPoints.timestamp, to),
               or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200)),
-              or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false)),
-            ),
+              or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false))
+            )
           )
           .orderBy(asc(locationPoints.timestamp));
 
@@ -322,12 +341,14 @@ async function processYesterdayLocations() {
         if (segments.length > 0) {
           const now2 = new Date();
           await db.transaction(async (tx) => {
-            await tx.delete(transportationSegments).where(
-              and(
-                eq(transportationSegments.userId, user.id),
-                eq(transportationSegments.date, yesterdayStr),
-              ),
-            );
+            await tx
+              .delete(transportationSegments)
+              .where(
+                and(
+                  eq(transportationSegments.userId, user.id),
+                  eq(transportationSegments.date, yesterdayStr)
+                )
+              );
             await tx.insert(transportationSegments).values(
               segments.map((s) => ({
                 userId: user.id,
@@ -342,10 +363,12 @@ async function processYesterdayLocations() {
                 maxSpeedKmh: s.maxSpeedKmh,
                 avgAcceleration: s.avgAcceleration,
                 calculatedAt: now2,
-              })),
+              }))
             );
           });
-          logger.info(`[Cron] Transport detection for ${user.id}: ${segments.length} segments persisted`);
+          logger.info(
+            `[Cron] Transport detection for ${user.id}: ${segments.length} segments persisted`
+          );
         }
       } catch (err) {
         logger.error(`[Cron] Location processing failed for user ${user.id}`, {
@@ -357,7 +380,7 @@ async function processYesterdayLocations() {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     logger.info(`[Cron] Daily location processing completed in ${elapsed}s`);
   } catch (error) {
-    logger.error('[Cron] Daily location processing failed', {
+    logger.error("[Cron] Daily location processing failed", {
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -400,8 +423,8 @@ async function reparseTodayNotifications() {
             and(
               eq(notificationLogs.userId, user.id),
               gte(notificationLogs.receivedAt, dayStart),
-              lt(notificationLogs.receivedAt, dayEnd),
-            ),
+              lt(notificationLogs.receivedAt, dayEnd)
+            )
           )
           .orderBy(desc(notificationLogs.receivedAt));
 
@@ -435,7 +458,7 @@ async function reparseTodayNotifications() {
             .select({ id: transactions.id })
             .from(transactions)
             .where(
-              and(eq(transactions.userId, user.id), eq(transactions.notificationLogId, log.id)),
+              and(eq(transactions.userId, user.id), eq(transactions.notificationLogId, log.id))
             )
             .limit(1);
 
@@ -457,8 +480,8 @@ async function reparseTodayNotifications() {
                 eq(transactions.merchant, parsed.merchant),
                 eq(transactions.type, parsed.type),
                 gte(transactions.transactedAt, windowStart),
-                lte(transactions.transactedAt, windowEnd),
-              ),
+                lte(transactions.transactedAt, windowEnd)
+              )
             )
             .limit(1);
 
@@ -498,7 +521,7 @@ async function reparseTodayNotifications() {
           else totalCreated++;
         }
       } catch (error) {
-        logger.error('[Cron] Toss reparse error for user', {
+        logger.error("[Cron] Toss reparse error for user", {
           userId: user.id,
           githubLogin: user.githubLogin,
           error: error instanceof Error ? error.message : String(error),
@@ -507,14 +530,14 @@ async function reparseTodayNotifications() {
     }
 
     if (totalCreated > 0 || totalUpdated > 0) {
-      logger.info('[Cron] Daily Toss reparse completed', {
+      logger.info("[Cron] Daily Toss reparse completed", {
         created: totalCreated,
         updated: totalUpdated,
         skipped: totalSkipped,
       });
     }
   } catch (error) {
-    logger.error('[Cron] Fatal error during Toss reparse', {
+    logger.error("[Cron] Fatal error during Toss reparse", {
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -526,14 +549,14 @@ async function reparseTodayNotifications() {
  */
 export function initializeCron() {
   if (isInitialized) {
-    logger.info('[Cron] Already initialized. Skipping.');
+    logger.info("[Cron] Already initialized. Skipping.");
     return;
   }
 
-  const CRON_SCHEDULE = '*/10 * * * *';
-  const DAILY_REPARSE_SCHEDULE = '0 23 * * *'; // 매일 23시 (당일 알림 재파싱)
+  const CRON_SCHEDULE = "*/10 * * * *";
+  const DAILY_REPARSE_SCHEDULE = "0 23 * * *"; // 매일 23시 (당일 알림 재파싱)
 
-  logger.info('[Cron] Service starting', {
+  logger.info("[Cron] Service starting", {
     schedule: CRON_SCHEDULE,
     dailyReparseSchedule: DAILY_REPARSE_SCHEDULE,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -541,8 +564,8 @@ export function initializeCron() {
 
   // Set up cron job (every 10 minutes)
   cronTask = cron.schedule(CRON_SCHEDULE, () => {
-    syncAllUsers().catch(error => {
-      logger.error('[Cron] Unhandled error in sync job', {
+    syncAllUsers().catch((error) => {
+      logger.error("[Cron] Unhandled error in sync job", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -550,18 +573,18 @@ export function initializeCron() {
 
   // Daily Toss notification reparse (23:00)
   dailyReparseTask = cron.schedule(DAILY_REPARSE_SCHEDULE, () => {
-    reparseTodayNotifications().catch(error => {
-      logger.error('[Cron] Unhandled error in daily reparse', {
+    reparseTodayNotifications().catch((error) => {
+      logger.error("[Cron] Unhandled error in daily reparse", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
   });
 
   // Daily location processing (01:00 — anomaly detection, visit detection, transport modes)
-  const LOCATION_PROCESSING_SCHEDULE = '0 1 * * *';
+  const LOCATION_PROCESSING_SCHEDULE = "0 1 * * *";
   locationProcessingTask = cron.schedule(LOCATION_PROCESSING_SCHEDULE, () => {
-    processYesterdayLocations().catch(error => {
-      logger.error('[Cron] Unhandled error in location processing', {
+    processYesterdayLocations().catch((error) => {
+      logger.error("[Cron] Unhandled error in location processing", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -570,16 +593,16 @@ export function initializeCron() {
   isInitialized = true;
 
   // Run immediately on start if environment variable is set
-  if (process.env.RUN_ON_START === 'true') {
-    logger.info('[Cron] RUN_ON_START=true detected. Running sync immediately...');
-    syncAllUsers().catch(error => {
-      logger.error('[Cron] Initial sync failed', {
+  if (process.env.RUN_ON_START === "true") {
+    logger.info("[Cron] RUN_ON_START=true detected. Running sync immediately...");
+    syncAllUsers().catch((error) => {
+      logger.error("[Cron] Initial sync failed", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
   }
 
-  logger.info('[Cron] Service initialized successfully.');
+  logger.info("[Cron] Service initialized successfully.");
 }
 
 /**
@@ -601,7 +624,7 @@ export async function stopCron() {
   }
   if (isInitialized) {
     await logger.flush();
-    logger.info('[Cron] Service stopped.');
+    logger.info("[Cron] Service stopped.");
     isInitialized = false;
   }
 }

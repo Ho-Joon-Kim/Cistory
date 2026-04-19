@@ -9,16 +9,15 @@ import type { Database } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
-import { now, truncateDiff, parseRepoFullName } from "@/lib/utils";
+import { now, parseRepoFullName, truncateDiff } from "@/lib/utils";
+import { analyzeRecentCommits, fetchRepoContext } from "./context";
 import {
-  buildSystemPrompt,
   buildRecentContext,
   buildSummaryPrompt,
-  SIMPLE_SYSTEM_PROMPT,
-  type RepoContext,
+  buildSystemPrompt,
   type CommitContext,
+  SIMPLE_SYSTEM_PROMPT,
 } from "./prompts";
-import { fetchRepoContext, analyzeRecentCommits } from "./context";
 
 const MAX_RETRY_COUNT = 3;
 
@@ -31,11 +30,7 @@ export class SummaryService {
   private anthropicApiKey: string;
   private githubAccessToken: string;
 
-  constructor(
-    db: Database,
-    anthropicApiKey: string,
-    githubAccessToken: string
-  ) {
+  constructor(db: Database, anthropicApiKey: string, githubAccessToken: string) {
     this.db = db;
     this.anthropicApiKey = anthropicApiKey;
     this.githubAccessToken = githubAccessToken;
@@ -85,11 +80,7 @@ export class SummaryService {
 
     try {
       // diff 가져오기
-      const diffResult = await this.vcsAdapter.getCommitDiff(
-        owner,
-        repo,
-        commit.sha
-      );
+      const diffResult = await this.vcsAdapter.getCommitDiff(owner, repo, commit.sha);
 
       const truncatedDiff = truncateDiff(diffResult.rawDiff, 8000);
       const changedFiles = diffResult.files.map((f) => f.filename);

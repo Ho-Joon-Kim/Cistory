@@ -4,10 +4,10 @@
  * POST /api/settings/db-benchmark - 벤치마크 실행 후 결과 응답
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { count, desc, eq, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
+import { commitSummaries, commits, getDb, syncJobs } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { getDb, commits, commitSummaries, syncJobs } from "@/db";
-import { eq, sql, desc, count } from "drizzle-orm";
 
 interface BenchmarkStats {
   mean: number;
@@ -108,7 +108,12 @@ export async function POST(request: NextRequest) {
         allRuns.push(ms);
       }
       const runs = allRuns.slice(1);
-      benchmarks.push({ name: "countAggregation", label: "COUNT 집계", runs, stats: calcStats(runs) });
+      benchmarks.push({
+        name: "countAggregation",
+        label: "COUNT 집계",
+        runs,
+        stats: calcStats(runs),
+      });
     }
 
     // 4. Join Query (commits + summaries, 10건)
@@ -156,7 +161,12 @@ export async function POST(request: NextRequest) {
         allRuns.push(ms);
       }
       const runs = allRuns.slice(1);
-      benchmarks.push({ name: "complexAggregation", label: "복합 집계", runs, stats: calcStats(runs) });
+      benchmarks.push({
+        name: "complexAggregation",
+        label: "복합 집계",
+        runs,
+        stats: calcStats(runs),
+      });
     }
 
     // 6. Write + Delete (트랜잭션으로 안전하게)

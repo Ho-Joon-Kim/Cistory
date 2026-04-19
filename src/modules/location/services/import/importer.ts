@@ -7,11 +7,11 @@
  */
 
 import { getDb, locationPoints } from "@/db";
-import type { ParsedPoint, ImportFormat } from "./types";
-import { parseGpx } from "./gpx-parser";
+import { detectFormat } from "./format-detector";
 import { parseGeoJson } from "./geojson-parser";
 import { parseGoogleTakeout } from "./google-takeout-parser";
-import { detectFormat } from "./format-detector";
+import { parseGpx } from "./gpx-parser";
+import type { ImportFormat, ParsedPoint } from "./types";
 
 const BATCH_SIZE = 1000; // Dawarich default
 
@@ -41,10 +41,9 @@ export interface ImportProgress {
 export function parseFile(
   content: string,
   fileName: string,
-  format?: ImportFormat | "auto",
+  format?: ImportFormat | "auto"
 ): { points: ParsedPoint[]; detectedFormat: ImportFormat } {
-  const detectedFormat =
-    format && format !== "auto" ? format : detectFormat(fileName, content);
+  const detectedFormat = format && format !== "auto" ? format : detectFormat(fileName, content);
 
   let points: ParsedPoint[] = [];
 
@@ -73,7 +72,7 @@ export function parseFile(
 export async function importPoints(
   userId: string,
   points: ParsedPoint[],
-  onProgress?: (progress: ImportProgress) => void,
+  onProgress?: (progress: ImportProgress) => void
 ): Promise<ImportResult> {
   if (points.length === 0) {
     return { imported: 0, duplicates: 0, totalParsed: 0, dateRange: null };
@@ -120,7 +119,7 @@ export async function importPoints(
       phase: "inserting",
       totalParsed: points.length,
       inserted: imported,
-      duplicates: (i + batch.length) - imported,
+      duplicates: i + batch.length - imported,
       batchIndex,
       totalBatches,
       progress: Math.round((batchIndex / totalBatches) * 100),

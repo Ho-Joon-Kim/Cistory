@@ -12,10 +12,10 @@
  *   { "type": "done", "dryRun": true, "total": 150, "created": ..., "items": [...] }
  */
 
-import { NextRequest } from "next/server";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import type { NextRequest } from "next/server";
 import { getDb } from "@/db";
 import { notificationLogs, transactions, users } from "@/db/schema";
-import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { parseTossNotification } from "@/modules/transaction/parser";
@@ -179,9 +179,7 @@ export async function POST(request: NextRequest) {
               accountName: transactions.accountName,
             })
             .from(transactions)
-            .where(
-              and(eq(transactions.userId, userId), eq(transactions.notificationLogId, log.id)),
-            )
+            .where(and(eq(transactions.userId, userId), eq(transactions.notificationLogId, log.id)))
             .limit(1);
 
           const existing = existingForLog.length > 0 ? existingForLog[0] : null;
@@ -202,8 +200,8 @@ export async function POST(request: NextRequest) {
                 eq(transactions.merchant, parsed.merchant),
                 eq(transactions.type, parsed.type),
                 gte(transactions.transactedAt, windowStart),
-                lte(transactions.transactedAt, windowEnd),
-              ),
+                lte(transactions.transactedAt, windowEnd)
+              )
             )
             .limit(1);
 

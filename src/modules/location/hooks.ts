@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
 
 export interface LocationData {
@@ -62,10 +62,9 @@ export function useStayPoints(date: string) {
       if (!silent) setIsLoading(true);
 
       try {
-        const response = await fetch(
-          `/api/timeline/locations/stay-points?date=${targetDate}`,
-          { signal },
-        );
+        const response = await fetch(`/api/timeline/locations/stay-points?date=${targetDate}`, {
+          signal,
+        });
         if (!response.ok) throw new Error("Failed to fetch stay points");
 
         const data = (await response.json()) as StayPointsResponse;
@@ -91,7 +90,7 @@ export function useStayPoints(date: string) {
         if (!silent) setIsLoading(false);
       }
     },
-    [],
+    []
   );
 
   useEffect(() => {
@@ -141,10 +140,9 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
       if (!silent) setIsLoading(true);
 
       try {
-        const response = await fetch(
-          `/api/timeline/locations/distances?from=${from}&to=${to}`,
-          { signal },
-        );
+        const response = await fetch(`/api/timeline/locations/distances?from=${from}&to=${to}`, {
+          signal,
+        });
         if (!response.ok) throw new Error("Failed to fetch distances");
 
         const data = (await response.json()) as DailyDistancesResponse;
@@ -158,7 +156,7 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
         if (!silent) setIsLoading(false);
       }
     },
-    [],
+    []
   );
 
   useEffect(() => {
@@ -244,7 +242,7 @@ export function useLocations(date: string) {
         }
       }
     },
-    [],
+    []
   );
 
   useEffect(() => {
@@ -321,10 +319,9 @@ export function useTracks(date: string) {
       if (!silent) setIsLoading(true);
 
       try {
-        const response = await fetch(
-          `/api/timeline/locations/tracks?date=${targetDate}`,
-          { signal },
-        );
+        const response = await fetch(`/api/timeline/locations/tracks?date=${targetDate}`, {
+          signal,
+        });
         if (!response.ok) throw new Error("Failed to fetch tracks");
 
         const data = (await response.json()) as TracksResponse;
@@ -349,7 +346,7 @@ export function useTracks(date: string) {
         if (!silent) setIsLoading(false);
       }
     },
-    [],
+    []
   );
 
   useEffect(() => {
@@ -553,7 +550,7 @@ export function useSavedPlaces() {
         setIsSaving(false);
       }
     },
-    [],
+    []
   );
 
   const updatePlace = useCallback(
@@ -575,7 +572,7 @@ export function useSavedPlaces() {
         setIsSaving(false);
       }
     },
-    [],
+    []
   );
 
   const deletePlace = useCallback(async (id: string) => {

@@ -6,10 +6,10 @@
  * and returns the results.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, asc, eq, gte, isNull, lt, lte, or } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb, locationPoints, transportationSegments } from "@/db";
-import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { detectTransportModes } from "@/modules/location/services/transportation/detector";
 
 export async function GET(request: NextRequest) {
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       return NextResponse.json(
         { error: "date 파라미터가 필요합니다 (YYYY-MM-DD)" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -43,8 +43,8 @@ export async function GET(request: NextRequest) {
           gte(locationPoints.timestamp, dayStart),
           lt(locationPoints.timestamp, dayEnd),
           or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200)),
-          or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false)),
-        ),
+          or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false))
+        )
       )
       .orderBy(asc(locationPoints.timestamp));
 
@@ -53,12 +53,14 @@ export async function GET(request: NextRequest) {
     // Persist: delete + insert in a transaction
     const now = new Date();
     await db.transaction(async (tx) => {
-      await tx.delete(transportationSegments).where(
-        and(
-          eq(transportationSegments.userId, user.id),
-          eq(transportationSegments.date, dateParam),
-        ),
-      );
+      await tx
+        .delete(transportationSegments)
+        .where(
+          and(
+            eq(transportationSegments.userId, user.id),
+            eq(transportationSegments.date, dateParam)
+          )
+        );
       if (segments.length > 0) {
         await tx.insert(transportationSegments).values(
           segments.map((s) => ({
@@ -74,7 +76,7 @@ export async function GET(request: NextRequest) {
             maxSpeedKmh: s.maxSpeedKmh,
             avgAcceleration: s.avgAcceleration,
             calculatedAt: now,
-          })),
+          }))
         );
       }
     });
@@ -93,9 +95,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Transport modes error:", error);
-    return NextResponse.json(
-      { error: "교통수단 감지에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "교통수단 감지에 실패했습니다" }, { status: 500 });
   }
 }

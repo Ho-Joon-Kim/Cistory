@@ -1,10 +1,10 @@
+import { logger } from "@/lib/logger";
 import type {
   WakaTimeAdapter,
-  WakaTimeDuration,
   WakaTimeDailySummary,
+  WakaTimeDuration,
   WakaTimeUser,
 } from "./interface";
-import { logger } from "@/lib/logger";
 
 const BASE_URL = "https://wakatime.com/api/v1";
 
@@ -45,9 +45,7 @@ export class WakaTimeAdapterImpl implements WakaTimeAdapter {
       ai_deletions?: number | null;
     }
 
-    const data = await this.fetch<{ data: RawDuration[] }>(
-      `/users/current/durations?date=${date}`
-    );
+    const data = await this.fetch<{ data: RawDuration[] }>(`/users/current/durations?date=${date}`);
 
     return data.data.map((d) => ({
       project: d.project,

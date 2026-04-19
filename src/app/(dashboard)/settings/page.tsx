@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { Header } from "@/components/Layout/Header";
 import { useAuth } from "@/modules/auth/hooks";
 import { SettingsForm } from "@/modules/settings/components/SettingsForm";
-import { Header } from "@/components/Layout/Header";
 
 export default function SettingsPage() {
   const router = useRouter();

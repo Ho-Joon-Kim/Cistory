@@ -1,32 +1,39 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import Map, { Source, Layer, Marker, Popup } from "react-map-gl/mapbox";
-import type { MapRef, LayerProps } from "react-map-gl/mapbox";
+import { Bookmark, Clock, Loader2, MapPin, Navigation, Play } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { LayerProps, MapRef } from "react-map-gl/mapbox";
+import Map, { Layer, Marker, Popup, Source } from "react-map-gl/mapbox";
+import { toast } from "sonner";
 import {
-  useLocations,
-  useStayPoints,
-  useSavedPlaces,
   type SavedPlaceData,
   type StayPointData,
+  useLocations,
+  useSavedPlaces,
+  useStayPoints,
 } from "../hooks";
-import { segmentLocations, createGeoCircle, findSegmentIndexByStayPoint } from "../utils";
-import { SegmentedRouteAnimator } from "./SegmentedRouteAnimator";
-import { RouteReplayController } from "./RouteReplayController";
+import { useFogOfWar } from "../hooks/useFogOfWar";
+import { useRouteReplay } from "../hooks/useRouteReplay";
+import { createGeoCircle, findSegmentIndexByStayPoint, segmentLocations } from "../utils";
 import { FogOfWarLayer } from "./FogOfWarLayer";
 import { MapSidePanel } from "./MapSidePanel";
-import { TimelineSegmentBar } from "./TimelineSegmentBar";
 import { MapSkeleton } from "./MapSkeleton";
-import { useRouteReplay } from "../hooks/useRouteReplay";
-import { useFogOfWar } from "../hooks/useFogOfWar";
 import type { LayerVisibility } from "./panels/LayersPanel";
-import { MapPin, Clock, Navigation, Bookmark, Loader2, Play } from "lucide-react";
-import { toast } from "sonner";
+import { RouteReplayController } from "./RouteReplayController";
+import { SegmentedRouteAnimator } from "./SegmentedRouteAnimator";
+import { TimelineSegmentBar } from "./TimelineSegmentBar";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 function loadLayerVisibility(): LayerVisibility {
-  if (typeof window === "undefined") return { routes: true, stayPoints: true, savedPlaces: true, speedColors: false, fogOfWar: false };
+  if (typeof window === "undefined")
+    return {
+      routes: true,
+      stayPoints: true,
+      savedPlaces: true,
+      speedColors: false,
+      fogOfWar: false,
+    };
   try {
     const saved = sessionStorage.getItem("cistory-layer-visibility");
     if (saved) return JSON.parse(saved);
@@ -35,7 +42,9 @@ function loadLayerVisibility(): LayerVisibility {
 }
 
 function saveLayerVisibility(v: LayerVisibility) {
-  try { sessionStorage.setItem("cistory-layer-visibility", JSON.stringify(v)); } catch {}
+  try {
+    sessionStorage.setItem("cistory-layer-visibility", JSON.stringify(v));
+  } catch {}
 }
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -127,7 +136,8 @@ function StayPointMarkers({
             <div className="stay-point-tooltip-time">
               <Clock className="h-3 w-3" />
               <span>
-                {formatTime(selectedPoint.startTime)} – {formatTime(selectedPoint.endTime)} ({formatDuration(selectedPoint.durationMinutes)})
+                {formatTime(selectedPoint.startTime)} – {formatTime(selectedPoint.endTime)} (
+                {formatDuration(selectedPoint.durationMinutes)})
               </span>
             </div>
             {selectedPoint.category && (
@@ -142,8 +152,7 @@ function StayPointMarkers({
                   setSelectedPoint(null);
                 }}
               >
-                <Bookmark className="h-3 w-3" />
-                이 장소 저장
+                <Bookmark className="h-3 w-3" />이 장소 저장
               </button>
             )}
           </div>
@@ -190,12 +199,7 @@ function SavedPlacesOverlay({ places }: { places: SavedPlaceData[] }) {
         <Layer {...SAVED_PLACE_OUTLINE_LAYER} />
       </Source>
       {places.map((p) => (
-        <Marker
-          key={`saved-label-${p.id}`}
-          longitude={p.lon}
-          latitude={p.lat}
-          anchor="center"
-        >
+        <Marker key={`saved-label-${p.id}`} longitude={p.lon} latitude={p.lat} anchor="center">
           <div className="saved-place-label">{p.name}</div>
         </Marker>
       ))}
@@ -232,10 +236,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
   const [replayMode, setReplayMode] = useState(false);
   const replay = useRouteReplay({ locations, stayPoints });
 
-  const segments = useMemo(
-    () => segmentLocations(locations, stayPoints),
-    [locations, stayPoints],
-  );
+  const segments = useMemo(() => segmentLocations(locations, stayPoints), [locations, stayPoints]);
 
   // Auto-select the last staying segment on today's date
   const autoSelectedRef = useRef<string | null>(null);
@@ -271,7 +272,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
         toast.error("장소 저장에 실패했습니다");
       }
     },
-    [createPlace],
+    [createPlace]
   );
 
   // Bar → Map: segment click handler
@@ -303,11 +304,11 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
             [Math.min(...lngs), Math.min(...lats)],
             [Math.max(...lngs), Math.max(...lats)],
           ],
-          { padding: 60, duration: 1000 },
+          { padding: 60, duration: 1000 }
         );
       }
     },
-    [selectedSegmentIndex, segments],
+    [selectedSegmentIndex, segments]
   );
 
   // Map → Bar: stay point marker click
@@ -318,7 +319,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
         setSelectedSegmentIndex(idx);
       }
     },
-    [segments],
+    [segments]
   );
 
   // Map click: deselect

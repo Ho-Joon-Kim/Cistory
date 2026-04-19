@@ -1,20 +1,20 @@
 "use client";
 
-import { Suspense, useCallback, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import dynamic from "next/dynamic";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Timeline } from "@/modules/timeline/components/Timeline";
-import { useTimeline, useRepositories } from "@/modules/timeline/hooks";
-import { useRequireAuth } from "@/modules/auth/hooks";
-import { parseDateParam } from "@/lib/utils";
-import { SyncStatusProvider, type RecentSyncJob } from "@/modules/sync/hooks";
-import { Header } from "@/components/Layout/Header";
-import { MapSkeleton } from "@/modules/location/components/MapSkeleton";
 import { Loader2, RefreshCw } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Header } from "@/components/Layout/Header";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { parseDateParam } from "@/lib/utils";
+import { useRequireAuth } from "@/modules/auth/hooks";
+import { MapSkeleton } from "@/modules/location/components/MapSkeleton";
 import { useSettings } from "@/modules/settings/hooks";
+import { type RecentSyncJob, SyncStatusProvider } from "@/modules/sync/hooks";
+import { Timeline } from "@/modules/timeline/components/Timeline";
+import { useRepositories, useTimeline } from "@/modules/timeline/hooks";
 
 const LocationMap = dynamic(
   () => import("@/modules/location/components/LocationMap").then((m) => m.LocationMap),
@@ -28,8 +28,8 @@ function DashboardContent() {
 
   // Selected date for timeline + map (initialized from URL ?date= param)
   const today = useMemo(() => new Date().toISOString().split("T")[0], []);
-  const [selectedDate, setSelectedDateRaw] = useState<string>(
-    () => parseDateParam(searchParams.get("date"))
+  const [selectedDate, setSelectedDateRaw] = useState<string>(() =>
+    parseDateParam(searchParams.get("date"))
   );
 
   // Wrap setSelectedDate to sync URL
@@ -47,13 +47,7 @@ function DashboardContent() {
     [today]
   );
 
-  const {
-    commits,
-    isLoading,
-    hasNext,
-    loadMore,
-    refresh,
-  } = useTimeline();
+  const { commits, isLoading, hasNext, loadMore, refresh } = useTimeline();
 
   const mapInitialCenter = useMemo(() => {
     if (settings?.lastLat != null && settings?.lastLon != null) {
@@ -62,7 +56,11 @@ function DashboardContent() {
     return null;
   }, [settings?.lastLat, settings?.lastLon]);
 
-  const { repositories, isLoading: isLoadingRepos, refresh: refreshRepos } = useRepositories(isAuthenticated);
+  const {
+    repositories,
+    isLoading: isLoadingRepos,
+    refresh: refreshRepos,
+  } = useRepositories(isAuthenticated);
 
   // 동기화 작업 완료 시 — 신규 커밋 추가 + 전체 새로고침 fallback
   const handleSyncCompleted = useCallback(
@@ -100,7 +98,8 @@ function DashboardContent() {
     return null;
   }
 
-  const showEmptyState = !isLoading && !isLoadingRepos && commits.length === 0 && repositories.length === 0;
+  const showEmptyState =
+    !isLoading && !isLoadingRepos && commits.length === 0 && repositories.length === 0;
 
   return (
     <SyncStatusProvider
@@ -125,13 +124,15 @@ function DashboardContent() {
                     <br />
                     동기화 버튼을 눌러 GitHub 커밋을 가져오세요.
                   </p>
-                  <Button onClick={() => {
-                    fetch("/api/sync", { method: "POST" })
-                      .then(() => {
-                        toast.success("동기화가 시작되었습니다");
-                      })
-                      .catch(() => toast.error("동기화 시작에 실패했습니다"));
-                  }}>
+                  <Button
+                    onClick={() => {
+                      fetch("/api/sync", { method: "POST" })
+                        .then(() => {
+                          toast.success("동기화가 시작되었습니다");
+                        })
+                        .catch(() => toast.error("동기화 시작에 실패했습니다"));
+                    }}
+                  >
                     <RefreshCw className="h-4 w-4 mr-2" />
                     커밋 동기화 시작
                   </Button>
@@ -142,7 +143,11 @@ function DashboardContent() {
             <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
               {/* Map */}
               <div className="shrink-0 h-[250px] lg:h-auto lg:flex-1 rounded-lg overflow-hidden border">
-                <LocationMap date={selectedDate} className="h-full w-full" initialCenter={mapInitialCenter} />
+                <LocationMap
+                  date={selectedDate}
+                  className="h-full w-full"
+                  initialCenter={mapInitialCenter}
+                />
               </div>
 
               {/* Timeline (only scrollable area) */}
@@ -166,11 +171,13 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
       <DashboardContent />
     </Suspense>
   );

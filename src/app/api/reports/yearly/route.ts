@@ -8,10 +8,10 @@
  * POST /api/reports/yearly { year: "2026" } → AI 내러티브 생성
  */
 
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { createReportService } from "@/modules/report/service";
-import { type NextRequest, NextResponse } from "next/server";
 
 const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross"]);
 
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const enriched = request.nextUrl.searchParams.get("enriched") === "true";
+    const _enriched = request.nextUrl.searchParams.get("enriched") === "true";
     const db = getDb();
     const service = createReportService(db);
 

@@ -5,7 +5,7 @@
  * Returns 7×24 activity heatmap matrix, time-of-day distribution, and streak stats.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getTimeOfDayAnalysis } from "@/modules/location/services/time-of-day";
 
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
       return NextResponse.json(
         { error: "yearMonth 파라미터가 필요합니다 (YYYY-MM)" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -31,9 +31,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Activity analysis error:", error);
-    return NextResponse.json(
-      { error: "활동 분석에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "활동 분석에 실패했습니다" }, { status: 500 });
   }
 }

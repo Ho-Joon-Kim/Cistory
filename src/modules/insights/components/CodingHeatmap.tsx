@@ -12,7 +12,20 @@ interface CodingHeatmapProps {
 }
 
 const DAY_LABELS = ["", "월", "", "수", "", "금", ""];
-const MONTH_LABELS = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
+const MONTH_LABELS = [
+  "1월",
+  "2월",
+  "3월",
+  "4월",
+  "5월",
+  "6월",
+  "7월",
+  "8월",
+  "9월",
+  "10월",
+  "11월",
+  "12월",
+];
 
 function getColor(count: number, max: number): string {
   if (count === 0) return "bg-muted";

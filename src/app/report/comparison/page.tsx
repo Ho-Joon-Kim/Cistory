@@ -1,22 +1,19 @@
 "use client";
 
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useState } from "react";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRequireAuth } from "@/modules/auth/hooks";
-import { useYearComparison } from "@/modules/report/hooks";
 import { YearComparisonDashboard } from "@/modules/report/components/YearComparisonDashboard";
+import { useYearComparison } from "@/modules/report/hooks";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import dynamic from "next/dynamic";
-import { useState } from "react";
 
 const ComparisonChart = dynamic(
-  () =>
-    import("@/modules/report/components/ComparisonChart").then(
-      (m) => m.ComparisonChart,
-    ),
-  { ssr: false },
+  () => import("@/modules/report/components/ComparisonChart").then((m) => m.ComparisonChart),
+  { ssr: false }
 );
 
 const currentYear = new Date().getFullYear();
@@ -96,9 +93,7 @@ function ComparisonContent() {
       )}
 
       {/* Error */}
-      {error && (
-        <p className="text-center text-sm text-destructive">{error}</p>
-      )}
+      {error && <p className="text-center text-sm text-destructive">{error}</p>}
 
       {/* Data */}
       {data && !isLoading && (

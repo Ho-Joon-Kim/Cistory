@@ -5,11 +5,11 @@
  * GET /api/reports/scratch-map?year=2026 → 특정 연도 방문 지역
  */
 
-import { NextResponse } from "next/server";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import type { NextRequest } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { NextResponse } from "next/server";
 import { getDb, locationPoints, placeCache } from "@/db";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(request: NextRequest) {
   try {

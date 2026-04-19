@@ -5,11 +5,11 @@
  * GET /api/timeline/locations/first-visits?yearMonth=YYYY-MM  — monthly first visits
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import {
-  getFirstVisitsByYear,
   getFirstVisitsByMonth,
+  getFirstVisitsByYear,
 } from "@/modules/location/services/first-visits";
 
 export async function GET(request: NextRequest) {
@@ -32,13 +32,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       { error: "year (YYYY) 또는 yearMonth (YYYY-MM) 파라미터가 필요합니다" },
-      { status: 400 },
+      { status: 400 }
     );
   } catch (error) {
     console.error("First visits error:", error);
-    return NextResponse.json(
-      { error: "최초 방문 조회에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "최초 방문 조회에 실패했습니다" }, { status: 500 });
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
 
 const POLL_INTERVAL_MS = 60_000;
@@ -46,10 +46,9 @@ export function useCodingSessions(date: string) {
 
       try {
         const tz = new Date().getTimezoneOffset();
-        const response = await fetch(
-          `/api/timeline/coding-sessions?date=${targetDate}&tz=${tz}`,
-          { signal }
-        );
+        const response = await fetch(`/api/timeline/coding-sessions?date=${targetDate}&tz=${tz}`, {
+          signal,
+        });
         if (!response.ok) throw new Error("Failed to fetch coding sessions");
 
         const data = (await response.json()) as CodingSessionsResponse;
@@ -133,10 +132,9 @@ export function useCodingStats(dateFrom: string, dateTo: string) {
       if (!silent) setIsLoading(true);
 
       try {
-        const response = await fetch(
-          `/api/timeline/coding-stats?from=${from}&to=${to}`,
-          { signal }
-        );
+        const response = await fetch(`/api/timeline/coding-stats?from=${from}&to=${to}`, {
+          signal,
+        });
         if (!response.ok) throw new Error("Failed to fetch coding stats");
 
         const data = (await response.json()) as CodingStatsResponse;

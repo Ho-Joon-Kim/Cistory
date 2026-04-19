@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
 import { MapPin } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface ScratchMapStatsProps {
   totalRegions: number;
@@ -22,7 +22,9 @@ export function ScratchMapStats({ totalRegions, totalCells, regions }: ScratchMa
         </div>
         <div className="space-y-1 mb-4">
           <p className="text-2xl font-bold">{totalRegions}개 지역</p>
-          <p className="text-xs text-muted-foreground">{totalCells.toLocaleString()}개 위치 포인트 기반</p>
+          <p className="text-xs text-muted-foreground">
+            {totalCells.toLocaleString()}개 위치 포인트 기반
+          </p>
         </div>
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground">상위 방문 지역</p>
@@ -32,7 +34,9 @@ export function ScratchMapStats({ totalRegions, totalCells, regions }: ScratchMa
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="text-xs truncate">{region.name}</span>
-                  <span className="text-xs text-muted-foreground ml-2">{region.visits.toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground ml-2">
+                    {region.visits.toLocaleString()}
+                  </span>
                 </div>
                 <div className="h-1 rounded-full bg-muted overflow-hidden">
                   <div

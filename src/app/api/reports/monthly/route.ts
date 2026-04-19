@@ -8,10 +8,10 @@
  * POST /api/reports/monthly { yearMonth: "2026-02" } → AI 내러티브 생성
  */
 
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { createReportService } from "@/modules/report/service";
-import { type NextRequest, NextResponse } from "next/server";
 
 const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross"]);
 

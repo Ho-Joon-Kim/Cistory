@@ -9,12 +9,12 @@
  * Supports files up to 500MB (Google Takeout).
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import {
-  parseFile,
-  importPoints,
   type ImportProgress,
+  importPoints,
+  parseFile,
 } from "@/modules/location/services/import/importer";
 import type { ImportFormat } from "@/modules/location/services/import/types";
 
@@ -28,41 +28,30 @@ export async function POST(request: NextRequest) {
   try {
     formData = await request.formData();
   } catch {
-    return NextResponse.json(
-      { error: "요청을 파싱할 수 없습니다" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "요청을 파싱할 수 없습니다" }, { status: 400 });
   }
 
   const file = formData.get("file");
 
   if (!file || !(file instanceof File)) {
-    return NextResponse.json(
-      { error: "file 필드가 필요합니다" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "file 필드가 필요합니다" }, { status: 400 });
   }
 
   if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json(
-      { error: "파일 크기는 500MB 이하여야 합니다" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "파일 크기는 500MB 이하여야 합니다" }, { status: 400 });
   }
 
   const formatParam = formData.get("format") as string | null;
   const format = (formatParam ?? "auto") as ImportFormat | "auto";
   const fileName = file.name;
-  const fileSize = file.size;
+  const _fileSize = file.size;
 
   // SSE stream for progress
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       function send(data: ImportProgress) {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(data)}\n\n`),
-        );
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       }
 
       try {
@@ -87,8 +76,7 @@ export async function POST(request: NextRequest) {
         if (detectedFormat === "unknown") {
           send({
             phase: "error",
-            error:
-              "지원하지 않는 파일 형식입니다. GPX, GeoJSON, Google Takeout JSON을 사용하세요.",
+            error: "지원하지 않는 파일 형식입니다. GPX, GeoJSON, Google Takeout JSON을 사용하세요.",
           });
           controller.close();
           return;
@@ -132,8 +120,7 @@ export async function POST(request: NextRequest) {
           progress: 100,
         });
       } catch (error) {
-        const errMsg =
-          error instanceof Error ? error.message : String(error);
+        const errMsg = error instanceof Error ? error.message : String(error);
         console.error("Import error:", error);
         send({ phase: "error", error: `임포트 실패: ${errMsg}` });
       } finally {

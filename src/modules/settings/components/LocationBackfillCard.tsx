@@ -1,19 +1,48 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { MapPin, AlertTriangle, CheckCircle2, Loader2, Shield, Navigation, Car } from "lucide-react";
+import {
+  AlertTriangle,
+  Car,
+  CheckCircle2,
+  Loader2,
+  MapPin,
+  Navigation,
+  Shield,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 
 interface DryRunResult {
   hasData: boolean;
   dateRange: { earliest: string; latest: string; totalDays: number };
-  anomaly: { totalPoints: number; scanned: number; unscanned: number; anomaliesFound: number; needsBackfill: boolean };
-  visits: { totalDays: number; daysProcessed: number; daysRemaining: number; needsBackfill: boolean };
-  transport: { totalDays: number; daysProcessed: number; daysRemaining: number; needsBackfill: boolean };
-  geocoding: { uncachedTotal: number; uncachedKorea: number; uncachedOverseas: number; provider: string };
+  anomaly: {
+    totalPoints: number;
+    scanned: number;
+    unscanned: number;
+    anomaliesFound: number;
+    needsBackfill: boolean;
+  };
+  visits: {
+    totalDays: number;
+    daysProcessed: number;
+    daysRemaining: number;
+    needsBackfill: boolean;
+  };
+  transport: {
+    totalDays: number;
+    daysProcessed: number;
+    daysRemaining: number;
+    needsBackfill: boolean;
+  };
+  geocoding: {
+    uncachedTotal: number;
+    uncachedKorea: number;
+    uncachedOverseas: number;
+    provider: string;
+  };
   warnings: string[];
   totalSteps: number;
 }
@@ -96,7 +125,7 @@ export function LocationBackfillCard() {
 
             if (event.phase === "done") {
               toast.success(
-                `백필 완료: 이상치 ${event.totalAnomalies}건, 방문 ${event.totalVisits}건, 교통수단 ${event.totalSegments}건`,
+                `백필 완료: 이상치 ${event.totalAnomalies}건, 방문 ${event.totalVisits}건, 교통수단 ${event.totalSegments}건`
               );
               fetchDryRun();
             } else if (event.phase === "error") {
@@ -158,14 +187,18 @@ export function LocationBackfillCard() {
           <>
             {/* Date range */}
             <div className="text-sm text-muted-foreground">
-              {dryRun.dateRange.earliest} ~ {dryRun.dateRange.latest} ({dryRun.dateRange.totalDays}일, {dryRun.anomaly.totalPoints.toLocaleString()}개 포인트)
+              {dryRun.dateRange.earliest} ~ {dryRun.dateRange.latest} ({dryRun.dateRange.totalDays}
+              일, {dryRun.anomaly.totalPoints.toLocaleString()}개 포인트)
             </div>
 
             {/* Warnings */}
             {dryRun.warnings.length > 0 && (
               <div className="space-y-2">
                 {dryRun.warnings.map((w, i) => (
-                  <div key={i} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                  <div
+                    key={i}
+                    className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                  >
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                     <span>{w}</span>
                   </div>
@@ -263,8 +296,11 @@ function StatusRow({
     <div className="flex items-center gap-3 text-sm">
       <div className={done ? "text-green-500" : "text-muted-foreground"}>{icon}</div>
       <span className="font-medium w-24">{label}</span>
-      <span className={`text-xs ${done ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
-        {done ? "✓ " : ""}{detail}
+      <span
+        className={`text-xs ${done ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}
+      >
+        {done ? "✓ " : ""}
+        {detail}
       </span>
     </div>
   );

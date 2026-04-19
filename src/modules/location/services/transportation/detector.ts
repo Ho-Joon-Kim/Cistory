@@ -21,15 +21,11 @@ interface PointInput {
  * Detect transportation modes for a set of chronologically sorted points.
  * Returns empty array if insufficient data.
  */
-export function detectTransportModes(
-  points: PointInput[],
-): TransportSegment[] {
+export function detectTransportModes(points: PointInput[]): TransportSegment[] {
   if (points.length < MIN_POINTS) return [];
 
   const duration =
-    (points[points.length - 1].timestamp.getTime() -
-      points[0].timestamp.getTime()) /
-    1000;
+    (points[points.length - 1].timestamp.getTime() - points[0].timestamp.getTime()) / 1000;
 
   if (duration < MIN_TRACK_DURATION_SEC) return [];
 

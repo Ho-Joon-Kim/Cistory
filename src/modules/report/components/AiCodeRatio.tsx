@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bot, User } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface AiCodeRatioProps {
   aiLines: number;
@@ -18,9 +18,7 @@ export function AiCodeRatio({ aiLines, humanLines }: AiCodeRatioProps) {
           <CardTitle className="text-base">AI vs 직접 작성 코드</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            코드 작성 데이터가 없습니다.
-          </p>
+          <p className="text-sm text-muted-foreground">코드 작성 데이터가 없습니다.</p>
         </CardContent>
       </Card>
     );

@@ -1,13 +1,11 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.3.12/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
     "useIgnoreFile": true
   },
-  "organizeImports": {
-    "enabled": true
-  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "linter": {
     "enabled": true,
     "rules": {
@@ -43,14 +41,15 @@
     }
   },
   "files": {
-    "ignore": [
-      "node_modules",
-      ".next",
-      ".open-next",
-      "dist",
-      "drizzle",
-      ".yarn",
-      "*.min.js"
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.next",
+      "!**/.open-next",
+      "!**/dist",
+      "!**/drizzle",
+      "!**/.yarn",
+      "!**/*.min.js"
     ]
   }
 }

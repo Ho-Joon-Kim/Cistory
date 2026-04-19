@@ -1,14 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { YearlyReportData } from "../types";
 
 interface ProjectTimelineProps {
@@ -30,8 +25,18 @@ const BAR_COLORS = [
 ];
 
 const MONTH_LABELS = [
-  "1월", "2월", "3월", "4월", "5월", "6월",
-  "7월", "8월", "9월", "10월", "11월", "12월",
+  "1월",
+  "2월",
+  "3월",
+  "4월",
+  "5월",
+  "6월",
+  "7월",
+  "8월",
+  "9월",
+  "10월",
+  "11월",
+  "12월",
 ];
 
 function dayOfYear(dateStr: string): number {
@@ -42,14 +47,12 @@ function dayOfYear(dateStr: string): number {
 
 export function ProjectTimeline({ projects, year }: ProjectTimelineProps) {
   const yearNum = Number.parseInt(year, 10);
-  const isLeap =
-    (yearNum % 4 === 0 && yearNum % 100 !== 0) || yearNum % 400 === 0;
+  const isLeap = (yearNum % 4 === 0 && yearNum % 100 !== 0) || yearNum % 400 === 0;
   const totalDays = isLeap ? 366 : 365;
 
   const sorted = useMemo(() => {
     return [...projects].sort(
-      (a, b) =>
-        new Date(a.firstCommit).getTime() - new Date(b.firstCommit).getTime(),
+      (a, b) => new Date(a.firstCommit).getTime() - new Date(b.firstCommit).getTime()
     );
   }, [projects]);
 
@@ -72,9 +75,7 @@ export function ProjectTimeline({ projects, year }: ProjectTimelineProps) {
           <CardTitle className="text-base">프로젝트 타임라인</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            프로젝트 데이터가 없습니다.
-          </p>
+          <p className="text-sm text-muted-foreground">프로젝트 데이터가 없습니다.</p>
         </CardContent>
       </Card>
     );
@@ -108,20 +109,17 @@ export function ProjectTimeline({ projects, year }: ProjectTimelineProps) {
               const startDay = dayOfYear(project.firstCommit);
               const endDay = dayOfYear(project.lastCommit);
               const leftPct = (startDay / totalDays) * 100;
-              const widthPct = Math.max(
-                ((endDay - startDay + 1) / totalDays) * 100,
-                0.5,
-              );
+              const widthPct = Math.max(((endDay - startDay + 1) / totalDays) * 100, 0.5);
               const colorClass = BAR_COLORS[index % BAR_COLORS.length];
 
-              const startDate = new Date(project.firstCommit).toLocaleDateString(
-                "ko-KR",
-                { month: "short", day: "numeric" },
-              );
-              const endDate = new Date(project.lastCommit).toLocaleDateString(
-                "ko-KR",
-                { month: "short", day: "numeric" },
-              );
+              const startDate = new Date(project.firstCommit).toLocaleDateString("ko-KR", {
+                month: "short",
+                day: "numeric",
+              });
+              const endDate = new Date(project.lastCommit).toLocaleDateString("ko-KR", {
+                month: "short",
+                day: "numeric",
+              });
 
               return (
                 <div key={project.name} className="flex items-center gap-2">
@@ -147,7 +145,7 @@ export function ProjectTimeline({ projects, year }: ProjectTimelineProps) {
                           className={cn(
                             "absolute top-0.5 h-5 rounded-sm transition-all",
                             colorClass,
-                            "opacity-80 hover:opacity-100",
+                            "opacity-80 hover:opacity-100"
                           )}
                           style={{
                             left: `${leftPct}%`,
@@ -161,9 +159,7 @@ export function ProjectTimeline({ projects, year }: ProjectTimelineProps) {
                         <p className="text-muted-foreground">
                           {startDate} ~ {endDate}
                         </p>
-                        <p className="text-muted-foreground">
-                          {project.totalCommits}개 커밋
-                        </p>
+                        <p className="text-muted-foreground">{project.totalCommits}개 커밋</p>
                       </TooltipContent>
                     </Tooltip>
                   </div>

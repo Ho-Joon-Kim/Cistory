@@ -1,11 +1,10 @@
-import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Pool } from "pg";
 
 const pool = new Pool({
   connectionString:
-    process.env.DATABASE_URL ||
-    "postgresql://cistory:cistory@localhost:5432/cistory",
+    process.env.DATABASE_URL || "postgresql://cistory:cistory@localhost:5432/cistory",
 });
 
 const db = drizzle(pool);

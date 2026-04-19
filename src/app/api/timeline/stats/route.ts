@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, eq, gte, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commits } from "@/db/schema";
-import { eq, and, gte, sql } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,9 +21,7 @@ export async function GET(request: NextRequest) {
         count: sql<number>`COUNT(*)`.as("count"),
       })
       .from(commits)
-      .where(
-        and(eq(commits.userId, user.id), gte(commits.committedAt, thirtyDaysAgo))
-      )
+      .where(and(eq(commits.userId, user.id), gte(commits.committedAt, thirtyDaysAgo)))
       .groupBy(sql`DATE(${commits.committedAt})`)
       .orderBy(sql`DATE(${commits.committedAt})`);
 
@@ -51,9 +49,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Get daily stats error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch stats" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch stats" }, { status: 500 });
   }
 }

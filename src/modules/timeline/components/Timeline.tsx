@@ -1,16 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
+import { Code, Loader2, MapPin } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { TrackCard } from "@/modules/location/components/TrackCard";
+import {
+  type StayPointData,
+  type TrackData,
+  useDailyDistances,
+  useStayPoints,
+  useTracks,
+} from "@/modules/location/hooks";
+import type { TransactionItem } from "@/modules/spending/hooks";
+import { CodingSessionCard } from "@/modules/wakatime/components/CodingSessionCard";
+import type { CodingSessionData, CodingStatData } from "@/modules/wakatime/hooks";
+import { useCodingSessions, useCodingStats } from "@/modules/wakatime/hooks";
 import type { TimelineCommit } from "../hooks";
 import { useTransactionsForDate } from "../hooks";
+import type { TimelineEvent } from "../types";
 import type { DateEntry } from "../utils";
-import { CommitCard } from "./CommitCard";
-import { CompactCommitCard } from "./CompactCommitCard";
-import { StayPointCard } from "./StayPointCard";
-import { TransactionCard } from "./TransactionCard";
-import { TimelineSkeleton } from "./TimelineSkeleton";
-import { AnimatedNumber } from "@/components/AnimatedNumber";
-import { Code, Loader2, MapPin } from "lucide-react";
 import {
   fillDateRange,
   formatCodingTime,
@@ -18,13 +26,11 @@ import {
   getRepoColor,
   groupEventsByTimeOfDay,
 } from "../utils";
-import type { TimelineEvent } from "../types";
-import { useDailyDistances, useStayPoints, useTracks, type StayPointData, type TrackData } from "@/modules/location/hooks";
-import { TrackCard } from "@/modules/location/components/TrackCard";
-import { useCodingSessions, useCodingStats } from "@/modules/wakatime/hooks";
-import type { CodingSessionData, CodingStatData } from "@/modules/wakatime/hooks";
-import { CodingSessionCard } from "@/modules/wakatime/components/CodingSessionCard";
-import type { TransactionItem } from "@/modules/spending/hooks";
+import { CommitCard } from "./CommitCard";
+import { CompactCommitCard } from "./CompactCommitCard";
+import { StayPointCard } from "./StayPointCard";
+import { TimelineSkeleton } from "./TimelineSkeleton";
+import { TransactionCard } from "./TransactionCard";
 
 interface TimelineProps {
   commits: TimelineCommit[];
@@ -116,7 +122,12 @@ const DateGroupSection = memo(function DateGroupSection({
   const { label, isToday } = formatDateHeader(date);
 
   // Build unified timeline events for the selected date
-  const hasAnyData = !isEmpty || (stayPoints && stayPoints.length > 0) || (tracks && tracks.length > 0) || (codingSessions && codingSessions.length > 0) || (transactions && transactions.length > 0);
+  const hasAnyData =
+    !isEmpty ||
+    (stayPoints && stayPoints.length > 0) ||
+    (tracks && tracks.length > 0) ||
+    (codingSessions && codingSessions.length > 0) ||
+    (transactions && transactions.length > 0);
   const unifiedEventGroups = useMemo(() => {
     if (!isSelected || !hasAnyData) return null;
 
@@ -134,7 +145,7 @@ const DateGroupSection = memo(function DateGroupSection({
 
     if (codingSessions && codingSessions.length > 0) {
       const earliest = codingSessions.reduce((a, b) =>
-        new Date(a.startedAt).getTime() < new Date(b.startedAt).getTime() ? a : b,
+        new Date(a.startedAt).getTime() < new Date(b.startedAt).getTime() ? a : b
       );
       events.push({
         type: "coding",
@@ -157,7 +168,16 @@ const DateGroupSection = memo(function DateGroupSection({
 
     if (events.length === 0) return null;
     return groupEventsByTimeOfDay(events);
-  }, [isSelected, hasAnyData, dateCommits, stayPoints, codingSessions, codingStats, tracks, transactions]);
+  }, [
+    isSelected,
+    hasAnyData,
+    dateCommits,
+    stayPoints,
+    codingSessions,
+    codingStats,
+    tracks,
+    transactions,
+  ]);
 
   return (
     <div
@@ -178,9 +198,10 @@ const DateGroupSection = memo(function DateGroupSection({
           <span
             className={`
               block rounded-full transition-all duration-200
-              ${isSelected
-                ? "w-3 h-3 bg-primary animate-pulse-glow"
-                : "w-2.5 h-2.5 bg-muted-foreground hover:bg-muted-foreground"
+              ${
+                isSelected
+                  ? "w-3 h-3 bg-primary animate-pulse-glow"
+                  : "w-2.5 h-2.5 bg-muted-foreground hover:bg-muted-foreground"
               }
             `}
           />
@@ -212,9 +233,7 @@ const DateGroupSection = memo(function DateGroupSection({
           </h3>
           <span
             className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
-              isSelected
-                ? "bg-muted text-muted-foreground"
-                : "bg-muted/50 text-muted-foreground/50"
+              isSelected ? "bg-muted text-muted-foreground" : "bg-muted/50 text-muted-foreground/50"
             }`}
           >
             <AnimatedNumber value={dateCommits.length} />
@@ -222,9 +241,7 @@ const DateGroupSection = memo(function DateGroupSection({
           {distanceMeters != null && distanceMeters > 0 && (
             <span
               className={`inline-flex items-center gap-0.5 h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
-                isSelected
-                  ? "bg-primary/15 text-primary"
-                  : "bg-muted/50 text-muted-foreground/50"
+                isSelected ? "bg-primary/15 text-primary" : "bg-muted/50 text-muted-foreground/50"
               }`}
             >
               <MapPin className="w-3 h-3" />
@@ -266,7 +283,10 @@ const DateGroupSection = memo(function DateGroupSection({
                     switch (event.type) {
                       case "commit":
                         return (
-                          <div key={`commit-${event.data.id}`} className="relative commit-card-stagger">
+                          <div
+                            key={`commit-${event.data.id}`}
+                            className="relative commit-card-stagger"
+                          >
                             <div className="timeline-tick absolute -left-[23px] md:-left-[31px] top-1/2 -translate-y-1/2" />
                             <CommitCard
                               commit={event.data}
@@ -292,15 +312,10 @@ const DateGroupSection = memo(function DateGroupSection({
                           />
                         );
                       case "track":
-                        return (
-                          <TrackCard key={`track-${event.data.id}`} track={event.data} />
-                        );
+                        return <TrackCard key={`track-${event.data.id}`} track={event.data} />;
                       case "transaction":
                         return (
-                          <TransactionCard
-                            key={`tx-${event.data.id}`}
-                            transaction={event.data}
-                          />
+                          <TransactionCard key={`tx-${event.data.id}`} transaction={event.data} />
                         );
                       default:
                         return null;
@@ -314,9 +329,7 @@ const DateGroupSection = memo(function DateGroupSection({
 
         {/* Selected but truly empty */}
         {isSelected && !unifiedEventGroups && (
-          <p className="text-sm text-muted-foreground/60 py-2">
-            이 날의 활동이 없습니다
-          </p>
+          <p className="text-sm text-muted-foreground/60 py-2">이 날의 활동이 없습니다</p>
         )}
 
         {/* Non-selected: compact commits */}
@@ -521,9 +534,7 @@ export function Timeline({
     return (
       <div className="text-center py-16 text-muted-foreground">
         <p className="text-lg">커밋이 없습니다</p>
-        <p className="text-sm mt-2">
-          레포지토리를 추적하면 커밋 타임라인이 여기에 표시됩니다
-        </p>
+        <p className="text-sm mt-2">레포지토리를 추적하면 커밋 타임라인이 여기에 표시됩니다</p>
       </div>
     );
   }
@@ -533,11 +544,7 @@ export function Timeline({
       {/* Continuous stepper line with gradient glow from selected date */}
       <div
         className="stepper-line absolute left-[15px] md:left-[23px] top-0 bottom-0 w-0.5 rounded-full"
-        style={
-          glowY !== null
-            ? { "--glow-y": `${glowY}px` } as React.CSSProperties
-            : undefined
-        }
+        style={glowY !== null ? ({ "--glow-y": `${glowY}px` } as React.CSSProperties) : undefined}
       />
 
       <div className="space-y-4">
@@ -552,7 +559,10 @@ export function Timeline({
             newCommitIds={newCommitIds}
             onSelectDate={onSelectedDateChange}
             distanceMeters={distances[entry.date]}
-            codingSeconds={codingSecondsMap[entry.date] ?? (entry.date === selectedDate ? selectedDateSessionSeconds : undefined)}
+            codingSeconds={
+              codingSecondsMap[entry.date] ??
+              (entry.date === selectedDate ? selectedDateSessionSeconds : undefined)
+            }
             codingSessions={entry.date === selectedDate ? codingSessions : undefined}
             codingStats={codingStatsMap[entry.date]}
             tracks={entry.date === selectedDate ? selectedDateTracks : undefined}
@@ -572,9 +582,7 @@ export function Timeline({
   );
 }
 
-function groupCommitsByDate(
-  commits: TimelineCommit[]
-): Record<string, TimelineCommit[]> {
+function groupCommitsByDate(commits: TimelineCommit[]): Record<string, TimelineCommit[]> {
   const groups: Record<string, TimelineCommit[]> = {};
 
   for (const commit of commits) {

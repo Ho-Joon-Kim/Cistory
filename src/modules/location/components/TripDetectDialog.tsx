@@ -1,9 +1,9 @@
 "use client";
 
+import { Check, Loader2, MapPin, Plane } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plane, MapPin, Check, Loader2 } from "lucide-react";
 import type { DetectedTripData } from "../hooks";
 
 interface TripDetectDialogProps {
@@ -25,15 +25,8 @@ function formatDateRange(start: string, end: string): string {
   return `${startStr} ~ ${endStr} (${days}일)`;
 }
 
-export function TripDetectDialog({
-  trips,
-  isSaving,
-  onConfirm,
-  onCancel,
-}: TripDetectDialogProps) {
-  const [selected, setSelected] = useState<Set<number>>(
-    new Set(trips.map((_, i) => i)),
-  );
+export function TripDetectDialog({ trips, isSaving, onConfirm, onCancel }: TripDetectDialogProps) {
+  const [selected, setSelected] = useState<Set<number>>(new Set(trips.map((_, i) => i)));
 
   const toggleSelect = (index: number) => {
     setSelected((prev) => {
@@ -52,18 +45,12 @@ export function TripDetectDialog({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold">
-          감지된 여행 {trips.length}건
-        </h3>
+        <h3 className="text-base font-semibold">감지된 여행 {trips.length}건</h3>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={onCancel}>
             취소
           </Button>
-          <Button
-            size="sm"
-            disabled={selected.size === 0 || isSaving}
-            onClick={handleConfirm}
-          >
+          <Button size="sm" disabled={selected.size === 0 || isSaving} onClick={handleConfirm}>
             {isSaving ? (
               <Loader2 className="h-4 w-4 animate-spin mr-1" />
             ) : (
@@ -79,9 +66,7 @@ export function TripDetectDialog({
           <Card
             key={`${trip.startDate}-${trip.name}`}
             className={`!py-3 cursor-pointer transition-colors ${
-              selected.has(i)
-                ? "border-primary bg-primary/5"
-                : "opacity-50"
+              selected.has(i) ? "border-primary bg-primary/5" : "opacity-50"
             }`}
             onClick={() => toggleSelect(i)}
           >

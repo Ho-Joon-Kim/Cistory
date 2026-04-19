@@ -1,4 +1,14 @@
-import { pgTable, text, integer, boolean, timestamp, uniqueIndex, index, uuid, doublePrecision } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  doublePrecision,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 // ============ App Users (Extended) ============
 export const users = pgTable(
@@ -23,9 +33,7 @@ export const users = pgTable(
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
   },
-  (table) => [
-    index("idx_user_github_id").on(table.githubId),
-  ]
+  (table) => [index("idx_user_github_id").on(table.githubId)]
 );
 
 // ============ Commits ============
@@ -151,9 +159,7 @@ export const placeCache = pgTable(
     provider: text("provider").notNull(), // 'kakao' | 'mapbox'
     resolvedAt: timestamp("resolved_at").notNull(),
   },
-  (table) => [
-    uniqueIndex("idx_place_cache_lat_lon").on(table.latKey, table.lonKey),
-  ]
+  (table) => [uniqueIndex("idx_place_cache_lat_lon").on(table.latKey, table.lonKey)]
 );
 
 // ============ Daily Distances (Cache) ============
@@ -168,9 +174,7 @@ export const dailyDistances = pgTable(
     distanceMeters: doublePrecision("distance_meters").notNull(),
     calculatedAt: timestamp("calculated_at").notNull(),
   },
-  (table) => [
-    uniqueIndex("idx_daily_distance_user_date").on(table.userId, table.date),
-  ]
+  (table) => [uniqueIndex("idx_daily_distance_user_date").on(table.userId, table.date)]
 );
 
 // ============ Coding Sessions (WakaTime) ============
@@ -212,9 +216,7 @@ export const codingDailyStats = pgTable(
     categories: text("categories"), // JSON [{name, totalSeconds}]
     calculatedAt: timestamp("calculated_at").notNull(),
   },
-  (table) => [
-    uniqueIndex("idx_coding_daily_stats_user_date").on(table.userId, table.date),
-  ]
+  (table) => [uniqueIndex("idx_coding_daily_stats_user_date").on(table.userId, table.date)]
 );
 
 // ============ Saved Places ============
@@ -236,9 +238,7 @@ export const savedPlaces = pgTable(
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
   },
-  (table) => [
-    index("idx_saved_place_user").on(table.userId),
-  ]
+  (table) => [index("idx_saved_place_user").on(table.userId)]
 );
 
 // ============ Visits (Detected Stay Points) ============
@@ -289,9 +289,7 @@ export const tracks = pgTable(
     elevationLoss: doublePrecision("elevation_loss"), // meters
     calculatedAt: timestamp("calculated_at").notNull(),
   },
-  (table) => [
-    index("idx_track_user_start").on(table.userId, table.startTime),
-  ]
+  (table) => [index("idx_track_user_start").on(table.userId, table.startTime)]
 );
 
 // ============ Transportation Segments ============
@@ -342,9 +340,7 @@ export const trips = pgTable(
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
   },
-  (table) => [
-    index("idx_trip_user_start").on(table.userId, table.startDate),
-  ]
+  (table) => [index("idx_trip_user_start").on(table.userId, table.startDate)]
 );
 
 // ============ Notification Logs (Toss / MacroDroid) ============
@@ -463,4 +459,3 @@ export type NewTransportationSegment = typeof transportationSegments.$inferInser
 
 export type Trip = typeof trips.$inferSelect;
 export type NewTrip = typeof trips.$inferInsert;
-

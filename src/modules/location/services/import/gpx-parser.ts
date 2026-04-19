@@ -35,9 +35,7 @@ function extractSpeed(trkpt: Record<string, unknown>): number | null {
   }
 
   // Path 2: extensions.TrackPointExtension.speed
-  const tpExt = ext.TrackPointExtension as
-    | Record<string, unknown>
-    | undefined;
+  const tpExt = ext.TrackPointExtension as Record<string, unknown> | undefined;
   if (tpExt?.speed != null) {
     const s = Number(tpExt.speed);
     if (!Number.isNaN(s)) return s;

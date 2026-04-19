@@ -5,10 +5,10 @@
  * POST — Execute full backfill (anomaly → visits → tracks/transport → enrich → trips) with SSE progress
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { eq, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
+import { getDb, locationPoints, transportationSegments, visits } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { getDb, locationPoints, visits, transportationSegments, placeCache } from "@/db";
-import { eq, and, gte, lt, sql, or, isNull, lte } from "drizzle-orm";
 
 // Rate limits per provider
 const RATE_LIMITS = {
@@ -52,7 +52,10 @@ export async function GET(request: NextRequest) {
       .where(eq(locationPoints.userId, user.id));
 
     // Days fully scanned = all points on that day have anomaly IS NOT NULL
-    const scannedDaysResult = await db.execute<{ scanned_days: number; [key: string]: unknown }>(sql`
+    const scannedDaysResult = await db.execute<{
+      scanned_days: number;
+      [key: string]: unknown;
+    }>(sql`
       SELECT count(*)::int as scanned_days FROM (
         SELECT date(timestamp) as d
         FROM location_points
@@ -63,12 +66,12 @@ export async function GET(request: NextRequest) {
     `);
     const scannedDays = scannedDaysResult.rows[0]?.scanned_days ?? 0;
 
-    const [visitStats] = await db
+    const [_visitStats] = await db
       .select({ daysWithVisits: sql<number>`count(distinct start_time::date)::int` })
       .from(visits)
       .where(eq(visits.userId, user.id));
 
-    const [transportStats] = await db
+    const [_transportStats] = await db
       .select({ daysWithSegments: sql<number>`count(distinct date)::int` })
       .from(transportationSegments)
       .where(eq(transportationSegments.userId, user.id));
@@ -101,13 +104,19 @@ export async function GET(request: NextRequest) {
     const hasGoogleKey = !!process.env.GOOGLE_MAPS_API_KEY;
     if (uncachedOverseas > 0) {
       if (hasGoogleKey && uncachedOverseas > RATE_LIMITS.google.monthly) {
-        warnings.push(`해외 좌표 ${uncachedOverseas}건이 ${RATE_LIMITS.google.label} 한도를 초과합니다. 초과분은 과금될 수 있습니다.`);
+        warnings.push(
+          `해외 좌표 ${uncachedOverseas}건이 ${RATE_LIMITS.google.label} 한도를 초과합니다. 초과분은 과금될 수 있습니다.`
+        );
       } else if (!hasGoogleKey && uncachedOverseas > RATE_LIMITS.mapbox.monthly) {
-        warnings.push(`해외 좌표 ${uncachedOverseas}건이 ${RATE_LIMITS.mapbox.label} 한도를 초과합니다. 초과분은 과금될 수 있습니다.`);
+        warnings.push(
+          `해외 좌표 ${uncachedOverseas}건이 ${RATE_LIMITS.mapbox.label} 한도를 초과합니다. 초과분은 과금될 수 있습니다.`
+        );
       }
     }
     if (uncachedKorea > RATE_LIMITS.kakao.daily) {
-      warnings.push(`국내 좌표 ${uncachedKorea}건이 ${RATE_LIMITS.kakao.label} 한도를 초과합니다. 하루에 나눠서 실행하세요.`);
+      warnings.push(
+        `국내 좌표 ${uncachedKorea}건이 ${RATE_LIMITS.kakao.label} 한도를 초과합니다. 하루에 나눠서 실행하세요.`
+      );
     }
 
     // Use scannedDays as the ground truth for all three phases
@@ -128,11 +137,38 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       hasData: true,
-      dateRange: { earliest: dateRange.earliest, latest: dateRange.latest, totalDays: dateRange.totalDays },
-      anomaly: { totalPoints: anomalyStats.total, scanned: anomalyStats.scanned, unscanned: anomalyStats.unscanned, anomaliesFound: anomalyStats.anomalies, daysProcessed: scannedDays, daysRemaining: anomalyDaysRemaining, needsBackfill: needsAnomaly },
-      visits: { totalDays: dateRange.totalDays, daysProcessed: scannedDays, daysRemaining: visitsDaysRemaining, needsBackfill: needsVisits },
-      transport: { totalDays: dateRange.totalDays, daysProcessed: scannedDays, daysRemaining: transportDaysRemaining, needsBackfill: needsTransport },
-      geocoding: { uncachedTotal, uncachedKorea, uncachedOverseas, provider: hasGoogleKey ? "Google Places" : "Mapbox" },
+      dateRange: {
+        earliest: dateRange.earliest,
+        latest: dateRange.latest,
+        totalDays: dateRange.totalDays,
+      },
+      anomaly: {
+        totalPoints: anomalyStats.total,
+        scanned: anomalyStats.scanned,
+        unscanned: anomalyStats.unscanned,
+        anomaliesFound: anomalyStats.anomalies,
+        daysProcessed: scannedDays,
+        daysRemaining: anomalyDaysRemaining,
+        needsBackfill: needsAnomaly,
+      },
+      visits: {
+        totalDays: dateRange.totalDays,
+        daysProcessed: scannedDays,
+        daysRemaining: visitsDaysRemaining,
+        needsBackfill: needsVisits,
+      },
+      transport: {
+        totalDays: dateRange.totalDays,
+        daysProcessed: scannedDays,
+        daysRemaining: transportDaysRemaining,
+        needsBackfill: needsTransport,
+      },
+      geocoding: {
+        uncachedTotal,
+        uncachedKorea,
+        uncachedOverseas,
+        provider: hasGoogleKey ? "Google Places" : "Mapbox",
+      },
       warnings,
       totalSteps,
     });
@@ -238,7 +274,11 @@ export async function POST(request: NextRequest) {
           const result = await detectAndPersistTracks(user.id, dateStr);
           totalTracks += result.trackCount;
           totalSegments += result.segmentCount;
-          sendProgress("tracks", dateStr, `${result.trackCount}개 트랙, ${result.segmentCount}개 세그먼트`);
+          sendProgress(
+            "tracks",
+            dateStr,
+            `${result.trackCount}개 트랙, ${result.segmentCount}개 세그먼트`
+          );
         }
 
         // Phase 4: Backfill locationPoints.city/countryName from placeCache (DB-only, no API calls)
@@ -268,9 +308,11 @@ export async function POST(request: NextRequest) {
         const pointsEnriched = enrichResult.rows[0]?.updated ?? 0;
 
         completedSteps++;
-        controller.enqueue(encoder.encode(
-          `data: ${JSON.stringify({ phase: "enrich", detail: `${pointsEnriched.toLocaleString()}개 포인트 enriched`, progress: 99 })}\n\n`,
-        ));
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ phase: "enrich", detail: `${pointsEnriched.toLocaleString()}개 포인트 enriched`, progress: 99 })}\n\n`
+          )
+        );
 
         // Phase 5: Trip auto-detection (bulk, across all dates)
         let totalTrips = 0;
@@ -282,9 +324,11 @@ export async function POST(request: NextRequest) {
           if (detected.length > 0) {
             totalTrips = await persistTrips(user.id, detected);
           }
-          controller.enqueue(encoder.encode(
-            `data: ${JSON.stringify({ phase: "trips", detail: `${totalTrips}개 여행 감지`, progress: 99 })}\n\n`,
-          ));
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ phase: "trips", detail: `${totalTrips}개 여행 감지`, progress: 99 })}\n\n`
+            )
+          );
         } catch (tripError) {
           console.error("Trip detection error (non-fatal):", tripError);
         }
@@ -305,7 +349,7 @@ export async function POST(request: NextRequest) {
         const errMsg = error instanceof Error ? error.message : String(error);
         console.error("Backfill execution error:", error);
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ phase: "error", error: errMsg })}\n\n`),
+          encoder.encode(`data: ${JSON.stringify({ phase: "error", error: errMsg })}\n\n`)
         );
       } finally {
         controller.close();

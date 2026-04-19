@@ -5,11 +5,11 @@
  * POST /api/settings/wakatime-sync - Trigger manual sync
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { count, eq, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { users, codingSessions, codingDailyStats, commits } from "@/db/schema";
-import { eq, sql, count } from "drizzle-orm";
+import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
 export async function GET(request: NextRequest) {
@@ -60,10 +60,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("WakaTime sync stats error:", error);
-    return NextResponse.json(
-      { error: "동기화 현황 조회에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "동기화 현황 조회에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -86,10 +83,7 @@ export async function POST(request: NextRequest) {
 
     const apiKey = userRow[0]?.wakatimeApiKey;
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "WakaTime API 키가 설정되지 않았습니다" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "WakaTime API 키가 설정되지 않았습니다" }, { status: 400 });
     }
 
     const service = createWakaTimeSyncService(db, apiKey);
@@ -112,9 +106,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("WakaTime sync error:", error);
-    return NextResponse.json(
-      { error: "WakaTime 동기화에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "WakaTime 동기화에 실패했습니다" }, { status: 500 });
   }
 }

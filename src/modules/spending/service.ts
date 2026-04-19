@@ -1,13 +1,13 @@
-import { eq, and, gte, lte, ne, sql, desc } from "drizzle-orm";
+import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
 import type { Database } from "@/db";
-import { users, transactions } from "@/db/schema";
+import { transactions, users } from "@/db/schema";
 import { forecastMonthEnd } from "./forecast";
 import type {
-  SpendingTrendResponse,
-  MonthlyTotal,
-  DailySpending,
   CumulativeDataPoint,
+  DailySpending,
   MonthlyBarDataPoint,
+  MonthlyTotal,
+  SpendingTrendResponse,
 } from "./types";
 
 export class SpendingTrendService {
@@ -56,7 +56,7 @@ export class SpendingTrendService {
       currentMonthDaily,
       forecastResult.dailyPredictions,
       todayDayNumber,
-      daysInMonth,
+      daysInMonth
     );
 
     // Build monthly bars (include current month)
@@ -95,7 +95,7 @@ export class SpendingTrendService {
   private async _getMonthlyTotals(
     userId: string,
     tossMyName: string | null,
-    months: number,
+    months: number
   ): Promise<MonthlyTotal[]> {
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - months);
@@ -126,7 +126,7 @@ export class SpendingTrendService {
 
   private async _getCurrentMonthDaily(
     userId: string,
-    tossMyName: string | null,
+    tossMyName: string | null
   ): Promise<DailySpending[]> {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -152,7 +152,7 @@ export class SpendingTrendService {
       .where(and(...conditions))
       .groupBy(
         sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`,
-        sql`extract(dow from ${transactions.transactedAt})`,
+        sql`extract(dow from ${transactions.transactedAt})`
       )
       .orderBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`);
 
@@ -166,7 +166,7 @@ export class SpendingTrendService {
   private async _getHistoricalDailySpending(
     userId: string,
     tossMyName: string | null,
-    months: number,
+    months: number
   ): Promise<DailySpending[]> {
     const now = new Date();
     const cutoff = new Date(now.getFullYear(), now.getMonth() - months, 1);
@@ -192,7 +192,7 @@ export class SpendingTrendService {
       .where(and(...conditions))
       .groupBy(
         sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`,
-        sql`extract(dow from ${transactions.transactedAt})`,
+        sql`extract(dow from ${transactions.transactedAt})`
       )
       .orderBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`);
 
@@ -207,7 +207,7 @@ export class SpendingTrendService {
     dailySpending: DailySpending[],
     predictions: { day: number; mid: number; upper: number; lower: number }[],
     todayDay: number,
-    daysInMonth: number,
+    daysInMonth: number
   ): CumulativeDataPoint[] {
     // Build a map of day → daily total
     const dailyMap = new Map<number, number>();
@@ -228,7 +228,7 @@ export class SpendingTrendService {
     for (let d = 1; d <= daysInMonth; d++) {
       if (d <= todayDay) {
         cumulative += dailyMap.get(d) || 0;
-        const pred = predMap.get(d);
+        const _pred = predMap.get(d);
         curve.push({
           day: d,
           actual: cumulative,

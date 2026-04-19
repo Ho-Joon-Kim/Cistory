@@ -5,11 +5,11 @@
  * Returns coding sessions for a given date, ordered by startedAt.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { codingSessions } from "@/db/schema";
-import { eq, and, gte, lt, asc } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -73,9 +73,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Get coding sessions error:", error);
-    return NextResponse.json(
-      { error: "코딩 세션 조회에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "코딩 세션 조회에 실패했습니다" }, { status: 500 });
   }
 }

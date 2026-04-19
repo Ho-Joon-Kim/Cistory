@@ -1,8 +1,8 @@
 "use client";
 
+import { Check } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { Check } from "lucide-react";
 
 interface ProgressRingProps {
   value: number; // 0-100
@@ -31,11 +31,7 @@ export function ProgressRing({
       style={{ width: size, height: size }}
     >
       {/* Background circle */}
-      <svg
-        width={size}
-        height={size}
-        className="rotate-[-90deg]"
-      >
+      <svg width={size} height={size} className="rotate-[-90deg]">
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -71,9 +67,7 @@ export function ProgressRing({
 
       {/* Percentage text (optional, for larger sizes) */}
       {!showCheck && size >= 40 && (
-        <span className="absolute text-[10px] font-medium tabular-nums">
-          {Math.round(value)}
-        </span>
+        <span className="absolute text-[10px] font-medium tabular-nums">{Math.round(value)}</span>
       )}
     </div>
   );
@@ -153,12 +147,5 @@ export function SyncProgressRing({
     );
   }
 
-  return (
-    <ProgressRing
-      value={progress}
-      size={size}
-      strokeWidth={2}
-      className={className}
-    />
-  );
+  return <ProgressRing value={progress} size={size} strokeWidth={2} className={className} />;
 }

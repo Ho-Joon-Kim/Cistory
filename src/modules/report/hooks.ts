@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { YearComparisonData } from "./comparison-service";
 import type {
   CodingSectionData,
   CommitsSectionData,
@@ -12,7 +13,6 @@ import type {
   YearlyCodingSectionData,
   YearlyCommitsSectionData,
 } from "./types";
-import type { YearComparisonData } from "./comparison-service";
 
 export interface SectionState<T> {
   data: T | null;
@@ -113,7 +113,7 @@ export function useMonthlyReport(
   // Reset narrative when period changes
   useEffect(() => {
     setNarrative(null);
-  }, [yearMonth]);
+  }, []);
 
   const generateNarrative = useCallback(async () => {
     if (!yearMonth) return;
@@ -196,7 +196,7 @@ export function useYearlyReport(
   // Reset narrative when period changes
   useEffect(() => {
     setNarrative(null);
-  }, [year]);
+  }, []);
 
   const generateNarrative = useCallback(async () => {
     if (!year) return;

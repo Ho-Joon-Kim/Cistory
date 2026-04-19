@@ -1,5 +1,5 @@
 import { betterAuth } from "better-auth";
-import { getPool, getDb, users } from "@/db";
+import { getDb, getPool, users } from "@/db";
 
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL,
@@ -35,7 +35,7 @@ export const auth = betterAuth({
           try {
             const accountResult = await pool.query(
               `SELECT "accessToken", "providerId" FROM "account" WHERE "userId" = $1 AND "providerId" = 'github' LIMIT 1`,
-              [session.userId],
+              [session.userId]
             );
             const row = accountResult.rows?.[0];
             if (!row?.accessToken) return;

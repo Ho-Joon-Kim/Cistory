@@ -4,11 +4,11 @@
  * GET /api/sync/status - SSE 스트림으로 동기화 상태 전달
  */
 
-import { NextRequest } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { getDb, type Database } from "@/db";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import type { NextRequest } from "next/server";
+import { type Database, getDb } from "@/db";
 import { syncJobs } from "@/db/schema";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -121,10 +121,7 @@ interface SyncStatus {
   lastSyncTime: string | null;
 }
 
-async function getSyncStatus(
-  db: Database,
-  userId: string
-): Promise<SyncStatus> {
+async function getSyncStatus(db: Database, userId: string): Promise<SyncStatus> {
   // 단일 쿼리로 active + recent completed 모두 조회 (connection 점유 최소화)
   const allJobs = await db
     .select({

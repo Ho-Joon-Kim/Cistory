@@ -1,13 +1,13 @@
 "use client";
 
+import { BarChart3, Lightbulb, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { CommitHeatmap } from "@/components/CommitHeatmap";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/modules/auth/components/UserMenu";
-import { SyncStatus } from "@/modules/sync/components/SyncStatus";
 import { SyncButton } from "@/modules/sync/components/SyncButton";
-import { BarChart3, Lightbulb, Wallet } from "lucide-react";
+import { SyncStatus } from "@/modules/sync/components/SyncStatus";
 
 interface HeaderProps {
   showSync?: boolean;
@@ -70,11 +70,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
               <div className="hidden sm:block">
                 <SyncStatus />
               </div>
-              <SyncButton
-                size="icon"
-                variant="ghost"
-                onSyncStarted={onSyncStarted}
-              />
+              <SyncButton size="icon" variant="ghost" onSyncStarted={onSyncStarted} />
             </>
           )}
           <ThemeToggle />

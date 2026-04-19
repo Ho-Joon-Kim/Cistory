@@ -27,15 +27,15 @@ export interface RecentCommitPattern {
 // ============ 커밋 유형 분류 ============
 
 export type CommitType =
-  | "feat"      // 새 기능
-  | "fix"       // 버그 수정
-  | "refactor"  // 리팩토링
-  | "style"     // 스타일/UI 변경
-  | "docs"      // 문서
-  | "test"      // 테스트
-  | "chore"     // 빌드/설정
-  | "perf"      // 성능 개선
-  | "unknown";  // 분류 불가
+  | "feat" // 새 기능
+  | "fix" // 버그 수정
+  | "refactor" // 리팩토링
+  | "style" // 스타일/UI 변경
+  | "docs" // 문서
+  | "test" // 테스트
+  | "chore" // 빌드/설정
+  | "perf" // 성능 개선
+  | "unknown"; // 분류 불가
 
 /**
  * 커밋 메시지에서 유형 추출 (Conventional Commits 패턴)
@@ -45,7 +45,9 @@ export function detectCommitType(message: string): CommitType {
   const firstLine = lowerMessage.split("\n")[0];
 
   // Conventional Commits 패턴: type(scope): message
-  const conventionalMatch = firstLine.match(/^(feat|fix|refactor|style|docs|test|chore|perf)(\(.+\))?:/);
+  const conventionalMatch = firstLine.match(
+    /^(feat|fix|refactor|style|docs|test|chore|perf)(\(.+\))?:/
+  );
   if (conventionalMatch) {
     return conventionalMatch[1] as CommitType;
   }
@@ -72,14 +74,24 @@ export function detectChangeArea(files: string[]): string {
   const areas: string[] = [];
 
   // 경로 패턴 분석
-  const hasApi = files.some(f => f.includes("/api/") || f.includes("route.ts"));
-  const hasComponents = files.some(f => f.includes("/components/") || f.includes(".tsx"));
-  const hasStyles = files.some(f => f.includes(".css") || f.includes("tailwind") || f.includes("styles"));
-  const hasDb = files.some(f => f.includes("/db/") || f.includes("schema") || f.includes("drizzle"));
-  const hasAuth = files.some(f => f.includes("auth") || f.includes("login") || f.includes("session"));
-  const hasConfig = files.some(f => f.includes("config") || f.includes(".json") || f.includes(".env"));
-  const hasDocs = files.some(f => f.includes(".md") || f.includes("docs/"));
-  const hasTests = files.some(f => f.includes(".test.") || f.includes(".spec.") || f.includes("__tests__"));
+  const hasApi = files.some((f) => f.includes("/api/") || f.includes("route.ts"));
+  const hasComponents = files.some((f) => f.includes("/components/") || f.includes(".tsx"));
+  const hasStyles = files.some(
+    (f) => f.includes(".css") || f.includes("tailwind") || f.includes("styles")
+  );
+  const hasDb = files.some(
+    (f) => f.includes("/db/") || f.includes("schema") || f.includes("drizzle")
+  );
+  const hasAuth = files.some(
+    (f) => f.includes("auth") || f.includes("login") || f.includes("session")
+  );
+  const hasConfig = files.some(
+    (f) => f.includes("config") || f.includes(".json") || f.includes(".env")
+  );
+  const hasDocs = files.some((f) => f.includes(".md") || f.includes("docs/"));
+  const hasTests = files.some(
+    (f) => f.includes(".test.") || f.includes(".spec.") || f.includes("__tests__")
+  );
 
   if (hasAuth) areas.push("로그인/인증");
   if (hasApi) areas.push("서버");
@@ -161,10 +173,7 @@ const COMMIT_TYPE_PATTERNS: Record<CommitType, string> = {
 /**
  * 요약 프롬프트 (개선된 버전)
  */
-export function buildSummaryPrompt(
-  commit: CommitContext,
-  recentContext: string
-): string {
+export function buildSummaryPrompt(commit: CommitContext, recentContext: string): string {
   const commitType = detectCommitType(commit.message);
   const changeArea = detectChangeArea(commit.changedFiles);
   const patternHint = COMMIT_TYPE_PATTERNS[commitType];

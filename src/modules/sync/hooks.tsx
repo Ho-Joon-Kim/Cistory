@@ -7,14 +7,14 @@
 "use client";
 
 import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  useMemo,
   createContext,
-  useContext,
   type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
 
@@ -139,10 +139,7 @@ export function SyncStatusProvider({
             const onCompleted = onSyncCompletedRef.current;
             if (onCompleted) {
               for (const job of data.recentCompleted) {
-                if (
-                  job.status === "completed" &&
-                  !processedCompletedJobsRef.current.has(job.id)
-                ) {
+                if (job.status === "completed" && !processedCompletedJobsRef.current.has(job.id)) {
                   processedCompletedJobsRef.current.add(job.id);
                   onCompleted(job);
                 }

@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import type {
+  CommitHeatmapResult,
+  MonthlyDigestsResult,
+  RoutinePatternsResult,
   StreaksResult,
   WorkPatternsResult,
-  RoutinePatternsResult,
-  MonthlyDigestsResult,
-  CommitHeatmapResult,
 } from "./service";
 
 export interface SectionState<T> {

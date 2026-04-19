@@ -1,11 +1,11 @@
 "use client";
 
+import { AlertCircle, CheckCircle2, Clock, Loader2, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Loader2, Sparkles, AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 
 interface SummaryStatsData {
   total: number;
@@ -36,7 +36,7 @@ export function SummaryStats() {
 
   useEffect(() => {
     fetchStats();
-  }, []);
+  }, [fetchStats]);
 
   const handleProcessSummaries = async () => {
     setIsProcessing(true);
@@ -56,7 +56,7 @@ export function SummaryStats() {
       } else {
         toast.error("요약 생성 시작에 실패했습니다");
       }
-    } catch (error) {
+    } catch (_error) {
       toast.error("요약 생성 시작에 실패했습니다");
     } finally {
       setIsProcessing(false);
@@ -81,9 +81,7 @@ export function SummaryStats() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">AI 요약</CardTitle>
-          <CardDescription>
-            동기화된 커밋이 없습니다
-          </CardDescription>
+          <CardDescription>동기화된 커밋이 없습니다</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -96,16 +94,16 @@ export function SummaryStats() {
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">AI 요약</CardTitle>
-        <CardDescription>
-          커밋에 대한 AI 요약 생성 상태를 관리합니다
-        </CardDescription>
+        <CardDescription>커밋에 대한 AI 요약 생성 상태를 관리합니다</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Progress bar */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span>완료율</span>
-            <span>{completionRate}% ({stats.completed}/{stats.total})</span>
+            <span>
+              {completionRate}% ({stats.completed}/{stats.total})
+            </span>
           </div>
           <Progress value={completionRate} className="h-2" />
         </div>

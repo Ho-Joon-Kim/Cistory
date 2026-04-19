@@ -41,8 +41,7 @@ function parseRecords(locations: unknown[]): ParsedPoint[] {
     const lat = latE7 / 1e7;
     const lon = lonE7 / 1e7;
 
-    const timestamp =
-      parseTimestamp(l.timestamp) ?? parseTimestamp(l.timestampMs);
+    const timestamp = parseTimestamp(l.timestamp) ?? parseTimestamp(l.timestampMs);
     if (!timestamp) continue;
 
     points.push({
@@ -70,19 +69,12 @@ function parseSemanticSegments(segments: unknown[]): ParsedPoint[] {
     // Visit type
     const visit = s.visit as Record<string, unknown> | undefined;
     if (visit) {
-      const topCandidate = visit.topCandidate as
-        | Record<string, unknown>
-        | undefined;
-      const placeLocation = topCandidate?.placeLocation as
-        | Record<string, unknown>
-        | undefined;
+      const topCandidate = visit.topCandidate as Record<string, unknown> | undefined;
+      const placeLocation = topCandidate?.placeLocation as Record<string, unknown> | undefined;
       if (placeLocation) {
         const parsed = parseLatLng(placeLocation.latLng);
         if (parsed) {
-          const ts =
-            parseTimestamp(
-              (s.startTime as string) ?? (visit.startTime as string),
-            );
+          const ts = parseTimestamp((s.startTime as string) ?? (visit.startTime as string));
           if (ts) {
             points.push({
               ...parsed,
@@ -148,9 +140,7 @@ function parseSemanticSegments(segments: unknown[]): ParsedPoint[] {
 /**
  * Parse "geo:lat,lng" or "lat°, lng°" coordinate strings
  */
-function parseLatLng(
-  val: unknown,
-): { lat: number; lon: number } | null {
+function parseLatLng(val: unknown): { lat: number; lon: number } | null {
   if (typeof val !== "string") return null;
 
   // Strip "geo:" prefix and degree symbols
@@ -198,10 +188,7 @@ export function parseGoogleTakeout(json: unknown): ParsedPoint[] {
         ...parsed,
         altitude: null,
         velocity: null,
-        accuracy:
-          position.accuracyMm != null
-            ? Number(position.accuracyMm) / 1000
-            : null,
+        accuracy: position.accuracyMm != null ? Number(position.accuracyMm) / 1000 : null,
         timestamp: ts,
       });
     }

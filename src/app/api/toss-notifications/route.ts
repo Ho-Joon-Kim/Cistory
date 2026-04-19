@@ -9,10 +9,10 @@
  * Returns stored notification logs for inspection.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { desc, eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { users, notificationLogs, transactions } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { notificationLogs, transactions, users } from "@/db/schema";
 import { logger } from "@/lib/logger";
 import { parseTossNotification } from "@/modules/transaction/parser";
 

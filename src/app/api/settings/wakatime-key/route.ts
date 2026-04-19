@@ -5,14 +5,14 @@
  * DELETE /api/settings/wakatime-key - Remove API key
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { createWakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
-import { createWakaTimeSyncService } from "@/modules/wakatime/service";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
+import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,20 +23,14 @@ export async function POST(request: NextRequest) {
     const apiKey = body.apiKey?.trim();
 
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "API 키를 입력해주세요" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "API 키를 입력해주세요" }, { status: 400 });
     }
 
     const adapter = createWakaTimeAdapter(apiKey);
     const isValid = await adapter.verifyApiKey();
 
     if (!isValid) {
-      return NextResponse.json(
-        { error: "유효하지 않은 API 키입니다" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "유효하지 않은 API 키입니다" }, { status: 400 });
     }
 
     const wakatimeUser = await adapter.getCurrentUser();
@@ -65,10 +59,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Save WakaTime key error:", error);
-    return NextResponse.json(
-      { error: "WakaTime API 키 저장에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "WakaTime API 키 저장에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -90,9 +81,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Remove WakaTime key error:", error);
-    return NextResponse.json(
-      { error: "WakaTime API 키 삭제에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "WakaTime API 키 삭제에 실패했습니다" }, { status: 500 });
   }
 }

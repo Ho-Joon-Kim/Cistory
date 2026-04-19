@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Navigation, ArrowDown } from "lucide-react";
+import { ArrowDown, Clock, Navigation } from "lucide-react";
 import type { TimelineSegment } from "../../utils";
 
 interface TimelinePanelProps {
@@ -79,7 +79,7 @@ export function TimelinePanel({ segments, selectedIndex, onSegmentClick }: Timel
 
           // Moving segment
           const durationMin = Math.round(
-            (new Date(seg.endTime).getTime() - new Date(seg.startTime).getTime()) / 60000,
+            (new Date(seg.endTime).getTime() - new Date(seg.startTime).getTime()) / 60000
           );
 
           return (
@@ -98,8 +98,8 @@ export function TimelinePanel({ segments, selectedIndex, onSegmentClick }: Timel
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-muted-foreground">
-                  이동 {formatTime(seg.startTime)} - {formatTime(seg.endTime)}{" "}
-                  ({formatDuration(durationMin)})
+                  이동 {formatTime(seg.startTime)} - {formatTime(seg.endTime)} (
+                  {formatDuration(durationMin)})
                 </p>
               </div>
             </button>

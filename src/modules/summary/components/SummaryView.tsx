@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface SummaryViewProps {
@@ -10,13 +10,7 @@ interface SummaryViewProps {
   isRegenerating?: boolean;
 }
 
-export function SummaryView({
-  status,
-  summary,
-  onRegenerate,
-  isRegenerating,
-}: SummaryViewProps) {
-
+export function SummaryView({ status, summary, onRegenerate, isRegenerating }: SummaryViewProps) {
   // 로딩 중
   if (status === "pending") {
     return (
@@ -46,12 +40,7 @@ export function SummaryView({
           <span>요약 생성에 실패했습니다</span>
         </div>
         {onRegenerate && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRegenerate}
-            disabled={isRegenerating}
-          >
+          <Button variant="outline" size="sm" onClick={onRegenerate} disabled={isRegenerating}>
             {isRegenerating ? (
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
             ) : (
@@ -90,9 +79,5 @@ export function SummaryView({
   }
 
   // 요약 없음
-  return (
-    <div className="text-sm text-muted-foreground italic py-2">
-      요약을 생성할 수 없습니다
-    </div>
-  );
+  return <div className="text-sm text-muted-foreground italic py-2">요약을 생성할 수 없습니다</div>;
 }

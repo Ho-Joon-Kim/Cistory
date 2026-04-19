@@ -5,8 +5,8 @@
  * Ported from Dawarich: app/services/insights/year_comparison_calculator.rb
  */
 
-import { ReportService } from "./service";
 import { getDb } from "@/db";
+import { ReportService } from "./service";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,19 +72,12 @@ function delta(current: number, previous: number): MetricDelta {
 export async function compareYears(
   userId: string,
   year1: string,
-  year2: string,
+  year2: string
 ): Promise<YearComparisonData> {
   const service = new ReportService(getDb());
 
   // Fetch yearly data for both years in parallel
-  const [
-    commits1,
-    commits2,
-    coding1,
-    coding2,
-    location1,
-    location2,
-  ] = await Promise.all([
+  const [commits1, commits2, coding1, coding2, location1, location2] = await Promise.all([
     service.aggregateYearlyCommits(userId, year1),
     service.aggregateYearlyCommits(userId, year2),
     service.aggregateYearlyCoding(userId, year1),
@@ -114,47 +107,35 @@ export async function compareYears(
   for (let m = 1; m <= 12; m++) {
     const monthStr = String(m).padStart(2, "0");
 
-    const y1Commits = commits1.dailyCommits
-      ?.filter(
-        (d: { date: string }) => d.date.startsWith(`${year1}-${monthStr}`),
-      )
-      .reduce((s: number, d: { count: number }) => s + d.count, 0) ?? 0;
+    const y1Commits =
+      commits1.dailyCommits
+        ?.filter((d: { date: string }) => d.date.startsWith(`${year1}-${monthStr}`))
+        .reduce((s: number, d: { count: number }) => s + d.count, 0) ?? 0;
 
-    const y2Commits = commits2.dailyCommits
-      ?.filter(
-        (d: { date: string }) => d.date.startsWith(`${year2}-${monthStr}`),
-      )
-      .reduce((s: number, d: { count: number }) => s + d.count, 0) ?? 0;
+    const y2Commits =
+      commits2.dailyCommits
+        ?.filter((d: { date: string }) => d.date.startsWith(`${year2}-${monthStr}`))
+        .reduce((s: number, d: { count: number }) => s + d.count, 0) ?? 0;
 
-    const y1Coding = coding1.dailyCodingSeconds
-      ?.filter(
-        (d: { date: string }) => d.date.startsWith(`${year1}-${monthStr}`),
-      )
-      .reduce((s: number, d: { seconds: number }) => s + d.seconds, 0) ?? 0;
+    const y1Coding =
+      coding1.dailyCodingSeconds
+        ?.filter((d: { date: string }) => d.date.startsWith(`${year1}-${monthStr}`))
+        .reduce((s: number, d: { seconds: number }) => s + d.seconds, 0) ?? 0;
 
-    const y2Coding = coding2.dailyCodingSeconds
-      ?.filter(
-        (d: { date: string }) => d.date.startsWith(`${year2}-${monthStr}`),
-      )
-      .reduce((s: number, d: { seconds: number }) => s + d.seconds, 0) ?? 0;
+    const y2Coding =
+      coding2.dailyCodingSeconds
+        ?.filter((d: { date: string }) => d.date.startsWith(`${year2}-${monthStr}`))
+        .reduce((s: number, d: { seconds: number }) => s + d.seconds, 0) ?? 0;
 
-    const y1Distance = location1.dailyDistances
-      ?.filter(
-        (d: { date: string }) => d.date.startsWith(`${year1}-${monthStr}`),
-      )
-      .reduce(
-        (s: number, d: { meters: number }) => s + d.meters,
-        0,
-      ) ?? 0;
+    const y1Distance =
+      location1.dailyDistances
+        ?.filter((d: { date: string }) => d.date.startsWith(`${year1}-${monthStr}`))
+        .reduce((s: number, d: { meters: number }) => s + d.meters, 0) ?? 0;
 
-    const y2Distance = location2.dailyDistances
-      ?.filter(
-        (d: { date: string }) => d.date.startsWith(`${year2}-${monthStr}`),
-      )
-      .reduce(
-        (s: number, d: { meters: number }) => s + d.meters,
-        0,
-      ) ?? 0;
+    const y2Distance =
+      location2.dailyDistances
+        ?.filter((d: { date: string }) => d.date.startsWith(`${year2}-${monthStr}`))
+        .reduce((s: number, d: { meters: number }) => s + d.meters, 0) ?? 0;
 
     monthlyComparison.push({
       month: monthStr,
@@ -174,14 +155,8 @@ export async function compareYears(
     deltas: {
       commits: delta(metrics2.totalCommits, metrics1.totalCommits),
       activeDays: delta(metrics2.activeDays, metrics1.activeDays),
-      codingSeconds: delta(
-        metrics2.totalCodingSeconds,
-        metrics1.totalCodingSeconds,
-      ),
-      distanceMeters: delta(
-        metrics2.totalDistanceMeters,
-        metrics1.totalDistanceMeters,
-      ),
+      codingSeconds: delta(metrics2.totalCodingSeconds, metrics1.totalCodingSeconds),
+      distanceMeters: delta(metrics2.totalDistanceMeters, metrics1.totalDistanceMeters),
     },
     monthlyComparison,
   };

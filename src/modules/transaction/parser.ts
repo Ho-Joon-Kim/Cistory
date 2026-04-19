@@ -38,7 +38,7 @@ export interface ParseOptions {
 export function parseTossNotification(
   title: string,
   text: string,
-  options?: ParseOptions,
+  options?: ParseOptions
 ): ParsedTransaction | null {
   const trimmedTitle = title.trim();
   let result: ParsedTransaction | null = null;

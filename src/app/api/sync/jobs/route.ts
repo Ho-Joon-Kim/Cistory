@@ -4,11 +4,11 @@
  * GET /api/sync/jobs - 동기화 작업 이력 조회
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { syncJobs } from "@/db/schema";
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,21 +17,18 @@ export async function GET(request: NextRequest) {
     const db = getDb();
 
     const { searchParams } = new URL(request.url);
-    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const limit = Math.min(parseInt(searchParams.get("limit") || "20", 10), 50);
+    const offset = parseInt(searchParams.get("offset") || "0", 10);
     const status = searchParams.get("status"); // completed, failed, all
     const syncType = searchParams.get("syncType"); // events, search, initial
-    const days = parseInt(searchParams.get("days") || "7"); // 기본 7일
+    const days = parseInt(searchParams.get("days") || "7", 10); // 기본 7일
 
     // 기간 필터
     const daysAgo = new Date();
     daysAgo.setDate(daysAgo.getDate() - days);
 
     // 쿼리 조건 구성
-    const conditions = [
-      eq(syncJobs.userId, user.id),
-      gte(syncJobs.createdAt, daysAgo),
-    ];
+    const conditions = [eq(syncJobs.userId, user.id), gte(syncJobs.createdAt, daysAgo)];
 
     const validStatuses = ["completed", "failed", "fetching", "summarizing"] as const;
     if (status && status !== "all") {
@@ -84,12 +81,7 @@ export async function GET(request: NextRequest) {
         totalCommits: sql<number>`sum(${syncJobs.totalCommits})`,
       })
       .from(syncJobs)
-      .where(
-        and(
-          eq(syncJobs.userId, user.id),
-          gte(syncJobs.createdAt, daysAgo)
-        )
-      )
+      .where(and(eq(syncJobs.userId, user.id), gte(syncJobs.createdAt, daysAgo)))
       .groupBy(syncJobs.status);
 
     const stats = {
@@ -118,9 +110,7 @@ export async function GET(request: NextRequest) {
         duration:
           job.startedAt && job.completedAt
             ? Math.round(
-                (new Date(job.completedAt).getTime() -
-                  new Date(job.startedAt).getTime()) /
-                  1000
+                (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000
               )
             : null,
       })),
@@ -138,9 +128,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Get sync jobs error:", error);
-    return NextResponse.json(
-      { error: "Failed to get sync jobs" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to get sync jobs" }, { status: 500 });
   }
 }

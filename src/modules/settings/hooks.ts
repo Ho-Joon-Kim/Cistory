@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
 import { useTheme } from "next-themes";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface UserSettings {
   theme: "light" | "dark" | "system";
@@ -348,7 +348,11 @@ export function useDbBenchmark() {
         const data = (await response.json()) as { error?: string };
         throw new Error(data.error || "벤치마크 실행에 실패했습니다");
       }
-      const data = (await response.json()) as { dbHost: string; timestamp: string; benchmarks: BenchmarkItem[] };
+      const data = (await response.json()) as {
+        dbHost: string;
+        timestamp: string;
+        benchmarks: BenchmarkItem[];
+      };
       const run: BenchmarkRun = {
         id: `${Date.now()}`,
         dbHost: data.dbHost,
@@ -368,12 +372,15 @@ export function useDbBenchmark() {
     }
   }, []);
 
-  const deleteRun = useCallback((id: string) => {
-    const updated = loadHistory().filter((r) => r.id !== id);
-    saveHistory(updated);
-    setHistory(updated);
-    if (currentResult?.id === id) setCurrentResult(null);
-  }, [currentResult]);
+  const deleteRun = useCallback(
+    (id: string) => {
+      const updated = loadHistory().filter((r) => r.id !== id);
+      saveHistory(updated);
+      setHistory(updated);
+      if (currentResult?.id === id) setCurrentResult(null);
+    },
+    [currentResult]
+  );
 
   const clearHistory = useCallback(() => {
     localStorage.removeItem(BENCHMARK_STORAGE_KEY);
@@ -436,8 +443,6 @@ export function useWakaTimeKey(hasKey: boolean) {
         // Refresh stats after sync
         await fetchSyncStats();
         return true;
-      } catch (e) {
-        throw e;
       } finally {
         setIsSyncing(false);
       }
@@ -461,8 +466,6 @@ export function useWakaTimeKey(hasKey: boolean) {
       setWakatimeUser(data.wakatimeUser);
       setHasWakaTimeKey(true);
       return true;
-    } catch (e) {
-      throw e;
     } finally {
       setIsConnecting(false);
     }

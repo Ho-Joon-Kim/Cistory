@@ -1,10 +1,10 @@
 "use client";
 
-import { useRef, useEffect, useState, useMemo, useCallback } from "react";
-import { Source, Layer, Marker, useMap } from "react-map-gl/mapbox";
-import type { LayerProps } from "react-map-gl/mapbox";
 import type { Position } from "geojson";
 import type { GeoJSONSource, MapMouseEvent } from "mapbox-gl";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { LayerProps } from "react-map-gl/mapbox";
+import { Layer, Marker, Source, useMap } from "react-map-gl/mapbox";
 import type { LocationData, StayPointData } from "../hooks";
 import { segmentLocations } from "../utils";
 
@@ -54,11 +54,16 @@ const SPEED_LINE_LAYER: LayerProps = {
       "interpolate",
       ["linear"],
       ["get", "speed"],
-      0, "#3b82f6",     // blue: stationary/walking
-      7, "#22c55e",     // green: walking/running
-      20, "#eab308",    // yellow: cycling
-      50, "#f97316",    // orange: driving
-      100, "#ef4444",   // red: high speed
+      0,
+      "#3b82f6", // blue: stationary/walking
+      7,
+      "#22c55e", // green: walking/running
+      20,
+      "#eab308", // yellow: cycling
+      50,
+      "#f97316", // orange: driving
+      100,
+      "#ef4444", // red: high speed
     ],
     "line-width": 3,
     "line-opacity": 0.85,
@@ -89,7 +94,7 @@ function easeOutCubic(t: number): number {
 /** Build a FeatureCollection with per-segment LineString features */
 function makeSegmentedGeoJSON(
   lines: Position[][],
-  segmentIndices: number[],
+  segmentIndices: number[]
 ): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
@@ -108,7 +113,7 @@ function makeSegmentedGeoJSON(
 function makeSpeedGeoJSON(
   locations: LocationData[],
   lines: Position[][],
-  segmentIndices: number[],
+  segmentIndices: number[]
 ): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
 
@@ -169,15 +174,9 @@ export function SegmentedRouteAnimator({
   const prevDateRef = useRef(date);
   const animationCompletedRef = useRef(false);
 
-  const allCoords = useMemo<Position[]>(
-    () => locations.map((l) => [l.lon, l.lat]),
-    [locations],
-  );
+  const allCoords = useMemo<Position[]>(() => locations.map((l) => [l.lon, l.lat]), [locations]);
 
-  const segments = useMemo(
-    () => segmentLocations(locations, stayPoints),
-    [locations, stayPoints],
-  );
+  const segments = useMemo(() => segmentLocations(locations, stayPoints), [locations, stayPoints]);
 
   // Extract moving segment line arrays, per-segment indices, and all moving coords
   const { movingLines, movingSegmentIndices, movingCoordsFlat, transitions } = useMemo(() => {
@@ -203,7 +202,12 @@ export function SegmentedRouteAnimator({
       }
     }
 
-    return { movingLines: lines, movingSegmentIndices: indices, movingCoordsFlat: flat, transitions: trans };
+    return {
+      movingLines: lines,
+      movingSegmentIndices: indices,
+      movingCoordsFlat: flat,
+      transitions: trans,
+    };
   }, [segments]);
 
   const updateLine = useCallback(
@@ -220,7 +224,7 @@ export function SegmentedRouteAnimator({
         speedSrc.setData(makeSpeedGeoJSON(locations, lines, segIndices));
       }
     },
-    [map, locations],
+    [map, locations]
   );
 
   // Update paint properties when selection/hover/replay changes (after animation completes)
@@ -360,7 +364,7 @@ export function SegmentedRouteAnimator({
           [Math.min(...lngs), Math.min(...lats)],
           [Math.max(...lngs), Math.max(...lats)],
         ],
-        { padding: 50, duration: 1000 },
+        { padding: 50, duration: 1000 }
       );
     }
   }, [map, allCoords]);
@@ -425,7 +429,10 @@ export function SegmentedRouteAnimator({
         animationRef.current = requestAnimationFrame(animate);
       } else {
         updateLine(movingLines, movingSegmentIndices);
-        setMarkerState({ lastPoint: allCoords[allCoords.length - 1], transitionPoints: transitions });
+        setMarkerState({
+          lastPoint: allCoords[allCoords.length - 1],
+          transitionPoints: transitions,
+        });
         animationCompletedRef.current = true;
       }
     }
@@ -434,7 +441,16 @@ export function SegmentedRouteAnimator({
     animationRef.current = requestAnimationFrame(animate);
 
     return () => cancelAnimationFrame(animationRef.current);
-  }, [map, movingLines, movingSegmentIndices, movingCoordsFlat, allCoords, transitions, date, updateLine]);
+  }, [
+    map,
+    movingLines,
+    movingSegmentIndices,
+    movingCoordsFlat,
+    allCoords,
+    transitions,
+    date,
+    updateLine,
+  ]);
 
   const hasData = allCoords.length > 0;
 
@@ -470,7 +486,11 @@ export function SegmentedRouteAnimator({
         </Marker>
       ))}
       {markerState.lastPoint && (
-        <Marker longitude={markerState.lastPoint[0]} latitude={markerState.lastPoint[1]} anchor="center">
+        <Marker
+          longitude={markerState.lastPoint[0]}
+          latitude={markerState.lastPoint[1]}
+          anchor="center"
+        >
           <div className="location-marker-container animate-bounce-in">
             <div className="location-marker-pulse" />
             <div className="location-marker-dot" />

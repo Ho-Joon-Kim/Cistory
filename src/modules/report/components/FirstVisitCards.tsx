@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sparkles, MapPin } from "lucide-react";
+import { MapPin, Sparkles } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface FirstVisitCardsProps {
   cities?: { city: string; countryName: string; firstVisitDate: string }[];

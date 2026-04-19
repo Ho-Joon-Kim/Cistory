@@ -6,11 +6,7 @@
  */
 
 import { distanceM } from "@/lib/geo";
-import {
-  classifyMode,
-  type TransportMode,
-  type Confidence,
-} from "./mode-classifier";
+import { type Confidence, classifyMode, type TransportMode } from "./mode-classifier";
 
 // ── Constants (Dawarich defaults) ─────────────────────────────────────────────
 
@@ -59,8 +55,7 @@ function calculateMetrics(points: PointInput[]): MovementMetric[] {
     const prev = points[i - 1];
     const curr = points[i];
 
-    const timeDiffSec =
-      (curr.timestamp.getTime() - prev.timestamp.getTime()) / 1000;
+    const timeDiffSec = (curr.timestamp.getTime() - prev.timestamp.getTime()) / 1000;
     const dist = distanceM(prev.lat, prev.lon, curr.lat, curr.lon);
 
     // Prefer GPS velocity if available, otherwise compute from distance/time
@@ -75,8 +70,7 @@ function calculateMetrics(points: PointInput[]): MovementMetric[] {
 
     const speedKmh = speedMps * 3.6;
     const prevSpeedMps = i > 1 ? metrics[i - 2].speedMps : 0;
-    const acceleration =
-      timeDiffSec > 0 ? (speedMps - prevSpeedMps) / timeDiffSec : 0;
+    const acceleration = timeDiffSec > 0 ? (speedMps - prevSpeedMps) / timeDiffSec : 0;
 
     metrics.push({
       timeDiffSec,
@@ -113,10 +107,7 @@ function smoothSpeeds(metrics: MovementMetric[]): number[] {
 
 // ── Segment Boundary Detection ────────────────────────────────────────────────
 
-function detectBoundaries(
-  metrics: MovementMetric[],
-  smoothedSpeeds: number[],
-): number[] {
+function detectBoundaries(metrics: MovementMetric[], smoothedSpeeds: number[]): number[] {
   const boundaries: number[] = [0]; // always start with 0
 
   for (let i = 1; i < metrics.length; i++) {
@@ -151,7 +142,7 @@ function detectBoundaries(
 function buildSegments(
   points: PointInput[],
   metrics: MovementMetric[],
-  boundaries: number[],
+  boundaries: number[]
 ): TransportSegment[] {
   if (metrics.length === 0) return [];
 
@@ -159,8 +150,7 @@ function buildSegments(
 
   for (let b = 0; b < boundaries.length; b++) {
     const startIdx = boundaries[b];
-    const endIdx =
-      b + 1 < boundaries.length ? boundaries[b + 1] - 1 : metrics.length - 1;
+    const endIdx = b + 1 < boundaries.length ? boundaries[b + 1] - 1 : metrics.length - 1;
 
     if (startIdx > endIdx) continue;
 
@@ -178,10 +168,8 @@ function buildSegments(
       totalAccel += Math.abs(m.acceleration);
     }
 
-    const avgSpeedKmh =
-      totalDuration > 0 ? (totalDist / totalDuration) * 3.6 : 0;
-    const avgAccel =
-      segMetrics.length > 0 ? totalAccel / segMetrics.length : 0;
+    const avgSpeedKmh = totalDuration > 0 ? (totalDist / totalDuration) * 3.6 : 0;
+    const avgAccel = segMetrics.length > 0 ? totalAccel / segMetrics.length : 0;
 
     const { mode, confidence } = classifyMode(avgSpeedKmh, maxSpeed, avgAccel);
 
@@ -263,10 +251,9 @@ function mergeTwo(a: TransportSegment, b: TransportSegment): TransportSegment {
     maxSpeedKmh: Math.max(a.maxSpeedKmh, b.maxSpeedKmh),
     avgAcceleration:
       Math.round(
-        ((a.avgAcceleration * a.durationSeconds +
-          b.avgAcceleration * b.durationSeconds) /
+        ((a.avgAcceleration * a.durationSeconds + b.avgAcceleration * b.durationSeconds) /
           Math.max(totalDur, 1)) *
-          100,
+          100
       ) / 100,
   };
 }

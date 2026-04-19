@@ -1,16 +1,15 @@
 "use client";
 
+import { Loader2, Plane } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plane, Loader2 } from "lucide-react";
-import { useTripDetection } from "@/modules/location/hooks";
 import { TripDetectDialog } from "@/modules/location/components/TripDetectDialog";
-import { toast } from "sonner";
+import { useTripDetection } from "@/modules/location/hooks";
 
 export function TripDetectionCard() {
-  const { detected, isDetecting, isSaving, detect, confirmTrips } =
-    useTripDetection();
+  const { detected, isDetecting, isSaving, detect, confirmTrips } = useTripDetection();
   const [showDialog, setShowDialog] = useState(false);
 
   const currentYear = new Date().getFullYear();
@@ -46,14 +45,10 @@ export function TripDetectionCard() {
         {!showDialog ? (
           <>
             <p className="text-sm text-muted-foreground">
-              위치 데이터를 분석하여 올해의 여행을 자동으로 감지합니다.
-              집에서 50km 이상 떨어진 곳에서 2일 이상 체류한 기간을 여행으로 판정합니다.
+              위치 데이터를 분석하여 올해의 여행을 자동으로 감지합니다. 집에서 50km 이상 떨어진
+              곳에서 2일 이상 체류한 기간을 여행으로 판정합니다.
             </p>
-            <Button
-              variant="outline"
-              disabled={isDetecting}
-              onClick={handleDetect}
-            >
+            <Button variant="outline" disabled={isDetecting} onClick={handleDetect}>
               {isDetecting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />

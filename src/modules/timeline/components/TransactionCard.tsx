@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import type { TransactionItem } from "@/modules/spending/hooks";
 
 interface TransactionCardProps {

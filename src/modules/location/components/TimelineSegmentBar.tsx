@@ -1,8 +1,8 @@
 "use client";
 
+import { Clock } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Clock } from "lucide-react";
 import type { TimelineSegment } from "../utils";
 
 function formatTime(isoString: string): string {
@@ -94,7 +94,7 @@ function StepperTooltip({
       </div>
       {sp.category && <span className="stepper-tooltip-category">{sp.category}</span>}
     </div>,
-    document.body,
+    document.body
   );
 }
 
@@ -113,10 +113,8 @@ export function TimelineSegmentBar({
   if (segments.length === 0) return null;
 
   // Tooltip target
-  const tooltipSeg =
-    tooltipIndex !== null ? segments[tooltipIndex] : null;
-  const tooltipAnchor =
-    tooltipIndex !== null ? dotRefs.current.get(tooltipIndex) ?? null : null;
+  const tooltipSeg = tooltipIndex !== null ? segments[tooltipIndex] : null;
+  const tooltipAnchor = tooltipIndex !== null ? (dotRefs.current.get(tooltipIndex) ?? null) : null;
 
   return (
     <div className="stepper-bar">

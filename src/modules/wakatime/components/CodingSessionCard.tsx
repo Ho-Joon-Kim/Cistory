@@ -1,8 +1,8 @@
 "use client";
 
+import { Bot, ChevronDown, ChevronUp, Code, User } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Code, ChevronDown, ChevronUp, Bot, User } from "lucide-react";
 import { formatCodingTime } from "@/modules/timeline/utils";
 import type { CodingSessionData, CodingStatData } from "../hooks";
 
@@ -16,8 +16,7 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
 
   // Fallback: compute total from sessions if stats not available
   const totalSeconds =
-    stats?.totalSeconds ??
-    sessions.reduce((sum, s) => sum + s.durationSeconds, 0);
+    stats?.totalSeconds ?? sessions.reduce((sum, s) => sum + s.durationSeconds, 0);
   if (totalSeconds === 0 && sessions.length === 0) return null;
 
   // Derive projects from sessions when stats unavailable
@@ -33,7 +32,7 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
       aiLines: acc.aiLines + (s.aiAdditions ?? 0) + (s.aiDeletions ?? 0),
       humanLines: acc.humanLines + (s.humanAdditions ?? 0) + (s.humanDeletions ?? 0),
     }),
-    { aiLines: 0, humanLines: 0 },
+    { aiLines: 0, humanLines: 0 }
   );
   const hasAiRatio = aiStats.aiLines > 0 || aiStats.humanLines > 0;
   const totalLines = aiStats.aiLines + aiStats.humanLines;
@@ -82,8 +81,14 @@ export function CodingSessionCard({ sessions, stats }: CodingSessionCardProps) {
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {topLanguages.map((lang, i) => (
-                <span key={lang.name} className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: LANG_COLORS[i] }} />
+                <span
+                  key={lang.name}
+                  className="flex items-center gap-0.5 text-[10px] text-muted-foreground"
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ backgroundColor: LANG_COLORS[i] }}
+                  />
                   {lang.name}
                 </span>
               ))}

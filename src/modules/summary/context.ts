@@ -5,7 +5,7 @@
  */
 
 import type { VCSAdapter } from "@/lib/adapters/vcs/interface";
-import type { RepoContext, RecentCommitPattern } from "./prompts";
+import type { RecentCommitPattern, RepoContext } from "./prompts";
 
 // 캐시 (메모리 - 프로덕션에서는 KV 사용 권장)
 const contextCache = new Map<string, { context: RepoContext; timestamp: number }>();
@@ -63,9 +63,7 @@ export async function fetchRepoContext(
       const devDeps = Object.keys(parsed.devDependencies || {});
 
       // 주요 의존성만 추출 (최대 10개)
-      const mainDeps = [...deps, ...devDeps]
-        .filter(isImportantDependency)
-        .slice(0, 10);
+      const mainDeps = [...deps, ...devDeps].filter(isImportantDependency).slice(0, 10);
 
       if (mainDeps.length > 0) {
         context.techStack = mainDeps;
@@ -78,11 +76,7 @@ export async function fetchRepoContext(
   // 4. requirements.txt (Python 프로젝트)
   if (!context.techStack || context.techStack.length === 0) {
     try {
-      const requirements = await vcsAdapter.getFileContent(
-        owner,
-        repo,
-        "requirements.txt"
-      );
+      const requirements = await vcsAdapter.getFileContent(owner, repo, "requirements.txt");
       if (requirements) {
         const deps = requirements.content
           .split("\n")
@@ -134,7 +128,7 @@ export async function analyzeRecentCommits(
     const relatedMessages = otherCommits.slice(0, 5).map((c) => {
       // 메시지 첫 줄만, 최대 100자
       const firstLine = c.message.split("\n")[0];
-      return firstLine.length > 100 ? firstLine.slice(0, 97) + "..." : firstLine;
+      return firstLine.length > 100 ? `${firstLine.slice(0, 97)}...` : firstLine;
     });
 
     // 공통 디렉토리 추출

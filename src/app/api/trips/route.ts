@@ -5,10 +5,10 @@
  * POST /api/trips            — Create a manual trip
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb, trips } from "@/db";
-import { eq, and, gte, lt, asc } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,10 +17,7 @@ export async function GET(request: NextRequest) {
 
     const yearParam = request.nextUrl.searchParams.get("year");
     if (!yearParam || !/^\d{4}$/.test(yearParam)) {
-      return NextResponse.json(
-        { error: "year 파라미터가 필요합니다 (YYYY)" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "year 파라미터가 필요합니다 (YYYY)" }, { status: 400 });
     }
 
     const db = getDb();
@@ -31,8 +28,8 @@ export async function GET(request: NextRequest) {
         and(
           eq(trips.userId, user.id),
           gte(trips.startDate, `${yearParam}-01-01`),
-          lt(trips.startDate, `${Number(yearParam) + 1}-01-01`),
-        ),
+          lt(trips.startDate, `${Number(yearParam) + 1}-01-01`)
+        )
       )
       .orderBy(asc(trips.startDate));
 
@@ -40,17 +37,12 @@ export async function GET(request: NextRequest) {
       trips: rows.map((t) => ({
         ...t,
         visitedCities: t.visitedCities ? JSON.parse(t.visitedCities) : [],
-        visitedCountries: t.visitedCountries
-          ? JSON.parse(t.visitedCountries)
-          : [],
+        visitedCountries: t.visitedCountries ? JSON.parse(t.visitedCountries) : [],
       })),
     });
   } catch (error) {
     console.error("Trips GET error:", error);
-    return NextResponse.json(
-      { error: "여행 목록 조회에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "여행 목록 조회에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -63,10 +55,7 @@ export async function POST(request: NextRequest) {
     const { name, startDate, endDate, notes } = body;
 
     if (!name || !startDate || !endDate) {
-      return NextResponse.json(
-        { error: "name, startDate, endDate는 필수입니다" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "name, startDate, endDate는 필수입니다" }, { status: 400 });
     }
 
     const db = getDb();
@@ -90,9 +79,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ trip: created }, { status: 201 });
   } catch (error) {
     console.error("Trips POST error:", error);
-    return NextResponse.json(
-      { error: "여행 생성에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "여행 생성에 실패했습니다" }, { status: 500 });
   }
 }

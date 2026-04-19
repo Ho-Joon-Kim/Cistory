@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
 import { Brain } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import type { DeepWorkSession } from "../types";
 
 interface DeepWorkCardProps {

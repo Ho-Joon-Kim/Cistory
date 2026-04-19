@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface UseCountUpOptions {
   duration?: number;
@@ -10,14 +10,11 @@ interface UseCountUpOptions {
 
 // Easing functions
 const easings = {
-  easeOutCubic: (t: number) => 1 - Math.pow(1 - t, 3),
+  easeOutCubic: (t: number) => 1 - (1 - t) ** 3,
 };
 
 // Hook for animating from previous value to new value
-export function useAnimatedNumber(
-  value: number,
-  options: UseCountUpOptions = {}
-): number {
+export function useAnimatedNumber(value: number, options: UseCountUpOptions = {}): number {
   const { duration = 400 } = options;
   const [displayValue, setDisplayValue] = useState(value);
   const [targetValue, setTargetValue] = useState(value);
@@ -40,9 +37,7 @@ export function useAnimatedNumber(
       const elapsed = timestamp - startTimeRef.current;
       const progress = Math.min(elapsed / duration, 1);
       const eased = easings.easeOutCubic(progress);
-      const current = Math.round(
-        startValueRef.current + (value - startValueRef.current) * eased
-      );
+      const current = Math.round(startValueRef.current + (value - startValueRef.current) * eased);
 
       setDisplayValue(current);
 

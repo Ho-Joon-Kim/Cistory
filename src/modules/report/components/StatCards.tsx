@@ -1,9 +1,9 @@
 "use client";
 
+import { ArrowDown, ArrowUp, Calendar, GitCommit, Map, Timer } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Calendar, GitCommit, Map, Timer } from "lucide-react";
 import type {
   CodingSectionData,
   CommitsSectionData,

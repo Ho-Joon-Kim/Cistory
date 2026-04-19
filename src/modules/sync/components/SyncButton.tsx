@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { RefreshCw, Check } from "lucide-react";
+import { Check, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SyncProgressRing } from "@/components/ui/progress-ring";
 import { useSync, useSyncStatus } from "../hooks";
@@ -68,7 +68,9 @@ export function SyncButton({
       className={className}
     >
       {completionState.showComplete ? (
-        <Check className={`h-4 w-4 text-green-500 animate-success-pulse ${size !== "icon" ? "mr-2" : ""}`} />
+        <Check
+          className={`h-4 w-4 text-green-500 animate-success-pulse ${size !== "icon" ? "mr-2" : ""}`}
+        />
       ) : isActive ? (
         <SyncProgressRing
           isSyncing={true}
@@ -79,9 +81,12 @@ export function SyncButton({
       ) : (
         <RefreshCw className={`h-4 w-4 ${size !== "icon" ? "mr-2" : ""}`} />
       )}
-      {size !== "icon" && (
-        completionState.showComplete ? "완료!" : isActive ? `동기화 중${progress > 0 ? ` ${progress}%` : "..."}` : "동기화"
-      )}
+      {size !== "icon" &&
+        (completionState.showComplete
+          ? "완료!"
+          : isActive
+            ? `동기화 중${progress > 0 ? ` ${progress}%` : "..."}`
+            : "동기화")}
     </Button>
   );
 }

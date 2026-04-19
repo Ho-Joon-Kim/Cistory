@@ -50,10 +50,7 @@ export interface DetectedVisit {
  */
 function dynamicRadiusM(durationSeconds: number): number {
   const hours = durationSeconds / 3600;
-  const radiusKm = Math.min(
-    BASE_RADIUS_KM * (1 + Math.log(1 + hours)),
-    MAX_RADIUS_KM,
-  );
+  const radiusKm = Math.min(BASE_RADIUS_KM * (1 + Math.log(1 + hours)), MAX_RADIUS_KM);
   return radiusKm * 1000;
 }
 
@@ -108,8 +105,7 @@ export function detectVisits(rows: LocationRow[]): DetectedVisit[] {
     const lastPoint = currentPoints[currentPoints.length - 1];
 
     // Check time gap
-    const gapSec =
-      (point.timestamp.getTime() - lastPoint.timestamp.getTime()) / 1000;
+    const gapSec = (point.timestamp.getTime() - lastPoint.timestamp.getTime()) / 1000;
     if (gapSec > MAX_VISIT_GAP_SEC) {
       finalizeVisit(currentPoints);
       currentPoints = [point];
@@ -118,8 +114,7 @@ export function detectVisits(rows: LocationRow[]): DetectedVisit[] {
 
     // Check distance against dynamic radius
     const durationSoFar =
-      (lastPoint.timestamp.getTime() - currentPoints[0].timestamp.getTime()) /
-      1000;
+      (lastPoint.timestamp.getTime() - currentPoints[0].timestamp.getTime()) / 1000;
     const radius = dynamicRadiusM(durationSoFar);
     const center = centroid(currentPoints);
     const dist = distanceM(center.lat, center.lon, point.lat, point.lon);
@@ -146,10 +141,7 @@ export function detectVisits(rows: LocationRow[]): DetectedVisit[] {
  * 2. Time gap is within 30 minutes
  * 3. No significant movement between them (all between-points stay within 50m of center)
  */
-export function mergeVisits(
-  visits: DetectedVisit[],
-  allPoints: LocationRow[],
-): DetectedVisit[] {
+export function mergeVisits(visits: DetectedVisit[], allPoints: LocationRow[]): DetectedVisit[] {
   if (visits.length <= 1) return visits;
 
   const merged: DetectedVisit[] = [visits[0]];
@@ -158,40 +150,26 @@ export function mergeVisits(
     const prev = merged[merged.length - 1];
     const curr = visits[i];
 
-    const centerDist = distanceM(
-      prev.centerLat,
-      prev.centerLon,
-      curr.centerLat,
-      curr.centerLon,
-    );
-    const gapSec =
-      (curr.startTime.getTime() - prev.endTime.getTime()) / 1000;
+    const centerDist = distanceM(prev.centerLat, prev.centerLon, curr.centerLat, curr.centerLon);
+    const gapSec = (curr.startTime.getTime() - prev.endTime.getTime()) / 1000;
 
     if (centerDist <= SIGNIFICANT_MOVEMENT_M && gapSec <= MAX_VISIT_GAP_SEC) {
       // Check for significant movement between the visits
       const betweenPoints = allPoints.filter(
-        (p) =>
-          p.timestamp > prev.endTime && p.timestamp < curr.startTime,
+        (p) => p.timestamp > prev.endTime && p.timestamp < curr.startTime
       );
 
       const hasSignificantMovement = betweenPoints.some(
-        (p) =>
-          distanceM(prev.centerLat, prev.centerLon, p.lat, p.lon) >
-          SIGNIFICANT_MOVEMENT_M,
+        (p) => distanceM(prev.centerLat, prev.centerLon, p.lat, p.lon) > SIGNIFICANT_MOVEMENT_M
       );
 
       if (!hasSignificantMovement) {
         // Merge: extend prev to include curr
         const allVisitPoints = allPoints.filter(
-          (p) =>
-            p.timestamp >= prev.startTime && p.timestamp <= curr.endTime,
+          (p) => p.timestamp >= prev.startTime && p.timestamp <= curr.endTime
         );
-        const centerLat =
-          allVisitPoints.reduce((s, p) => s + p.lat, 0) /
-          allVisitPoints.length;
-        const centerLon =
-          allVisitPoints.reduce((s, p) => s + p.lon, 0) /
-          allVisitPoints.length;
+        const centerLat = allVisitPoints.reduce((s, p) => s + p.lat, 0) / allVisitPoints.length;
+        const centerLon = allVisitPoints.reduce((s, p) => s + p.lon, 0) / allVisitPoints.length;
 
         let maxDist = 0;
         for (const p of allVisitPoints) {
@@ -205,9 +183,7 @@ export function mergeVisits(
           radiusM: Math.max(maxDist, MIN_RADIUS_M),
           startTime: prev.startTime,
           endTime: curr.endTime,
-          durationSeconds: Math.round(
-            (curr.endTime.getTime() - prev.startTime.getTime()) / 1000,
-          ),
+          durationSeconds: Math.round((curr.endTime.getTime() - prev.startTime.getTime()) / 1000),
           pointCount: prev.pointCount + curr.pointCount,
         };
         continue;

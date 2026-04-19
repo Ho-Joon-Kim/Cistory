@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plane } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { MonthlyReportData } from "../types";
 
 interface OverseasTripCardsProps {
@@ -20,8 +20,7 @@ function formatDateRange(startDate: string, endDate: string): string {
     day: "numeric",
   });
 
-  const diffDays =
-    Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
   if (startDate === endDate) {
     return `${startStr} (당일)`;
@@ -40,10 +39,7 @@ export function OverseasTripCards({ trips }: OverseasTripCardsProps) {
       </h3>
       <div className="grid gap-3 sm:grid-cols-2">
         {trips.map((trip) => (
-          <Card
-            key={`${trip.country}-${trip.startDate}`}
-            className="!py-4 !gap-3"
-          >
+          <Card key={`${trip.country}-${trip.startDate}`} className="!py-4 !gap-3">
             <CardHeader className="!pb-0">
               <CardTitle className="text-xl">{trip.country}</CardTitle>
               <p className="text-sm text-muted-foreground">

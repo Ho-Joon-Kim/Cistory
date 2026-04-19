@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { NextResponse } from "next/server";
 import { getDb } from "@/db";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { InsightsService } from "@/modules/insights/service";
 
 const VALID_SECTIONS = new Set(["streaks", "patterns", "routines", "digests", "commit-heatmap"]);
@@ -19,7 +19,10 @@ export async function GET(request: NextRequest) {
     const section = request.nextUrl.searchParams.get("section");
     if (!section || !VALID_SECTIONS.has(section)) {
       return NextResponse.json(
-        { error: "유효하지 않은 section 파라미터입니다 (streaks, patterns, routines, digests, commit-heatmap)" },
+        {
+          error:
+            "유효하지 않은 section 파라미터입니다 (streaks, patterns, routines, digests, commit-heatmap)",
+        },
         { status: 400 }
       );
     }

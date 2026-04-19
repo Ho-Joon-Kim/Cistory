@@ -5,20 +5,10 @@
  * resolves place names, and persists to the tracks + transportation_segments tables.
  */
 
-import {
-  getDb,
-  locationPoints,
-  tracks,
-  transportationSegments,
-  visits,
-  placeCache,
-} from "@/db";
-import { eq, and, gte, lt, lte, asc, or, isNull, desc } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lt, lte, or } from "drizzle-orm";
+import { getDb, locationPoints, placeCache, tracks, transportationSegments, visits } from "@/db";
 import { buildTracks, type TrackPoint } from "./track-builder";
-import {
-  detectTransportModes,
-  type TransportSegment,
-} from "./transportation/detector";
+import { detectTransportModes } from "./transportation/detector";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,19 +29,13 @@ async function resolvePlaceName(
   userId: string,
   lat: number,
   lon: number,
-  time: Date,
+  time: Date
 ): Promise<string | null> {
   // Check visits at this time
   const [visit] = await db
     .select({ placeName: visits.placeName })
     .from(visits)
-    .where(
-      and(
-        eq(visits.userId, userId),
-        lte(visits.startTime, time),
-        gte(visits.endTime, time),
-      ),
-    )
+    .where(and(eq(visits.userId, userId), lte(visits.startTime, time), gte(visits.endTime, time)))
     .limit(1);
 
   if (visit?.placeName) return visit.placeName;
@@ -63,9 +47,7 @@ async function resolvePlaceName(
   const [cached] = await db
     .select({ placeName: placeCache.placeName })
     .from(placeCache)
-    .where(
-      and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)),
-    )
+    .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)))
     .limit(1);
 
   return cached?.placeName ?? null;
@@ -79,7 +61,7 @@ async function resolvePlaceName(
  */
 export async function detectAndPersistTracks(
   userId: string,
-  dateStr: string,
+  dateStr: string
 ): Promise<PersistResult> {
   const db = getDb();
 
@@ -101,15 +83,9 @@ export async function detectAndPersistTracks(
         eq(locationPoints.userId, userId),
         gte(locationPoints.timestamp, dayStart),
         lt(locationPoints.timestamp, dayEnd),
-        or(
-          isNull(locationPoints.accuracy),
-          lte(locationPoints.accuracy, 200),
-        ),
-        or(
-          isNull(locationPoints.anomaly),
-          eq(locationPoints.anomaly, false),
-        ),
-      ),
+        or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200)),
+        or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false))
+      )
     )
     .orderBy(asc(locationPoints.timestamp));
 
@@ -122,8 +98,8 @@ export async function detectAndPersistTracks(
         altitude: p.altitude,
         velocity: p.velocity,
         timestamp: p.timestamp,
-      }),
-    ),
+      })
+    )
   );
 
   if (builtTracks.length === 0) {
@@ -137,8 +113,8 @@ export async function detectAndPersistTracks(
           and(
             eq(tracks.userId, userId),
             gte(tracks.startTime, dayStart),
-            lt(tracks.startTime, dayEnd),
-          ),
+            lt(tracks.startTime, dayEnd)
+          )
         );
 
       if (dayTracks.length > 0) {
@@ -148,22 +124,23 @@ export async function detectAndPersistTracks(
             .delete(transportationSegments)
             .where(eq(transportationSegments.trackId, trackId));
         }
-        await tx.delete(tracks).where(
-          and(
-            eq(tracks.userId, userId),
-            gte(tracks.startTime, dayStart),
-            lt(tracks.startTime, dayEnd),
-          ),
-        );
+        await tx
+          .delete(tracks)
+          .where(
+            and(
+              eq(tracks.userId, userId),
+              gte(tracks.startTime, dayStart),
+              lt(tracks.startTime, dayEnd)
+            )
+          );
       }
 
       // Also delete orphan segments for this day (no trackId)
-      await tx.delete(transportationSegments).where(
-        and(
-          eq(transportationSegments.userId, userId),
-          eq(transportationSegments.date, dateStr),
-        ),
-      );
+      await tx
+        .delete(transportationSegments)
+        .where(
+          and(eq(transportationSegments.userId, userId), eq(transportationSegments.date, dateStr))
+        );
     });
     return { trackCount: 0, segmentCount: 0 };
   }
@@ -181,32 +158,31 @@ export async function detectAndPersistTracks(
         and(
           eq(tracks.userId, userId),
           gte(tracks.startTime, dayStart),
-          lt(tracks.startTime, dayEnd),
-        ),
+          lt(tracks.startTime, dayEnd)
+        )
       );
 
     if (existingTracks.length > 0) {
       for (const et of existingTracks) {
-        await tx
-          .delete(transportationSegments)
-          .where(eq(transportationSegments.trackId, et.id));
+        await tx.delete(transportationSegments).where(eq(transportationSegments.trackId, et.id));
       }
-      await tx.delete(tracks).where(
-        and(
-          eq(tracks.userId, userId),
-          gte(tracks.startTime, dayStart),
-          lt(tracks.startTime, dayEnd),
-        ),
-      );
+      await tx
+        .delete(tracks)
+        .where(
+          and(
+            eq(tracks.userId, userId),
+            gte(tracks.startTime, dayStart),
+            lt(tracks.startTime, dayEnd)
+          )
+        );
     }
 
     // Also clean up orphan segments
-    await tx.delete(transportationSegments).where(
-      and(
-        eq(transportationSegments.userId, userId),
-        eq(transportationSegments.date, dateStr),
-      ),
-    );
+    await tx
+      .delete(transportationSegments)
+      .where(
+        and(eq(transportationSegments.userId, userId), eq(transportationSegments.date, dateStr))
+      );
 
     // Process each track
     for (const track of builtTracks) {
@@ -218,10 +194,7 @@ export async function detectAndPersistTracks(
       if (segments.length > 0) {
         const modeDurations = new Map<string, number>();
         for (const s of segments) {
-          modeDurations.set(
-            s.mode,
-            (modeDurations.get(s.mode) ?? 0) + s.durationSeconds,
-          );
+          modeDurations.set(s.mode, (modeDurations.get(s.mode) ?? 0) + s.durationSeconds);
         }
         let maxDuration = 0;
         for (const [mode, dur] of modeDurations) {
@@ -238,14 +211,14 @@ export async function detectAndPersistTracks(
         userId,
         track.points[0].lat,
         track.points[0].lon,
-        track.startTime,
+        track.startTime
       );
       const endPlaceName = await resolvePlaceName(
         db,
         userId,
         track.points[track.points.length - 1].lat,
         track.points[track.points.length - 1].lon,
-        track.endTime,
+        track.endTime
       );
 
       // Insert track
@@ -284,7 +257,7 @@ export async function detectAndPersistTracks(
             maxSpeedKmh: s.maxSpeedKmh,
             avgAcceleration: s.avgAcceleration,
             calculatedAt: now,
-          })),
+          }))
         );
         totalSegments += segments.length;
       }

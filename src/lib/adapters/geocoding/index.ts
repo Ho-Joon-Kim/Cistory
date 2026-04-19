@@ -5,12 +5,12 @@
  * 한국: Kakao Local API, 해외: Google Places API, fallback: Mapbox
  */
 
-import type { GeocodingAdapter } from "./interface";
 import { GooglePlacesAdapter } from "./google";
+import type { GeocodingAdapter } from "./interface";
 import { KakaoGeocodingAdapter } from "./kakao";
 import { MapboxGeocodingAdapter } from "./mapbox";
 
-export type { GeocodingResult, GeocodingAdapter } from "./interface";
+export type { GeocodingAdapter, GeocodingResult } from "./interface";
 export { GooglePlacesAdapter, KakaoGeocodingAdapter, MapboxGeocodingAdapter };
 
 // 한국 bounding box (대략적)

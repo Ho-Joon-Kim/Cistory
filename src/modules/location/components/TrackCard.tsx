@@ -1,18 +1,18 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
 import {
-  Footprints,
+  ArrowRight,
   Bike,
   Car,
-  Train,
-  Plane,
-  ArrowRight,
   ChevronDown,
   ChevronUp,
+  Footprints,
   Mountain,
+  Plane,
+  Train,
 } from "lucide-react";
 import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import type { TrackData } from "../hooks";
 
 const MODE_ICONS: Record<string, React.ReactNode> = {
@@ -104,13 +104,14 @@ export function TrackCard({ track }: TrackCardProps) {
 
         {/* Summary badges */}
         <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-          <span>{formatTime(track.startTime)} ~ {formatTime(track.endTime)}</span>
+          <span>
+            {formatTime(track.startTime)} ~ {formatTime(track.endTime)}
+          </span>
           <span>{formatDistance(track.distanceMeters)}</span>
           <span>{formatDuration(track.durationSeconds)}</span>
-          {(track.elevationGain != null && track.elevationGain > 0) && (
+          {track.elevationGain != null && track.elevationGain > 0 && (
             <span className="flex items-center gap-0.5">
-              <Mountain className="h-3 w-3" />
-              ↑{track.elevationGain}m
+              <Mountain className="h-3 w-3" />↑{track.elevationGain}m
               {track.elevationLoss != null && track.elevationLoss > 0 && (
                 <> ↓{track.elevationLoss}m</>
               )}
@@ -133,9 +134,7 @@ export function TrackCard({ track }: TrackCardProps) {
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <span>{formatDuration(seg.durationSeconds)}</span>
                   <span>{formatDistance(seg.distanceMeters)}</span>
-                  {seg.avgSpeedKmh != null && (
-                    <span>평균 {Math.round(seg.avgSpeedKmh)}km/h</span>
-                  )}
+                  {seg.avgSpeedKmh != null && <span>평균 {Math.round(seg.avgSpeedKmh)}km/h</span>}
                 </div>
               </div>
             ))}

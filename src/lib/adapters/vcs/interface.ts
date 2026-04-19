@@ -96,11 +96,7 @@ export interface VCSAdapter {
   /**
    * Get commits for a repository
    */
-  getCommits(
-    owner: string,
-    repo: string,
-    options?: GetCommitsOptions
-  ): Promise<VCSCommit[]>;
+  getCommits(owner: string, repo: string, options?: GetCommitsOptions): Promise<VCSCommit[]>;
 
   /**
    * Get detailed commit information including diff
@@ -134,19 +130,13 @@ export interface VCSAdapter {
   /**
    * Search commits authored by user via Search API
    */
-  searchUserCommits(
-    username: string,
-    options?: SearchCommitsOptions
-  ): Promise<VCSSearchCommit[]>;
+  searchUserCommits(username: string, options?: SearchCommitsOptions): Promise<VCSSearchCommit[]>;
 
   /**
    * Get all commits authored by user across all repos via Repos API
    * Uses /user/repos + /repos/:owner/:repo/commits instead of Search API
    */
-  getAllRepoCommits(
-    username: string,
-    options?: SearchCommitsOptions
-  ): Promise<VCSSearchCommit[]>;
+  getAllRepoCommits(username: string, options?: SearchCommitsOptions): Promise<VCSSearchCommit[]>;
 
   /**
    * Get authenticated user info

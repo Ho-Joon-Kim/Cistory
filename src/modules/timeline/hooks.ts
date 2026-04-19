@@ -149,9 +149,7 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
           };
         };
 
-        setCommits((prev) =>
-          append ? [...prev, ...data.commits] : data.commits
-        );
+        setCommits((prev) => (append ? [...prev, ...data.commits] : data.commits));
         setPage(data.pagination.page);
         setTotalPages(data.pagination.totalPages);
         setHasNext(data.pagination.hasNext);

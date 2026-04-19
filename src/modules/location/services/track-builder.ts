@@ -75,8 +75,7 @@ export function buildTracks(points: TrackPoint[]): BuiltTrack[] {
 
   for (let i = 1; i < points.length; i++) {
     const prev = current[current.length - 1];
-    const gapSec =
-      (points[i].timestamp.getTime() - prev.timestamp.getTime()) / 1000;
+    const gapSec = (points[i].timestamp.getTime() - prev.timestamp.getTime()) / 1000;
 
     if (gapSec > TRACK_GAP_SEC) {
       groups.push(current);
@@ -96,21 +95,14 @@ export function buildTracks(points: TrackPoint[]): BuiltTrack[] {
     // Calculate total distance via Haversine summation
     let distance = 0;
     for (let i = 1; i < group.length; i++) {
-      distance += distanceM(
-        group[i - 1].lat,
-        group[i - 1].lon,
-        group[i].lat,
-        group[i].lon,
-      );
+      distance += distanceM(group[i - 1].lat, group[i - 1].lon, group[i].lat, group[i].lon);
     }
 
     if (distance < MIN_TRACK_DISTANCE_M) continue;
 
     const startTime = group[0].timestamp;
     const endTime = group[group.length - 1].timestamp;
-    const durationSeconds = Math.round(
-      (endTime.getTime() - startTime.getTime()) / 1000,
-    );
+    const durationSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
 
     const { gain, loss } = calculateElevation(group);
 

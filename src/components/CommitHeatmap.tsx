@@ -1,12 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface DailyStat {
   date: string;
@@ -88,9 +83,10 @@ export function CommitHeatmap() {
     <TooltipProvider delayDuration={100}>
       <div className="flex items-end gap-[2px] h-6">
         {state.data.stats.map((stat, index) => {
-          const heightPercent = state.data!.maxCount > 0
-            ? Math.max((stat.count / state.data!.maxCount) * 100, stat.count > 0 ? 20 : 8)
-            : 8;
+          const heightPercent =
+            state.data!.maxCount > 0
+              ? Math.max((stat.count / state.data!.maxCount) * 100, stat.count > 0 ? 20 : 8)
+              : 8;
 
           return (
             <Tooltip key={stat.date}>
@@ -112,9 +108,7 @@ export function CommitHeatmap() {
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
                 <p className="font-medium">{formatDate(stat.date)}</p>
-                <p className="text-muted-foreground">
-                  {stat.count}개 커밋
-                </p>
+                <p className="text-muted-foreground">{stat.count}개 커밋</p>
               </TooltipContent>
             </Tooltip>
           );

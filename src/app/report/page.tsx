@@ -1,5 +1,9 @@
 "use client";
 
+import { ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,10 +14,11 @@ import { AiCodeRatio } from "@/modules/report/components/AiCodeRatio";
 import { CategoryBreakdownChart } from "@/modules/report/components/CategoryBreakdownChart";
 import { ContextSwitchingCard } from "@/modules/report/components/ContextSwitchingCard";
 import { DeepWorkCard } from "@/modules/report/components/DeepWorkCard";
-import { NarrativeSection } from "@/modules/report/components/NarrativeSection";
 import { FirstVisitCards } from "@/modules/report/components/FirstVisitCards";
+import { NarrativeSection } from "@/modules/report/components/NarrativeSection";
 import { OverseasTripCards } from "@/modules/report/components/OverseasTripCards";
 import { PlaceProductivityCard } from "@/modules/report/components/PlaceProductivityCard";
+import { ScratchMapStats } from "@/modules/report/components/ScratchMapStats";
 import { StatCards } from "@/modules/report/components/StatCards";
 import { StreakHighlight } from "@/modules/report/components/StreakHighlight";
 import { TopPlaces } from "@/modules/report/components/TopPlaces";
@@ -21,7 +26,6 @@ import { WeekdayHourBubble } from "@/modules/report/components/WeekdayHourBubble
 import { WorkLifeBalanceCard } from "@/modules/report/components/WorkLifeBalanceCard";
 import { useMonthlyReport, useYearlyReport } from "@/modules/report/hooks";
 import { useScratchMap } from "@/modules/report/hooks/useScratchMap";
-import { ScratchMapStats } from "@/modules/report/components/ScratchMapStats";
 import type {
   CodingSectionData,
   CrossAnalysisData,
@@ -33,10 +37,6 @@ import type {
   YearlyReportData,
 } from "@/modules/report/types";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
-import { ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
-import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 // Dynamic imports for recharts-based components
 const CommitChart = dynamic(
@@ -115,9 +115,7 @@ function ReportContent() {
 
   const monthly = useMonthlyReport(yearMonth);
   const yearly = useYearlyReport(year);
-  const scratchMap = useScratchMap(
-    reportType === "yearly" && year ? Number(year) : undefined
-  );
+  const scratchMap = useScratchMap(reportType === "yearly" && year ? Number(year) : undefined);
 
   // Pick the active report based on type
   const report = reportType === "monthly" ? monthly : yearly;
@@ -395,11 +393,7 @@ function ReportPeriodSelector({
         >
           연간
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          asChild
-        >
+        <Button variant="outline" size="sm" asChild>
           <a href="/report/comparison">비교</a>
         </Button>
       </div>
@@ -601,22 +595,30 @@ function LocationSection({
       {((locationData.newCities && locationData.newCities.length > 0) ||
         (locationData.newCountries && locationData.newCountries.length > 0)) && (
         <div className="mt-6">
-          <FirstVisitCards
-            cities={locationData.newCities}
-            countries={locationData.newCountries}
-          />
+          <FirstVisitCards cities={locationData.newCities} countries={locationData.newCountries} />
         </div>
       )}
     </Section>
   );
 }
 
-function ScratchMapSection({
+function _ScratchMapSection({
   isLoading,
   data,
 }: {
   isLoading: boolean;
-  data: { regions: { name: string; visits: number; firstVisit: string; lastVisit: string; lat: number; lon: number }[]; totalCells: number; totalRegions: number } | null;
+  data: {
+    regions: {
+      name: string;
+      visits: number;
+      firstVisit: string;
+      lastVisit: string;
+      lat: number;
+      lon: number;
+    }[];
+    totalCells: number;
+    totalRegions: number;
+  } | null;
 }) {
   if (isLoading) return <SectionSkeleton title="방문 지도" />;
   if (!data || data.regions.length === 0) return null;

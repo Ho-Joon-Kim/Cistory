@@ -9,8 +9,8 @@
  * - app/services/users/digests/monthly_first_time_visits_calculator.rb (monthly)
  */
 
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { getDb, visits } from "@/db";
-import { eq, and, isNotNull, sql, lt, gte } from "drizzle-orm";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ export interface FirstVisitsResult {
  */
 export async function getFirstVisitsByYear(
   userId: string,
-  year: string,
+  year: string
 ): Promise<FirstVisitsResult> {
   const db = getDb();
   const y = Number(year);
@@ -49,13 +49,7 @@ export async function getFirstVisitsByYear(
       firstVisit: sql<Date>`min(${visits.startTime})`,
     })
     .from(visits)
-    .where(
-      and(
-        eq(visits.userId, userId),
-        isNotNull(visits.city),
-        isNotNull(visits.countryName),
-      ),
-    )
+    .where(and(eq(visits.userId, userId), isNotNull(visits.city), isNotNull(visits.countryName)))
     .groupBy(visits.city, visits.countryName);
 
   // Filter: first visit falls within the target year
@@ -70,9 +64,7 @@ export async function getFirstVisitsByYear(
       });
     }
   }
-  newCities.sort(
-    (a, b) => a.firstVisitDate.localeCompare(b.firstVisitDate),
-  );
+  newCities.sort((a, b) => a.firstVisitDate.localeCompare(b.firstVisitDate));
 
   // All-time first visit per country
   const countryFirstVisits = await db
@@ -81,12 +73,7 @@ export async function getFirstVisitsByYear(
       firstVisit: sql<Date>`min(${visits.startTime})`,
     })
     .from(visits)
-    .where(
-      and(
-        eq(visits.userId, userId),
-        isNotNull(visits.countryName),
-      ),
-    )
+    .where(and(eq(visits.userId, userId), isNotNull(visits.countryName)))
     .groupBy(visits.countryName);
 
   const newCountries: { countryName: string; firstVisitDate: string }[] = [];
@@ -99,9 +86,7 @@ export async function getFirstVisitsByYear(
       });
     }
   }
-  newCountries.sort(
-    (a, b) => a.firstVisitDate.localeCompare(b.firstVisitDate),
-  );
+  newCountries.sort((a, b) => a.firstVisitDate.localeCompare(b.firstVisitDate));
 
   return { cities: newCities, countries: newCountries };
 }
@@ -114,7 +99,7 @@ export async function getFirstVisitsByYear(
  */
 export async function getFirstVisitsByMonth(
   userId: string,
-  yearMonth: string,
+  yearMonth: string
 ): Promise<FirstVisitsResult> {
   const [y, m] = yearMonth.split("-").map(Number);
 
@@ -130,13 +115,7 @@ export async function getFirstVisitsByMonth(
       firstVisit: sql<Date>`min(${visits.startTime})`,
     })
     .from(visits)
-    .where(
-      and(
-        eq(visits.userId, userId),
-        isNotNull(visits.city),
-        isNotNull(visits.countryName),
-      ),
-    )
+    .where(and(eq(visits.userId, userId), isNotNull(visits.city), isNotNull(visits.countryName)))
     .groupBy(visits.city, visits.countryName);
 
   const newCities: FirstVisit[] = [];
@@ -150,9 +129,7 @@ export async function getFirstVisitsByMonth(
       });
     }
   }
-  newCities.sort(
-    (a, b) => a.firstVisitDate.localeCompare(b.firstVisitDate),
-  );
+  newCities.sort((a, b) => a.firstVisitDate.localeCompare(b.firstVisitDate));
 
   const countryFirstVisits = await db
     .select({
@@ -160,12 +137,7 @@ export async function getFirstVisitsByMonth(
       firstVisit: sql<Date>`min(${visits.startTime})`,
     })
     .from(visits)
-    .where(
-      and(
-        eq(visits.userId, userId),
-        isNotNull(visits.countryName),
-      ),
-    )
+    .where(and(eq(visits.userId, userId), isNotNull(visits.countryName)))
     .groupBy(visits.countryName);
 
   const newCountries: { countryName: string; firstVisitDate: string }[] = [];
@@ -178,9 +150,7 @@ export async function getFirstVisitsByMonth(
       });
     }
   }
-  newCountries.sort(
-    (a, b) => a.firstVisitDate.localeCompare(b.firstVisitDate),
-  );
+  newCountries.sort((a, b) => a.firstVisitDate.localeCompare(b.firstVisitDate));
 
   return { cities: newCities, countries: newCountries };
 }

@@ -5,9 +5,9 @@
  * and text column sizes for each table, then caching results in data_usage_cache.
  */
 
-import { sql, eq } from "drizzle-orm";
-import { dataUsageCache } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "@/db";
+import { dataUsageCache } from "@/db/schema";
 import { now } from "@/lib/utils";
 
 export interface UsageRow {
@@ -55,7 +55,14 @@ const TABLE_DEFS: TableDef[] = [
   {
     category: "commits",
     table: "commits",
-    textColumns: ["message", "parent_shas", "repo_full_name", "author_name", "author_email", "author_avatar_url"],
+    textColumns: [
+      "message",
+      "parent_shas",
+      "repo_full_name",
+      "author_name",
+      "author_email",
+      "author_avatar_url",
+    ],
     // id(text~36) + user_id(36) + sha(40) + committed_at(26) + additions(8) + deletions(8) + changed_files_count(8) + is_merge_commit(1) + repo_id(8) + repo_is_private(1) + created_at(26)
     fixedBytesPerRow: 198,
   },
@@ -164,7 +171,7 @@ export async function calculateDataUsage(db: Database, userId: string): Promise<
       };
 
       results.push(usageRow);
-    } catch (error) {
+    } catch (_error) {
       // If a table query fails, record zeros
       results.push({
         category: def.category,

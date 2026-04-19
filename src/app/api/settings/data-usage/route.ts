@@ -5,14 +5,10 @@
  * POST /api/settings/data-usage - 즉시 재계산 후 응답
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import {
-  getDataUsage,
-  calculateDataUsage,
-  formatDataUsageResponse,
-} from "@/lib/data-usage";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { calculateDataUsage, formatDataUsageResponse, getDataUsage } from "@/lib/data-usage";
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,10 +20,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(formatDataUsageResponse(rows));
   } catch (error) {
     console.error("Get data usage error:", error);
-    return NextResponse.json(
-      { error: "Failed to get data usage" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to get data usage" }, { status: 500 });
   }
 }
 
@@ -41,9 +34,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(formatDataUsageResponse(rows));
   } catch (error) {
     console.error("Calculate data usage error:", error);
-    return NextResponse.json(
-      { error: "Failed to calculate data usage" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to calculate data usage" }, { status: 500 });
   }
 }

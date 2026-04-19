@@ -5,10 +5,10 @@
  * POST /api/timeline/locations/tracks?date=YYYY-MM-DD — Trigger track recalculation
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb, tracks, transportationSegments } from "@/db";
-import { eq, and, gte, lt, asc } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { detectAndPersistTracks } from "@/modules/location/services/track-persister";
 
 function parseDateParam(request: NextRequest) {
@@ -41,8 +41,8 @@ export async function GET(request: NextRequest) {
         and(
           eq(tracks.userId, user.id),
           gte(tracks.startTime, dayStart),
-          lt(tracks.startTime, dayEnd),
-        ),
+          lt(tracks.startTime, dayEnd)
+        )
       )
       .orderBy(asc(tracks.startTime));
 
@@ -78,16 +78,13 @@ export async function GET(request: NextRequest) {
             maxSpeedKmh: s.maxSpeedKmh,
           })),
         };
-      }),
+      })
     );
 
     return NextResponse.json({ tracks: result });
   } catch (error) {
     console.error("Tracks GET error:", error);
-    return NextResponse.json(
-      { error: "트랙 조회에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "트랙 조회에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -109,9 +106,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Tracks POST error:", error);
-    return NextResponse.json(
-      { error: "트랙 생성에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "트랙 생성에 실패했습니다" }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,7 +19,8 @@ export const metadata: Metadata = {
     default: "Cistory - GitHub Commit Timeline",
     template: "%s | Cistory",
   },
-  description: "GitHub 커밋 히스토리를 AI 요약과 함께 타임라인으로 시각화합니다. 기술자와 비기술자 모두를 위한 커밋 이해.",
+  description:
+    "GitHub 커밋 히스토리를 AI 요약과 함께 타임라인으로 시각화합니다. 기술자와 비기술자 모두를 위한 커밋 이해.",
   keywords: ["GitHub", "커밋", "타임라인", "AI 요약", "개발자 도구", "버전 관리"],
   authors: [{ name: "Cistory Team" }],
   creator: "Cistory",

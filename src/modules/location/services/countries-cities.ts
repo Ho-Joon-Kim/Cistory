@@ -5,8 +5,8 @@
  * Aggregates visit data into country/city statistics with stay duration.
  */
 
+import { and, asc, eq, gte, isNotNull, lt } from "drizzle-orm";
 import { getDb, visits } from "@/db";
-import { eq, and, gte, lt, asc, isNotNull } from "drizzle-orm";
 
 // ── Constants (Dawarich defaults) ──────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ export interface CountryData {
 export async function getCountriesAndCities(
   userId: string,
   from: Date,
-  to: Date,
+  to: Date
 ): Promise<CountryData[]> {
   const db = getDb();
 
@@ -58,8 +58,8 @@ export async function getCountriesAndCities(
         gte(visits.startTime, from),
         lt(visits.startTime, to),
         isNotNull(visits.city),
-        isNotNull(visits.countryName),
-      ),
+        isNotNull(visits.countryName)
+      )
     )
     .orderBy(asc(visits.startTime));
 
@@ -67,10 +67,16 @@ export async function getCountriesAndCities(
 
   // Group by country → city
   // Collect start/end times per city for Dawarich-style interval-based duration
-  const countryMap = new Map<string, Map<string, {
-    visitCount: number;
-    timePoints: Date[]; // interleaved start/end timestamps
-  }>>();
+  const countryMap = new Map<
+    string,
+    Map<
+      string,
+      {
+        visitCount: number;
+        timePoints: Date[]; // interleaved start/end timestamps
+      }
+    >
+  >();
 
   for (const row of rows) {
     const country = row.countryName!;
@@ -103,8 +109,7 @@ export async function getCountriesAndCities(
       let totalSec = 0;
       for (let i = 1; i < data.timePoints.length; i++) {
         const intervalSec =
-          (data.timePoints[i].getTime() - data.timePoints[i - 1].getTime()) /
-          1000;
+          (data.timePoints[i].getTime() - data.timePoints[i - 1].getTime()) / 1000;
         if (intervalSec <= MAX_GAP_SEC) {
           totalSec += intervalSec;
         }

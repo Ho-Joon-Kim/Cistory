@@ -1,20 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { FileText, GitCommit, GitMerge, Loader2, Minus, Plus, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  GitCommit,
-  GitMerge,
-  Plus,
-  Minus,
-  FileText,
-  Loader2,
-  Sparkles,
-} from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { formatRelativeTime } from "@/lib/utils";
-import { AnimatedNumber } from "@/components/AnimatedNumber";
 import type { TimelineCommit } from "../hooks";
 import { getCommitSize } from "../utils";
 
@@ -32,7 +24,13 @@ interface CommitCardProps {
   repoColor?: string;
 }
 
-export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDelay = 0, repoColor }: CommitCardProps) {
+export function CommitCard({
+  commit,
+  onStatsLoaded,
+  isNew = false,
+  animationDelay = 0,
+  repoColor,
+}: CommitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [statsState, setStatsState] = useState<{ stats: CommitStats | null; isLoading: boolean }>({
     stats: null,
@@ -65,7 +63,11 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
       if (response.ok) {
         const data = await response.json();
         if (data.summary?.status === "completed" && data.summary?.summary) {
-          setSummaryState({ isGenerating: false, status: "completed", localSummary: data.summary.summary });
+          setSummaryState({
+            isGenerating: false,
+            status: "completed",
+            localSummary: data.summary.summary,
+          });
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
@@ -131,7 +133,8 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
     deletions: commit.deletions,
     changedFilesCount: commit.changedFilesCount,
   };
-  const hasStats = displayStats.additions > 0 || displayStats.deletions > 0 || displayStats.changedFilesCount > 0;
+  const hasStats =
+    displayStats.additions > 0 || displayStats.deletions > 0 || displayStats.changedFilesCount > 0;
   const needsStatsLoad = !hasStats && !statsState.stats && !statsState.isLoading;
 
   // 확장 시 stats 로드
@@ -172,7 +175,9 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
   const isMerge = commit.isMergeCommit;
 
   const cardStyle: React.CSSProperties = {
-    ...(repoColor ? { "--repo-color-glow": `hsl(${repoColor} / 0.3)` } as React.CSSProperties : {}),
+    ...(repoColor
+      ? ({ "--repo-color-glow": `hsl(${repoColor} / 0.3)` } as React.CSSProperties)
+      : {}),
     ...(isNew ? { animationDelay: `${animationDelay}ms` } : {}),
   };
 
@@ -195,7 +200,9 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
         />
       )}
 
-      <CardContent className={`py-1.5 ${repoColor ? "pl-4 pr-3" : "px-3"} ${isLarge ? "py-2" : ""}`}>
+      <CardContent
+        className={`py-1.5 ${repoColor ? "pl-4 pr-3" : "px-3"} ${isLarge ? "py-2" : ""}`}
+      >
         {/* 헤더 */}
         <div className="flex items-start gap-2">
           <Avatar className="h-5 w-5 flex-shrink-0 mt-0.5">
@@ -217,15 +224,11 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
                   머지
                 </span>
               )}
-              {isProcessing && (
-                <Sparkles className="h-3 w-3 text-primary animate-sparkle" />
-              )}
+              {isProcessing && <Sparkles className="h-3 w-3 text-primary animate-sparkle" />}
               {hasSummary && summaryState.status === "completed" && (
                 <Sparkles className="h-3 w-3 text-primary/60" />
               )}
-              <span className="text-xs text-muted-foreground">
-                {commit.repository.fullName}
-              </span>
+              <span className="text-xs text-muted-foreground">{commit.repository.fullName}</span>
             </div>
 
             {/* 커밋 메시지 */}
@@ -233,7 +236,9 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
 
             {/* AI 요약 (접힌 상태에서도 표시) */}
             {hasSummary && (
-              <p className={`text-xs mt-0.5 text-muted-foreground line-clamp-1 ${summaryState.localSummary ? "animate-summary-reveal" : ""}`}>
+              <p
+                className={`text-xs mt-0.5 text-muted-foreground line-clamp-1 ${summaryState.localSummary ? "animate-summary-reveal" : ""}`}
+              >
                 {summary}
               </p>
             )}
@@ -265,9 +270,7 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
                 <GitCommit className="h-3 w-3" />
                 {commit.sha.slice(0, 7)}
               </span>
-              {statsState.isLoading && (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              )}
+              {statsState.isLoading && <Loader2 className="h-3 w-3 animate-spin" />}
               {hasStats && (
                 <>
                   <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
@@ -286,20 +289,15 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
               )}
             </div>
           </div>
-
         </div>
 
         {/* 확장 영역: AI 요약 */}
         {isExpanded && (
           <div className="mt-4 pt-4 border-t animate-in fade-in-0 slide-in-from-top-2 duration-200">
-            <h4 className="text-xs font-medium text-muted-foreground mb-2">
-              AI 요약
-            </h4>
+            <h4 className="text-xs font-medium text-muted-foreground mb-2">AI 요약</h4>
 
             {isPending && (
-              <p className="text-sm text-muted-foreground italic">
-                요약 생성 대기 중...
-              </p>
+              <p className="text-sm text-muted-foreground italic">요약 생성 대기 중...</p>
             )}
 
             {isProcessing && (
@@ -310,23 +308,21 @@ export function CommitCard({ commit, onStatsLoaded, isNew = false, animationDela
             )}
 
             {hasSummary && (
-              <p className={`text-sm leading-relaxed ${summaryState.localSummary ? "animate-summary-reveal" : ""}`}>
+              <p
+                className={`text-sm leading-relaxed ${summaryState.localSummary ? "animate-summary-reveal" : ""}`}
+              >
                 {summary}
               </p>
             )}
 
             {!hasSummary && !isPending && !isProcessing && (
-              <p className="text-sm text-muted-foreground italic">
-                요약을 생성할 수 없습니다
-              </p>
+              <p className="text-sm text-muted-foreground italic">요약을 생성할 수 없습니다</p>
             )}
 
             {/* 전체 커밋 메시지 (있을 경우) */}
             {hasMoreMessage && (
               <div className="mt-3 pt-3 border-t">
-                <h4 className="text-xs font-medium text-muted-foreground mb-2">
-                  전체 커밋 메시지
-                </h4>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">전체 커밋 메시지</h4>
                 <pre className="text-xs bg-muted p-3 rounded-md whitespace-pre-wrap font-mono">
                   {commit.message}
                 </pre>

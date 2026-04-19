@@ -8,8 +8,8 @@
  * Groups consecutive days into periods and warns at 183-day tax threshold.
  */
 
-import { getDb } from "@/db";
 import { sql } from "drizzle-orm";
+import { getDb } from "@/db";
 
 // ── Constants (Dawarich: THRESHOLD_DAYS = 183) ───────────────────────────────
 
@@ -47,10 +47,7 @@ export interface ResidencyResult {
  * 3. Group consecutive days per country into periods
  * 4. Flag countries with >= 183 days
  */
-export async function calculateResidency(
-  userId: string,
-  year: string,
-): Promise<ResidencyResult> {
+export async function calculateResidency(userId: string, year: string): Promise<ResidencyResult> {
   const db = getDb();
   const y = Number(year);
   const yearStart = new Date(y, 0, 1);
@@ -97,9 +94,7 @@ export async function calculateResidency(
 
   // Group by country → sorted dates
   const countryDates = new Map<string, string[]>();
-  const sortedDates = [...dayCountryMap.entries()].sort(([a], [b]) =>
-    a.localeCompare(b),
-  );
+  const sortedDates = [...dayCountryMap.entries()].sort(([a], [b]) => a.localeCompare(b));
 
   for (const [date, country] of sortedDates) {
     if (!countryDates.has(country)) {
@@ -150,8 +145,7 @@ function buildPeriods(sortedDates: string[]): ResidencyPeriod[] {
     // Check if consecutive (1-day difference)
     const prev = parseLocalDate(prevDate);
     const curr = parseLocalDate(current);
-    const diffDays =
-      (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+    const diffDays = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
 
     if (diffDays > 1) {
       // End current period, start new one

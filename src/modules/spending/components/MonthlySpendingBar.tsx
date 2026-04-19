@@ -36,7 +36,7 @@ export function MonthlySpendingBar({ data }: MonthlySpendingBarProps) {
           tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
           tickLine={false}
           axisLine={{ stroke: "hsl(var(--border))" }}
-          tickFormatter={(m) => `${Number.parseInt(m)}월`}
+          tickFormatter={(m) => `${Number.parseInt(m, 10)}월`}
         />
         <YAxis
           tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
@@ -54,7 +54,7 @@ export function MonthlySpendingBar({ data }: MonthlySpendingBarProps) {
           }}
           itemStyle={{ color: "hsl(var(--foreground))" }}
           cursor={{ fill: "hsl(var(--muted))", opacity: 0.5 }}
-          labelFormatter={(label) => `${Number.parseInt(label)}월`}
+          labelFormatter={(label) => `${Number.parseInt(label, 10)}월`}
           formatter={(value: number) => {
             return [`${value.toLocaleString("ko-KR")}원`, "지출"];
           }}

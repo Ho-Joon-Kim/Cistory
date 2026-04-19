@@ -1,18 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import {
-  LineChart,
+  CartesianGrid,
+  Legend,
   Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
 } from "recharts";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { YearComparisonData } from "../comparison-service";
 
 interface ComparisonChartProps {
@@ -51,8 +51,18 @@ const METRIC_CONFIG: Record<
 };
 
 const MONTH_LABELS = [
-  "1월", "2월", "3월", "4월", "5월", "6월",
-  "7월", "8월", "9월", "10월", "11월", "12월",
+  "1월",
+  "2월",
+  "3월",
+  "4월",
+  "5월",
+  "6월",
+  "7월",
+  "8월",
+  "9월",
+  "10월",
+  "11월",
+  "12월",
 ];
 
 export function ComparisonChart({ data }: ComparisonChartProps) {
@@ -93,13 +103,8 @@ export function ComparisonChart({ data }: ComparisonChartProps) {
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-            <YAxis
-              tick={{ fontSize: 12 }}
-              tickFormatter={config.formatter}
-            />
-            <Tooltip
-              formatter={(value: number) => config.formatter(value)}
-            />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={config.formatter} />
+            <Tooltip formatter={(value: number) => config.formatter(value)} />
             <Legend />
             <Line
               type="monotone"

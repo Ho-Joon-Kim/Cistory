@@ -18,10 +18,10 @@
  *   { "type": "cleanup-done", "deleted": D, "freedBytes": B }
  */
 
-import { NextRequest } from "next/server";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import type { NextRequest } from "next/server";
 import { getDb } from "@/db";
 import { notificationLogs, transactions, users } from "@/db/schema";
-import { eq, and, gte, lte, desc, sql, isNull, inArray } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { parseTossNotification } from "@/modules/transaction/parser";
@@ -130,9 +130,7 @@ export async function POST(request: NextRequest) {
           const existingForLog = await db
             .select({ id: transactions.id })
             .from(transactions)
-            .where(
-              and(eq(transactions.userId, userId), eq(transactions.notificationLogId, log.id)),
-            )
+            .where(and(eq(transactions.userId, userId), eq(transactions.notificationLogId, log.id)))
             .limit(1);
 
           const hasExistingForLog = existingForLog.length > 0;
@@ -153,8 +151,8 @@ export async function POST(request: NextRequest) {
                 eq(transactions.merchant, parsed.merchant),
                 eq(transactions.type, parsed.type),
                 gte(transactions.transactedAt, windowStart),
-                lte(transactions.transactedAt, windowEnd),
-              ),
+                lte(transactions.transactedAt, windowEnd)
+              )
             )
             .limit(1);
 
@@ -238,9 +236,7 @@ export async function POST(request: NextRequest) {
           })
           .from(notificationLogs)
           .leftJoin(transactions, eq(transactions.notificationLogId, notificationLogs.id))
-          .where(
-            and(eq(notificationLogs.userId, userId), isNull(transactions.id)),
-          );
+          .where(and(eq(notificationLogs.userId, userId), isNull(transactions.id)));
 
         // Filter: only those that parseTossNotification returns null
         const deletableItems: {
@@ -311,9 +307,7 @@ export async function POST(request: NextRequest) {
 
             await db
               .delete(notificationLogs)
-              .where(
-                and(eq(notificationLogs.userId, userId), inArray(notificationLogs.id, ids)),
-              );
+              .where(and(eq(notificationLogs.userId, userId), inArray(notificationLogs.id, ids)));
 
             totalDeleted += batch.length;
             send({

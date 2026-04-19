@@ -5,10 +5,10 @@
  * GET  /api/timeline/locations/anomalies?date=YYYY-MM-DD — Get anomaly stats for a date
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb, locationPoints } from "@/db";
-import { eq, and, gte, lt, sql } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { runAnomalyDetectionForDay } from "@/modules/location/services/anomaly-filter";
 
 export async function POST(request: NextRequest) {
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     if (!from || !to) {
       return NextResponse.json(
         { error: "from, to 파라미터가 필요합니다 (YYYY-MM-DD)" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -41,10 +41,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ marked: totalMarked });
   } catch (error) {
     console.error("Anomaly detection error:", error);
-    return NextResponse.json(
-      { error: "이상치 탐지에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "이상치 탐지에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -57,7 +54,7 @@ export async function GET(request: NextRequest) {
     if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       return NextResponse.json(
         { error: "date 파라미터가 필요합니다 (YYYY-MM-DD)" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -76,16 +73,13 @@ export async function GET(request: NextRequest) {
         and(
           eq(locationPoints.userId, user.id),
           gte(locationPoints.timestamp, dayStart),
-          lt(locationPoints.timestamp, dayEnd),
-        ),
+          lt(locationPoints.timestamp, dayEnd)
+        )
       );
 
     return NextResponse.json(stats);
   } catch (error) {
     console.error("Anomaly stats error:", error);
-    return NextResponse.json(
-      { error: "이상치 통계 조회에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "이상치 통계 조회에 실패했습니다" }, { status: 500 });
   }
 }

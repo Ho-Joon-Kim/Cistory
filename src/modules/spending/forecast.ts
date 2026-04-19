@@ -1,8 +1,8 @@
 import type {
-  ForecastInput,
-  ForecastResult,
   DailyCumulativePrediction,
   DailySpending,
+  ForecastInput,
+  ForecastResult,
   MonthlyTotal,
 } from "./types";
 
@@ -49,14 +49,27 @@ function proportionalExtrapolation(input: ForecastInput, currentTotal: number): 
   const { daysInMonth, todayDayNumber } = input;
   const ratio = daysInMonth / Math.max(todayDayNumber, 1);
   const predicted = Math.round(currentTotal * ratio);
-  const { upper, lower } = computeConfidenceBand(predicted, currentTotal, todayDayNumber, daysInMonth, []);
+  const { upper, lower } = computeConfidenceBand(
+    predicted,
+    currentTotal,
+    todayDayNumber,
+    daysInMonth,
+    []
+  );
 
   return {
     predictedTotal: predicted,
     upperBound: upper,
     lowerBound: lower,
     algorithmTier: "proportional",
-    dailyPredictions: buildDailyPredictions(currentTotal, predicted, upper, lower, todayDayNumber, daysInMonth),
+    dailyPredictions: buildDailyPredictions(
+      currentTotal,
+      predicted,
+      upper,
+      lower,
+      todayDayNumber,
+      daysInMonth
+    ),
   };
 }
 
@@ -79,14 +92,27 @@ function sesExtrapolation(input: ForecastInput, currentTotal: number): ForecastR
   const weight = Math.min(todayDayNumber / daysInMonth, 0.7);
   const predicted = Math.round(weight * propPredicted + (1 - weight) * sesPredicted);
 
-  const { upper, lower } = computeConfidenceBand(predicted, currentTotal, todayDayNumber, daysInMonth, monthlyHistory);
+  const { upper, lower } = computeConfidenceBand(
+    predicted,
+    currentTotal,
+    todayDayNumber,
+    daysInMonth,
+    monthlyHistory
+  );
 
   return {
     predictedTotal: predicted,
     upperBound: upper,
     lowerBound: lower,
     algorithmTier: "ses",
-    dailyPredictions: buildDailyPredictions(currentTotal, predicted, upper, lower, todayDayNumber, daysInMonth),
+    dailyPredictions: buildDailyPredictions(
+      currentTotal,
+      predicted,
+      upper,
+      lower,
+      todayDayNumber,
+      daysInMonth
+    ),
   };
 }
 
@@ -95,7 +121,11 @@ function sesExtrapolation(input: ForecastInput, currentTotal: number): ForecastR
 function weekdayWeightedHolt(input: ForecastInput, currentTotal: number): ForecastResult {
   const { monthlyHistory, historicalDays, daysInMonth, todayDayNumber } = input;
   const weights = computeWeekdayWeights(historicalDays || []);
-  const holt = holtsLinearTrend(monthlyHistory.map((m) => m.total), 0.3, 0.1);
+  const holt = holtsLinearTrend(
+    monthlyHistory.map((m) => m.total),
+    0.3,
+    0.1
+  );
 
   // Base daily rate from Holt's forecast
   const holtMonthForecast = holt.forecast(1);
@@ -112,14 +142,27 @@ function weekdayWeightedHolt(input: ForecastInput, currentTotal: number): Foreca
   }
 
   const predicted = Math.round(currentTotal + remainingPredicted);
-  const { upper, lower } = computeConfidenceBand(predicted, currentTotal, todayDayNumber, daysInMonth, monthlyHistory);
+  const { upper, lower } = computeConfidenceBand(
+    predicted,
+    currentTotal,
+    todayDayNumber,
+    daysInMonth,
+    monthlyHistory
+  );
 
   return {
     predictedTotal: predicted,
     upperBound: upper,
     lowerBound: lower,
     algorithmTier: "weekday-holt",
-    dailyPredictions: buildDailyPredictions(currentTotal, predicted, upper, lower, todayDayNumber, daysInMonth),
+    dailyPredictions: buildDailyPredictions(
+      currentTotal,
+      predicted,
+      upper,
+      lower,
+      todayDayNumber,
+      daysInMonth
+    ),
   };
 }
 
@@ -128,7 +171,11 @@ function weekdayWeightedHolt(input: ForecastInput, currentTotal: number): Foreca
 function bayesianHolt(input: ForecastInput, currentTotal: number): ForecastResult {
   const { monthlyHistory, historicalDays, daysInMonth, todayDayNumber } = input;
   const weights = computeWeekdayWeights(historicalDays || []);
-  const holt = holtsLinearTrend(monthlyHistory.map((m) => m.total), 0.3, 0.1);
+  const holt = holtsLinearTrend(
+    monthlyHistory.map((m) => m.total),
+    0.3,
+    0.1
+  );
 
   // Prior: Holt's forecast
   const priorMean = holt.forecast(1);
@@ -165,7 +212,14 @@ function bayesianHolt(input: ForecastInput, currentTotal: number): ForecastResul
     upperBound: upper,
     lowerBound: lower,
     algorithmTier: "bayesian-holt",
-    dailyPredictions: buildDailyPredictions(currentTotal, predicted, upper, lower, todayDayNumber, daysInMonth),
+    dailyPredictions: buildDailyPredictions(
+      currentTotal,
+      predicted,
+      upper,
+      lower,
+      todayDayNumber,
+      daysInMonth
+    ),
   };
 }
 
@@ -176,7 +230,7 @@ function holtsLinearTrend(values: number[], alpha: number, beta: number) {
     return { level: 0, trend: 0, forecast: () => 0 };
   }
   if (values.length === 1) {
-    return { level: values[0], trend: 0, forecast: (h: number) => values[0] };
+    return { level: values[0], trend: 0, forecast: (_h: number) => values[0] };
   }
 
   let level = values[0];
@@ -216,7 +270,7 @@ function computeConfidenceBand(
   currentTotal: number,
   todayDay: number,
   daysInMonth: number,
-  history: MonthlyTotal[],
+  history: MonthlyTotal[]
 ): { upper: number; lower: number } {
   const totals = history.map((m) => m.total);
   const cv = totals.length >= 2 ? stddev(totals) / Math.max(mean(totals), 1) : 0.3;
@@ -235,7 +289,7 @@ function buildDailyPredictions(
   upper: number,
   lower: number,
   todayDay: number,
-  daysInMonth: number,
+  daysInMonth: number
 ): DailyCumulativePrediction[] {
   const remaining = daysInMonth - todayDay;
   if (remaining <= 0) return [];
@@ -257,7 +311,7 @@ function buildDailyPredictions(
 function zeroResult(
   tier: ForecastResult["algorithmTier"],
   daysInMonth: number,
-  todayDay: number,
+  todayDay: number
 ): ForecastResult {
   return {
     predictedTotal: 0,

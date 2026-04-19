@@ -63,9 +63,7 @@ export class KakaoGeocodingAdapter implements GeocodingAdapter {
     const addressData = await addressRes.json();
     const addressDoc: KakaoAddressDoc | undefined = addressData.documents?.[0];
     const address =
-      addressDoc?.road_address?.address_name ??
-      addressDoc?.address?.address_name ??
-      "";
+      addressDoc?.road_address?.address_name ?? addressDoc?.address?.address_name ?? "";
 
     // 2. 카테고리 검색으로 반경 내 가장 가까운 POI 탐색
     const poiResults = await Promise.all(
@@ -79,7 +77,7 @@ export class KakaoGeocodingAdapter implements GeocodingAdapter {
         } catch {
           return null;
         }
-      }),
+      })
     );
 
     const closestPoi = poiResults

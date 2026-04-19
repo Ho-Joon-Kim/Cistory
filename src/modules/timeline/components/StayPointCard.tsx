@@ -1,7 +1,7 @@
 "use client";
 
+import { Clock, MapPin } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { MapPin, Clock } from "lucide-react";
 import type { StayPointData } from "@/modules/location/hooks";
 
 interface StayPointCardProps {

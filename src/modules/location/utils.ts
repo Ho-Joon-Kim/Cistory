@@ -5,7 +5,7 @@ export function createGeoCircle(
   lon: number,
   lat: number,
   radiusM: number,
-  steps = 64,
+  steps = 64
 ): GeoJSON.Feature {
   const coords: [number, number][] = [];
   const km = radiusM / 1000;
@@ -47,7 +47,7 @@ export type TimelineSegment = MovingSegment | StayingSegment;
  */
 export function segmentLocations(
   locations: LocationData[],
-  stayPoints: StayPointData[],
+  stayPoints: StayPointData[]
 ): TimelineSegment[] {
   if (locations.length === 0) return [];
   if (stayPoints.length === 0) {
@@ -62,7 +62,7 @@ export function segmentLocations(
   }
 
   const sorted = [...stayPoints].sort(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
   );
 
   const segments: TimelineSegment[] = [];
@@ -136,13 +136,13 @@ export function segmentLocations(
 /** Find the segment index matching a given stay point by startTime + coordinates */
 export function findSegmentIndexByStayPoint(
   segments: TimelineSegment[],
-  sp: StayPointData,
+  sp: StayPointData
 ): number {
   return segments.findIndex(
     (seg) =>
       seg.type === "staying" &&
       seg.stayPoint.startTime === sp.startTime &&
       seg.stayPoint.lat === sp.lat &&
-      seg.stayPoint.lon === sp.lon,
+      seg.stayPoint.lon === sp.lon
   );
 }

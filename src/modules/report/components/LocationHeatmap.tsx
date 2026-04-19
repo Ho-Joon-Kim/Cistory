@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState, useMemo, useCallback } from "react";
-import Map, { Source, Layer } from "react-map-gl/mapbox";
-import type { LayerProps, MapRef } from "react-map-gl/mapbox";
 import { useTheme } from "next-themes";
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { LayerProps, MapRef } from "react-map-gl/mapbox";
+import Map, { Layer, Source } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -25,12 +25,18 @@ const HEATMAP_LAYER: LayerProps = {
       "interpolate",
       ["linear"],
       ["heatmap-density"],
-      0, "rgba(33,102,172,0)",
-      0.2, "rgb(103,169,207)",
-      0.4, "rgb(209,229,240)",
-      0.6, "rgb(253,219,199)",
-      0.8, "rgb(239,138,98)",
-      1, "rgb(178,24,43)",
+      0,
+      "rgba(33,102,172,0)",
+      0.2,
+      "rgb(103,169,207)",
+      0.4,
+      "rgb(209,229,240)",
+      0.6,
+      "rgb(253,219,199)",
+      0.8,
+      "rgb(239,138,98)",
+      1,
+      "rgb(178,24,43)",
     ],
     "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 5, 15, 30],
     "heatmap-opacity": 0.8,
@@ -42,14 +48,17 @@ export function LocationHeatmap({ points, className }: LocationHeatmapProps) {
   const mapRef = useRef<MapRef>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
 
-  const geojson = useMemo<GeoJSON.FeatureCollection>(() => ({
-    type: "FeatureCollection",
-    features: points.map((p) => ({
-      type: "Feature" as const,
-      properties: { weight: p.weight },
-      geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
-    })),
-  }), [points]);
+  const geojson = useMemo<GeoJSON.FeatureCollection>(
+    () => ({
+      type: "FeatureCollection",
+      features: points.map((p) => ({
+        type: "Feature" as const,
+        properties: { weight: p.weight },
+        geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
+      })),
+    }),
+    [points]
+  );
 
   const { bounds, avgLat, avgLon, lons, lats } = useMemo(() => {
     const lons = points.map((p) => p.lon);

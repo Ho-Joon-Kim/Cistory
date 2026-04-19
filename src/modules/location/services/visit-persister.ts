@@ -5,12 +5,12 @@
  * Used by both the stay-points API (on-demand) and the daily cron (background).
  */
 
+import { and, asc, eq, gte, isNull, lt, lte, or } from "drizzle-orm";
+import type { SavedPlace } from "@/db";
 import { getDb, locationPoints, placeCache, savedPlaces, visits } from "@/db";
-import { eq, and, gte, lt, lte, asc, or, isNull } from "drizzle-orm";
 import { getGeocodingAdapter, isInKorea } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
-import { detectAndMergeVisits, type DetectedVisit } from "./visit-detector";
-import type { SavedPlace } from "@/db";
+import { detectAndMergeVisits } from "./visit-detector";
 
 function roundCoord(value: number): number {
   return Math.round(value * 1000) / 1000;
@@ -42,7 +42,7 @@ export interface EnrichedVisit {
 function extractCityCountry(
   lat: number,
   lon: number,
-  address: string | null,
+  address: string | null
 ): { city: string | null; countryName: string | null } {
   if (!address) return { city: null, countryName: null };
 
@@ -66,7 +66,7 @@ function extractCityCountry(
  */
 export async function detectAndPersistVisits(
   userId: string,
-  dateParam: string,
+  dateParam: string
 ): Promise<EnrichedVisit[]> {
   const db = getDb();
   const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
@@ -87,8 +87,8 @@ export async function detectAndPersistVisits(
         gte(locationPoints.timestamp, dayStart),
         lt(locationPoints.timestamp, dayEnd),
         or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200)),
-        or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false)),
-      ),
+        or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false))
+      )
     )
     .orderBy(asc(locationPoints.timestamp));
 
@@ -118,7 +118,7 @@ export async function detectAndPersistVisits(
 
     // Try saved place match
     const matched = userSavedPlaces.find(
-      (p) => distanceM(visit.centerLat, visit.centerLon, p.lat, p.lon) <= p.radiusM,
+      (p) => distanceM(visit.centerLat, visit.centerLon, p.lat, p.lon) <= p.radiusM
     );
 
     if (matched) {
@@ -139,14 +139,19 @@ export async function detectAndPersistVisits(
         .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)))
         .limit(1);
 
-      if (cached.length > 0 && !(cached[0].placeName === cached[0].address && !cached[0].category)) {
+      if (
+        cached.length > 0 &&
+        !(cached[0].placeName === cached[0].address && !cached[0].category)
+      ) {
         placeName = cached[0].placeName;
         address = cached[0].address;
         category = cached[0].category;
       } else {
         // Stale cache — delete
         if (cached.length > 0) {
-          await db.delete(placeCache).where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)));
+          await db
+            .delete(placeCache)
+            .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)));
         }
 
         // Geocode
@@ -159,7 +164,15 @@ export async function detectAndPersistVisits(
             category = result.category ?? null;
             await db
               .insert(placeCache)
-              .values({ latKey, lonKey, placeName: result.placeName, address: result.address, category: result.category ?? null, provider: result.provider, resolvedAt: now })
+              .values({
+                latKey,
+                lonKey,
+                placeName: result.placeName,
+                address: result.address,
+                category: result.category ?? null,
+                provider: result.provider,
+                resolvedAt: now,
+              })
               .onConflictDoNothing();
           }
         } catch (e) {
@@ -208,13 +221,15 @@ export async function detectAndPersistVisits(
 
   // 5. Persist: delete + insert in a transaction to avoid partial state
   await db.transaction(async (tx) => {
-    await tx.delete(visits).where(
-      and(
-        eq(visits.userId, userId),
-        gte(visits.startTime, dayStart),
-        lt(visits.startTime, dayEnd),
-      ),
-    );
+    await tx
+      .delete(visits)
+      .where(
+        and(
+          eq(visits.userId, userId),
+          gte(visits.startTime, dayStart),
+          lt(visits.startTime, dayEnd)
+        )
+      );
     if (visitRows.length > 0) {
       await tx.insert(visits).values(visitRows);
     }

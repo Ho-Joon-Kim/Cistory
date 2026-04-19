@@ -1,8 +1,8 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Sparkles } from "lucide-react";
 
 interface NarrativeSectionProps {
   narrative: string;
@@ -26,14 +26,14 @@ function parseMarkdownInline(text: string): React.ReactNode[] {
       result.push(
         <strong key={match.index} className="font-semibold">
           {match[2]}
-        </strong>,
+        </strong>
       );
     } else if (match[3]) {
       // Italic: *text*
       result.push(
         <em key={match.index} className="italic">
           {match[3]}
-        </em>,
+        </em>
       );
     }
 

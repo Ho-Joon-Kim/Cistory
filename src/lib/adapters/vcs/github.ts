@@ -1,16 +1,16 @@
+import { logger } from "@/lib/logger";
 import type {
-  VCSAdapter,
-  VCSRepository,
-  VCSCommit,
-  VCSCommitDiff,
-  VCSFileDiff,
-  VCSFileContent,
-  VCSSearchCommit,
   GetCommitsOptions,
   GetRepositoriesOptions,
   SearchCommitsOptions,
+  VCSAdapter,
+  VCSCommit,
+  VCSCommitDiff,
+  VCSFileContent,
+  VCSFileDiff,
+  VCSRepository,
+  VCSSearchCommit,
 } from "./interface";
-import { logger } from "@/lib/logger";
 
 const GITHUB_API_BASE = "https://api.github.com";
 
@@ -21,14 +21,8 @@ export class GitHubAdapter implements VCSAdapter {
     this.accessToken = accessToken;
   }
 
-  private async fetch<T>(
-    endpoint: string,
-    options: RequestInit = {},
-    accept?: string
-  ): Promise<T> {
-    const url = endpoint.startsWith("http")
-      ? endpoint
-      : `${GITHUB_API_BASE}${endpoint}`;
+  private async fetch<T>(endpoint: string, options: RequestInit = {}, accept?: string): Promise<T> {
+    const url = endpoint.startsWith("http") ? endpoint : `${GITHUB_API_BASE}${endpoint}`;
 
     const response = await fetch(url, {
       ...options,
@@ -122,9 +116,7 @@ export class GitHubAdapter implements VCSAdapter {
       files?: Array<{ filename: string }>;
     }
 
-    const commits = await this.fetch<GitHubCommit[]>(
-      `/repos/${owner}/${repo}/commits?${params}`
-    );
+    const commits = await this.fetch<GitHubCommit[]>(`/repos/${owner}/${repo}/commits?${params}`);
 
     return commits.map((commit) => ({
       sha: commit.sha,
@@ -141,11 +133,7 @@ export class GitHubAdapter implements VCSAdapter {
     }));
   }
 
-  async getCommitDiff(
-    owner: string,
-    repo: string,
-    sha: string
-  ): Promise<VCSCommitDiff> {
+  async getCommitDiff(owner: string, repo: string, sha: string): Promise<VCSCommitDiff> {
     // 먼저 커밋 상세 정보 가져오기
     interface GitHubCommitDetail {
       sha: string;
@@ -198,9 +186,7 @@ export class GitHubAdapter implements VCSAdapter {
       files: Array<{ filename: string }>;
     }
 
-    const detail = await this.fetch<GitHubCommitDetail>(
-      `/repos/${owner}/${repo}/commits/${sha}`
-    );
+    const detail = await this.fetch<GitHubCommitDetail>(`/repos/${owner}/${repo}/commits/${sha}`);
 
     return {
       additions: detail.stats?.additions ?? 0,
@@ -209,9 +195,7 @@ export class GitHubAdapter implements VCSAdapter {
     };
   }
 
-  private mapFileStatus(
-    status: string
-  ): "added" | "modified" | "removed" | "renamed" {
+  private mapFileStatus(status: string): "added" | "modified" | "removed" | "renamed" {
     switch (status) {
       case "added":
         return "added";
@@ -245,9 +229,7 @@ export class GitHubAdapter implements VCSAdapter {
 
       // base64 디코딩
       const decodedContent =
-        content.encoding === "base64"
-          ? atob(content.content.replace(/\n/g, ""))
-          : content.content;
+        content.encoding === "base64" ? atob(content.content.replace(/\n/g, "")) : content.content;
 
       return {
         path: content.path,
@@ -372,8 +354,7 @@ export class GitHubAdapter implements VCSAdapter {
 
     // Determine if this is an initial sync (since > 60 days ago)
     const isInitialSync =
-      sinceDate !== null &&
-      Date.now() - sinceDate.getTime() > 60 * 24 * 60 * 60 * 1000;
+      sinceDate !== null && Date.now() - sinceDate.getTime() > 60 * 24 * 60 * 60 * 1000;
 
     interface GitHubRepoRaw {
       id: number;
@@ -506,9 +487,7 @@ export class GitHubAdapter implements VCSAdapter {
       reposPage++;
     }
 
-    console.log(
-      `[Sync] getAllRepoCommits found ${allCommits.length} commits across repos`
-    );
+    console.log(`[Sync] getAllRepoCommits found ${allCommits.length} commits across repos`);
     return allCommits;
   }
 }

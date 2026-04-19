@@ -1,7 +1,7 @@
 "use client";
 
+import { ArrowDown, ArrowUp, GitCommit, Map, Minus, Timer } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowUp, ArrowDown, Minus, GitCommit, Timer, Map } from "lucide-react";
 import type { YearComparisonData } from "../comparison-service";
 
 interface YearComparisonDashboardProps {
@@ -54,7 +54,15 @@ interface CompareCardProps {
   year2: string;
 }
 
-function CompareCard({ label, icon, value1, value2, growthPercent, year1, year2 }: CompareCardProps) {
+function CompareCard({
+  label,
+  icon,
+  value1,
+  value2,
+  growthPercent,
+  year1,
+  year2,
+}: CompareCardProps) {
   return (
     <Card className="!py-4 !gap-2">
       <CardContent className="!pt-0">

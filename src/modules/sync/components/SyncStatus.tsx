@@ -1,15 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { CheckCircle2, XCircle, Loader2, Clock, GitCommit } from "lucide-react";
+import { CheckCircle2, Clock, GitCommit, Loader2, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { ProgressRing } from "@/components/ui/progress-ring";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Badge } from "@/components/ui/badge";
 import { useSyncStatus } from "../hooks";
 import { SyncButton } from "./SyncButton";
 
@@ -127,9 +123,7 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
             {status.activeJobs.map((job) => (
               <div key={job.id} className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="truncate font-medium">
-                    {getSyncTypeLabel(job.syncType)}
-                  </span>
+                  <span className="truncate font-medium">{getSyncTypeLabel(job.syncType)}</span>
                   <span className="text-muted-foreground">{job.progress}%</span>
                 </div>
                 <Progress value={job.progress} className="h-2" />
@@ -162,9 +156,7 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
     return (
       <div className="flex items-center gap-2">
         <ProgressRing value={syncProgress} size={16} />
-        <span className="text-sm text-muted-foreground">
-          {formatRemaining(remainingMinutes)}
-        </span>
+        <span className="text-sm text-muted-foreground">{formatRemaining(remainingMinutes)}</span>
       </div>
     );
   }
@@ -175,7 +167,9 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
         <button className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground">
           <ProgressRing value={syncProgress} size={16} />
           <span className="text-sm text-muted-foreground">
-            {remainingMinutes === 0 ? "곧 동기화" : `다음 동기화: ${formatRemaining(remainingMinutes)}`}
+            {remainingMinutes === 0
+              ? "곧 동기화"
+              : `다음 동기화: ${formatRemaining(remainingMinutes)}`}
           </span>
         </button>
       </PopoverTrigger>
@@ -190,10 +184,7 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
             <div className="space-y-2">
               <h5 className="text-sm text-muted-foreground">최근 동기화</h5>
               {status.recentCompleted.slice(0, 3).map((job) => (
-                <div
-                  key={job.id}
-                  className="flex items-center justify-between text-sm"
-                >
+                <div key={job.id} className="flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2 truncate">
                     {job.status === "completed" ? (
                       <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
@@ -211,9 +202,7 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              최근 동기화 기록이 없습니다
-            </p>
+            <p className="text-sm text-muted-foreground">최근 동기화 기록이 없습니다</p>
           )}
         </div>
       </PopoverContent>

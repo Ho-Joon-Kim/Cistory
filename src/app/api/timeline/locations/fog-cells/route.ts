@@ -6,12 +6,12 @@
  * Used by the Fog of War map overlay to reveal visited areas.
  */
 
-import { NextResponse } from "next/server";
+import { eq, sql } from "drizzle-orm";
 import type { NextRequest } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { locationPoints } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       .where(eq(locationPoints.userId, user.id))
       .groupBy(
         sql`ROUND(${locationPoints.lat}::numeric * 100) / 100`,
-        sql`ROUND(${locationPoints.lon}::numeric * 100) / 100`,
+        sql`ROUND(${locationPoints.lon}::numeric * 100) / 100`
       );
 
     return NextResponse.json({

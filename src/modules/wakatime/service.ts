@@ -4,11 +4,11 @@
  * Syncs coding session durations and daily summaries from WakaTime.
  */
 
-import type { Database } from "@/db";
-import { codingSessions, codingDailyStats, commits, users } from "@/db/schema";
-import { createWakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
-import type { WakaTimeAdapter } from "@/lib/adapters/wakatime/interface";
 import { eq, sql } from "drizzle-orm";
+import type { Database } from "@/db";
+import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
+import type { WakaTimeAdapter } from "@/lib/adapters/wakatime/interface";
+import { createWakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
 import { logger } from "@/lib/logger";
 import { sleep } from "@/lib/utils";
 

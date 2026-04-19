@@ -2,8 +2,8 @@
 
 import {
   Area,
-  ComposedChart,
   CartesianGrid,
+  ComposedChart,
   Line,
   ReferenceLine,
   ResponsiveContainer,
@@ -29,7 +29,11 @@ function formatManwon(value: number): string {
   return String(value);
 }
 
-export function SpendingTrendChart({ data, todayDayNumber, predictedTotal }: SpendingTrendChartProps) {
+export function SpendingTrendChart({
+  data,
+  todayDayNumber,
+  predictedTotal,
+}: SpendingTrendChartProps) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <ComposedChart data={data} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>

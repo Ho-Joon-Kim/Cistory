@@ -1,18 +1,18 @@
 "use client";
 
+import { Database, Loader2, RefreshCw } from "lucide-react";
 import { useMemo } from "react";
 import { Cell, Label, Pie, PieChart } from "recharts";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  type ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  type ChartConfig,
 } from "@/components/ui/chart";
-import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, Database } from "lucide-react";
-import { useDataUsage } from "../hooks";
 import { formatBytes, formatRelativeTime } from "@/lib/utils";
+import { useDataUsage } from "../hooks";
 
 const CATEGORY_COLORS: Record<string, string> = {
   commits: "#10b981",
@@ -27,7 +27,10 @@ export function DataUsageCard() {
 
   const { chartConfig, chartData } = useMemo(() => {
     if (!data?.categories.length) {
-      return { chartConfig: {} as ChartConfig, chartData: [] as { category: string; bytes: number; rows: number; fill: string }[] };
+      return {
+        chartConfig: {} as ChartConfig,
+        chartData: [] as { category: string; bytes: number; rows: number; fill: string }[],
+      };
     }
 
     const sorted = [...data.categories].sort((a, b) => b.totalBytes - a.totalBytes);
@@ -107,8 +110,13 @@ export function DataUsageCard() {
                       <ChartTooltipContent
                         hideLabel
                         nameKey="category"
-                        formatter={(value, _name, item) => {
-                          const cat = item.payload as { category: string; bytes: number; rows: number; fill: string };
+                        formatter={(_value, _name, item) => {
+                          const cat = item.payload as {
+                            category: string;
+                            bytes: number;
+                            rows: number;
+                            fill: string;
+                          };
                           const label = chartConfig[cat.category]?.label ?? cat.category;
                           return (
                             <div className="flex items-center gap-2 text-xs">
@@ -178,10 +186,7 @@ export function DataUsageCard() {
                       ? ((cat.totalBytes / data!.grandTotalBytes) * 100).toFixed(1)
                       : "0.0";
                   return (
-                    <div
-                      key={cat.category}
-                      className="flex items-center gap-2.5 text-sm"
-                    >
+                    <div key={cat.category} className="flex items-center gap-2.5 text-sm">
                       <span
                         className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
                         style={{

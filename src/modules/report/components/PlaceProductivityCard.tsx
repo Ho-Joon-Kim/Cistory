@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
 import { GitCommit, MapPin, Timer } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import type { PlaceProductivity } from "../types";
 
 interface PlaceProductivityCardProps {

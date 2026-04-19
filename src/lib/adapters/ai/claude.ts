@@ -1,11 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type {
-  AIAdapter,
-  AIGenerateOptions,
-  AIGenerateResult,
-  AIStreamOptions,
-} from "./interface";
 import { logger } from "@/lib/logger";
+import type { AIAdapter, AIGenerateOptions, AIGenerateResult, AIStreamOptions } from "./interface";
 
 const MODEL_ID = "claude-sonnet-4-5";
 const MAX_CONTEXT_TOKENS = 200000;
@@ -55,8 +50,7 @@ export class ClaudeAdapter implements AIAdapter {
   }
 
   async generateTextStream(options: AIStreamOptions): Promise<AIGenerateResult> {
-    const { system, prompt, maxTokens = 1024, temperature = 0.7, onToken } =
-      options;
+    const { system, prompt, maxTokens = 1024, temperature = 0.7, onToken } = options;
 
     try {
       let fullContent = "";
@@ -77,10 +71,7 @@ export class ClaudeAdapter implements AIAdapter {
       });
 
       for await (const event of stream) {
-        if (
-          event.type === "content_block_delta" &&
-          event.delta.type === "text_delta"
-        ) {
+        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
           const token = event.delta.text;
           fullContent += token;
           onToken?.(token);
@@ -133,9 +124,7 @@ export class ClaudeAdapter implements AIAdapter {
     };
   }
 
-  private mapStopReason(
-    reason: string | null
-  ): "end_turn" | "max_tokens" | "stop_sequence" {
+  private mapStopReason(reason: string | null): "end_turn" | "max_tokens" | "stop_sequence" {
     switch (reason) {
       case "end_turn":
         return "end_turn";

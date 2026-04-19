@@ -1,4 +1,4 @@
-import { clsx, type ClassValue } from "clsx";
+import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 /**
@@ -74,10 +74,10 @@ export function truncateDiff(diff: string, maxChars: number = 8000): string {
   const lastNewline = truncated.lastIndexOf("\n");
 
   if (lastNewline > maxChars * 0.8) {
-    return truncated.slice(0, lastNewline) + "\n\n[... truncated ...]";
+    return `${truncated.slice(0, lastNewline)}\n\n[... truncated ...]`;
   }
 
-  return truncated + "\n\n[... truncated ...]";
+  return `${truncated}\n\n[... truncated ...]`;
 }
 
 /**
@@ -133,7 +133,11 @@ export function parseDateParam(param: string | null): string {
   if (Number.isNaN(parsed.getTime())) return today;
   // Check the date components match (catches Feb 30 etc.)
   const [y, m, d] = candidate.split("-").map(Number);
-  if (parsed.getUTCFullYear() !== y || parsed.getUTCMonth() + 1 !== m || parsed.getUTCDate() !== d) {
+  if (
+    parsed.getUTCFullYear() !== y ||
+    parsed.getUTCMonth() + 1 !== m ||
+    parsed.getUTCDate() !== d
+  ) {
     return today;
   }
   if (candidate > today) return today;

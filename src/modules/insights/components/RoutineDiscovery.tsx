@@ -50,7 +50,7 @@ export function RoutineDiscovery({ data, isLoading }: RoutineDiscoveryProps) {
     );
   }
 
-  const maxCommits = Math.max(...data.dayPatterns.map((d) => d.commits), 1);
+  const _maxCommits = Math.max(...data.dayPatterns.map((d) => d.commits), 1);
 
   return (
     <Card>
@@ -91,9 +91,7 @@ export function RoutineDiscovery({ data, isLoading }: RoutineDiscoveryProps) {
                   <td className="px-2 py-1.5 font-medium">{DAY_SHORT[dp.day]}</td>
                   <td className="px-2 py-1.5 text-right">{dp.commits}</td>
                   <td className="px-2 py-1.5 text-right">
-                    {dp.codingSeconds > 0
-                      ? `${Math.round(dp.codingSeconds / 3600)}시간`
-                      : "-"}
+                    {dp.codingSeconds > 0 ? `${Math.round(dp.codingSeconds / 3600)}시간` : "-"}
                   </td>
                   <td className="px-2 py-1.5 text-right">{dp.transactions || "-"}</td>
                 </tr>

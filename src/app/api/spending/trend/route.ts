@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { createSpendingTrendService } from "@/modules/spending/service";
 import { logger } from "@/lib/logger";
+import { createSpendingTrendService } from "@/modules/spending/service";
 
 export async function GET(request: NextRequest) {
   try {

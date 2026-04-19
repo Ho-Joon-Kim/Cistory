@@ -1,7 +1,7 @@
 "use client";
 
+import { Bookmark, Eye, MapPin, Palette, Route } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { Route, MapPin, Bookmark, Palette, Eye } from "lucide-react";
 
 export interface LayerVisibility {
   routes: boolean;

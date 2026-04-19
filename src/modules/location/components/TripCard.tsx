@@ -1,8 +1,8 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MapPin, Plane, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Plane, MapPin, Trash2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TripData } from "../hooks";
 
 interface TripCardProps {
@@ -72,9 +72,7 @@ export function TripCard({ trip, onDelete }: TripCardProps) {
             총 이동거리: {(trip.totalDistanceMeters / 1000).toFixed(1)}km
           </p>
         )}
-        {trip.notes && (
-          <p className="text-sm text-muted-foreground mt-2 italic">{trip.notes}</p>
-        )}
+        {trip.notes && <p className="text-sm text-muted-foreground mt-2 italic">{trip.notes}</p>}
       </CardContent>
     </Card>
   );

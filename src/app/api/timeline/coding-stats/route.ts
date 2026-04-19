@@ -5,11 +5,11 @@
  * Returns daily coding stats for a date range.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { codingDailyStats } from "@/db/schema";
-import { eq, and, gte, lte, asc } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 interface SummaryItem {
   name: string;
@@ -74,9 +74,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ stats });
   } catch (error) {
     console.error("Get coding stats error:", error);
-    return NextResponse.json(
-      { error: "코딩 통계 조회에 실패했습니다" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "코딩 통계 조회에 실패했습니다" }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Globe, AlertTriangle } from "lucide-react";
+import { AlertTriangle, Globe } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface ResidencyData {
   countryName: string;
@@ -32,9 +32,7 @@ export function ResidencyCards({ residency, totalTrackedDays }: ResidencyCardsPr
           <Globe className="h-4 w-4" />
           국가별 체류일
         </h3>
-        <span className="text-xs text-muted-foreground">
-          추적된 일수: {totalTrackedDays}일
-        </span>
+        <span className="text-xs text-muted-foreground">추적된 일수: {totalTrackedDays}일</span>
       </div>
 
       <div className="space-y-3">

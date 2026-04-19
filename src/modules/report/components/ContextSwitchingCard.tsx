@@ -1,8 +1,8 @@
 "use client";
 
+import { Code2, Focus, FolderGit2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Code2, Focus, FolderGit2 } from "lucide-react";
 import type { ContextSwitchingMetrics } from "../types";
 
 interface ContextSwitchingCardProps {

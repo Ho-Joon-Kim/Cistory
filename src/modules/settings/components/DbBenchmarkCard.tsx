@@ -1,12 +1,12 @@
 "use client";
 
+import { ChevronDown, ChevronUp, Loader2, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Loader2, Play, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
-import { useDbBenchmark, type BenchmarkRun, type BenchmarkItem } from "../hooks";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatRelativeTime } from "@/lib/utils";
+import { type BenchmarkItem, type BenchmarkRun, useDbBenchmark } from "../hooks";
 
 function getLatencyColor(ms: number): string {
   if (ms < 5) return "text-emerald-500";
@@ -20,7 +20,15 @@ function getBarColor(ms: number): string {
   return "bg-red-500";
 }
 
-function StatsRow({ item, maxMs, compareItem }: { item: BenchmarkItem; maxMs: number; compareItem?: BenchmarkItem }) {
+function StatsRow({
+  item,
+  maxMs,
+  compareItem,
+}: {
+  item: BenchmarkItem;
+  maxMs: number;
+  compareItem?: BenchmarkItem;
+}) {
   const barWidth = maxMs > 0 ? (item.stats.mean / maxMs) * 100 : 0;
   const diff = compareItem
     ? ((item.stats.mean - compareItem.stats.mean) / compareItem.stats.mean) * 100
@@ -36,7 +44,9 @@ function StatsRow({ item, maxMs, compareItem }: { item: BenchmarkItem; maxMs: nu
             style={{ width: `${Math.max(barWidth, 2)}%` }}
           />
         </div>
-        <span className={`tabular-nums font-medium w-20 text-right ${getLatencyColor(item.stats.mean)}`}>
+        <span
+          className={`tabular-nums font-medium w-20 text-right ${getLatencyColor(item.stats.mean)}`}
+        >
           {item.stats.mean.toFixed(2)}ms
         </span>
         {diff !== null && (
@@ -60,7 +70,13 @@ function StatsRow({ item, maxMs, compareItem }: { item: BenchmarkItem; maxMs: nu
   );
 }
 
-function BenchmarkResultView({ run, compareRun }: { run: BenchmarkRun; compareRun?: BenchmarkRun }) {
+function BenchmarkResultView({
+  run,
+  compareRun,
+}: {
+  run: BenchmarkRun;
+  compareRun?: BenchmarkRun;
+}) {
   const maxMs = Math.max(...run.benchmarks.map((b) => b.stats.mean), 1);
 
   const compareMap = compareRun
@@ -96,7 +112,8 @@ function HistoryItem({
   onSelect: () => void;
   onDelete: () => void;
 }) {
-  const totalMean = run.benchmarks.reduce((sum, b) => sum + b.stats.mean, 0) / run.benchmarks.length;
+  const totalMean =
+    run.benchmarks.reduce((sum, b) => sum + b.stats.mean, 0) / run.benchmarks.length;
 
   return (
     <div
@@ -105,9 +122,7 @@ function HistoryItem({
       }`}
       onClick={onSelect}
     >
-      <span className="font-mono text-xs text-muted-foreground truncate flex-1">
-        {run.dbHost}
-      </span>
+      <span className="font-mono text-xs text-muted-foreground truncate flex-1">{run.dbHost}</span>
       <span className={`tabular-nums text-xs font-medium ${getLatencyColor(totalMean)}`}>
         avg {totalMean.toFixed(1)}ms
       </span>
@@ -156,23 +171,15 @@ export function DbBenchmarkCard() {
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div>
           <CardTitle className="text-lg">DB 성능 벤치마크</CardTitle>
-          <CardDescription>
-            데이터베이스 쿼리 응답 속도를 측정합니다
-          </CardDescription>
+          <CardDescription>데이터베이스 쿼리 응답 속도를 측정합니다</CardDescription>
         </div>
         <Button onClick={handleRun} disabled={isRunning} size="sm">
-          {isRunning ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Play className="h-4 w-4" />
-          )}
+          {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           <span className="ml-1.5">{isRunning ? "측정 중..." : "벤치마크 실행"}</span>
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        {error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         {isRunning && (
           <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
@@ -199,12 +206,14 @@ export function DbBenchmarkCard() {
               className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors w-full"
               onClick={() => setShowHistory((v) => !v)}
             >
-              {showHistory ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              {showHistory ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
               <span>히스토리 ({history.length}건)</span>
               {compareRun && (
-                <span className="ml-auto text-xs text-primary">
-                  비교 중: {compareRun.dbHost}
-                </span>
+                <span className="ml-auto text-xs text-primary">비교 중: {compareRun.dbHost}</span>
               )}
             </button>
 

@@ -1,13 +1,13 @@
 "use client";
 
+import { Loader2, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useSavedPlaces, type SavedPlaceData } from "../hooks";
-import { SavedPlaceDialog } from "./SavedPlaceDialog";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { MapPin, Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { type SavedPlaceData, useSavedPlaces } from "../hooks";
+import { SavedPlaceDialog } from "./SavedPlaceDialog";
 
 export function SavedPlacesSettings() {
   const { places, isLoading, isSaving, createPlace, updatePlace, deletePlace } = useSavedPlaces();
@@ -67,9 +67,7 @@ export function SavedPlacesSettings() {
             <MapPin className="h-5 w-5" />
             저장된 장소
           </CardTitle>
-          <CardDescription>
-            자주 방문하는 장소를 저장하여 자동으로 인식합니다
-          </CardDescription>
+          <CardDescription>자주 방문하는 장소를 저장하여 자동으로 인식합니다</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoading ? (
@@ -128,8 +126,7 @@ export function SavedPlacesSettings() {
           )}
 
           <Button variant="outline" size="sm" onClick={handleCreate}>
-            <Plus className="h-4 w-4 mr-2" />
-            새 장소 추가
+            <Plus className="h-4 w-4 mr-2" />새 장소 추가
           </Button>
         </CardContent>
       </Card>

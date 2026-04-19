@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { desc, eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb, savedPlaces } from "@/db";
-import { eq, desc } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,10 +18,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ places });
   } catch (error) {
     console.error("Saved places GET error:", error);
-    return NextResponse.json(
-      { error: "저장된 장소 조회에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "저장된 장소 조회에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -34,17 +31,11 @@ export async function POST(request: NextRequest) {
     const { name, lat, lon, radiusM, category, address, icon, color } = body;
 
     if (!name || typeof name !== "string" || name.length < 1 || name.length > 100) {
-      return NextResponse.json(
-        { error: "이름은 1~100자 사이여야 합니다" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "이름은 1~100자 사이여야 합니다" }, { status: 400 });
     }
 
     if (typeof lat !== "number" || typeof lon !== "number") {
-      return NextResponse.json(
-        { error: "위도와 경도가 필요합니다" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "위도와 경도가 필요합니다" }, { status: 400 });
     }
 
     const radius = typeof radiusM === "number" ? Math.min(500, Math.max(50, radiusM)) : 100;
@@ -71,9 +62,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ place }, { status: 201 });
   } catch (error) {
     console.error("Saved places POST error:", error);
-    return NextResponse.json(
-      { error: "장소 저장에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "장소 저장에 실패했습니다" }, { status: 500 });
   }
 }

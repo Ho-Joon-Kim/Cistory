@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
-import { Layers, Clock, Search, X } from "lucide-react";
-import { LayersPanel, type LayerVisibility } from "./panels/LayersPanel";
-import { TimelinePanel } from "./panels/TimelinePanel";
-import { SearchPanel } from "./panels/SearchPanel";
+import { Clock, Layers, Search, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TimelineSegment } from "../utils";
+import { LayersPanel, type LayerVisibility } from "./panels/LayersPanel";
+import { SearchPanel } from "./panels/SearchPanel";
+import { TimelinePanel } from "./panels/TimelinePanel";
 
 type TabId = "layers" | "timeline" | "search";
 
@@ -86,10 +86,7 @@ export function MapSidePanel({
   const panelContent = (
     <>
       {activeTab === "layers" && (
-        <LayersPanel
-          visibility={layerVisibility}
-          onVisibilityChange={onLayerVisibilityChange}
-        />
+        <LayersPanel visibility={layerVisibility} onVisibilityChange={onLayerVisibilityChange} />
       )}
       {activeTab === "timeline" && (
         <TimelinePanel
@@ -185,9 +182,7 @@ export function MapSidePanel({
       <div
         ref={panelRef}
         className={`pointer-events-auto absolute top-3 bottom-3 bg-background/95 backdrop-blur border border-border/50 rounded-lg shadow-lg transition-all duration-200 ease-out overflow-hidden ${
-          isOpen
-            ? "left-[52px] w-[250px] opacity-100"
-            : "left-[52px] w-0 opacity-0"
+          isOpen ? "left-[52px] w-[250px] opacity-100" : "left-[52px] w-0 opacity-0"
         }`}
       >
         <div className="w-[250px] h-full overflow-y-auto">{panelContent}</div>

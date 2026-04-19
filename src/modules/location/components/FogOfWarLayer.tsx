@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
-import { useMap } from "react-map-gl/mapbox";
 import { useTheme } from "next-themes";
+import { useCallback, useEffect, useRef } from "react";
+import { useMap } from "react-map-gl/mapbox";
 
 interface FogOfWarLayerProps {
   cells: { lat: number; lon: number }[];
@@ -10,7 +10,7 @@ interface FogOfWarLayerProps {
 
 /** Convert meters to pixels at a given zoom level and latitude */
 function metersToPixels(meters: number, lat: number, zoom: number): number {
-  return meters / ((78271.484 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom));
+  return meters / ((78271.484 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom);
 }
 
 export function FogOfWarLayer({ cells }: FogOfWarLayerProps) {
@@ -41,8 +41,7 @@ export function FogOfWarLayer({ cells }: FogOfWarLayerProps) {
     ctx.scale(dpr, dpr);
 
     // Step 1: Fill entire canvas with fog
-    const fogColor =
-      resolvedTheme === "dark" ? "rgba(10, 10, 20, 0.55)" : "rgba(0, 0, 0, 0.45)";
+    const fogColor = resolvedTheme === "dark" ? "rgba(10, 10, 20, 0.55)" : "rgba(0, 0, 0, 0.45)";
     ctx.fillStyle = fogColor;
     ctx.fillRect(0, 0, width, height);
 
@@ -67,14 +66,7 @@ export function FogOfWarLayer({ cells }: FogOfWarLayerProps) {
       }
 
       // Radial gradient for soft edges
-      const gradient = ctx.createRadialGradient(
-        pixel.x,
-        pixel.y,
-        0,
-        pixel.x,
-        pixel.y,
-        radiusPx,
-      );
+      const gradient = ctx.createRadialGradient(pixel.x, pixel.y, 0, pixel.x, pixel.y, radiusPx);
       gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
       gradient.addColorStop(0.7, "rgba(0, 0, 0, 1)");
       gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
@@ -138,7 +130,7 @@ export function FogOfWarLayer({ cells }: FogOfWarLayerProps) {
   // Re-render when theme changes
   useEffect(() => {
     scheduleRender();
-  }, [resolvedTheme, scheduleRender]);
+  }, [scheduleRender]);
 
   return (
     <canvas

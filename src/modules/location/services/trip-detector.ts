@@ -12,11 +12,10 @@
  * - Name auto-generated from primary city/country
  */
 
-import { getDb, visits, savedPlaces, trips } from "@/db";
-import { eq, and, gte, lt, desc, sql, isNotNull, asc } from "drizzle-orm";
-import { distanceM } from "@/lib/geo";
-import { detectCountry } from "@/modules/report/travel";
+import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { getDb, savedPlaces, trips, visits } from "@/db";
 import { isInKorea } from "@/lib/adapters/geocoding";
+import { distanceM } from "@/lib/geo";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,9 +37,7 @@ export interface DetectedTrip {
 
 // ── Home Location Resolution ─────────────────────────────────────────────────
 
-async function getHomeLocation(
-  userId: string,
-): Promise<{ lat: number; lon: number } | null> {
+async function getHomeLocation(userId: string): Promise<{ lat: number; lon: number } | null> {
   const db = getDb();
 
   // 1. Check savedPlaces for "home" or "집" category
@@ -48,10 +45,7 @@ async function getHomeLocation(
     .select({ lat: savedPlaces.lat, lon: savedPlaces.lon })
     .from(savedPlaces)
     .where(
-      and(
-        eq(savedPlaces.userId, userId),
-        sql`lower(${savedPlaces.category}) IN ('home', '집')`,
-      ),
+      and(eq(savedPlaces.userId, userId), sql`lower(${savedPlaces.category}) IN ('home', '집')`)
     )
     .limit(1);
 
@@ -68,17 +62,12 @@ async function getHomeLocation(
       totalDuration: sql<number>`sum(${visits.durationSeconds})`,
     })
     .from(visits)
-    .where(
-      and(
-        eq(visits.userId, userId),
-        gte(visits.startTime, ninetyDaysAgo),
-      ),
-    )
+    .where(and(eq(visits.userId, userId), gte(visits.startTime, ninetyDaysAgo)))
     .groupBy(
       sql`round(${visits.centerLat}::numeric, 3)`,
       sql`round(${visits.centerLon}::numeric, 3)`,
       visits.centerLat,
-      visits.centerLon,
+      visits.centerLon
     )
     .orderBy(desc(sql`sum(${visits.durationSeconds})`))
     .limit(1);
@@ -93,7 +82,7 @@ async function getHomeLocation(
 export async function detectTrips(
   userId: string,
   from: string,
-  to: string,
+  to: string
 ): Promise<DetectedTrip[]> {
   const home = await getHomeLocation(userId);
   if (!home) return []; // Can't determine home → can't detect trips
@@ -115,11 +104,7 @@ export async function detectTrips(
     })
     .from(visits)
     .where(
-      and(
-        eq(visits.userId, userId),
-        gte(visits.startTime, fromDate),
-        lt(visits.startTime, toDate),
-      ),
+      and(eq(visits.userId, userId), gte(visits.startTime, fromDate), lt(visits.startTime, toDate))
     )
     .orderBy(asc(visits.startTime));
 
@@ -169,14 +154,13 @@ export async function detectTrips(
   if (awayDates.length === 0) return [];
 
   // Group into trips (allow MAX_GAP_DAYS gap)
-  const tripGroups: typeof awayDates[] = [];
+  const tripGroups: (typeof awayDates)[] = [];
   let currentGroup = [awayDates[0]];
 
   for (let i = 1; i < awayDates.length; i++) {
     const prevDate = parseLocalDate(currentGroup[currentGroup.length - 1][0]);
     const currDate = parseLocalDate(awayDates[i][0]);
-    const gapDays =
-      (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
+    const gapDays = (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
 
     if (gapDays <= MAX_GAP_DAYS + 1) {
       currentGroup.push(awayDates[i]);
@@ -213,13 +197,9 @@ export async function detectTrips(
     const primaryCountry = [...allCountries][0];
     let name: string;
     if (isOverseas && primaryCountry) {
-      name = primaryCity
-        ? `${primaryCity} 여행`
-        : `${primaryCountry} 여행`;
+      name = primaryCity ? `${primaryCity} 여행` : `${primaryCountry} 여행`;
     } else {
-      name = primaryCity
-        ? `${primaryCity} 방문`
-        : "여행";
+      name = primaryCity ? `${primaryCity} 방문` : "여행";
     }
 
     detectedTrips.push({
@@ -238,10 +218,7 @@ export async function detectTrips(
 
 // ── Trip Persistence ─────────────────────────────────────────────────────────
 
-export async function persistTrips(
-  userId: string,
-  detectedTrips: DetectedTrip[],
-): Promise<number> {
+export async function persistTrips(userId: string, detectedTrips: DetectedTrip[]): Promise<number> {
   if (detectedTrips.length === 0) return 0;
 
   const db = getDb();
@@ -260,7 +237,7 @@ export async function persistTrips(
       autoDetected: true,
       createdAt: now,
       updatedAt: now,
-    })),
+    }))
   );
 
   return detectedTrips.length;

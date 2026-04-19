@@ -31,7 +31,7 @@ const STATIONARY_MAX = 1;
 const WALKING_MAX = 7;
 const RUNNING_MAX = 20;
 const CYCLING_MAX = 45;
-const DRIVING_MAX = 220;
+const _DRIVING_MAX = 220;
 const TRAIN_MIN = 80;
 const TRAIN_MAX = 350;
 const FLYING_MIN = 150;
@@ -51,7 +51,7 @@ const BUS_ACCEL_MAX = 0.4;
 export function classifyMode(
   avgSpeedKmh: number,
   maxSpeedKmh: number,
-  avgAcceleration: number,
+  avgAcceleration: number
 ): ClassificationResult {
   // Stationary
   if (avgSpeedKmh <= STATIONARY_MAX) {
@@ -64,11 +64,7 @@ export function classifyMode(
   }
 
   // Train (high speed, low acceleration, low speed variance)
-  if (
-    avgSpeedKmh >= TRAIN_MIN &&
-    avgSpeedKmh <= TRAIN_MAX &&
-    avgAcceleration < TRAIN_ACCEL
-  ) {
+  if (avgSpeedKmh >= TRAIN_MIN && avgSpeedKmh <= TRAIN_MAX && avgAcceleration < TRAIN_ACCEL) {
     const speedVarianceLow = maxSpeedKmh / avgSpeedKmh < 1.3;
     if (speedVarianceLow) {
       return { mode: "train", confidence: "high" };
@@ -101,10 +97,7 @@ export function classifyMode(
 
   // Medium-high speed (45-130 km/h)
   if (avgSpeedKmh > CYCLING_MAX && avgSpeedKmh <= HIGH_SPEED_BOUNDARY) {
-    if (
-      avgAcceleration >= BUS_ACCEL_MIN &&
-      avgAcceleration <= BUS_ACCEL_MAX
-    ) {
+    if (avgAcceleration >= BUS_ACCEL_MIN && avgAcceleration <= BUS_ACCEL_MAX) {
       return { mode: "bus", confidence: "low" };
     }
     if (avgAcceleration > MOTORCYCLE_ACCEL) {

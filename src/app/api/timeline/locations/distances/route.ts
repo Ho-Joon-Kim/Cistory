@@ -9,11 +9,11 @@
  * Ported from Dawarich: app/queries/stats/daily_distance_query.rb
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { dailyDistances } from "@/db/schema";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);
@@ -27,9 +27,13 @@ async function calculateDistancesPostGIS(
   db: ReturnType<typeof getDb>,
   userId: string,
   from: Date,
-  to: Date,
+  to: Date
 ): Promise<Record<string, number>> {
-  const rows = await db.execute<{ day_date: string; distance_meters: number; [key: string]: unknown }>(sql`
+  const rows = await db.execute<{
+    day_date: string;
+    distance_meters: number;
+    [key: string]: unknown;
+  }>(sql`
     WITH points_with_distances AS (
       SELECT
         to_char(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS day_date,
@@ -82,7 +86,7 @@ export async function GET(request: NextRequest) {
     if (!fromParam || !toParam || !datePattern.test(fromParam) || !datePattern.test(toParam)) {
       return NextResponse.json(
         { error: "from, to 파라미터가 필요합니다 (YYYY-MM-DD)" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -112,12 +116,7 @@ export async function GET(request: NextRequest) {
           distanceMeters: dailyDistances.distanceMeters,
         })
         .from(dailyDistances)
-        .where(
-          and(
-            eq(dailyDistances.userId, user.id),
-            inArray(dailyDistances.date, pastDates),
-          ),
-        );
+        .where(and(eq(dailyDistances.userId, user.id), inArray(dailyDistances.date, pastDates)));
 
       for (const row of cached) {
         distances[row.date] = row.distanceMeters;
@@ -128,21 +127,21 @@ export async function GET(request: NextRequest) {
     }
 
     // 4. Calculate uncached past dates + today via PostGIS
-    const datesToCalculate = [
-      ...uncachedPastDates,
-      ...(includesToday ? [today] : []),
-    ];
+    const datesToCalculate = [...uncachedPastDates, ...(includesToday ? [today] : [])];
 
     if (datesToCalculate.length > 0) {
       const calcStart = new Date(`${datesToCalculate[0]}T00:00:00.000Z`);
-      const calcEnd = new Date(
-        `${datesToCalculate[datesToCalculate.length - 1]}T23:59:59.999Z`,
-      );
+      const calcEnd = new Date(`${datesToCalculate[datesToCalculate.length - 1]}T23:59:59.999Z`);
 
       const calculated = await calculateDistancesPostGIS(db, user.id, calcStart, calcEnd);
 
       // Merge results and prepare cache entries
-      const toCache: { userId: string; date: string; distanceMeters: number; calculatedAt: Date }[] = [];
+      const toCache: {
+        userId: string;
+        date: string;
+        distanceMeters: number;
+        calculatedAt: Date;
+      }[] = [];
 
       for (const dateKey of datesToCalculate) {
         const dist = calculated[dateKey] ?? 0;
@@ -159,19 +158,13 @@ export async function GET(request: NextRequest) {
       }
 
       if (toCache.length > 0) {
-        await db
-          .insert(dailyDistances)
-          .values(toCache)
-          .onConflictDoNothing();
+        await db.insert(dailyDistances).values(toCache).onConflictDoNothing();
       }
     }
 
     return NextResponse.json({ distances });
   } catch (error) {
     console.error("Get distances error:", error);
-    return NextResponse.json(
-      { error: "이동 거리 조회에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "이동 거리 조회에 실패했습니다" }, { status: 500 });
   }
 }

@@ -1,25 +1,19 @@
 "use client";
 
-import { useOwnTracksKey } from "../hooks";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { MapPin, Key, Copy, Trash2, RefreshCw, Loader2, AlertTriangle } from "lucide-react";
+import { AlertTriangle, Copy, Key, Loader2, MapPin, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAppUrl } from "@/lib/utils";
+import { useOwnTracksKey } from "../hooks";
 
 interface OwnTracksSettingsProps {
   hasKey: boolean;
 }
 
 export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
-  const {
-    hasOwnTracksKey,
-    newKey,
-    isGenerating,
-    isRevoking,
-    generate,
-    revoke,
-  } = useOwnTracksKey(hasKey);
+  const { hasOwnTracksKey, newKey, isGenerating, isRevoking, generate, revoke } =
+    useOwnTracksKey(hasKey);
 
   const handleGenerate = async () => {
     const success = await generate();
@@ -81,11 +75,7 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
                   <code className="flex-1 p-2 rounded bg-muted text-sm font-mono break-all">
                     {newKey}
                   </code>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => handleCopy(newKey)}
-                  >
+                  <Button variant="outline" size="icon" onClick={() => handleCopy(newKey)}>
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
@@ -99,12 +89,7 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
             )}
 
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleGenerate}
-                disabled={isGenerating}
-              >
+              <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isGenerating}>
                 {isGenerating ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
@@ -112,12 +97,7 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
                 )}
                 재생성
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRevoke}
-                disabled={isRevoking}
-              >
+              <Button variant="outline" size="sm" onClick={handleRevoke} disabled={isRevoking}>
                 {isRevoking ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
@@ -150,9 +130,7 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
               </Button>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Mode: HTTP, Method: POST
-          </p>
+          <p className="text-xs text-muted-foreground">Mode: HTTP, Method: POST</p>
         </div>
       </CardContent>
     </Card>

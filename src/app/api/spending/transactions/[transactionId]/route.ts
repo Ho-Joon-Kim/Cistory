@@ -5,16 +5,16 @@
  * Deletes a specific transaction record. The original notification log is preserved.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { transactions } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ transactionId: string }> },
+  { params }: { params: Promise<{ transactionId: string }> }
 ) {
   try {
     const { user, error } = await getAuthenticatedUser(request);

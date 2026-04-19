@@ -5,12 +5,12 @@
  * POST /api/trips/detect/confirm — Persist detected trips
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import {
+  type DetectedTrip,
   detectTrips,
   persistTrips,
-  type DetectedTrip,
 } from "@/modules/location/services/trip-detector";
 
 export async function POST(request: NextRequest) {
@@ -24,16 +24,13 @@ export async function POST(request: NextRequest) {
     if (!from || !to) {
       return NextResponse.json(
         { error: "from, to 날짜가 필요합니다 (YYYY-MM-DD)" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
     // If confirm mode: persist the provided trips
     if (confirm && Array.isArray(body.trips)) {
-      const count = await persistTrips(
-        user.id,
-        body.trips as DetectedTrip[],
-      );
+      const count = await persistTrips(user.id, body.trips as DetectedTrip[]);
       return NextResponse.json({
         message: `${count}개 여행이 저장되었습니다`,
         saved: count,
@@ -49,9 +46,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Trip detect error:", error);
-    return NextResponse.json(
-      { error: "여행 감지에 실패했습니다" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "여행 감지에 실패했습니다" }, { status: 500 });
   }
 }

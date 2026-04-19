@@ -7,7 +7,10 @@
 import { isInKorea } from "@/lib/adapters/geocoding";
 
 // 주요 국가 bounding box
-const COUNTRY_BOUNDS: Record<string, { minLat: number; maxLat: number; minLon: number; maxLon: number }> = {
+const COUNTRY_BOUNDS: Record<
+  string,
+  { minLat: number; maxLat: number; minLon: number; maxLon: number }
+> = {
   일본: { minLat: 24.0, maxLat: 46.0, minLon: 122.0, maxLon: 154.0 },
   태국: { minLat: 5.5, maxLat: 20.5, minLon: 97.3, maxLon: 105.7 },
   베트남: { minLat: 8.2, maxLat: 23.4, minLon: 102.1, maxLon: 109.5 },
@@ -102,7 +105,11 @@ export function detectOverseasTrips(locations: LocationWithDate[]): OverseasTrip
   let currentTrip: OverseasTrip | null = null;
 
   for (const [date, { country, places }] of sortedDates) {
-    if (currentTrip && currentTrip.country === country && isConsecutiveDate(currentTrip.endDate, date)) {
+    if (
+      currentTrip &&
+      currentTrip.country === country &&
+      isConsecutiveDate(currentTrip.endDate, date)
+    ) {
       currentTrip.endDate = date;
       for (const place of places) {
         if (!currentTrip.places.includes(place)) {

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { and, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { commits, commitSummaries } from "@/db/schema";
-import { eq, and, desc, gt, gte, lte, sql, inArray } from "drizzle-orm";
+import { commitSummaries, commits } from "@/db/schema";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 /** Parse date string to local-timezone Date. Handles both "YYYY-MM-DD" and full ISO strings. */
 function parseDateLocal(str: string): Date | null {
@@ -141,9 +141,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Get timeline error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch timeline" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch timeline" }, { status: 500 });
   }
 }

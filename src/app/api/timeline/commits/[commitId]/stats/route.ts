@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
+import { and, eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commits, users } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
 import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
+import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
 
 export async function POST(
   request: NextRequest,
@@ -26,12 +26,7 @@ export async function POST(
         changedFilesCount: commits.changedFilesCount,
       })
       .from(commits)
-      .where(
-        and(
-          eq(commits.id, commitId),
-          eq(commits.userId, user.id)
-        )
-      );
+      .where(and(eq(commits.id, commitId), eq(commits.userId, user.id)));
 
     if (commitResult.length === 0) {
       return NextResponse.json({ error: "Commit not found" }, { status: 404 });
@@ -40,7 +35,11 @@ export async function POST(
     const commit = commitResult[0];
 
     // 이미 stats가 있으면 바로 반환
-    if ((commit.additions ?? 0) > 0 || (commit.deletions ?? 0) > 0 || (commit.changedFilesCount ?? 0) > 0) {
+    if (
+      (commit.additions ?? 0) > 0 ||
+      (commit.deletions ?? 0) > 0 ||
+      (commit.changedFilesCount ?? 0) > 0
+    ) {
       return NextResponse.json({
         additions: commit.additions ?? 0,
         deletions: commit.deletions ?? 0,
@@ -77,9 +76,6 @@ export async function POST(
     });
   } catch (error) {
     console.error("Get commit stats error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch commit stats" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch commit stats" }, { status: 500 });
   }
 }

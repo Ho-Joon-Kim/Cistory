@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UseRouteReplayOptions {
   locations: { lat: number; lon: number; timestamp: string }[];
@@ -31,7 +31,7 @@ interface SortedPoint {
 function lerpCoord(
   a: { lat: number; lon: number },
   b: { lat: number; lon: number },
-  t: number,
+  t: number
 ): { lat: number; lon: number } {
   return {
     lat: a.lat + (b.lat - a.lat) * t,
@@ -42,10 +42,11 @@ function lerpCoord(
 /** Find coord and timestamp for a given progress (0-1) along sorted points */
 function getPositionAtProgress(
   points: SortedPoint[],
-  progress: number,
+  progress: number
 ): { coord: { lat: number; lon: number }; timestamp: string } | null {
   if (points.length === 0) return null;
-  if (points.length === 1) return { coord: { lat: points[0].lat, lon: points[0].lon }, timestamp: points[0].timestamp };
+  if (points.length === 1)
+    return { coord: { lat: points[0].lat, lon: points[0].lon }, timestamp: points[0].timestamp };
 
   const totalDuration = points[points.length - 1].time - points[0].time;
   if (totalDuration === 0) {
@@ -184,7 +185,7 @@ export function useRouteReplay({
 
       rafRef.current = requestAnimationFrame(animationLoop);
     },
-    [updatePosition, isInStayPoint],
+    [updatePosition, isInStayPoint]
   );
 
   const play = useCallback(() => {
@@ -242,7 +243,7 @@ export function useRouteReplay({
         rafRef.current = requestAnimationFrame(animationLoop);
       }
     },
-    [updatePosition, animationLoop],
+    [updatePosition, animationLoop]
   );
 
   const setSpeed = useCallback((newSpeed: number) => {
@@ -262,7 +263,7 @@ export function useRouteReplay({
   // Reset when locations change
   useEffect(() => {
     stop();
-  }, [locations, stop]);
+  }, [stop]);
 
   return {
     state,

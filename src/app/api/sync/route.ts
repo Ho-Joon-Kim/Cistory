@@ -4,15 +4,15 @@
  * POST /api/sync - Start user commit sync
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
-import { getDb } from "@/db";
-import { users, syncJobs } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createSyncService } from "@/modules/sync/service";
-import { createSummaryService } from "@/modules/summary/service";
-import { now } from "@/lib/utils";
+import { type NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/db";
+import { syncJobs, users } from "@/db/schema";
+import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
+import { now } from "@/lib/utils";
+import { createSummaryService } from "@/modules/summary/service";
+import { createSyncService } from "@/modules/sync/service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,28 +31,18 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (!userResult[0]) {
-      return NextResponse.json(
-        { error: "User not found. Please re-login." },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "User not found. Please re-login." }, { status: 404 });
     }
 
     const { githubLogin, initialSyncCompleted } = userResult[0];
 
     const accessToken = await getGitHubToken(user.id, db, users);
     if (!accessToken) {
-      return NextResponse.json(
-        { error: "GitHub access token not found" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "GitHub access token not found" }, { status: 400 });
     }
 
     const syncService = createSyncService(db, accessToken);
-    const summaryService = createSummaryService(
-      db,
-      process.env.ANTHROPIC_API_KEY!,
-      accessToken
-    );
+    const summaryService = createSummaryService(db, process.env.ANTHROPIC_API_KEY!, accessToken);
 
     // Execute sync in background (respond immediately)
     (async () => {
@@ -107,9 +97,6 @@ export async function POST(request: NextRequest) {
     logger.error("Sync trigger error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json(
-      { error: "Failed to trigger sync" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to trigger sync" }, { status: 500 });
   }
 }

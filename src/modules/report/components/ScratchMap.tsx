@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import Map, { Source, Layer, Popup } from "react-map-gl/mapbox";
 import { useTheme } from "next-themes";
+import { useMemo, useState } from "react";
+import Map, { Layer, Popup, Source } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -68,7 +68,7 @@ export function ScratchMap({ regions }: ScratchMapProps) {
       interactiveLayerIds={["scratch-circles"]}
       onClick={(e) => {
         const feature = e.features?.[0];
-        if (feature && feature.properties) {
+        if (feature?.properties) {
           const region = regions.find((r) => r.name === feature.properties?.name);
           if (region) setPopup(region);
         }

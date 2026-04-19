@@ -7,10 +7,7 @@
 
 import type { ImportFormat } from "./types";
 
-export function detectFormat(
-  fileName: string,
-  content: string,
-): ImportFormat {
+export function detectFormat(fileName: string, content: string): ImportFormat {
   const ext = fileName.toLowerCase().split(".").pop();
 
   // Extension-based detection

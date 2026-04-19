@@ -44,16 +44,12 @@ export function LanguagePie({ languages }: LanguagePieProps) {
     <div className="flex flex-col items-center">
       <ResponsiveContainer width="100%" height={300}>
         <PieChart>
-          <Pie
-            data={data}
-            cx="50%"
-            cy="50%"
-            outerRadius={110}
-            paddingAngle={2}
-            dataKey="value"
-          >
+          <Pie data={data} cx="50%" cy="50%" outerRadius={110} paddingAngle={2} dataKey="value">
             {data.map((entry, index) => (
-              <Cell key={`cell-${entry.name}`} fill={LANGUAGE_COLORS[index % LANGUAGE_COLORS.length]} />
+              <Cell
+                key={`cell-${entry.name}`}
+                fill={LANGUAGE_COLORS[index % LANGUAGE_COLORS.length]}
+              />
             ))}
           </Pie>
           <Tooltip
