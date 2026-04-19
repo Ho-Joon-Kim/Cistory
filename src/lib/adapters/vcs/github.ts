@@ -1,20 +1,94 @@
 import { logger } from "@/lib/logger";
-import type {
-  GetCommitsOptions,
-  GetRepositoriesOptions,
-  SearchCommitsOptions,
-  VCSAdapter,
-  VCSCommit,
-  VCSCommitDiff,
-  VCSFileContent,
-  VCSFileDiff,
-  VCSRepository,
-  VCSSearchCommit,
-} from "./interface";
 
 const GITHUB_API_BASE = "https://api.github.com";
 
-export class GitHubAdapter implements VCSAdapter {
+// ── Types (previously in ./interface.ts) ─────────────────────────────────────
+
+export interface VCSRepository {
+  id: number;
+  fullName: string;
+  description: string | null;
+  isPrivate: boolean;
+  defaultBranch: string;
+  htmlUrl: string;
+}
+
+export interface VCSCommit {
+  sha: string;
+  message: string;
+  authorName: string;
+  authorEmail: string | null;
+  authorAvatarUrl: string | null;
+  committedAt: string;
+  additions: number;
+  deletions: number;
+  changedFilesCount: number;
+  isMergeCommit: boolean;
+  parentShas: string[];
+}
+
+export interface VCSFileDiff {
+  filename: string;
+  status: "added" | "modified" | "removed" | "renamed";
+  additions: number;
+  deletions: number;
+  patch?: string;
+}
+
+export interface VCSCommitDiff {
+  sha: string;
+  files: VCSFileDiff[];
+  rawDiff: string;
+}
+
+export interface VCSFileContent {
+  path: string;
+  content: string;
+  encoding: string;
+}
+
+export interface GetCommitsOptions {
+  since?: string;
+  until?: string;
+  perPage?: number;
+  page?: number;
+  sha?: string;
+}
+
+export interface GetRepositoriesOptions {
+  perPage?: number;
+  page?: number;
+  sort?: "created" | "updated" | "pushed" | "full_name";
+  direction?: "asc" | "desc";
+}
+
+export interface SearchCommitsOptions {
+  since?: string;
+  until?: string;
+  perPage?: number;
+  page?: number;
+}
+
+export interface VCSSearchCommit {
+  sha: string;
+  message: string;
+  authorName: string;
+  authorEmail: string | null;
+  authorAvatarUrl: string | null;
+  committedAt: string;
+  repoFullName: string;
+  repoId: number;
+  repoIsPrivate: boolean;
+  additions?: number;
+  deletions?: number;
+  changedFilesCount?: number;
+  isMergeCommit: boolean;
+  parentShas: string[];
+}
+
+// ── Adapter ──────────────────────────────────────────────────────────────────
+
+export class GitHubAdapter {
   private accessToken: string;
 
   constructor(accessToken: string) {
@@ -267,80 +341,6 @@ export class GitHubAdapter implements VCSAdapter {
   }
 
   /**
-   * Search commits authored by user via Search API
-   * Search API is rate-limited but allows searching across all repos
-   */
-  async searchUserCommits(
-    username: string,
-    options: SearchCommitsOptions = {}
-  ): Promise<VCSSearchCommit[]> {
-    const { since, until, perPage = 100, page = 1 } = options;
-
-    // Build search query
-    let query = `author:${username}`;
-    if (since) {
-      // GitHub search uses YYYY-MM-DD format
-      query += ` author-date:>=${since.slice(0, 10)}`;
-    }
-    if (until) {
-      query += ` author-date:<=${until.slice(0, 10)}`;
-    }
-
-    const params = new URLSearchParams({
-      q: query,
-      sort: "author-date",
-      order: "desc",
-      per_page: String(perPage),
-      page: String(page),
-    });
-
-    interface GitHubSearchResponse {
-      total_count: number;
-      incomplete_results: boolean;
-      items: Array<{
-        sha: string;
-        commit: {
-          message: string;
-          author: {
-            name: string;
-            email: string;
-            date: string;
-          };
-        };
-        author: {
-          avatar_url: string;
-        } | null;
-        parents: Array<{ sha: string }>;
-        repository: {
-          id: number;
-          full_name: string;
-          private: boolean;
-        };
-      }>;
-    }
-
-    const response = await this.fetch<GitHubSearchResponse>(
-      `/search/commits?${params}`,
-      {},
-      "application/vnd.github.cloak-preview+json" // Required for commit search
-    );
-
-    return response.items.map((item) => ({
-      sha: item.sha,
-      message: item.commit.message,
-      authorName: item.commit.author.name,
-      authorEmail: item.commit.author.email,
-      authorAvatarUrl: item.author?.avatar_url ?? null,
-      committedAt: item.commit.author.date,
-      repoFullName: item.repository.full_name,
-      repoId: item.repository.id,
-      repoIsPrivate: item.repository.private,
-      isMergeCommit: item.parents.length > 1,
-      parentShas: item.parents.map((p) => p.sha),
-    }));
-  }
-
-  /**
    * Get all commits authored by user across all repos via Repos API.
    * Uses /user/repos (sorted by pushed_at) + per-branch commit listing
    * with early termination when repo's pushed_at < since date.
@@ -492,6 +492,6 @@ export class GitHubAdapter implements VCSAdapter {
   }
 }
 
-export function createGitHubAdapter(accessToken: string): VCSAdapter {
+export function createGitHubAdapter(accessToken: string): GitHubAdapter {
   return new GitHubAdapter(accessToken);
 }

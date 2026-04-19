@@ -9,8 +9,7 @@ import {
   syncJobs,
   users,
 } from "@/db/schema";
-import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
-import type { VCSSearchCommit } from "@/lib/adapters/vcs/interface";
+import { createGitHubAdapter, type VCSSearchCommit } from "@/lib/adapters/vcs/github";
 import { generateId, now } from "@/lib/utils";
 
 export interface SyncProgress {

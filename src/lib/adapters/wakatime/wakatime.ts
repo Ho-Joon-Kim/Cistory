@@ -1,14 +1,42 @@
 import { logger } from "@/lib/logger";
-import type {
-  WakaTimeAdapter,
-  WakaTimeDailySummary,
-  WakaTimeDuration,
-  WakaTimeUser,
-} from "./interface";
 
 const BASE_URL = "https://wakatime.com/api/v1";
 
-export class WakaTimeAdapterImpl implements WakaTimeAdapter {
+// ── Types (previously in ./interface.ts) ─────────────────────────────────────
+
+export interface WakaTimeDuration {
+  project: string | null;
+  time: number;
+  duration: number;
+  humanAdditions: number | null;
+  humanDeletions: number | null;
+  aiAdditions: number | null;
+  aiDeletions: number | null;
+}
+
+export interface WakaTimeSummaryItem {
+  name: string;
+  totalSeconds: number;
+}
+
+export interface WakaTimeDailySummary {
+  date: string;
+  grandTotalSeconds: number;
+  projects: WakaTimeSummaryItem[];
+  languages: WakaTimeSummaryItem[];
+  editors: WakaTimeSummaryItem[];
+  categories: WakaTimeSummaryItem[];
+}
+
+export interface WakaTimeUser {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
+// ── Adapter ──────────────────────────────────────────────────────────────────
+
+export class WakaTimeAdapter {
   private authHeader: string;
 
   constructor(apiKey: string) {
@@ -116,5 +144,5 @@ export class WakaTimeAdapterImpl implements WakaTimeAdapter {
 }
 
 export function createWakaTimeAdapter(apiKey: string): WakaTimeAdapter {
-  return new WakaTimeAdapterImpl(apiKey);
+  return new WakaTimeAdapter(apiKey);
 }

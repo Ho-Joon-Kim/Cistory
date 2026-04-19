@@ -7,8 +7,7 @@
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
-import type { WakaTimeAdapter } from "@/lib/adapters/wakatime/interface";
-import { createWakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
+import { createWakaTimeAdapter, type WakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
 import { logger } from "@/lib/logger";
 import { sleep } from "@/lib/utils";
 

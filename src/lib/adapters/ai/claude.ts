@@ -1,11 +1,31 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "@/lib/logger";
-import type { AIAdapter, AIGenerateOptions, AIGenerateResult, AIStreamOptions } from "./interface";
 
 const MODEL_ID = "claude-sonnet-4-5";
-const MAX_CONTEXT_TOKENS = 200000;
 
-export class ClaudeAdapter implements AIAdapter {
+export interface AIGenerateOptions {
+  /** System prompt to set context */
+  system?: string;
+  /** User prompt */
+  prompt: string;
+  /** Maximum tokens to generate */
+  maxTokens?: number;
+  /** Temperature for randomness (0-1) */
+  temperature?: number;
+  /** Stop sequences */
+  stopSequences?: string[];
+}
+
+export interface AIGenerateResult {
+  content: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+  stopReason: "end_turn" | "max_tokens" | "stop_sequence";
+}
+
+export class ClaudeAdapter {
   private client: Anthropic;
 
   constructor(apiKey: string) {
@@ -21,12 +41,7 @@ export class ClaudeAdapter implements AIAdapter {
         max_tokens: maxTokens,
         temperature,
         system: system ?? undefined,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
+        messages: [{ role: "user", content: prompt }],
       });
 
       const content = response.content[0];
@@ -38,7 +53,7 @@ export class ClaudeAdapter implements AIAdapter {
           inputTokens: response.usage.input_tokens,
           outputTokens: response.usage.output_tokens,
         },
-        stopReason: this.mapStopReason(response.stop_reason),
+        stopReason: mapStopReason(response.stop_reason),
       };
     } catch (error) {
       logger.error("Claude API error", {
@@ -48,96 +63,21 @@ export class ClaudeAdapter implements AIAdapter {
       throw error;
     }
   }
+}
 
-  async generateTextStream(options: AIStreamOptions): Promise<AIGenerateResult> {
-    const { system, prompt, maxTokens = 1024, temperature = 0.7, onToken } = options;
-
-    try {
-      let fullContent = "";
-      let inputTokens = 0;
-      let outputTokens = 0;
-
-      const stream = await this.client.messages.stream({
-        model: MODEL_ID,
-        max_tokens: maxTokens,
-        temperature,
-        system: system ?? undefined,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
-
-      for await (const event of stream) {
-        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-          const token = event.delta.text;
-          fullContent += token;
-          onToken?.(token);
-        }
-
-        if (event.type === "message_delta" && event.usage) {
-          outputTokens = event.usage.output_tokens;
-        }
-      }
-
-      const finalMessage = await stream.finalMessage();
-      inputTokens = finalMessage.usage.input_tokens;
-
-      return {
-        content: fullContent,
-        usage: {
-          inputTokens,
-          outputTokens,
-        },
-        stopReason: this.mapStopReason(finalMessage.stop_reason),
-      };
-    } catch (error) {
-      logger.error("Claude API stream error", {
-        model: MODEL_ID,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
-
-  async verifyApiKey(): Promise<boolean> {
-    try {
-      // 간단한 요청으로 API 키 검증
-      await this.client.messages.create({
-        model: MODEL_ID,
-        max_tokens: 10,
-        messages: [{ role: "user", content: "Hi" }],
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  getModelInfo() {
-    return {
-      provider: "Anthropic",
-      model: MODEL_ID,
-      maxContextTokens: MAX_CONTEXT_TOKENS,
-    };
-  }
-
-  private mapStopReason(reason: string | null): "end_turn" | "max_tokens" | "stop_sequence" {
-    switch (reason) {
-      case "end_turn":
-        return "end_turn";
-      case "max_tokens":
-        return "max_tokens";
-      case "stop_sequence":
-        return "stop_sequence";
-      default:
-        return "end_turn";
-    }
+function mapStopReason(reason: string | null): "end_turn" | "max_tokens" | "stop_sequence" {
+  switch (reason) {
+    case "end_turn":
+      return "end_turn";
+    case "max_tokens":
+      return "max_tokens";
+    case "stop_sequence":
+      return "stop_sequence";
+    default:
+      return "end_turn";
   }
 }
 
-export function createClaudeAdapter(apiKey: string): AIAdapter {
+export function createClaudeAdapter(apiKey: string): ClaudeAdapter {
   return new ClaudeAdapter(apiKey);
 }

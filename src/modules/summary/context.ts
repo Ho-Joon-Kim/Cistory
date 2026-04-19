@@ -4,7 +4,7 @@
  * 레포지토리 컨텍스트 및 최근 커밋 패턴 분석
  */
 
-import type { VCSAdapter } from "@/lib/adapters/vcs/interface";
+import type { GitHubAdapter } from "@/lib/adapters/vcs/github";
 import type { RecentCommitPattern, RepoContext } from "./prompts";
 
 // 캐시 (메모리 - 프로덕션에서는 KV 사용 권장)
@@ -16,7 +16,7 @@ const CACHE_TTL = 24 * 60 * 60 * 1000; // 24시간
  * CLAUDE.md, README.md, package.json 등에서 정보 추출
  */
 export async function fetchRepoContext(
-  vcsAdapter: VCSAdapter,
+  vcsAdapter: GitHubAdapter,
   owner: string,
   repo: string,
   description: string = ""
@@ -104,7 +104,7 @@ export async function fetchRepoContext(
  * 현재 커밋과 관련된 최근 커밋들 분석
  */
 export async function analyzeRecentCommits(
-  vcsAdapter: VCSAdapter,
+  vcsAdapter: GitHubAdapter,
   owner: string,
   repo: string,
   currentCommitFiles: string[],
