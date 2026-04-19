@@ -602,51 +602,6 @@ function LocationSection({
   );
 }
 
-function _ScratchMapSection({
-  isLoading,
-  data,
-}: {
-  isLoading: boolean;
-  data: {
-    regions: {
-      name: string;
-      visits: number;
-      firstVisit: string;
-      lastVisit: string;
-      lat: number;
-      lon: number;
-    }[];
-    totalCells: number;
-    totalRegions: number;
-  } | null;
-}) {
-  if (isLoading) return <SectionSkeleton title="방문 지도" />;
-  if (!data || data.regions.length === 0) return null;
-
-  return (
-    <Section title="방문 지도">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <Card>
-            <CardContent className="pt-4">
-              <div className="h-[400px]">
-                <ScratchMap regions={data.regions} />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-        <div>
-          <ScratchMapStats
-            totalRegions={data.totalRegions}
-            totalCells={data.totalCells}
-            regions={data.regions}
-          />
-        </div>
-      </div>
-    </Section>
-  );
-}
-
 function YearlySections({
   monthlyTrend,
   isLoading,

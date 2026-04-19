@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   commitSummaries,
@@ -358,34 +358,6 @@ export class SyncService {
         completedAt: now(),
       })
       .where(eq(syncJobs.id, syncJobId));
-  }
-
-  /**
-   * Get recent sync jobs for user
-   */
-  async getRecentSyncJobs(
-    userId: string,
-    limit: number = 10
-  ): Promise<(typeof syncJobs.$inferSelect)[]> {
-    return this.db
-      .select()
-      .from(syncJobs)
-      .where(eq(syncJobs.userId, userId))
-      .orderBy(desc(syncJobs.createdAt))
-      .limit(limit);
-  }
-
-  /**
-   * Check if initial sync is needed
-   */
-  async needsInitialSync(userId: string): Promise<boolean> {
-    const user = await this.db
-      .select({ initialSyncCompleted: users.initialSyncCompleted })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    return !user[0]?.initialSyncCompleted;
   }
 }
 

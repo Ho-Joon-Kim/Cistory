@@ -18,7 +18,7 @@ import {
 } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
-import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
+import { toLocalDateString } from "@/lib/utils";
 import { createSummaryService } from "@/modules/summary/service";
 import { createSyncService } from "@/modules/sync/service";
 import { parseTossNotification } from "@/modules/transaction/parser";

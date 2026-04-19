@@ -88,38 +88,6 @@ export interface TimeSubGroup {
   commits: TimelineCommit[];
 }
 
-export function groupCommitsByTimeOfDay(commits: TimelineCommit[]): TimeSubGroup[] {
-  if (commits.length === 0) return [];
-
-  const groups: TimeSubGroup[] = [];
-  let currentGroup: TimelineCommit[] = [commits[0]];
-  let currentTod = getTimeOfDay(new Date(commits[0].committedAt).getHours());
-
-  for (let i = 1; i < commits.length; i++) {
-    const commitDate = new Date(commits[i].committedAt);
-    const prevDate = new Date(commits[i - 1].committedAt);
-    const hoursDiff = Math.abs(prevDate.getTime() - commitDate.getTime()) / (1000 * 60 * 60);
-    const tod = getTimeOfDay(commitDate.getHours());
-
-    if (hoursDiff >= 3 && tod !== currentTod) {
-      groups.push({ label: TIME_OF_DAY_LABELS[currentTod], commits: currentGroup });
-      currentGroup = [commits[i]];
-      currentTod = tod;
-    } else {
-      currentGroup.push(commits[i]);
-    }
-  }
-
-  groups.push({ label: TIME_OF_DAY_LABELS[currentTod], commits: currentGroup });
-
-  // If only one group, don't show label
-  if (groups.length === 1) {
-    groups[0].label = null;
-  }
-
-  return groups;
-}
-
 // --- 1d. Unified event time-of-day grouping ---
 
 export function groupEventsByTimeOfDay(events: TimelineEvent[]): TimeEventSubGroup[] {

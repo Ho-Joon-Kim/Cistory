@@ -196,14 +196,6 @@ export class WakaTimeSyncService {
 
     return { syncedDays, totalSessions, totalSummaries };
   }
-
-  async verifyApiKey(): Promise<boolean> {
-    return this.adapter.verifyApiKey();
-  }
-
-  async getCurrentUser() {
-    return this.adapter.getCurrentUser();
-  }
 }
 
 export function createWakaTimeSyncService(db: Database, apiKey: string): WakaTimeSyncService {
