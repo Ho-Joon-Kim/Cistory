@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useNdjsonStream } from "@/lib/hooks/useNdjsonStream";
 
 export interface TransactionItem {
   id: string;
@@ -335,45 +336,23 @@ export function useReparse(): UseReparseReturn {
   const [result, setResult] = useState<ReparseResult | null>(null);
   const [progress, setProgress] = useState<ReparseProgress | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const readNdjson = useNdjsonStream();
 
-  const run = useCallback(async (dryRun: boolean) => {
-    setIsLoading(true);
-    setResult(null);
-    setProgress(null);
+  const run = useCallback(
+    async (dryRun: boolean) => {
+      setIsLoading(true);
+      setResult(null);
+      setProgress(null);
 
-    try {
-      const response = await fetch("/api/spending/reparse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dryRun }),
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error("Reparse failed");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        // Keep incomplete last line in buffer
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-
+      try {
+        await readNdjson<{ type: string } & Record<string, unknown>>(
+          "/api/spending/reparse",
+          { dryRun },
+          (event) => {
             if (event.type === "start") {
               setProgress({
                 processed: 0,
-                total: event.total,
+                total: event.total as number,
                 created: 0,
                 updated: 0,
                 skipped: 0,
@@ -381,36 +360,35 @@ export function useReparse(): UseReparseReturn {
               });
             } else if (event.type === "progress") {
               setProgress({
-                processed: event.processed,
-                total: event.total,
-                created: event.created,
-                updated: event.updated,
-                skipped: event.skipped,
-                failed: event.failed,
+                processed: event.processed as number,
+                total: event.total as number,
+                created: event.created as number,
+                updated: event.updated as number,
+                skipped: event.skipped as number,
+                failed: event.failed as number,
               });
             } else if (event.type === "done") {
               setResult({
-                dryRun: event.dryRun,
-                total: event.total,
-                created: event.created,
-                updated: event.updated,
-                skipped: event.skipped,
-                failed: event.failed,
-                items: event.items,
+                dryRun: event.dryRun as boolean,
+                total: event.total as number,
+                created: event.created as number,
+                updated: event.updated as number,
+                skipped: event.skipped as number,
+                failed: event.failed as number,
+                items: event.items as ReparseResult["items"],
               });
               setProgress(null);
             }
-          } catch {
-            // Skip malformed lines
           }
-        }
+        );
+      } catch (err) {
+        console.error("Reparse failed:", err);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (err) {
-      console.error("Reparse failed:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    },
+    [readNdjson]
+  );
 
   const preview = useCallback(() => run(true), [run]);
   const apply = useCallback(() => run(false), [run]);
@@ -469,6 +447,7 @@ export function useCleanup(): UseCleanupReturn {
   const [result, setResult] = useState<CleanupResult | null>(null);
   const [progress, setProgress] = useState<CleanupProgress | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const readNdjson = useNdjsonStream();
 
   const run = useCallback(
     async (dryRun: boolean) => {
@@ -476,102 +455,73 @@ export function useCleanup(): UseCleanupReturn {
       setResult(null);
       setProgress(null);
 
-      // Accumulate reparse stats across events
+      // Accumulate reparse/cleanup stats across events
       let reparseCreated = 0;
       let reparseUpdated = 0;
       let reparseSkipped = 0;
       let deletable = 0;
       let estimatedBytes = 0;
       let items: CleanupItem[] = [];
+      let sawCleanupDone = false;
 
       try {
-        const response = await fetch("/api/spending/notifications/cleanup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dryRun }),
-        });
-
-        if (!response.ok || !response.body) {
-          throw new Error("Cleanup failed");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const event = JSON.parse(line);
-
-              if (event.type === "reparse-start") {
-                setProgress({
-                  phase: "reparse",
-                  reparseProcessed: 0,
-                  reparseTotal: event.total,
-                  reparseCreated: 0,
-                  reparseUpdated: 0,
-                });
-              } else if (event.type === "reparse-progress") {
-                setProgress({
-                  phase: "reparse",
-                  reparseProcessed: event.processed,
-                  reparseTotal: event.total,
-                  reparseCreated: event.created,
-                  reparseUpdated: event.updated,
-                });
-              } else if (event.type === "reparse-done") {
-                reparseCreated = event.created;
-                reparseUpdated = event.updated;
-                reparseSkipped = event.skipped;
-                setProgress(null);
-              } else if (event.type === "cleanup-start") {
-                deletable = event.deletable;
-                estimatedBytes = event.estimatedBytes;
-                items = event.items;
-                if (!dryRun && event.deletable > 0) {
-                  setProgress({
-                    phase: "cleanup",
-                    deleted: 0,
-                    deletableTotal: event.deletable,
-                  });
-                }
-              } else if (event.type === "cleanup-progress") {
-                setProgress({
-                  phase: "cleanup",
-                  deleted: event.deleted,
-                  deletableTotal: event.total,
-                });
-              } else if (event.type === "cleanup-done") {
-                setResult({
-                  dryRun,
-                  reparseCreated,
-                  reparseUpdated,
-                  reparseSkipped,
-                  deletable,
-                  deleted: event.deleted,
-                  estimatedBytes,
-                  items,
-                });
-                setProgress(null);
-                return;
+        await readNdjson<{ type: string } & Record<string, unknown>>(
+          "/api/spending/notifications/cleanup",
+          { dryRun },
+          (event) => {
+            if (event.type === "reparse-start") {
+              setProgress({
+                phase: "reparse",
+                reparseProcessed: 0,
+                reparseTotal: event.total as number,
+                reparseCreated: 0,
+                reparseUpdated: 0,
+              });
+            } else if (event.type === "reparse-progress") {
+              setProgress({
+                phase: "reparse",
+                reparseProcessed: event.processed as number,
+                reparseTotal: event.total as number,
+                reparseCreated: event.created as number,
+                reparseUpdated: event.updated as number,
+              });
+            } else if (event.type === "reparse-done") {
+              reparseCreated = event.created as number;
+              reparseUpdated = event.updated as number;
+              reparseSkipped = event.skipped as number;
+              setProgress(null);
+            } else if (event.type === "cleanup-start") {
+              deletable = event.deletable as number;
+              estimatedBytes = event.estimatedBytes as number;
+              items = event.items as CleanupItem[];
+              if (!dryRun && deletable > 0) {
+                setProgress({ phase: "cleanup", deleted: 0, deletableTotal: deletable });
               }
-            } catch {
-              // Skip malformed lines
+            } else if (event.type === "cleanup-progress") {
+              setProgress({
+                phase: "cleanup",
+                deleted: event.deleted as number,
+                deletableTotal: event.total as number,
+              });
+            } else if (event.type === "cleanup-done") {
+              sawCleanupDone = true;
+              setResult({
+                dryRun,
+                reparseCreated,
+                reparseUpdated,
+                reparseSkipped,
+                deletable,
+                deleted: event.deleted as number,
+                estimatedBytes,
+                items,
+              });
+              setProgress(null);
             }
           }
-        }
+        );
 
-        // If no cleanup-done event (dryRun=true), set result from accumulated data
-        if (!result) {
+        // If no cleanup-done event (dryRun=true path), set result from accumulated data
+        if (!sawCleanupDone) {
           setResult({
             dryRun,
             reparseCreated,
@@ -590,7 +540,7 @@ export function useCleanup(): UseCleanupReturn {
         setProgress(null);
       }
     },
-    [result]
+    [readNdjson]
   );
 
   const preview = useCallback(() => run(true), [run]);
