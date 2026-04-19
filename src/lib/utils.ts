@@ -146,6 +146,46 @@ export function parseDateParam(param: string | null): string {
 }
 
 /**
+ * Parse a date string into a local-timezone Date object.
+ *
+ * CLAUDE.md requires avoiding `new Date("YYYY-MM-DD")` since ECMAScript parses
+ * date-only strings as UTC midnight — in KST that's the previous day 09:00,
+ * which corrupts day-window queries.
+ *
+ * - "YYYY-MM-DD" → local midnight (uses new Date(y, m-1, d))
+ * - Full ISO / other formats → new Date(str) as-is
+ * - Invalid → null
+ */
+export function parseDateLocal(str: string): Date | null {
+  const dateOnly = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  const d = new Date(str);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Start of the given local day ("YYYY-MM-DD" → that day 00:00:00 local time). */
+export function startOfLocalDay(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+/** End of the given local day ("YYYY-MM-DD" → that day 23:59:59.999 local time). */
+export function endOfLocalDay(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59, 999);
+}
+
+/** Format a Date as "YYYY-MM-DD" using local timezone fields. */
+export function toLocalDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
  * Format bytes to human-readable string
  */
 export function formatBytes(bytes: number): string {

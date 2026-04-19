@@ -3,18 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-
-/** Parse date string to local-timezone Date. Handles both "YYYY-MM-DD" and full ISO strings. */
-function parseDateLocal(str: string): Date | null {
-  // YYYY-MM-DD → local midnight
-  const dateOnly = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnly) {
-    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
-  }
-  // Full ISO or other format
-  const d = new Date(str);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
+import { parseDateLocal } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
