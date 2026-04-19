@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { commitSummaries, commits, users } from "@/db/schema";
+import { commits, users } from "@/db/schema";
 import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
 import { createSummaryService } from "@/modules/summary/service";
 
@@ -21,26 +21,19 @@ export async function POST(
       return NextResponse.json({ error: "GitHub access token not found" }, { status: 400 });
     }
 
-    // 커밋이 사용자 소유인지 확인
-    const commitResult = await db
-      .select({
-        id: commits.id,
-        summaryRetryCount: commitSummaries.retryCount,
-      })
+    // Ownership check only — retry-count gating moved into
+    // SummaryService.regenerateSummary, which resets the counter for
+    // user-initiated retries (see Phase 3 C5).
+    const [commitResult] = await db
+      .select({ id: commits.id })
       .from(commits)
-      .leftJoin(commitSummaries, eq(commits.id, commitSummaries.commitId))
-      .where(and(eq(commits.id, commitId), eq(commits.userId, user.id)));
+      .where(and(eq(commits.id, commitId), eq(commits.userId, user.id)))
+      .limit(1);
 
-    if (commitResult.length === 0) {
+    if (!commitResult) {
       return NextResponse.json({ error: "Commit not found" }, { status: 404 });
     }
 
-    const retryCount = commitResult[0].summaryRetryCount ?? 0;
-    if (retryCount >= 3) {
-      return NextResponse.json({ error: "Maximum retry count exceeded" }, { status: 429 });
-    }
-
-    // 요약 생성 서비스
     const summaryService = createSummaryService(db, process.env.ANTHROPIC_API_KEY!, accessToken);
 
     // 비동기로 요약 생성 시작 (응답은 즉시 반환)

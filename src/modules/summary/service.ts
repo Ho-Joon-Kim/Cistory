@@ -4,7 +4,7 @@
  * AI 요약 생성 및 관리
  */
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
@@ -18,8 +18,6 @@ import {
   type CommitContext,
   SIMPLE_SYSTEM_PROMPT,
 } from "./prompts";
-
-const MAX_RETRY_COUNT = 3;
 
 export interface SummaryResult {
   summary: string;
@@ -148,20 +146,21 @@ export class SummaryService {
 
       return result;
     } catch (error) {
-      // 실패 처리
-      const summary = await this.db
-        .select()
-        .from(commitSummaries)
-        .where(eq(commitSummaries.commitId, commitId));
-
-      const currentRetry = summary[0]?.retryCount ?? 0;
-
+      // Atomic retry increment + terminal failure after MAX_RETRY_COUNT.
+      //
+      // Previous behavior: select-then-update raced against concurrent cron
+      // workers, and the "flip status to pending" path meant the cron would
+      // immediately re-enqueue and loop forever on a persistent upstream error.
+      // Now we increment in-place and leave the row as `failed` so it drops
+      // out of the pending queue. Manual regenerate (regenerateSummary) is
+      // still available and resets the counter.
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       await this.db
         .update(commitSummaries)
         .set({
-          status: currentRetry >= MAX_RETRY_COUNT - 1 ? "failed" : "pending",
-          retryCount: currentRetry + 1,
-          errorMessage: error instanceof Error ? error.message : "Unknown error",
+          status: "failed",
+          retryCount: sql`${commitSummaries.retryCount} + 1`,
+          errorMessage,
           updatedAt: now(),
         })
         .where(eq(commitSummaries.commitId, commitId));
@@ -171,22 +170,30 @@ export class SummaryService {
   }
 
   /**
-   * 요약 재생성
+   * Manual regeneration: resets retryCount and clears the error so a
+   * user-initiated retry on a `failed` row actually proceeds. Automatic
+   * retries are handled by MAX_RETRY_COUNT inside generateSummary's catch.
    */
   async regenerateSummary(commitId: string): Promise<SummaryResult> {
-    // 재시도 횟수 확인
-    const summary = await this.db
-      .select()
+    const [summary] = await this.db
+      .select({ id: commitSummaries.id })
       .from(commitSummaries)
-      .where(eq(commitSummaries.commitId, commitId));
+      .where(eq(commitSummaries.commitId, commitId))
+      .limit(1);
 
-    if (summary.length === 0) {
+    if (!summary) {
       throw new Error("Summary record not found");
     }
 
-    if ((summary[0].retryCount ?? 0) >= MAX_RETRY_COUNT) {
-      throw new Error("Maximum retry count exceeded");
-    }
+    await this.db
+      .update(commitSummaries)
+      .set({
+        status: "processing",
+        retryCount: 0,
+        errorMessage: null,
+        updatedAt: now(),
+      })
+      .where(eq(commitSummaries.commitId, commitId));
 
     return this.generateSummary(commitId);
   }
