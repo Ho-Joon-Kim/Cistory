@@ -6,7 +6,7 @@
  * Returns SSE stream with parsing and insertion progress.
  *
  * Inspired by Dawarich's broadcast pattern (5s / 100 points throttle).
- * Supports files up to 500MB (Google Takeout).
+ * Supports files up to 50MB (see MAX_FILE_SIZE below).
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -18,11 +18,27 @@ import {
 } from "@/modules/location/services/import/importer";
 import type { ImportFormat } from "@/modules/location/services/import/types";
 
-const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+// Hard cap file size — parser materializes the full string in memory, so the
+// effective limit is bound by the Node.js heap of the server. 50MB covers the
+// realistic Google Takeout / GPX export cases while keeping peak heap well
+// under typical container limits. Follow-up work to stream the parser itself
+// would allow raising this safely; see Phase 7.6.
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await getAuthenticatedUser(request);
   if (authError) return authError;
+
+  // Reject oversized bodies before parsing formData — Content-Length is the
+  // client's advertised size. formData() parsing of a 500MB body already
+  // causes memory pressure regardless of file.size checks below.
+  const contentLength = Number.parseInt(request.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(contentLength) && contentLength > MAX_FILE_SIZE + 1024 * 1024) {
+    return NextResponse.json(
+      { error: `파일 크기는 ${MAX_FILE_SIZE / 1024 / 1024}MB 이하여야 합니다` },
+      { status: 413 }
+    );
+  }
 
   let formData: FormData;
   try {
@@ -38,7 +54,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: "파일 크기는 500MB 이하여야 합니다" }, { status: 400 });
+    return NextResponse.json(
+      { error: `파일 크기는 ${MAX_FILE_SIZE / 1024 / 1024}MB 이하여야 합니다` },
+      { status: 413 }
+    );
   }
 
   const formatParam = formData.get("format") as string | null;

@@ -211,8 +211,7 @@ export function LocationImport() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          GPX, GeoJSON, Google Takeout (Records.json) 파일을 업로드하세요. 대용량 파일(최대 500MB)도
-          지원합니다.
+          GPX, GeoJSON, Google Takeout (Records.json) 파일을 업로드하세요. 최대 50MB까지 지원합니다.
         </p>
 
         <input
