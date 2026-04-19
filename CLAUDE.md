@@ -249,6 +249,8 @@ KAKAO_REST_API_KEY=...               # Korean location geocoding
 GOOGLE_MAPS_API_KEY=...              # Google Places API geocoding
 BETTER_STACK_SOURCE_TOKEN=...        # Structured logging via Logtail
 NEXT_PUBLIC_SENTRY_DSN=...           # Sentry error tracking
+ENABLE_DB_BENCHMARK=true             # Gate /api/settings/db-benchmark (admin-only DB perf test)
+NEXT_PUBLIC_ENABLE_DB_BENCHMARK=true # Show the matching UI card
 ```
 
 ### Database Operations

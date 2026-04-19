@@ -66,8 +66,8 @@ export function SettingsForm() {
       {/* 데이터 용량 */}
       <DataUsageCard />
 
-      {/* DB 벤치마크 */}
-      <DbBenchmarkCard />
+      {/* DB 벤치마크 — admin-only, gated by NEXT_PUBLIC_ENABLE_DB_BENCHMARK */}
+      {process.env.NEXT_PUBLIC_ENABLE_DB_BENCHMARK === "true" && <DbBenchmarkCard />}
 
       {/* GitHub 연결 */}
       <Card>

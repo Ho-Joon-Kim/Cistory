@@ -58,6 +58,14 @@ function extractDbHost(url: string): string {
 
 export async function POST(request: NextRequest) {
   try {
+    // Feature flag: the benchmark runs 6 query classes × 11 iterations = 66 DB
+    // round-trips per call, and previously could be spammed by any authenticated
+    // user. Gate behind an explicit env var so production deployments stay safe
+    // while local/admin envs can still run it on demand.
+    if (process.env.ENABLE_DB_BENCHMARK !== "true") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError) return authError;
 
