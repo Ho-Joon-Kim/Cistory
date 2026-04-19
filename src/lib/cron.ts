@@ -87,7 +87,23 @@ async function syncAllUsers() {
         if (!user.initialSyncCompleted) {
           await syncService.initialSync(user.id, user.githubLogin);
         } else {
-          await syncService.syncUserCommits(user.id, user.githubLogin, "scheduled");
+          const intervalHours = user.syncIntervalHours ?? 1;
+          const intervalMs = intervalHours * 60 * 60 * 1000;
+          const sinceLastSync = user.lastSyncedAt
+            ? Date.now() - user.lastSyncedAt.getTime()
+            : Number.POSITIVE_INFINITY;
+
+          if (sinceLastSync < intervalMs) {
+            const remainingMin = Math.ceil((intervalMs - sinceLastSync) / 60000);
+            logger.info(`[Cron] Skipping commit sync: interval not reached`, {
+              userId: user.id,
+              githubLogin: user.githubLogin,
+              syncIntervalHours: intervalHours,
+              remainingMinutes: remainingMin,
+            });
+          } else {
+            await syncService.syncUserCommits(user.id, user.githubLogin, "scheduled");
+          }
         }
 
         // Process pending summaries for recent commits (last 7 days)
