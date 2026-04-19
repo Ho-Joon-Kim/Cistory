@@ -4,13 +4,14 @@
  * POST /api/owntracks?apikey={key}
  * Receives location data from OwnTracks app.
  * Authentication via API key in query parameter.
- * Always returns [] per OwnTracks protocol.
+ * Always returns [] per OwnTracks protocol (silent on auth failure).
  */
 
 import { eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { locationPoints, users } from "@/db/schema";
+import { checkBodySize, enforceRateLimit, logIngestionFailure, verifyApiKey } from "@/lib/api-auth";
 import { logger } from "@/lib/logger";
 
 interface OwnTracksPayload {
@@ -30,27 +31,31 @@ const EMPTY_RESPONSE = NextResponse.json([]);
 
 export async function POST(request: NextRequest) {
   try {
+    const body = checkBodySize(request);
+    if (!body.ok) {
+      logIngestionFailure("owntracks", "body_too_large", request);
+      // Still return OwnTracks-compatible response shape
+      return EMPTY_RESPONSE;
+    }
+
+    const rate = enforceRateLimit(request, "owntracks");
+    if (!rate.allowed) {
+      logIngestionFailure("owntracks", "rate_limited", request);
+      return EMPTY_RESPONSE;
+    }
+
     const apikey = request.nextUrl.searchParams.get("apikey");
-    if (!apikey) {
+    const authed = await verifyApiKey(apikey, "ownTracksApiKey");
+    if (!authed) {
+      logIngestionFailure("owntracks", "auth_failed", request);
       return EMPTY_RESPONSE;
     }
 
+    const userId = authed.id;
     const db = getDb();
+    const payload = (await request.json()) as OwnTracksPayload | OwnTracksPayload[];
 
-    const userResult = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.ownTracksApiKey, apikey))
-      .limit(1);
-
-    if (userResult.length === 0) {
-      return EMPTY_RESPONSE;
-    }
-
-    const userId = userResult[0].id;
-    const body = (await request.json()) as OwnTracksPayload | OwnTracksPayload[];
-
-    const payloads = Array.isArray(body) ? body : [body];
+    const payloads = Array.isArray(payload) ? payload : [payload];
     const locationPayloads = payloads.filter((p) => p._type === "location");
 
     if (locationPayloads.length === 0) {

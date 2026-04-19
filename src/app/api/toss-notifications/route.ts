@@ -12,33 +12,36 @@
 import { desc, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { notificationLogs, transactions, users } from "@/db/schema";
+import { notificationLogs, transactions } from "@/db/schema";
+import { checkBodySize, enforceRateLimit, logIngestionFailure, verifyApiKey } from "@/lib/api-auth";
 import { logger } from "@/lib/logger";
 import { parseTossNotification } from "@/modules/transaction/parser";
 
-async function authenticateByApiKey(apikey: string | null) {
-  if (!apikey) return null;
-
-  const db = getDb();
-  const result = await db
-    .select({ id: users.id, tossMyName: users.tossMyName })
-    .from(users)
-    .where(eq(users.tossNotificationApiKey, apikey))
-    .limit(1);
-
-  return result.length > 0 ? result[0] : null;
-}
-
 export async function POST(request: NextRequest) {
   try {
-    const apikey = request.nextUrl.searchParams.get("apikey");
-    const authResult = await authenticateByApiKey(apikey);
+    const body = checkBodySize(request);
+    if (!body.ok) {
+      logIngestionFailure("toss-notifications", "body_too_large", request);
+      return NextResponse.json({ error: "요청이 너무 큽니다" }, { status: 413 });
+    }
 
-    if (!authResult) {
+    const rate = enforceRateLimit(request, "toss-notifications");
+    if (!rate.allowed) {
+      logIngestionFailure("toss-notifications", "rate_limited", request);
+      return NextResponse.json(
+        { error: "Too many requests" },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)) } }
+      );
+    }
+
+    const apikey = request.nextUrl.searchParams.get("apikey");
+    const authed = await verifyApiKey(apikey, "tossNotificationApiKey");
+    if (!authed) {
+      logIngestionFailure("toss-notifications", "auth_failed", request);
       return NextResponse.json({ error: "인증 실패" }, { status: 401 });
     }
 
-    const { id: userId, tossMyName } = authResult;
+    const { id: userId, tossMyName } = authed;
 
     // Always read as text first — MacroDroid may send malformed JSON
     // with control characters (newlines, tabs in notification text)
@@ -108,14 +111,23 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const apikey = request.nextUrl.searchParams.get("apikey");
-    const authResult = await authenticateByApiKey(apikey);
+    const rate = enforceRateLimit(request, "toss-notifications-get");
+    if (!rate.allowed) {
+      logIngestionFailure("toss-notifications", "rate_limited", request);
+      return NextResponse.json(
+        { error: "Too many requests" },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)) } }
+      );
+    }
 
-    if (!authResult) {
+    const apikey = request.nextUrl.searchParams.get("apikey");
+    const authed = await verifyApiKey(apikey, "tossNotificationApiKey");
+    if (!authed) {
+      logIngestionFailure("toss-notifications", "auth_failed", request);
       return NextResponse.json({ error: "인증 실패" }, { status: 401 });
     }
 
-    const userId = authResult.id;
+    const userId = authed.id;
 
     const limit = Math.min(Number(request.nextUrl.searchParams.get("limit")) || 50, 200);
     const offset = Number(request.nextUrl.searchParams.get("offset")) || 0;
