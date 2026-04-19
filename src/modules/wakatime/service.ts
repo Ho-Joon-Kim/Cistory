@@ -92,7 +92,9 @@ export class WakaTimeSyncService {
     return upserted;
   }
 
-  async syncUser(userId: string): Promise<void> {
+  async syncUser(
+    userId: string
+  ): Promise<{ syncedDays: number; totalSessions: number; totalSummaries: number }> {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().slice(0, 10);
@@ -102,14 +104,15 @@ export class WakaTimeSyncService {
     // Sync durations for yesterday and today
     const insertedYesterday = await this.syncDurations(userId, dateStr);
     const insertedToday = await this.syncDurations(userId, today);
+    const totalSessions = insertedYesterday + insertedToday;
 
     // Sync summaries for yesterday and today
-    const summaryCount = await this.syncSummaries(userId, dateStr, today);
+    const totalSummaries = await this.syncSummaries(userId, dateStr, today);
 
     logger.info("[WakaTime] Sync completed", {
       userId,
-      durationsInserted: insertedYesterday + insertedToday,
-      summariesUpserted: summaryCount,
+      durationsInserted: totalSessions,
+      summariesUpserted: totalSummaries,
     });
 
     // Update last synced timestamp
@@ -117,6 +120,8 @@ export class WakaTimeSyncService {
       .update(users)
       .set({ wakatimeLastSyncedAt: new Date(), updatedAt: new Date() })
       .where(eq(users.id, userId));
+
+    return { syncedDays: 2, totalSessions, totalSummaries };
   }
 
   async syncAllCommitDates(

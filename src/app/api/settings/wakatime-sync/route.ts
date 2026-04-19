@@ -97,12 +97,10 @@ export async function POST(request: NextRequest) {
     }
 
     // regular mode
-    await service.syncUser(user.id);
+    const result = await service.syncUser(user.id);
     return NextResponse.json({
       success: true,
-      syncedDays: 2,
-      totalSessions: 0,
-      totalSummaries: 0,
+      ...result,
     });
   } catch (error) {
     console.error("WakaTime sync error:", error);
