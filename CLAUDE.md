@@ -214,7 +214,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - `/api/timeline` - GET paginated commits with filters
 - `/api/timeline/repos` - GET user repos; `/api/timeline/stats` - GET commit stats
 - `/api/timeline/commits/[commitId]` - GET details; `.../stats` - GET file stats; `.../summary` - GET/POST summary
-- `/api/timeline/locations` - GET location points; `.../stay-points` - detected stay points; `.../distances` - daily travel distances; `.../anomalies` - anomaly-flagged points; `.../tracks` - movement tracks; `.../transport-modes` - transportation segments; `.../activity` - activity summary; `.../first-visits` - first-time city/country visits; `.../residency` - residency analysis; `.../fog-cells` - visited-area fog-of-war grid; `.../stats` - location stats; `.../import` - GPX/external import
+- `/api/timeline/locations` - GET location points; `.../stay-points` - detected stay points; `.../distances` - daily travel distances; `.../tracks` - movement tracks; `.../fog-cells` - visited-area fog-of-war grid; `.../import` - GPX/external import
 - `/api/timeline/coding-sessions` - GET WakaTime coding sessions
 - `/api/timeline/coding-stats` - GET WakaTime coding statistics
 - `/api/trips` - GET/POST trips; `/api/trips/[id]` - PUT/DELETE trip; `/api/trips/detect` - POST auto-detect trips from visits
@@ -226,7 +226,6 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - `/api/saved-places` - GET/POST saved places; `/api/saved-places/[id]` - PUT/DELETE individual place; `/api/saved-places/search` - GET place search
 - `/api/toss-notifications` - POST Toss notification ingestion (via MacroDroid)
 - `/api/health` - GET health check
-- `/api/transactions` - GET parsed Toss transactions
 - `/api/spending` - GET spending analytics; `/api/spending/reparse` - POST reparse notifications; `/api/spending/transactions/[transactionId]` - DELETE transaction; `/api/spending/notifications` - GET raw notifications; `/api/spending/notifications/cleanup` - POST cleanup
 
 ### Environment Setup
