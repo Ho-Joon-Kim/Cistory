@@ -85,21 +85,11 @@ export async function POST(request: NextRequest) {
 
     const data = await service.aggregateYearlyData(user.id, year);
 
-    // Collect enriched data for deeper narrative
-    const [enrichedCommits, enrichedCoding, crossAnalysis] = await Promise.all([
-      service.aggregateEnrichedMonthlyCommits(user.id, year),
-      service.aggregateEnrichedMonthlyCoding(user.id, year),
-      service.aggregateCrossAnalysis(user.id, year),
-    ]);
-
-    const narrative = await service.generateYearlyNarrative(user.id, year, data, {
-      workLifeBalance: enrichedCommits.workLifeBalance,
-      deepWorkStats: enrichedCoding.deepWorkStats,
-      categoryBreakdown: enrichedCoding.categoryBreakdown,
-      contextSwitching: enrichedCoding.contextSwitching,
-      placeProductivity: crossAnalysis.placeProductivity,
-      routinePatterns: crossAnalysis.routinePatterns,
-    });
+    // Enriched yearly aggregation is not yet implemented; narrative is generated
+    // from base yearly data only. Previously this path passed `year` (YYYY) to
+    // monthly-enriched helpers which expect `yearMonth` (YYYY-MM), producing
+    // Invalid Date and corrupted enriched fields.
+    const narrative = await service.generateYearlyNarrative(user.id, year, data);
 
     return NextResponse.json({ narrative });
   } catch (error) {
