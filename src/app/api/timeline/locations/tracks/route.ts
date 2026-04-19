@@ -9,6 +9,7 @@ import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, tracks, transportationSegments } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { detectAndPersistTracks } from "@/modules/location/services/track-persister";
 
 function parseDateParam(request: NextRequest) {
@@ -30,8 +31,8 @@ export async function GET(request: NextRequest) {
     }
 
     const db = getDb();
-    const dayStart = new Date(`${parsed.dateParam}T00:00:00.000Z`);
-    const dayEnd = new Date(`${parsed.dateParam}T23:59:59.999Z`);
+    const dayStart = startOfLocalDay(parsed.dateParam);
+    const dayEnd = endOfLocalDay(parsed.dateParam);
 
     // Fetch tracks for the day
     const dayTracks = await db

@@ -19,6 +19,7 @@ import {
 } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
+import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
 import { createSummaryService } from "@/modules/summary/service";
 import { createSyncService } from "@/modules/sync/service";
 import { parseTossNotification } from "@/modules/transaction/parser";
@@ -300,12 +301,12 @@ async function processYesterdayLocations() {
       return;
     }
 
-    // Yesterday date range (KST)
-    const now = new Date();
-    const yesterday = new Date(now);
+    // Yesterday date range (local timezone — KST in production)
+    const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const from = new Date(`${yesterday.toISOString().slice(0, 10)}T00:00:00.000Z`);
-    const to = new Date(`${yesterday.toISOString().slice(0, 10)}T23:59:59.999Z`);
+    const yesterdayDateStr = toLocalDateString(yesterday);
+    const from = startOfLocalDay(yesterdayDateStr);
+    const to = endOfLocalDay(yesterdayDateStr);
 
     const { detectAndPersistVisits } = await import("@/modules/location/services/visit-persister");
     const { detectTransportModes } = await import(
@@ -313,7 +314,7 @@ async function processYesterdayLocations() {
     );
     const { transportationSegments } = await import("@/db/schema");
 
-    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+    const yesterdayStr = yesterdayDateStr;
 
     for (const user of allUsers) {
       try {

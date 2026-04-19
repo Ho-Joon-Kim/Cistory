@@ -10,6 +10,7 @@ import { and, asc, eq, gte, isNull, lt, lte, or } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, locationPoints, transportationSegments } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { detectTransportModes } from "@/modules/location/services/transportation/detector";
 
 export async function GET(request: NextRequest) {
@@ -26,8 +27,8 @@ export async function GET(request: NextRequest) {
     }
 
     const db = getDb();
-    const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
-    const dayEnd = new Date(`${dateParam}T23:59:59.999Z`);
+    const dayStart = startOfLocalDay(dateParam);
+    const dayEnd = endOfLocalDay(dateParam);
 
     const rows = await db
       .select({

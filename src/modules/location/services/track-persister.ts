@@ -7,6 +7,7 @@
 
 import { and, asc, eq, gte, isNull, lt, lte, or } from "drizzle-orm";
 import { getDb, locationPoints, placeCache, tracks, transportationSegments, visits } from "@/db";
+import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { buildTracks, type TrackPoint } from "./track-builder";
 import { detectTransportModes } from "./transportation/detector";
 
@@ -65,8 +66,8 @@ export async function detectAndPersistTracks(
 ): Promise<PersistResult> {
   const db = getDb();
 
-  const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
-  const dayEnd = new Date(`${dateStr}T23:59:59.999Z`);
+  const dayStart = startOfLocalDay(dateStr);
+  const dayEnd = endOfLocalDay(dateStr);
 
   // Fetch clean points for the day
   const points = await db

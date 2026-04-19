@@ -10,6 +10,7 @@ import type { SavedPlace } from "@/db";
 import { getDb, locationPoints, placeCache, savedPlaces, visits } from "@/db";
 import { getGeocodingAdapter, isInKorea } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
+import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { detectAndMergeVisits } from "./visit-detector";
 
 function roundCoord(value: number): number {
@@ -69,8 +70,8 @@ export async function detectAndPersistVisits(
   dateParam: string
 ): Promise<EnrichedVisit[]> {
   const db = getDb();
-  const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
-  const dayEnd = new Date(`${dateParam}T23:59:59.999Z`);
+  const dayStart = startOfLocalDay(dateParam);
+  const dayEnd = endOfLocalDay(dateParam);
   const now = new Date();
 
   // 1. Fetch location points

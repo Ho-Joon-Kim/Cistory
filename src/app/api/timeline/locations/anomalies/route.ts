@@ -9,6 +9,7 @@ import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, locationPoints } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
 import { runAnomalyDetectionForDay } from "@/modules/location/services/anomaly-filter";
 
 export async function POST(request: NextRequest) {
@@ -28,14 +29,14 @@ export async function POST(request: NextRequest) {
 
     // Process day by day
     let totalMarked = 0;
-    const cursor = new Date(`${from}T00:00:00.000Z`);
-    const end = new Date(`${to}T00:00:00.000Z`);
+    const cursor = startOfLocalDay(from);
+    const end = startOfLocalDay(to);
 
     while (cursor <= end) {
-      const dateStr = cursor.toISOString().slice(0, 10);
+      const dateStr = toLocalDateString(cursor);
       const result = await runAnomalyDetectionForDay(user.id, dateStr);
       totalMarked += result.total;
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      cursor.setDate(cursor.getDate() + 1);
     }
 
     return NextResponse.json({ marked: totalMarked });
@@ -59,8 +60,8 @@ export async function GET(request: NextRequest) {
     }
 
     const db = getDb();
-    const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
-    const dayEnd = new Date(`${dateParam}T23:59:59.999Z`);
+    const dayStart = startOfLocalDay(dateParam);
+    const dayEnd = endOfLocalDay(dateParam);
 
     const [stats] = await db
       .select({

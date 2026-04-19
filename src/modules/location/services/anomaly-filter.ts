@@ -12,6 +12,7 @@
 
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
+import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 
 const ACCURACY_THRESHOLD = 100;
 const MAX_SPEED_KMH = 1000;
@@ -32,8 +33,8 @@ export async function runAnomalyDetectionForDay(
   dateStr: string
 ): Promise<AnomalyResult> {
   const db = getDb();
-  const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
-  const dayEnd = new Date(`${dateStr}T23:59:59.999Z`);
+  const dayStart = startOfLocalDay(dateStr);
+  const dayEnd = endOfLocalDay(dateStr);
 
   // Pass 1: Accuracy filter
   const accuracyResult = await db.execute(sql`

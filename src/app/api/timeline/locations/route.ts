@@ -12,6 +12,7 @@ import { getDb } from "@/db";
 import { locationPoints } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { distanceM } from "@/lib/geo";
+import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 
 const MAX_POINTS = 500;
 const MIN_DISTANCE_M = 100;
@@ -34,8 +35,8 @@ export async function GET(request: NextRequest) {
     const useDownsample = request.nextUrl.searchParams.get("downsample") !== "false";
 
     const db = getDb();
-    const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
-    const dayEnd = new Date(`${dateParam}T23:59:59.999Z`);
+    const dayStart = startOfLocalDay(dateParam);
+    const dayEnd = endOfLocalDay(dateParam);
 
     const conditions = [
       eq(locationPoints.userId, user.id),

@@ -10,6 +10,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { codingSessions } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,14 +27,12 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
-    // tz = timezone offset in minutes (from getTimezoneOffset(), e.g. -540 for KST)
-    const tzParam = request.nextUrl.searchParams.get("tz");
-    const tzOffsetMinutes = tzParam ? Number.parseInt(tzParam, 10) : 0;
-    const tzOffsetMs = tzOffsetMinutes * 60 * 1000;
-
-    // Convert local date boundaries to UTC
-    const dayStart = new Date(new Date(`${dateParam}T00:00:00.000Z`).getTime() + tzOffsetMs);
-    const dayEnd = new Date(new Date(`${dateParam}T23:59:59.999Z`).getTime() + tzOffsetMs);
+    // Use server-local day window (KST in production). The `tz` query param is
+    // deprecated — the client-supplied timezone offset previously diverged from
+    // server TZ when the backing record already lives in KST, corrupting edge
+    // cases around midnight. Single-user KST deployment makes local-day correct.
+    const dayStart = startOfLocalDay(dateParam);
+    const dayEnd = endOfLocalDay(dateParam);
 
     const rows = await db
       .select({

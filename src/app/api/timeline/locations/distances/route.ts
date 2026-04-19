@@ -14,6 +14,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { dailyDistances } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
 
 function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);
@@ -94,13 +95,13 @@ export async function GET(request: NextRequest) {
     const today = todayUTC();
     const distances: Record<string, number> = {};
 
-    // 1. Build list of all dates in range
+    // 1. Build list of all dates in range (local-day iteration)
     const allDates: string[] = [];
-    const cursor = new Date(`${fromParam}T00:00:00.000Z`);
-    const end = new Date(`${toParam}T00:00:00.000Z`);
+    const cursor = startOfLocalDay(fromParam);
+    const end = startOfLocalDay(toParam);
     while (cursor <= end) {
-      allDates.push(cursor.toISOString().slice(0, 10));
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      allDates.push(toLocalDateString(cursor));
+      cursor.setDate(cursor.getDate() + 1);
     }
 
     // 2. Separate past dates vs today
@@ -130,8 +131,8 @@ export async function GET(request: NextRequest) {
     const datesToCalculate = [...uncachedPastDates, ...(includesToday ? [today] : [])];
 
     if (datesToCalculate.length > 0) {
-      const calcStart = new Date(`${datesToCalculate[0]}T00:00:00.000Z`);
-      const calcEnd = new Date(`${datesToCalculate[datesToCalculate.length - 1]}T23:59:59.999Z`);
+      const calcStart = startOfLocalDay(datesToCalculate[0]);
+      const calcEnd = endOfLocalDay(datesToCalculate[datesToCalculate.length - 1]);
 
       const calculated = await calculateDistancesPostGIS(db, user.id, calcStart, calcEnd);
 
