@@ -5,13 +5,12 @@
  * Runs independently of user sessions - works even if users haven't logged in for months
  */
 
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import * as cron from "node-cron";
 import {
   commitSummaries,
   commits,
   getDb,
-  locationPoints,
   notificationLogs,
   syncJobs,
   transactions,
@@ -301,20 +300,13 @@ async function processYesterdayLocations() {
       return;
     }
 
-    // Yesterday date range (local timezone — KST in production)
+    // Yesterday in local timezone (KST in production)
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayDateStr = toLocalDateString(yesterday);
-    const from = startOfLocalDay(yesterdayDateStr);
-    const to = endOfLocalDay(yesterdayDateStr);
+    const yesterdayStr = toLocalDateString(yesterday);
 
     const { detectAndPersistVisits } = await import("@/modules/location/services/visit-persister");
-    const { detectTransportModes } = await import(
-      "@/modules/location/services/transportation/detector"
-    );
-    const { transportationSegments } = await import("@/db/schema");
-
-    const yesterdayStr = yesterdayDateStr;
+    const { detectAndPersistTracks } = await import("@/modules/location/services/track-persister");
 
     for (const user of allUsers) {
       try {
@@ -334,57 +326,13 @@ async function processYesterdayLocations() {
           );
         }
 
-        // 3. Transportation mode detection + persist
-        const points = await db
-          .select({
-            lat: locationPoints.lat,
-            lon: locationPoints.lon,
-            velocity: locationPoints.velocity,
-            timestamp: locationPoints.timestamp,
-          })
-          .from(locationPoints)
-          .where(
-            and(
-              eq(locationPoints.userId, user.id),
-              gte(locationPoints.timestamp, from),
-              lt(locationPoints.timestamp, to),
-              or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200)),
-              or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false))
-            )
-          )
-          .orderBy(asc(locationPoints.timestamp));
-
-        const segments = detectTransportModes(points);
-        if (segments.length > 0) {
-          const now2 = new Date();
-          await db.transaction(async (tx) => {
-            await tx
-              .delete(transportationSegments)
-              .where(
-                and(
-                  eq(transportationSegments.userId, user.id),
-                  eq(transportationSegments.date, yesterdayStr)
-                )
-              );
-            await tx.insert(transportationSegments).values(
-              segments.map((s) => ({
-                userId: user.id,
-                date: yesterdayStr,
-                mode: s.mode,
-                confidence: s.confidence,
-                startTime: s.startTime,
-                endTime: s.endTime,
-                distanceMeters: s.distanceMeters,
-                durationSeconds: s.durationSeconds,
-                avgSpeedKmh: s.avgSpeedKmh,
-                maxSpeedKmh: s.maxSpeedKmh,
-                avgAcceleration: s.avgAcceleration,
-                calculatedAt: now2,
-              }))
-            );
-          });
+        // 3. Track + transport-mode detection + persist.
+        // Uses the same track-persister as location-backfill so cron-written
+        // days also have rows in `tracks` (not orphan segments with trackId=null).
+        const trackResult = await detectAndPersistTracks(user.id, yesterdayStr);
+        if (trackResult.trackCount > 0 || trackResult.segmentCount > 0) {
           logger.info(
-            `[Cron] Transport detection for ${user.id}: ${segments.length} segments persisted`
+            `[Cron] Track detection for ${user.id}: ${trackResult.trackCount} tracks, ${trackResult.segmentCount} segments persisted`
           );
         }
       } catch (err) {
