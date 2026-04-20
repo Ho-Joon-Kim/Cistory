@@ -207,17 +207,10 @@ const DateGroupSection = memo(function DateGroupSection({
           />
         </button>
 
-        <div
-          className="ml-10 md:ml-14 flex items-center gap-2 cursor-pointer"
+        <button
+          type="button"
+          className="ml-10 md:ml-14 flex items-center gap-2 cursor-pointer bg-transparent border-0 text-left"
           onClick={() => onSelectDate(date)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              onSelectDate(date);
-            }
-          }}
           aria-label={`${label} 선택`}
         >
           <h3
@@ -260,7 +253,7 @@ const DateGroupSection = memo(function DateGroupSection({
               {formatCodingTime(codingSeconds)}
             </span>
           )}
-        </div>
+        </button>
       </div>
 
       {/* Content */}

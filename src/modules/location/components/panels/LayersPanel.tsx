@@ -34,22 +34,26 @@ export function LayersPanel({ visibility, onVisibilityChange }: LayersPanelProps
       <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
         레이어
       </h3>
-      {LAYER_OPTIONS.map((opt) => (
-        <label
-          key={opt.key}
-          className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-accent/50 transition-colors cursor-pointer"
-        >
-          <div className="flex items-center gap-2.5">
-            <span className="text-muted-foreground">{opt.icon}</span>
-            <span className="text-sm">{opt.label}</span>
+      {LAYER_OPTIONS.map((opt) => {
+        const id = `layer-${opt.key}`;
+        return (
+          <div
+            key={opt.key}
+            className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-accent/50 transition-colors"
+          >
+            <label htmlFor={id} className="flex items-center gap-2.5 cursor-pointer flex-1">
+              <span className="text-muted-foreground">{opt.icon}</span>
+              <span className="text-sm">{opt.label}</span>
+            </label>
+            <Switch
+              id={id}
+              size="sm"
+              checked={visibility[opt.key]}
+              onCheckedChange={(checked) => onVisibilityChange(opt.key, checked)}
+            />
           </div>
-          <Switch
-            size="sm"
-            checked={visibility[opt.key]}
-            onCheckedChange={(checked) => onVisibilityChange(opt.key, checked)}
-          />
-        </label>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -175,8 +175,10 @@ export function TimelineSegmentBar({
 
           // Moving segment
           return (
-            <div
+            <button
               key={`move-${seg.startTime}`}
+              type="button"
+              aria-label="이동 구간"
               className={`stepper-dash ${isDimmed ? "stepper-dash-dimmed" : ""}`}
               style={{ left: `${pos.leftPercent}%`, width: `${pos.widthPercent}%` }}
               onClick={() => onSegmentClick(i)}

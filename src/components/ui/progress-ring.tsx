@@ -31,7 +31,17 @@ export function ProgressRing({
       style={{ width: size, height: size }}
     >
       {/* Background circle */}
-      <svg width={size} height={size} className="rotate-[-90deg]">
+      <svg
+        width={size}
+        height={size}
+        className="rotate-[-90deg]"
+        role="progressbar"
+        aria-valuenow={Math.round(value)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`진행률 ${Math.round(value)}%`}
+      >
+        <title>{`진행률 ${Math.round(value)}%`}</title>
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -121,7 +131,10 @@ export function SyncProgressRing({
         height={size}
         viewBox="0 0 16 16"
         className={cn("animate-progress-spin", className)}
+        role="progressbar"
+        aria-label="로딩 중"
       >
+        <title>로딩 중</title>
         <circle
           cx="8"
           cy="8"

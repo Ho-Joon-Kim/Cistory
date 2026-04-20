@@ -130,6 +130,7 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
                     elements.push(
                       <Tooltip key={cell.date}>
                         <TooltipTrigger asChild>
+                          {/* biome-ignore lint/a11y/noStaticElementInteractions: Radix Tooltip handles focus/keyboard; mouse handlers only drive the hover ring */}
                           <div
                             className={cn(
                               "h-[13px] w-[13px] rounded-sm transition-colors",
@@ -184,6 +185,7 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
               <Tooltip key={cell.date}>
                 <TooltipTrigger asChild>
                   <div className="flex flex-col items-center gap-0.5">
+                    {/* biome-ignore lint/a11y/noStaticElementInteractions: Radix Tooltip handles focus/keyboard; mouse handlers only drive the hover ring */}
                     <div
                       className={cn(
                         "h-8 w-8 rounded-md transition-colors",

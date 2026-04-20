@@ -101,7 +101,10 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
     return (
       <Popover>
         <PopoverTrigger asChild>
-          <button className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground">
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+          >
             <ProgressRing value={progress} size={16} />
             <span className="text-sm font-medium">동기화 중 {progress > 0 && `${progress}%`}</span>
             <Badge variant="secondary" className="text-xs">
@@ -164,7 +167,10 @@ export function SyncStatus({ showDetails = true }: SyncStatusProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground">
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+        >
           <ProgressRing value={syncProgress} size={16} />
           <span className="text-sm text-muted-foreground">
             {remainingMinutes === 0

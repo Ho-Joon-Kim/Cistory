@@ -116,11 +116,21 @@ function HistoryItem({
     run.benchmarks.reduce((sum, b) => sum + b.stats.mean, 0) / run.benchmarks.length;
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: can't use <button> because row contains a nested <button type="button"> delete action (invalid HTML: button inside button)
     <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
       className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-sm cursor-pointer transition-colors ${
         isSelected ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted"
       }`}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
     >
       <span className="font-mono text-xs text-muted-foreground truncate flex-1">{run.dbHost}</span>
       <span className={`tabular-nums text-xs font-medium ${getLatencyColor(totalMean)}`}>

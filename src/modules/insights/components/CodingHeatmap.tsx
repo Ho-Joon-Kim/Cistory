@@ -142,7 +142,10 @@ export function CodingHeatmap({ data, isLoading, year }: CodingHeatmapProps) {
           width={dayLabelWidth + weeks.length * step + 4}
           height={monthLabelHeight + 7 * step + 4}
           className="block"
+          role="img"
+          aria-label="연중 일별 커밋 활동 히트맵"
         >
+          <title>연중 일별 커밋 활동 히트맵</title>
           {/* Month labels */}
           {monthPositions.map((mp) => (
             <text
@@ -179,6 +182,7 @@ export function CodingHeatmap({ data, isLoading, year }: CodingHeatmapProps) {
               const x = dayLabelWidth + wi * step;
               const y = monthLabelHeight + cell.dayOfWeek * step;
               return (
+                // biome-ignore lint/a11y/noStaticElementInteractions: hover-only tooltip on an SVG rect; the whole heatmap has an aria-label on the svg parent, individual cells aren't keyboard-focusable targets
                 <rect
                   key={cell.date}
                   x={x}
