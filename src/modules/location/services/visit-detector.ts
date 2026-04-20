@@ -63,12 +63,18 @@ export function detectVisits(rows: LocationRow[]): DetectedVisit[] {
   if (rows.length === 0) return [];
 
   const visits: DetectedVisit[] = [];
-  let currentPoints: LocationRow[] = [rows[0]];
 
-  function centroid(points: LocationRow[]): { lat: number; lon: number } {
-    const lat = points.reduce((s, p) => s + p.lat, 0) / points.length;
-    const lon = points.reduce((s, p) => s + p.lon, 0) / points.length;
-    return { lat, lon };
+  // P8: track centroid incrementally. Previous code recomputed the mean
+  // (O(k) .reduce) on every new point → overall O(n²) when a long visit
+  // accumulated thousands of points (e.g. home all night).
+  let currentPoints: LocationRow[] = [rows[0]];
+  let sumLat = rows[0].lat;
+  let sumLon = rows[0].lon;
+
+  function resetCluster(point: LocationRow) {
+    currentPoints = [point];
+    sumLat = point.lat;
+    sumLon = point.lon;
   }
 
   function finalizeVisit(points: LocationRow[]) {
@@ -77,21 +83,28 @@ export function detectVisits(rows: LocationRow[]): DetectedVisit[] {
     const start = points[0].timestamp;
     const end = points[points.length - 1].timestamp;
     const durationSec = (end.getTime() - start.getTime()) / 1000;
-
     if (durationSec < MIN_VISIT_DURATION_SEC) return;
 
-    const center = centroid(points);
+    // Recompute centroid for the finalized cluster (linear in cluster size,
+    // once — acceptable since we only do it per-cluster, not per-point).
+    let latSum = 0;
+    let lonSum = 0;
+    for (const p of points) {
+      latSum += p.lat;
+      lonSum += p.lon;
+    }
+    const centerLat = latSum / points.length;
+    const centerLon = lonSum / points.length;
 
-    // Radius = max distance from center to any point, min 15m
     let maxDist = 0;
     for (const p of points) {
-      const d = distanceM(center.lat, center.lon, p.lat, p.lon);
+      const d = distanceM(centerLat, centerLon, p.lat, p.lon);
       if (d > maxDist) maxDist = d;
     }
 
     visits.push({
-      centerLat: center.lat,
-      centerLon: center.lon,
+      centerLat,
+      centerLon,
       radiusM: Math.max(maxDist, MIN_RADIUS_M),
       startTime: start,
       endTime: end,
@@ -104,30 +117,31 @@ export function detectVisits(rows: LocationRow[]): DetectedVisit[] {
     const point = rows[i];
     const lastPoint = currentPoints[currentPoints.length - 1];
 
-    // Check time gap
     const gapSec = (point.timestamp.getTime() - lastPoint.timestamp.getTime()) / 1000;
     if (gapSec > MAX_VISIT_GAP_SEC) {
       finalizeVisit(currentPoints);
-      currentPoints = [point];
+      resetCluster(point);
       continue;
     }
 
-    // Check distance against dynamic radius
     const durationSoFar =
       (lastPoint.timestamp.getTime() - currentPoints[0].timestamp.getTime()) / 1000;
     const radius = dynamicRadiusM(durationSoFar);
-    const center = centroid(currentPoints);
-    const dist = distanceM(center.lat, center.lon, point.lat, point.lon);
+
+    const centerLat = sumLat / currentPoints.length;
+    const centerLon = sumLon / currentPoints.length;
+    const dist = distanceM(centerLat, centerLon, point.lat, point.lon);
 
     if (dist <= radius) {
       currentPoints.push(point);
+      sumLat += point.lat;
+      sumLon += point.lon;
     } else {
       finalizeVisit(currentPoints);
-      currentPoints = [point];
+      resetCluster(point);
     }
   }
 
-  // Finalize last cluster
   finalizeVisit(currentPoints);
 
   return visits;
