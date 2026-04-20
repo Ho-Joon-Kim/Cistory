@@ -18,7 +18,6 @@ export const users = pgTable(
     githubId: integer("github_id").notNull().unique(),
     githubLogin: text("github_login").notNull(),
     githubAvatarUrl: text("github_avatar_url"),
-    githubAccessToken: text("github_access_token").notNull(),
     ownTracksApiKey: text("own_tracks_api_key"),
     tossNotificationApiKey: text("toss_notification_api_key"),
     tossMyName: text("toss_my_name"),

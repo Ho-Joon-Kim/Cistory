@@ -56,6 +56,8 @@ export const auth = betterAuth({
             };
 
             const now = new Date();
+            // Phase 9.2: no longer duplicate accessToken into users table;
+            // Better Auth's account table is the single source of truth.
             await db
               .insert(users)
               .values({
@@ -63,7 +65,6 @@ export const auth = betterAuth({
                 githubId: githubUser.id,
                 githubLogin: githubUser.login,
                 githubAvatarUrl: githubUser.avatar_url,
-                githubAccessToken: row.accessToken,
                 theme: "system",
                 syncIntervalHours: 1,
                 initialSyncCompleted: false,
@@ -73,7 +74,6 @@ export const auth = betterAuth({
               .onConflictDoUpdate({
                 target: users.id,
                 set: {
-                  githubAccessToken: row.accessToken,
                   githubAvatarUrl: githubUser.avatar_url,
                   githubLogin: githubUser.login,
                   updatedAt: now,

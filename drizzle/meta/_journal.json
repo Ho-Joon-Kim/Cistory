@@ -120,6 +120,13 @@
       "when": 1776649158244,
       "tag": "0016_good_hammerhead",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1776650458573,
+      "tag": "0017_lonely_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

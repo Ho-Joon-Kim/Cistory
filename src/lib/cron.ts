@@ -29,12 +29,13 @@ async function syncAllUsers() {
   const db = getDb();
 
   try {
-    // Find all users with GitHub access token (sync every 10 minutes)
+    // Find all users who have a GitHub OAuth token stored in Better Auth's
+    // account table. Phase 9.2 removed the duplicate users.github_access_token
+    // column; existence is now determined via EXISTS() against `account`.
     const usersToSync = await db
       .select({
         id: users.id,
         githubLogin: users.githubLogin,
-        githubAccessToken: users.githubAccessToken,
         syncIntervalHours: users.syncIntervalHours,
         lastSyncedAt: users.lastSyncedAt,
         initialSyncCompleted: users.initialSyncCompleted,
@@ -42,7 +43,9 @@ async function syncAllUsers() {
         wakatimeLastSyncedAt: users.wakatimeLastSyncedAt,
       })
       .from(users)
-      .where(sql`${users.githubAccessToken} IS NOT NULL`);
+      .where(
+        sql`EXISTS (SELECT 1 FROM "account" WHERE "account"."userId" = ${users.id} AND "account"."providerId" = 'github' AND "account"."accessToken" IS NOT NULL)`
+      );
 
     logger.info(`[Cron] Found ${usersToSync.length} user(s) requiring sync`);
 
@@ -68,10 +71,8 @@ async function syncAllUsers() {
           initialSyncCompleted: user.initialSyncCompleted,
         });
 
-        // Phase 9.1: prefer Better Auth account table over users.githubAccessToken.
-        // getGitHubToken falls back to the legacy column during the overlap window.
         const { getGitHubToken } = await import("@/lib/auth-helpers");
-        const accessToken = (await getGitHubToken(user.id)) ?? user.githubAccessToken;
+        const accessToken = await getGitHubToken(user.id);
         if (!accessToken) {
           throw new Error("GitHub access token not found");
         }
