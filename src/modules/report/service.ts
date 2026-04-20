@@ -1676,32 +1676,75 @@ export class ReportService {
     codingTime: SparklineData[];
     distance: SparklineData[];
   }> {
-    const sparkCommits: SparklineData[] = [];
-    const sparkActiveDays: SparklineData[] = [];
-    const sparkCodingTime: SparklineData[] = [];
-    const sparkDistance: SparklineData[] = [];
+    // P1: previously 6 iterations × 3 per-iteration queries (= 24 DB round-trips
+    // in the monthly commits aggregate alone, and another 24 each for coding and
+    // distance via the sibling aggregates). Now 3 GROUP BY queries span the full
+    // 6-month window and we bucket into the month list in JS.
+    const windowStart = this._monthStart(this._offsetMonth(currentYearMonth, -5));
+    const windowEnd = this._monthEnd(currentYearMonth);
+    const windowStartTs = this._toLocalDate(windowStart);
+    const windowEndTs = this._toLocalDate(windowEnd);
 
+    const months: string[] = [];
     for (let i = 5; i >= 0; i--) {
-      const ym = this._offsetMonth(currentYearMonth, -i);
-      const start = this._monthStart(ym);
-      const end = this._monthEnd(ym);
-
-      const prevCommits = await this._aggregatePrevCommits(tx, userId, start, end);
-      sparkCommits.push({ date: ym, value: prevCommits?.totalCommits ?? 0 });
-      sparkActiveDays.push({ date: ym, value: prevCommits?.activeDays ?? 0 });
-
-      const prevCoding = await this._aggregatePrevCoding(tx, userId, start, end);
-      sparkCodingTime.push({ date: ym, value: prevCoding ?? 0 });
-
-      const prevDistance = await this._aggregatePrevDistance(tx, userId, start, end);
-      sparkDistance.push({ date: ym, value: prevDistance ?? 0 });
+      months.push(this._offsetMonth(currentYearMonth, -i));
     }
 
+    const commitRows = await tx
+      .select({
+        ym: sql<string>`to_char(${commits.committedAt}, 'YYYY-MM')`.as("ym"),
+        count: sql<number>`count(*)::int`,
+        activeDays: sql<number>`count(distinct date(${commits.committedAt}))::int`,
+      })
+      .from(commits)
+      .where(
+        and(
+          eq(commits.userId, userId),
+          gte(commits.committedAt, windowStartTs),
+          lt(commits.committedAt, windowEndTs)
+        )
+      )
+      .groupBy(sql`to_char(${commits.committedAt}, 'YYYY-MM')`);
+
+    const codingRows = await tx
+      .select({
+        ym: sql<string>`substr(${codingDailyStats.date}, 1, 7)`.as("ym"),
+        total: sql<number>`coalesce(sum(${codingDailyStats.totalSeconds}), 0)::int`,
+      })
+      .from(codingDailyStats)
+      .where(
+        and(
+          eq(codingDailyStats.userId, userId),
+          gte(codingDailyStats.date, windowStart),
+          lt(codingDailyStats.date, windowEnd)
+        )
+      )
+      .groupBy(sql`substr(${codingDailyStats.date}, 1, 7)`);
+
+    const distanceRows = await tx
+      .select({
+        ym: sql<string>`substr(${dailyDistances.date}, 1, 7)`.as("ym"),
+        total: sql<number>`coalesce(sum(${dailyDistances.distanceMeters}), 0)::float`,
+      })
+      .from(dailyDistances)
+      .where(
+        and(
+          eq(dailyDistances.userId, userId),
+          gte(dailyDistances.date, windowStart),
+          lt(dailyDistances.date, windowEnd)
+        )
+      )
+      .groupBy(sql`substr(${dailyDistances.date}, 1, 7)`);
+
+    const commitMap = new Map(commitRows.map((r) => [r.ym, r]));
+    const codingMap = new Map(codingRows.map((r) => [r.ym, r.total]));
+    const distanceMap = new Map(distanceRows.map((r) => [r.ym, r.total]));
+
     return {
-      commits: sparkCommits,
-      activeDays: sparkActiveDays,
-      codingTime: sparkCodingTime,
-      distance: sparkDistance,
+      commits: months.map((ym) => ({ date: ym, value: commitMap.get(ym)?.count ?? 0 })),
+      activeDays: months.map((ym) => ({ date: ym, value: commitMap.get(ym)?.activeDays ?? 0 })),
+      codingTime: months.map((ym) => ({ date: ym, value: codingMap.get(ym) ?? 0 })),
+      distance: months.map((ym) => ({ date: ym, value: distanceMap.get(ym) ?? 0 })),
     };
   }
 
