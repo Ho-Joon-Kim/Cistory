@@ -17,7 +17,6 @@ export interface DailySpending {
 export interface ForecastInput {
   monthlyHistory: MonthlyTotal[];
   currentMonthDays: DailySpending[];
-  historicalDays?: DailySpending[];
   daysInMonth: number;
   todayDayNumber: number; // 1-indexed
 }
@@ -29,13 +28,10 @@ export interface DailyCumulativePrediction {
   lower: number;
 }
 
-export type AlgorithmTier = "proportional" | "ses" | "weekday-holt" | "bayesian-holt";
-
 export interface ForecastResult {
   predictedTotal: number;
   upperBound: number;
   lowerBound: number;
-  algorithmTier: AlgorithmTier;
   dailyPredictions: DailyCumulativePrediction[];
 }
 
@@ -63,7 +59,6 @@ export interface SpendingTrendResponse {
     predictedTotal: number;
     upperBound: number;
     lowerBound: number;
-    algorithmTier: AlgorithmTier;
     todayDayNumber: number;
     daysInMonth: number;
     currentMonthActualTotal: number;

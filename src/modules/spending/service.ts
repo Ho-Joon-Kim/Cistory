@@ -31,22 +31,21 @@ export class SpendingTrendService {
     // Current month key
     const currentMonthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
 
-    // Run all queries in parallel
-    const [monthlyTotals, currentMonthDaily, historicalDaily] = await Promise.all([
+    // Run queries in parallel. Historical daily spending query was dropped
+    // along with the Tier 3/4 forecast tiers in commit 8.2.
+    const [monthlyTotals, currentMonthDaily] = await Promise.all([
       this._getMonthlyTotals(userId, tossMyName, 12),
       this._getCurrentMonthDaily(userId, tossMyName),
-      this._getHistoricalDailySpending(userId, tossMyName, 6),
     ]);
 
     // Separate current month from history for forecast
     const historyOnly = monthlyTotals.filter((m) => m.month !== currentMonthKey);
     const currentMonthTotal = currentMonthDaily.reduce((s, d) => s + d.total, 0);
 
-    // Run forecast
+    // Run forecast (simple proportional + stddev band)
     const forecastResult = forecastMonthEnd({
       monthlyHistory: historyOnly,
       currentMonthDays: currentMonthDaily,
-      historicalDays: historicalDaily,
       daysInMonth,
       todayDayNumber,
     });
@@ -84,7 +83,6 @@ export class SpendingTrendService {
         predictedTotal: forecastResult.predictedTotal,
         upperBound: forecastResult.upperBound,
         lowerBound: forecastResult.lowerBound,
-        algorithmTier: forecastResult.algorithmTier,
         todayDayNumber,
         daysInMonth,
         currentMonthActualTotal: currentMonthTotal,
@@ -137,46 +135,6 @@ export class SpendingTrendService {
       eq(transactions.type, "withdrawal"),
       gte(transactions.transactedAt, monthStart),
       lte(transactions.transactedAt, monthEnd),
-    ];
-    if (tossMyName) {
-      conditions.push(ne(transactions.merchant, tossMyName));
-    }
-
-    const rows = await this.db
-      .select({
-        date: sql<string>`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`.as("date"),
-        dayOfWeek: sql<number>`extract(dow from ${transactions.transactedAt})`.as("dow"),
-        total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
-      })
-      .from(transactions)
-      .where(and(...conditions))
-      .groupBy(
-        sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`,
-        sql`extract(dow from ${transactions.transactedAt})`
-      )
-      .orderBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`);
-
-    return rows.map((r) => ({
-      date: r.date,
-      dayOfWeek: Number(r.dayOfWeek),
-      total: Number(r.total),
-    }));
-  }
-
-  private async _getHistoricalDailySpending(
-    userId: string,
-    tossMyName: string | null,
-    months: number
-  ): Promise<DailySpending[]> {
-    const now = new Date();
-    const cutoff = new Date(now.getFullYear(), now.getMonth() - months, 1);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    const conditions = [
-      eq(transactions.userId, userId),
-      eq(transactions.type, "withdrawal"),
-      gte(transactions.transactedAt, cutoff),
-      lte(transactions.transactedAt, new Date(monthStart.getTime() - 1)), // exclude current month
     ];
     if (tossMyName) {
       conditions.push(ne(transactions.merchant, tossMyName));

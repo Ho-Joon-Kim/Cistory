@@ -310,12 +310,6 @@ export default function SpendingPage() {
               <CardContent className="px-3 py-3">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium">이번 달 누적 지출</p>
-                  <span className="text-xs text-muted-foreground">
-                    {trendData.forecast.algorithmTier === "proportional" && "비례 추정"}
-                    {trendData.forecast.algorithmTier === "ses" && "지수평활"}
-                    {trendData.forecast.algorithmTier === "weekday-holt" && "요일 가중치"}
-                    {trendData.forecast.algorithmTier === "bayesian-holt" && "베이지안 예측"}
-                  </span>
                 </div>
                 <SpendingTrendChart
                   data={trendData.cumulativeCurve}
