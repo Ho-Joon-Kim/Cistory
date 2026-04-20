@@ -186,171 +186,25 @@ export async function POST(request: NextRequest) {
   const { user, error: authError } = await getAuthenticatedUser(request);
   if (authError) return authError;
 
-  const db = getDb();
+  const { planBackfill, runBackfill } = await import(
+    "@/modules/location/services/backfill-orchestrator"
+  );
 
-  // Get date range
-  const [dateRange] = await db
-    .select({
-      earliest: sql<string>`min(timestamp)::date::text`,
-      latest: sql<string>`max(timestamp)::date::text`,
-    })
-    .from(locationPoints)
-    .where(eq(locationPoints.userId, user.id));
-
-  if (!dateRange.earliest) {
+  const plan = await planBackfill(user.id);
+  if (!plan) {
     return NextResponse.json({ error: "위치 데이터가 없습니다" }, { status: 400 });
   }
-
-  // Build date list — only dates that still need processing
-  // A date is "done" when all its points have anomaly IS NOT NULL
-  const unprocessedDatesResult = await db.execute<{ d: string; [key: string]: unknown }>(sql`
-    SELECT to_char(d, 'YYYY-MM-DD') as d FROM (
-      SELECT date(timestamp) as d
-      FROM location_points
-      WHERE user_id = ${user.id}
-      GROUP BY date(timestamp)
-      HAVING count(*) filter (where anomaly IS NULL) > 0
-    ) unprocessed
-    ORDER BY d
-  `);
-  const dates = unprocessedDatesResult.rows.map((r) => r.d);
-
-  if (dates.length === 0) {
+  if (plan.dates.length === 0) {
     return NextResponse.json({ message: "모든 날짜가 이미 처리되었습니다" });
   }
-
-  const totalSteps = dates.length * 3; // anomaly + visits + transport per day
-  let completedSteps = 0;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      function sendProgress(phase: string, day: string, detail?: string) {
-        completedSteps++;
-        const data = JSON.stringify({
-          phase,
-          day,
-          detail,
-          progress: Math.round((completedSteps / totalSteps) * 100),
-          completedSteps,
-          totalSteps,
-        });
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-      }
-
       try {
-        // Phase 1: Anomaly detection (day by day)
-        const { runAnomalyDetectionForDay } = await import(
-          "@/modules/location/services/anomaly-filter"
-        );
-
-        let totalAnomalies = 0;
-        for (const dateStr of dates) {
-          const result = await runAnomalyDetectionForDay(user.id, dateStr);
-          totalAnomalies += result.total;
-          sendProgress("anomaly", dateStr, `${result.total}건 감지`);
+        for await (const event of runBackfill(user.id, plan)) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         }
-
-        // Phase 2: Visit detection (day by day)
-        const { detectAndPersistVisits } = await import(
-          "@/modules/location/services/visit-persister"
-        );
-
-        let totalVisits = 0;
-        for (const dateStr of dates) {
-          const dayVisits = await detectAndPersistVisits(user.id, dateStr);
-          totalVisits += dayVisits.length;
-          sendProgress("visits", dateStr, `${dayVisits.length}개 방문`);
-        }
-
-        // Phase 3: Track building + transportation mode detection (day by day)
-        const { detectAndPersistTracks } = await import(
-          "@/modules/location/services/track-persister"
-        );
-
-        let totalTracks = 0;
-        let totalSegments = 0;
-        for (const dateStr of dates) {
-          const result = await detectAndPersistTracks(user.id, dateStr);
-          totalTracks += result.trackCount;
-          totalSegments += result.segmentCount;
-          sendProgress(
-            "tracks",
-            dateStr,
-            `${result.trackCount}개 트랙, ${result.segmentCount}개 세그먼트`
-          );
-        }
-
-        // Phase 4: Backfill locationPoints.city/countryName from placeCache (DB-only, no API calls)
-        const enrichResult = await db.execute<{ updated: number; [key: string]: unknown }>(sql`
-          WITH updated AS (
-            UPDATE location_points lp
-            SET
-              city = CASE
-                WHEN lp.lat BETWEEN 33.0 AND 38.7 AND lp.lon BETWEEN 124.5 AND 132.0
-                  THEN split_part(pc.address, ' ', 1)
-                ELSE (string_to_array(pc.address, ', '))[array_length(string_to_array(pc.address, ', '), 1) - 1]
-              END,
-              country_name = CASE
-                WHEN lp.lat BETWEEN 33.0 AND 38.7 AND lp.lon BETWEEN 124.5 AND 132.0
-                  THEN '대한민국'
-                ELSE (string_to_array(pc.address, ', '))[array_length(string_to_array(pc.address, ', '), 1)]
-              END
-            FROM place_cache pc
-            WHERE round(lp.lat::numeric, 3) = pc.lat_key
-              AND round(lp.lon::numeric, 3) = pc.lon_key
-              AND lp.user_id = ${user.id}
-              AND lp.city IS NULL
-            RETURNING lp.id
-          )
-          SELECT count(*)::int AS updated FROM updated
-        `);
-        const pointsEnriched = enrichResult.rows[0]?.updated ?? 0;
-
-        completedSteps++;
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ phase: "enrich", detail: `${pointsEnriched.toLocaleString()}개 포인트 enriched`, progress: 99 })}\n\n`
-          )
-        );
-
-        // Phase 5: Trip auto-detection (bulk, across all dates)
-        let totalTrips = 0;
-        try {
-          const { detectTrips, persistTrips } = await import(
-            "@/modules/location/services/trip-detector"
-          );
-          const detected = await detectTrips(user.id, dates[0], dates[dates.length - 1]);
-          if (detected.length > 0) {
-            totalTrips = await persistTrips(user.id, detected);
-          }
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ phase: "trips", detail: `${totalTrips}개 여행 감지`, progress: 99 })}\n\n`
-            )
-          );
-        } catch (tripError) {
-          console.error("Trip detection error (non-fatal):", tripError);
-        }
-
-        // Final summary
-        const summary = JSON.stringify({
-          phase: "done",
-          totalAnomalies,
-          totalVisits,
-          totalTracks,
-          totalSegments,
-          totalTrips,
-          pointsEnriched,
-          progress: 100,
-        });
-        controller.enqueue(encoder.encode(`data: ${summary}\n\n`));
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        console.error("Backfill execution error:", error);
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ phase: "error", error: errMsg })}\n\n`)
-        );
       } finally {
         controller.close();
       }
