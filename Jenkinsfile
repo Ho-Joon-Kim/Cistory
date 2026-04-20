@@ -51,6 +51,21 @@ pipeline {
                     # Ensure PostgreSQL is running (skip if container already exists from manual setup)
                     docker start cistory-db 2>/dev/null || docker compose up -d postgres
 
+                    # Defense: kill any stale migration/drizzle sessions from previous builds.
+                    # A dropped psql connection mid-transaction leaves a row in pg_stat_activity
+                    # with state='idle in transaction', holding row locks on __drizzle_migrations
+                    # and blocking every subsequent migration attempt. Build #64 hung for 15+ min
+                    # behind one of these; guard against it here.
+                    docker exec cistory-db psql -U cistory -d cistory -v ON_ERROR_STOP=0 -c "
+                        SELECT pg_terminate_backend(pid)
+                        FROM pg_stat_activity
+                        WHERE datname = 'cistory'
+                          AND pid <> pg_backend_pid()
+                          AND state = 'idle in transaction'
+                          AND (now() - state_change) > interval '5 minutes'
+                          AND (query ILIKE '%drizzle%' OR query ILIKE '%ALTER TABLE%' OR query ILIKE '%CREATE TABLE%');
+                    " || true
+
                     docker build \
                         --target migrator -t ${IMAGE_NAME}:migrator .
                     docker run --rm \
