@@ -5,7 +5,7 @@
  * Used by both the stay-points API (on-demand) and the daily cron (background).
  */
 
-import { and, asc, eq, gte, isNull, lt, lte, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, lte, or } from "drizzle-orm";
 import type { SavedPlace } from "@/db";
 import { getDb, locationPoints, placeCache, savedPlaces, visits } from "@/db";
 import { getGeocodingAdapter, isInKorea } from "@/lib/adapters/geocoding";
@@ -103,79 +103,134 @@ export async function detectAndPersistVisits(
     .from(savedPlaces)
     .where(eq(savedPlaces.userId, userId));
 
-  // 4. Enrich each visit and build persist records
-  const enrichedVisits: EnrichedVisit[] = [];
-  const visitRows: (typeof visits.$inferInsert)[] = [];
+  // 4. Enrich each visit. P4: batch the placeCache read across all visits
+  // (previously N SELECT-per-visit) and run any remaining geocoding API calls
+  // in parallel with a small concurrency cap to respect Kakao's rate limits.
 
-  for (const visit of detectedVisits) {
-    let placeName: string | null = null;
-    let address: string | null = null;
-    let category: string | null = null;
-    let savedPlaceId: string | undefined;
+  // 4a. Classify visits into saved-place vs needs-lookup, and collect cache keys.
+  interface Enrichment {
+    placeName: string | null;
+    address: string | null;
+    category: string | null;
+    savedPlaceId?: string;
+  }
 
-    // Try saved place match
+  const visitEnrichments = new Map<number, Enrichment>();
+  const visitsNeedingCache: { idx: number; latKey: number; lonKey: number }[] = [];
+
+  detectedVisits.forEach((visit, idx) => {
     const matched = userSavedPlaces.find(
       (p) => distanceM(visit.centerLat, visit.centerLon, p.lat, p.lon) <= p.radiusM
     );
-
     if (matched) {
-      placeName = matched.name;
-      address = matched.address;
-      category = matched.category;
-      savedPlaceId = matched.id;
+      visitEnrichments.set(idx, {
+        placeName: matched.name,
+        address: matched.address,
+        category: matched.category,
+        savedPlaceId: matched.id,
+      });
     } else {
-      const latKey = roundCoord(visit.centerLat);
-      const lonKey = roundCoord(visit.centerLon);
+      visitsNeedingCache.push({
+        idx,
+        latKey: roundCoord(visit.centerLat),
+        lonKey: roundCoord(visit.centerLon),
+      });
+    }
+  });
 
-      // Try cache
-      const cached = await db
-        .select()
-        .from(placeCache)
-        .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)))
-        .limit(1);
+  // 4b. Batch-read placeCache for all cache-lookup candidates at once.
+  let cacheByKey = new Map<string, typeof placeCache.$inferSelect>();
+  if (visitsNeedingCache.length > 0) {
+    const latKeys = Array.from(new Set(visitsNeedingCache.map((v) => v.latKey)));
+    const lonKeys = Array.from(new Set(visitsNeedingCache.map((v) => v.lonKey)));
+    const cachedRows = await db
+      .select()
+      .from(placeCache)
+      .where(and(inArray(placeCache.latKey, latKeys), inArray(placeCache.lonKey, lonKeys)));
+    cacheByKey = new Map(cachedRows.map((r) => [`${r.latKey}:${r.lonKey}`, r]));
+  }
 
-      if (
-        cached.length > 0 &&
-        !(cached[0].placeName === cached[0].address && !cached[0].category)
-      ) {
-        placeName = cached[0].placeName;
-        address = cached[0].address;
-        category = cached[0].category;
-      } else {
-        // Stale cache — delete
-        if (cached.length > 0) {
-          await db
-            .delete(placeCache)
-            .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)));
-        }
+  // 4c. Separate cache hits from misses/stale, delete stale in one batch,
+  // then fire geocoding API calls in parallel (concurrency 5).
+  const staleKeys: { latKey: number; lonKey: number }[] = [];
+  const needsGeocoding: { idx: number; latKey: number; lonKey: number }[] = [];
 
-        // Geocode
+  for (const v of visitsNeedingCache) {
+    const cached = cacheByKey.get(`${v.latKey}:${v.lonKey}`);
+    const isStale = cached && cached.placeName === cached.address && !cached.category;
+    if (cached && !isStale) {
+      visitEnrichments.set(v.idx, {
+        placeName: cached.placeName,
+        address: cached.address,
+        category: cached.category,
+      });
+    } else {
+      if (isStale) staleKeys.push({ latKey: v.latKey, lonKey: v.lonKey });
+      needsGeocoding.push(v);
+    }
+  }
+
+  if (staleKeys.length > 0) {
+    await db
+      .delete(placeCache)
+      .where(
+        or(
+          ...staleKeys.map((k) =>
+            and(eq(placeCache.latKey, k.latKey), eq(placeCache.lonKey, k.lonKey))
+          )
+        )
+      );
+  }
+
+  // Parallel geocoding with concurrency cap (matches Kakao free-tier budget).
+  const CONCURRENCY = 5;
+  const geocodeRows: (typeof placeCache.$inferInsert)[] = [];
+  for (let i = 0; i < needsGeocoding.length; i += CONCURRENCY) {
+    const batch = needsGeocoding.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batch.map(async ({ idx, latKey, lonKey }) => {
+        const visit = detectedVisits[idx];
         try {
           const adapter = getGeocodingAdapter(visit.centerLat, visit.centerLon);
           const result = await adapter.reverseGeocode(visit.centerLat, visit.centerLon);
           if (result) {
-            placeName = result.placeName;
-            address = result.address;
-            category = result.category ?? null;
-            await db
-              .insert(placeCache)
-              .values({
-                latKey,
-                lonKey,
-                placeName: result.placeName,
-                address: result.address,
-                category: result.category ?? null,
-                provider: result.provider,
-                resolvedAt: now,
-              })
-              .onConflictDoNothing();
+            visitEnrichments.set(idx, {
+              placeName: result.placeName,
+              address: result.address,
+              category: result.category ?? null,
+            });
+            geocodeRows.push({
+              latKey,
+              lonKey,
+              placeName: result.placeName,
+              address: result.address,
+              category: result.category ?? null,
+              provider: result.provider,
+              resolvedAt: now,
+            });
           }
         } catch (e) {
           console.error("Geocoding error:", e);
         }
-      }
-    }
+      })
+    );
+  }
 
+  if (geocodeRows.length > 0) {
+    await db.insert(placeCache).values(geocodeRows).onConflictDoNothing();
+  }
+
+  const enrichedVisits: EnrichedVisit[] = [];
+  const visitRows: (typeof visits.$inferInsert)[] = [];
+
+  for (let idx = 0; idx < detectedVisits.length; idx++) {
+    const visit = detectedVisits[idx];
+    const e = visitEnrichments.get(idx) ?? {
+      placeName: null,
+      address: null,
+      category: null,
+    };
+    const { placeName, address, category, savedPlaceId } = e;
     const { city, countryName } = extractCityCountry(visit.centerLat, visit.centerLon, address);
 
     enrichedVisits.push({
