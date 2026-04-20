@@ -45,39 +45,43 @@ export async function GET(request: NextRequest) {
           }
         };
 
-        // 초기 상태 전송
-        try {
-          const initialStatus = await getSyncStatus(db, userId);
-          sendEvent("status", initialStatus);
-        } catch (error) {
-          console.error("Failed to get initial status:", error);
-          sendEvent("error", { message: "Failed to get status" });
-        }
+        // P11: adaptive polling interval. When a sync is actively running we
+        // need 5s updates for the progress UI; when idle we'd be burning one
+        // DB query every 5 seconds with no UI change. Switch to 30s when no
+        // active job is observed. Connection still recycles every 30s so the
+        // client can reconnect and pick up a freshly-started sync.
+        let pollMs = 5000;
+        let lastHadActive = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
 
-        // 주기적으로 상태 업데이트 (5초마다)
-        const interval = setInterval(async () => {
-          if (isClosed) {
-            clearInterval(interval);
-            return;
-          }
-
+        const tick = async () => {
+          if (isClosed) return;
           try {
             const status = await getSyncStatus(db, userId);
             sendEvent("status", status);
+            const hasActive = status.hasActiveSync;
+            // If we *just* finished a sync, stay on the fast cadence for one
+            // more tick so the UI gets the "completed" event quickly.
+            pollMs = hasActive ? 5000 : lastHadActive ? 5000 : 30000;
+            lastHadActive = hasActive;
           } catch (error) {
             console.error("Failed to get status:", error);
           }
-        }, 5000);
+          if (!isClosed) timer = setTimeout(tick, pollMs);
+        };
+
+        // Initial send + kick off the loop
+        tick();
 
         // 연결 종료 처리
         request.signal.addEventListener("abort", () => {
-          clearInterval(interval);
+          if (timer) clearTimeout(timer);
           closeController();
         });
 
-        // 30초 후 자동 종료 (클라이언트가 재연결하도록)
+        // 30초 후 자동 종료 (클라이언트가 재연결)
         setTimeout(() => {
-          clearInterval(interval);
+          if (timer) clearTimeout(timer);
           sendEvent("reconnect", { message: "Please reconnect" });
           closeController();
         }, 30000);
