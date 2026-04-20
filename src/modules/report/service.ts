@@ -6,7 +6,7 @@
  * 섹션별(commits/coding/location) 독립 집계 메서드를 제공하여 병렬 로딩 지원
  */
 
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   codingDailyStats,
@@ -1295,13 +1295,63 @@ export class ReportService {
   ): Promise<{ lat: number; lon: number; date: string; placeName?: string | null }[]> {
     if (locations.length === 0) return [];
 
-    const allPlaces = await tx.select().from(placeCache);
+    // P3: previously fetched the entire place_cache table and did Array.find()
+    // per location. Now we compute a bounding box + small margin and index the
+    // result into a grid Map for O(1) lookup.
+    const margin = 0.005;
+    let minLat = Number.POSITIVE_INFINITY;
+    let maxLat = Number.NEGATIVE_INFINITY;
+    let minLon = Number.POSITIVE_INFINITY;
+    let maxLon = Number.NEGATIVE_INFINITY;
+    for (const loc of locations) {
+      if (loc.lat < minLat) minLat = loc.lat;
+      if (loc.lat > maxLat) maxLat = loc.lat;
+      if (loc.lon < minLon) minLon = loc.lon;
+      if (loc.lon > maxLon) maxLon = loc.lon;
+    }
+
+    const places = await tx
+      .select()
+      .from(placeCache)
+      .where(
+        and(
+          gte(placeCache.latKey, minLat - margin),
+          lte(placeCache.latKey, maxLat + margin),
+          gte(placeCache.lonKey, minLon - margin),
+          lte(placeCache.lonKey, maxLon + margin)
+        )
+      );
+
+    // Index by rounded (lat, lon) to 2 decimals — the resolution of the
+    // 0.005° match from the old Array.find loop is ~500m, well within a
+    // 0.01° grid cell (~1km). Collisions store the first hit.
+    const bucketKey = (lat: number, lon: number) =>
+      `${Math.round(lat * 100) / 100}:${Math.round(lon * 100) / 100}`;
+    const index = new Map<string, (typeof places)[number]>();
+    for (const p of places) {
+      const k = bucketKey(p.latKey, p.lonKey);
+      if (!index.has(k)) index.set(k, p);
+    }
 
     return locations.map((loc) => {
-      const closest = allPlaces.find(
-        (p) => Math.abs(p.latKey - loc.lat) < 0.005 && Math.abs(p.lonKey - loc.lon) < 0.005
-      );
-      return { ...loc, placeName: closest?.placeName ?? null };
+      // Check the 3x3 neighborhood of buckets so boundary points still hit.
+      const baseLatCell = Math.round(loc.lat * 100);
+      const baseLonCell = Math.round(loc.lon * 100);
+      for (let dLat = -1; dLat <= 1; dLat++) {
+        for (let dLon = -1; dLon <= 1; dLon++) {
+          const candidate = index.get(
+            `${(baseLatCell + dLat) / 100}:${(baseLonCell + dLon) / 100}`
+          );
+          if (
+            candidate &&
+            Math.abs(candidate.latKey - loc.lat) < margin &&
+            Math.abs(candidate.lonKey - loc.lon) < margin
+          ) {
+            return { ...loc, placeName: candidate.placeName };
+          }
+        }
+      }
+      return { ...loc, placeName: null };
     });
   }
 

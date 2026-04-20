@@ -44,16 +44,38 @@ export async function GET(request: NextRequest) {
         sql`ROUND(${locationPoints.lon}::numeric * 100) / 100`
       );
 
-    // Build address lookup from placeCache
+    // P3: bbox-bounded placeCache lookup instead of full table scan.
     const addressMap = new Map<string, string>();
     if (cells.length > 0) {
+      let minLat = Number.POSITIVE_INFINITY;
+      let maxLat = Number.NEGATIVE_INFINITY;
+      let minLon = Number.POSITIVE_INFINITY;
+      let maxLon = Number.NEGATIVE_INFINITY;
+      for (const cell of cells) {
+        const lat = Number(cell.cellLat);
+        const lon = Number(cell.cellLon);
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+      }
+      const margin = 0.05; // ~5km — ample for findNearestAddress's 0.05 step
+
       const placeResults = await db
         .select({
           latKey: placeCache.latKey,
           lonKey: placeCache.lonKey,
           address: placeCache.address,
         })
-        .from(placeCache);
+        .from(placeCache)
+        .where(
+          and(
+            gte(placeCache.latKey, minLat - margin),
+            lte(placeCache.latKey, maxLat + margin),
+            gte(placeCache.lonKey, minLon - margin),
+            lte(placeCache.lonKey, maxLon + margin)
+          )
+        );
 
       for (const p of placeResults) {
         if (p.address) {
