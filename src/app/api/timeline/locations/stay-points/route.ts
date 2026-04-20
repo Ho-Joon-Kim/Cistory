@@ -7,8 +7,11 @@
  * and returns enriched stay point data.
  */
 
+import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
+import { getDb, visits } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
 import { detectAndPersistVisits } from "@/modules/location/services/visit-persister";
 
 export async function GET(request: NextRequest) {
@@ -24,9 +27,50 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const enrichedVisits = await detectAndPersistVisits(user.id, dateParam);
+    // P9: a GET used to detect+persist on every call, which meant polling
+    // this endpoint (the dashboard does it once a minute while viewing today)
+    // re-ran DBSCAN + geocoding + transactional DELETE/INSERT every time.
+    // For past dates the daily cron already populated `visits`, so we just
+    // read. Today still triggers the detect+persist path so fresh GPS data
+    // becomes visible before 01:00 cron.
+    const today = toLocalDateString(new Date());
+    const isToday = dateParam === today;
 
-    // Map to frontend-compatible format
+    let enrichedVisits;
+    if (isToday) {
+      enrichedVisits = await detectAndPersistVisits(user.id, dateParam);
+    } else {
+      const db = getDb();
+      const dayStart = startOfLocalDay(dateParam);
+      const dayEnd = endOfLocalDay(dateParam);
+      const rows = await db
+        .select()
+        .from(visits)
+        .where(
+          and(
+            eq(visits.userId, user.id),
+            gte(visits.startTime, dayStart),
+            lt(visits.startTime, dayEnd)
+          )
+        )
+        .orderBy(asc(visits.startTime));
+      enrichedVisits = rows.map((v) => ({
+        centerLat: v.centerLat,
+        centerLon: v.centerLon,
+        radiusM: v.radiusM,
+        startTime: v.startTime.toISOString(),
+        endTime: v.endTime.toISOString(),
+        durationMinutes: Math.round(v.durationSeconds / 60),
+        pointCount: 0,
+        placeName: v.placeName,
+        address: v.address,
+        category: v.category,
+        city: v.city,
+        countryName: v.countryName,
+        savedPlaceId: v.savedPlaceId ?? undefined,
+      }));
+    }
+
     const stayPoints = enrichedVisits.map((v) => ({
       lat: v.centerLat,
       lon: v.centerLon,
