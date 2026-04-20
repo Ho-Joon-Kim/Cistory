@@ -404,6 +404,26 @@ export const dataUsageCache = pgTable(
   ]
 );
 
+// ============ Fog of War Cells Cache ============
+// Pre-aggregated 0.01°-grid cells per user. Refreshed by the daily location
+// cron instead of GROUP BY-ing the full locationPoints table on every request.
+export const fogCellsCache = pgTable(
+  "fog_cells_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lat: doublePrecision("lat").notNull(),
+    lon: doublePrecision("lon").notNull(),
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_fog_cells_unique").on(table.userId, table.lat, table.lon),
+    index("idx_fog_cells_user").on(table.userId),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

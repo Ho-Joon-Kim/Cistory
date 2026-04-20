@@ -127,6 +127,13 @@
       "when": 1776650458573,
       "tag": "0017_lonely_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1776651070208,
+      "tag": "0018_long_dark_beast",
+      "breakpoints": true
     }
   ]
 }
