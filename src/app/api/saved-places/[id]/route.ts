@@ -25,8 +25,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
     if (body.category !== undefined) updates.category = body.category || null;
     if (body.address !== undefined) updates.address = body.address || null;
-    if (body.icon !== undefined) updates.icon = body.icon || null;
-    if (body.color !== undefined) updates.color = body.color || null;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "수정할 항목이 없습니다" }, { status: 400 });

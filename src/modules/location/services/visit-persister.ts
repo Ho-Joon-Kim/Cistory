@@ -31,8 +31,6 @@ export interface EnrichedVisit {
   city: string | null;
   countryName: string | null;
   savedPlaceId?: string;
-  icon?: string;
-  color?: string;
 }
 
 /**
@@ -114,8 +112,6 @@ export async function detectAndPersistVisits(
     let address: string | null = null;
     let category: string | null = null;
     let savedPlaceId: string | undefined;
-    let icon: string | undefined;
-    let color: string | undefined;
 
     // Try saved place match
     const matched = userSavedPlaces.find(
@@ -127,8 +123,6 @@ export async function detectAndPersistVisits(
       address = matched.address;
       category = matched.category;
       savedPlaceId = matched.id;
-      icon = matched.icon ?? undefined;
-      color = matched.color ?? undefined;
     } else {
       const latKey = roundCoord(visit.centerLat);
       const lonKey = roundCoord(visit.centerLon);
@@ -198,8 +192,6 @@ export async function detectAndPersistVisits(
       city,
       countryName,
       savedPlaceId,
-      icon,
-      color,
     });
 
     visitRows.push({

@@ -133,7 +133,6 @@ export const locationPoints = pgTable(
     velocity: integer("velocity"),
     battery: integer("battery"),
     trackerId: text("tracker_id"),
-    trigger: text("trigger"),
     anomaly: boolean("anomaly"),
     city: text("city"),
     countryName: text("country_name"),
@@ -233,8 +232,6 @@ export const savedPlaces = pgTable(
     radiusM: integer("radius_m").notNull().default(100),
     category: text("category"),
     address: text("address"),
-    icon: text("icon"),
-    color: text("color"),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
   },
@@ -335,7 +332,6 @@ export const trips = pgTable(
     visitedCities: text("visited_cities"), // JSON array
     visitedCountries: text("visited_countries"), // JSON array
     isOverseas: boolean("is_overseas").notNull().default(false),
-    autoDetected: boolean("auto_detected").notNull().default(false),
     notes: text("notes"),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
@@ -377,6 +373,7 @@ export const transactions = pgTable(
     amount: integer("amount").notNull(), // 원 단위
     merchant: text("merchant").notNull(), // 가맹점/출처명
     accountName: text("account_name").notNull(), // 계좌명
+    isSelfTransfer: boolean("is_self_transfer").notNull().default(false),
     rawTitle: text("raw_title").notNull(),
     rawText: text("raw_text").notNull(),
     transactedAt: timestamp("transacted_at").notNull(),

@@ -70,7 +70,6 @@ export async function POST(request: NextRequest) {
         endDate,
         notes: notes ?? null,
         isOverseas: false,
-        autoDetected: false,
         createdAt: now,
         updatedAt: now,
       })

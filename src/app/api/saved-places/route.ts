@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     if (authError) return authError;
 
     const body = await request.json();
-    const { name, lat, lon, radiusM, category, address, icon, color } = body;
+    const { name, lat, lon, radiusM, category, address } = body;
 
     if (!name || typeof name !== "string" || name.length < 1 || name.length > 100) {
       return NextResponse.json({ error: "이름은 1~100자 사이여야 합니다" }, { status: 400 });
@@ -52,8 +52,6 @@ export async function POST(request: NextRequest) {
         radiusM: radius,
         category: category || null,
         address: address || null,
-        icon: icon || null,
-        color: color || null,
         createdAt: now,
         updatedAt: now,
       })

@@ -34,8 +34,6 @@ export async function GET(request: NextRequest) {
       address: v.address,
       category: v.category,
       savedPlaceId: v.savedPlaceId,
-      icon: v.icon,
-      color: v.color,
       startTime: v.startTime,
       endTime: v.endTime,
       durationMinutes: v.durationMinutes,

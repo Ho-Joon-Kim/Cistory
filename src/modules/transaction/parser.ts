@@ -20,6 +20,14 @@ export interface ParsedTransaction {
   amount: number;
   merchant: string;
   accountName: string;
+  /**
+   * True when the parsed transaction is a transfer to/from the user's own
+   * account (matched against ParseOptions.myName). Stored instead of being
+   * filtered at parse time so the ingestion endpoint still records the event,
+   * and query-layer filters can pick it up by column instead of recomputing
+   * `ne(merchant, tossMyName)` on every read.
+   */
+  isSelfTransfer: boolean;
 }
 
 // Pattern 1: "6,900원 출금" / "1원 입금"
@@ -58,10 +66,22 @@ export function parseTossNotification(
 
     if (type === "withdrawal") {
       // 출금: "내 토스뱅크 통장 → 쿠팡" — source=계좌, destination=가맹점
-      result = { type, amount, merchant: destination, accountName: source };
+      result = {
+        type,
+        amount,
+        merchant: destination,
+        accountName: source,
+        isSelfTransfer: false,
+      };
     } else {
       // 입금: "**** → 내 토스뱅크 통장" — source=송금자, destination=계좌
-      result = { type, amount, merchant: source, accountName: destination };
+      result = {
+        type,
+        amount,
+        merchant: source,
+        accountName: destination,
+        isSelfTransfer: false,
+      };
     }
   }
 
@@ -71,7 +91,13 @@ export function parseTossNotification(
     if (transferMatch) {
       const sender = transferMatch[1].trim();
       const amount = Number(transferMatch[2].replace(/,/g, ""));
-      result = { type: "deposit", amount, merchant: sender, accountName: "토스" };
+      result = {
+        type: "deposit",
+        amount,
+        merchant: sender,
+        accountName: "토스",
+        isSelfTransfer: false,
+      };
     }
   }
 
@@ -86,16 +112,22 @@ export function parseTossNotification(
       const [accountName, merchant] = parts;
       if (!accountName || !merchant) return null;
 
-      result = { type: "withdrawal", amount, merchant, accountName };
+      result = {
+        type: "withdrawal",
+        amount,
+        merchant,
+        accountName,
+        isSelfTransfer: false,
+      };
     }
   }
 
   if (!result) return null;
 
-  // 자기이체 필터링: merchant가 내 이름이면 제외
-  if (options?.myName && result.merchant === options.myName) {
-    return null;
-  }
+  // Self-transfer: flag rather than drop. Downstream queries filter by
+  // `isSelfTransfer=false` when excluding is wanted; spending/reparse can
+  // update the flag retroactively when `tossMyName` changes.
+  result.isSelfTransfer = Boolean(options?.myName && result.merchant === options.myName);
 
   return result;
 }

@@ -234,7 +234,6 @@ export async function persistTrips(userId: string, detectedTrips: DetectedTrip[]
       visitedCities: JSON.stringify(t.visitedCities),
       visitedCountries: JSON.stringify(t.visitedCountries),
       isOverseas: t.isOverseas,
-      autoDetected: true,
       createdAt: now,
       updatedAt: now,
     }))

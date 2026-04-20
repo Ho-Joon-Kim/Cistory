@@ -381,7 +381,6 @@ export interface TripData {
   visitedCities: string[];
   visitedCountries: string[];
   isOverseas: boolean;
-  autoDetected: boolean;
   notes: string | null;
 }
 
@@ -489,8 +488,6 @@ export interface SavedPlaceData {
   radiusM: number;
   category: string | null;
   address: string | null;
-  icon: string | null;
-  color: string | null;
   createdAt: string;
   updatedAt: string;
 }

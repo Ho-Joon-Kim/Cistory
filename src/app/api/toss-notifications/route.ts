@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
             amount: parsed.amount,
             merchant: parsed.merchant,
             accountName: parsed.accountName,
+            isSelfTransfer: parsed.isSelfTransfer,
             rawTitle: title,
             rawText: text,
             transactedAt: now,

@@ -96,7 +96,6 @@ export async function importPoints(
       velocity: p.velocity != null ? Math.round(p.velocity) : null,
       battery: null,
       trackerId: null,
-      trigger: null,
       timestamp: p.timestamp,
       createdAt: now,
     }));

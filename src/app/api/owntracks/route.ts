@@ -72,7 +72,6 @@ export async function POST(request: NextRequest) {
       velocity: p.vel ?? null,
       battery: p.batt ?? null,
       trackerId: p.tid ?? null,
-      trigger: p.t ?? null,
       timestamp: new Date(p.tst * 1000),
       createdAt: now,
     }));
