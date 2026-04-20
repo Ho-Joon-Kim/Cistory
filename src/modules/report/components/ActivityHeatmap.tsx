@@ -35,6 +35,58 @@ interface DayCell {
   weekIndex: number;
 }
 
+/** Tooltip + cell pair, shared between yearly grid and monthly row layouts. */
+function HeatmapCell({
+  cell,
+  isHovered,
+  onHover,
+  className,
+  children,
+}: {
+  cell: DayCell;
+  isHovered: boolean;
+  onHover: (cell: DayCell | null) => void;
+  className: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {children ?? (
+          // biome-ignore lint/a11y/noStaticElementInteractions: Radix Tooltip handles focus/keyboard; mouse handlers only drive the hover ring
+          <div
+            className={cn(
+              className,
+              getColorClass(cell.count),
+              isHovered && "ring-1 ring-foreground"
+            )}
+            onMouseEnter={() => onHover(cell)}
+            onMouseLeave={() => onHover(null)}
+          />
+        )}
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">
+        <p className="font-medium">{formatDateKo(cell.date)}</p>
+        <p className="text-muted-foreground">
+          {cell.count > 0 ? `${cell.count}개 커밋` : "커밋 없음"}
+        </p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function HeatmapLegend() {
+  return (
+    <div className="flex items-center justify-end gap-1.5 mt-3 text-xs text-muted-foreground">
+      <span>적음</span>
+      {[0, 1, 3, 6, 9].map((level) => (
+        <div key={level} className={cn("h-[11px] w-[11px] rounded-sm", getColorClass(level))} />
+      ))}
+      <span>많음</span>
+    </div>
+  );
+}
+
 export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHeatmapProps) {
   const [hoveredCell, setHoveredCell] = useState<DayCell | null>(null);
 
@@ -51,19 +103,12 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
 
     const result: DayCell[] = [];
     const current = new Date(start);
-    const startDayOfWeek = current.getDay();
-
     let weekIdx = 0;
-    let prevDayOfWeek = startDayOfWeek;
 
     while (current <= end) {
-      const dateStr = current.toISOString().split("T")[0];
+      const dateStr = current.toISOString().slice(0, 10);
       const dayOfWeek = current.getDay();
-
-      if (result.length > 0 && dayOfWeek < prevDayOfWeek) {
-        weekIdx++;
-      }
-      prevDayOfWeek = dayOfWeek;
+      if (dayOfWeek === 0 && result.length > 0) weekIdx++;
 
       result.push({
         date: dateStr,
@@ -84,14 +129,14 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
 
   const dayLabels = ["일", "월", "화", "수", "목", "금", "토"];
 
-  if (isYearly) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">활동 히트맵</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <TooltipProvider delayDuration={100}>
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">활동 히트맵</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <TooltipProvider delayDuration={100}>
+          {isYearly ? (
             <div className="flex gap-0.5">
               {/* Day labels */}
               <div className="flex flex-col gap-0.5 pr-1.5 pt-0">
@@ -119,7 +164,6 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
               >
                 {(() => {
                   const elements: React.ReactNode[] = [];
-                  // Fill empty cells before the first day
                   const firstDay = cells[0];
                   if (firstDay) {
                     for (let i = 0; i < firstDay.dayOfWeek; i++) {
@@ -128,62 +172,30 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
                   }
                   for (const cell of cells) {
                     elements.push(
-                      <Tooltip key={cell.date}>
-                        <TooltipTrigger asChild>
-                          {/* biome-ignore lint/a11y/noStaticElementInteractions: Radix Tooltip handles focus/keyboard; mouse handlers only drive the hover ring */}
-                          <div
-                            className={cn(
-                              "h-[13px] w-[13px] rounded-sm transition-colors",
-                              getColorClass(cell.count),
-                              hoveredCell?.date === cell.date && "ring-1 ring-foreground"
-                            )}
-                            onMouseEnter={() => setHoveredCell(cell)}
-                            onMouseLeave={() => setHoveredCell(null)}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
-                          <p className="font-medium">{formatDateKo(cell.date)}</p>
-                          <p className="text-muted-foreground">
-                            {cell.count > 0 ? `${cell.count}개 커밋` : "커밋 없음"}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
+                      <HeatmapCell
+                        key={cell.date}
+                        cell={cell}
+                        isHovered={hoveredCell?.date === cell.date}
+                        onHover={setHoveredCell}
+                        className="h-[13px] w-[13px] rounded-sm transition-colors"
+                      />
                     );
                   }
                   return elements;
                 })()}
               </div>
             </div>
-
-            {/* Legend */}
-            <div className="flex items-center justify-end gap-1.5 mt-3 text-xs text-muted-foreground">
-              <span>적음</span>
-              {[0, 1, 3, 6, 9].map((level) => (
-                <div
-                  key={level}
-                  className={cn("h-[11px] w-[11px] rounded-sm", getColorClass(level))}
-                />
-              ))}
-              <span>많음</span>
-            </div>
-          </TooltipProvider>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Monthly view: simple row layout
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">활동 히트맵</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <TooltipProvider delayDuration={100}>
-          <div className="flex flex-wrap gap-1">
-            {cells.map((cell) => (
-              <Tooltip key={cell.date}>
-                <TooltipTrigger asChild>
+          ) : (
+            // Monthly view: simple row layout with day-of-month labels
+            <div className="flex flex-wrap gap-1">
+              {cells.map((cell) => (
+                <HeatmapCell
+                  key={cell.date}
+                  cell={cell}
+                  isHovered={hoveredCell?.date === cell.date}
+                  onHover={setHoveredCell}
+                  className="h-8 w-8 rounded-md transition-colors"
+                >
                   <div className="flex flex-col items-center gap-0.5">
                     {/* biome-ignore lint/a11y/noStaticElementInteractions: Radix Tooltip handles focus/keyboard; mouse handlers only drive the hover ring */}
                     <div
@@ -199,28 +211,11 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
                       {new Date(cell.date).getDate()}
                     </span>
                   </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">
-                  <p className="font-medium">{formatDateKo(cell.date)}</p>
-                  <p className="text-muted-foreground">
-                    {cell.count > 0 ? `${cell.count}개 커밋` : "커밋 없음"}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            ))}
-          </div>
-
-          {/* Legend */}
-          <div className="flex items-center justify-end gap-1.5 mt-3 text-xs text-muted-foreground">
-            <span>적음</span>
-            {[0, 1, 3, 6, 9].map((level) => (
-              <div
-                key={level}
-                className={cn("h-[11px] w-[11px] rounded-sm", getColorClass(level))}
-              />
-            ))}
-            <span>많음</span>
-          </div>
+                </HeatmapCell>
+              ))}
+            </div>
+          )}
+          <HeatmapLegend />
         </TooltipProvider>
       </CardContent>
     </Card>
