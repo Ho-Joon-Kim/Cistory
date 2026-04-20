@@ -77,11 +77,15 @@ async function syncAllUsers() {
           initialSyncCompleted: user.initialSyncCompleted,
         });
 
-        if (!user.githubAccessToken) {
+        // Phase 9.1: prefer Better Auth account table over users.githubAccessToken.
+        // getGitHubToken falls back to the legacy column during the overlap window.
+        const { getGitHubToken } = await import("@/lib/auth-helpers");
+        const accessToken = (await getGitHubToken(user.id)) ?? user.githubAccessToken;
+        if (!accessToken) {
           throw new Error("GitHub access token not found");
         }
 
-        const syncService = createSyncService(db, user.githubAccessToken);
+        const syncService = createSyncService(db, accessToken);
 
         // Sync commits (uses Search API for initial and regular)
         if (!user.initialSyncCompleted) {
@@ -112,7 +116,7 @@ async function syncAllUsers() {
             const summaryService = createSummaryService(
               db,
               process.env.ANTHROPIC_API_KEY,
-              user.githubAccessToken
+              accessToken
             );
 
             // Find commits from last 7 days with pending/failed summaries

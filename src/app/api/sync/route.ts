@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
     const { githubLogin, initialSyncCompleted } = userResult[0];
 
-    const accessToken = await getGitHubToken(user.id, db, users);
+    const accessToken = await getGitHubToken(user.id);
     if (!accessToken) {
       return NextResponse.json({ error: "GitHub access token not found" }, { status: 400 });
     }

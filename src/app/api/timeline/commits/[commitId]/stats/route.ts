@@ -48,7 +48,7 @@ export async function POST(
     }
 
     // GitHub 토큰 가져오기
-    const accessToken = await getGitHubToken(user.id, db, users);
+    const accessToken = await getGitHubToken(user.id);
     if (!accessToken) {
       return NextResponse.json({ error: "GitHub token not found" }, { status: 400 });
     }

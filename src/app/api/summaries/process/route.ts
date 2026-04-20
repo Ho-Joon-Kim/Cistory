@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const limit = Math.min(body.limit ?? 50, 100); // Max 100
 
     // Get user's GitHub token
-    const accessToken = await getGitHubToken(user.id, db, users);
+    const accessToken = await getGitHubToken(user.id);
     if (!accessToken) {
       return NextResponse.json({ error: "GitHub access token not found" }, { status: 400 });
     }
