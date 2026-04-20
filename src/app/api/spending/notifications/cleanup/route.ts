@@ -5,26 +5,27 @@
  * Body: { "dryRun": true }  — preview only (default)
  * Body: { "dryRun": false } — reparse + delete unparseable logs
  *
- * Phase 1: Reparse all logs (always applied, regardless of dryRun)
+ * Phase 1: Reparse all logs (always applied, via shared reparse-service)
  * Phase 2: Identify deletable logs (no transaction + unparseable)
  * Phase 3: Batch delete (only when dryRun=false)
  *
- * NDJSON events:
+ * NDJSON event shape preserved for client compatibility:
  *   { "type": "reparse-start", "total": N }
- *   { "type": "reparse-progress", "processed": X, "total": N, "created": C, "updated": U }
- *   { "type": "reparse-done", "created": C, "updated": U, "skipped": S }
- *   { "type": "cleanup-start", "deletable": D, "estimatedBytes": B, "items": [...] }
- *   { "type": "cleanup-progress", "deleted": X, "total": D }
- *   { "type": "cleanup-done", "deleted": D, "freedBytes": B }
+ *   { "type": "reparse-progress", "processed", "total", "created", "updated" }
+ *   { "type": "reparse-done", "created", "updated", "skipped" }
+ *   { "type": "cleanup-start", "deletable", "estimatedBytes", "items" }
+ *   { "type": "cleanup-progress", "deleted", "total" }
+ *   { "type": "cleanup-done", "deleted", "freedBytes" }
  */
 
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb } from "@/db";
 import { notificationLogs, transactions, users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { parseTossNotification } from "@/modules/transaction/parser";
+import { type ReparseProgress, reparseNotifications } from "@/modules/transaction/reparse-service";
 
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     if (body.dryRun === false) dryRun = false;
   } catch {
-    // No body or invalid JSON → default to dryRun
+    // Default dryRun
   }
 
   const db = getDb();
@@ -49,7 +50,6 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        // Load user's tossMyName for self-transfer filtering
         const [userRow] = await db
           .select({ tossMyName: users.tossMyName })
           .from(users)
@@ -57,176 +57,42 @@ export async function POST(request: NextRequest) {
           .limit(1);
         const tossMyName = userRow?.tossMyName ?? null;
 
-        // ===== Phase 1: Reparse (always applied) =====
-        const allLogs = await db
-          .select({
-            id: notificationLogs.id,
-            rawPayload: notificationLogs.rawPayload,
-            receivedAt: notificationLogs.receivedAt,
-          })
-          .from(notificationLogs)
-          .where(eq(notificationLogs.userId, userId))
-          .orderBy(desc(notificationLogs.receivedAt));
-
-        send({ type: "reparse-start", total: allLogs.length });
-
-        let createCount = 0;
-        let updateCount = 0;
-        let skipCount = 0;
-        const progressInterval = Math.max(1, Math.floor(allLogs.length / 50));
-
-        for (let i = 0; i < allLogs.length; i++) {
-          const log = allLogs[i];
-          let title = "";
-          let text = "";
-          try {
-            const payload = JSON.parse(log.rawPayload);
-            title = typeof payload.title === "string" ? payload.title : "";
-            text = typeof payload.text === "string" ? payload.text : "";
-          } catch {
-            skipCount++;
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "reparse-progress",
-                processed: i + 1,
-                total: allLogs.length,
-                created: createCount,
-                updated: updateCount,
-              });
-            }
-            continue;
+        // ===== Phase 1: Reparse =====
+        let startSent = false;
+        let progressThrottle = 1;
+        const onProgress = (p: ReparseProgress) => {
+          if (!startSent) {
+            send({ type: "reparse-start", total: p.total });
+            progressThrottle = Math.max(1, Math.floor(p.total / 50));
+            startSent = true;
           }
-
-          if (!title || !text) {
-            skipCount++;
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "reparse-progress",
-                processed: i + 1,
-                total: allLogs.length,
-                created: createCount,
-                updated: updateCount,
-              });
-            }
-            continue;
-          }
-
-          const parsed = parseTossNotification(title, text, { myName: tossMyName });
-          if (!parsed) {
-            skipCount++;
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "reparse-progress",
-                processed: i + 1,
-                total: allLogs.length,
-                created: createCount,
-                updated: updateCount,
-              });
-            }
-            continue;
-          }
-
-          // Check for existing transaction for this log
-          const existingForLog = await db
-            .select({ id: transactions.id })
-            .from(transactions)
-            .where(and(eq(transactions.userId, userId), eq(transactions.notificationLogId, log.id)))
-            .limit(1);
-
-          const hasExistingForLog = existingForLog.length > 0;
-
-          // Check for duplicate transactions within ±2 minutes
-          const windowMs = 2 * 60 * 1000;
-          const receivedAt = new Date(log.receivedAt);
-          const windowStart = new Date(receivedAt.getTime() - windowMs);
-          const windowEnd = new Date(receivedAt.getTime() + windowMs);
-
-          const duplicates = await db
-            .select({ id: transactions.id, notificationLogId: transactions.notificationLogId })
-            .from(transactions)
-            .where(
-              and(
-                eq(transactions.userId, userId),
-                eq(transactions.amount, parsed.amount),
-                eq(transactions.merchant, parsed.merchant),
-                eq(transactions.type, parsed.type),
-                gte(transactions.transactedAt, windowStart),
-                lte(transactions.transactedAt, windowEnd)
-              )
-            )
-            .limit(1);
-
-          if (duplicates.length > 0 && duplicates[0].notificationLogId !== log.id) {
-            skipCount++;
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "reparse-progress",
-                processed: i + 1,
-                total: allLogs.length,
-                created: createCount,
-                updated: updateCount,
-              });
-            }
-            continue;
-          }
-
-          if (hasExistingForLog) {
-            updateCount++;
-          } else {
-            createCount++;
-          }
-
-          // Always apply reparse (regardless of dryRun)
-          try {
-            await db
-              .insert(transactions)
-              .values({
-                userId,
-                notificationLogId: log.id,
-                type: parsed.type,
-                amount: parsed.amount,
-                merchant: parsed.merchant,
-                accountName: parsed.accountName,
-                rawTitle: title,
-                rawText: text,
-                transactedAt: receivedAt,
-                createdAt: new Date(),
-              })
-              .onConflictDoUpdate({
-                target: [transactions.userId, transactions.notificationLogId],
-                set: {
-                  type: sql`excluded.type`,
-                  amount: sql`excluded.amount`,
-                  merchant: sql`excluded.merchant`,
-                  accountName: sql`excluded.account_name`,
-                  rawTitle: sql`excluded.raw_title`,
-                  rawText: sql`excluded.raw_text`,
-                },
-              });
-          } catch {
-            // Ignore individual insert errors
-          }
-
-          if ((i + 1) % progressInterval === 0) {
+          if (p.processed % progressThrottle === 0 || p.processed === p.total) {
             send({
               type: "reparse-progress",
-              processed: i + 1,
-              total: allLogs.length,
-              created: createCount,
-              updated: updateCount,
+              processed: p.processed,
+              total: p.total,
+              created: p.created,
+              updated: p.updated,
             });
           }
-        }
+        };
+
+        const totals = await reparseNotifications(db, userId, {
+          dryRun, // When dryRun=true we still don't write; when false we apply.
+          tossMyName,
+          onProgress,
+        });
+
+        if (!startSent) send({ type: "reparse-start", total: 0 });
 
         send({
           type: "reparse-done",
-          created: createCount,
-          updated: updateCount,
-          skipped: skipCount,
+          created: totals.created,
+          updated: totals.updated,
+          skipped: totals.skipped,
         });
 
         // ===== Phase 2: Identify deletable logs =====
-        // LEFT JOIN to find logs without any transaction
         const orphanLogs = await db
           .select({
             id: notificationLogs.id,
@@ -238,7 +104,6 @@ export async function POST(request: NextRequest) {
           .leftJoin(transactions, eq(transactions.notificationLogId, notificationLogs.id))
           .where(and(eq(notificationLogs.userId, userId), isNull(transactions.id)));
 
-        // Filter: only those that parseTossNotification returns null
         const deletableItems: {
           id: string;
           title: string;
@@ -260,10 +125,9 @@ export async function POST(request: NextRequest) {
             reason = "유효하지 않은 JSON";
           }
 
-          // Double-check: if it's parseable, skip (shouldn't happen after reparse, but safety)
           if (title && text) {
             const parsed = parseTossNotification(title, text, { myName: tossMyName });
-            if (parsed) continue;
+            if (parsed) continue; // Shouldn't happen after reparse, but safety
             reason = "패턴 불일치";
           } else if (!title && !text) {
             reason = "title/text 없음";
@@ -317,22 +181,26 @@ export async function POST(request: NextRequest) {
             });
           }
 
-          send({
-            type: "cleanup-done",
-            deleted: totalDeleted,
-            freedBytes: estimatedBytes,
-          });
+          send({ type: "cleanup-done", deleted: totalDeleted, freedBytes: estimatedBytes });
 
           logger.info("Notification cleanup applied", {
             userId,
-            reparsed: { created: createCount, updated: updateCount, skipped: skipCount },
+            reparsed: {
+              created: totals.created,
+              updated: totals.updated,
+              skipped: totals.skipped,
+            },
             deleted: totalDeleted,
             freedBytes: estimatedBytes,
           });
         } else {
           logger.info("Notification cleanup dry-run", {
             userId,
-            reparsed: { created: createCount, updated: updateCount, skipped: skipCount },
+            reparsed: {
+              created: totals.created,
+              updated: totals.updated,
+              skipped: totals.skipped,
+            },
             deletable: deletableItems.length,
             estimatedBytes,
           });

@@ -5,35 +5,21 @@
  * Body: { "dryRun": true } — preview only (default)
  * Body: { "dryRun": false } — actually apply changes
  *
- * Streams NDJSON progress events:
- *   { "type": "start", "total": 150 }
- *   { "type": "progress", "processed": 10, "total": 150, "created": 2, "updated": 1, "skipped": 7, "failed": 0 }
- *   { "type": "item", ... }  (only for create/update actions)
- *   { "type": "done", "dryRun": true, "total": 150, "created": ..., "items": [...] }
+ * Streams NDJSON progress events. The heavy lifting lives in
+ * modules/transaction/reparse-service — this route is a thin SSE wrapper.
  */
 
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb } from "@/db";
-import { notificationLogs, transactions, users } from "@/db/schema";
+import { users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
-import { parseTossNotification } from "@/modules/transaction/parser";
-
-interface ReparseItem {
-  logId: string;
-  title: string;
-  text: string;
-  receivedAt: string;
-  action: "create" | "update" | "skip";
-  reason?: string;
-  parsed?: {
-    type: string;
-    amount: number;
-    merchant: string;
-    accountName: string;
-  };
-}
+import {
+  type ReparseItem,
+  type ReparseProgress,
+  reparseNotifications,
+} from "@/modules/transaction/reparse-service";
 
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -58,7 +44,6 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        // Load user's tossMyName for self-transfer filtering
         const [userRow] = await db
           .select({ tossMyName: users.tossMyName })
           .from(users)
@@ -66,290 +51,60 @@ export async function POST(request: NextRequest) {
           .limit(1);
         const tossMyName = userRow?.tossMyName ?? null;
 
-        // Fetch all notification logs
-        const logs = await db
-          .select({
-            id: notificationLogs.id,
-            rawPayload: notificationLogs.rawPayload,
-            receivedAt: notificationLogs.receivedAt,
-          })
-          .from(notificationLogs)
-          .where(eq(notificationLogs.userId, userId))
-          .orderBy(desc(notificationLogs.receivedAt));
-
-        send({ type: "start", total: logs.length });
-
         const items: ReparseItem[] = [];
-        let createCount = 0;
-        let updateCount = 0;
-        let skipCount = 0;
-        let failCount = 0;
-
-        // Send progress every N items to avoid flooding
-        const progressInterval = Math.max(1, Math.floor(logs.length / 50));
-
-        for (let i = 0; i < logs.length; i++) {
-          const log = logs[i];
-          let title = "";
-          let text = "";
-          try {
-            const payload = JSON.parse(log.rawPayload);
-            title = typeof payload.title === "string" ? payload.title : "";
-            text = typeof payload.text === "string" ? payload.text : "";
-          } catch {
-            skipCount++;
-            items.push({
-              logId: log.id,
-              title: "",
-              text: "",
-              receivedAt: log.receivedAt.toISOString(),
-              action: "skip",
-              reason: "유효하지 않은 JSON",
-            });
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "progress",
-                processed: i + 1,
-                total: logs.length,
-                created: createCount,
-                updated: updateCount,
-                skipped: skipCount,
-                failed: failCount,
-              });
-            }
-            continue;
+        let startSent = false;
+        let progressThrottle = 1;
+        const onProgress = (p: ReparseProgress) => {
+          if (!startSent) {
+            send({ type: "start", total: p.total });
+            // Throttle so we emit ~50 progress events across the batch.
+            progressThrottle = Math.max(1, Math.floor(p.total / 50));
+            startSent = true;
           }
-
-          if (!title || !text) {
-            skipCount++;
-            items.push({
-              logId: log.id,
-              title,
-              text,
-              receivedAt: log.receivedAt.toISOString(),
-              action: "skip",
-              reason: "title 또는 text 누락",
-            });
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "progress",
-                processed: i + 1,
-                total: logs.length,
-                created: createCount,
-                updated: updateCount,
-                skipped: skipCount,
-                failed: failCount,
-              });
-            }
-            continue;
-          }
-
-          const parsed = parseTossNotification(title, text, { myName: tossMyName });
-          if (!parsed) {
-            skipCount++;
-            items.push({
-              logId: log.id,
-              title,
-              text,
-              receivedAt: log.receivedAt.toISOString(),
-              action: "skip",
-              reason: "파싱 실패 (패턴 불일치)",
-            });
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "progress",
-                processed: i + 1,
-                total: logs.length,
-                created: createCount,
-                updated: updateCount,
-                skipped: skipCount,
-                failed: failCount,
-              });
-            }
-            continue;
-          }
-
-          // Check for existing transaction for this exact log
-          const existingForLog = await db
-            .select({
-              id: transactions.id,
-              type: transactions.type,
-              amount: transactions.amount,
-              merchant: transactions.merchant,
-              accountName: transactions.accountName,
-            })
-            .from(transactions)
-            .where(and(eq(transactions.userId, userId), eq(transactions.notificationLogId, log.id)))
-            .limit(1);
-
-          const existing = existingForLog.length > 0 ? existingForLog[0] : null;
-
-          // Check for duplicate transactions within ±2 minutes
-          const windowMs = 2 * 60 * 1000;
-          const receivedAt = new Date(log.receivedAt);
-          const windowStart = new Date(receivedAt.getTime() - windowMs);
-          const windowEnd = new Date(receivedAt.getTime() + windowMs);
-
-          const duplicates = await db
-            .select({ id: transactions.id, notificationLogId: transactions.notificationLogId })
-            .from(transactions)
-            .where(
-              and(
-                eq(transactions.userId, userId),
-                eq(transactions.amount, parsed.amount),
-                eq(transactions.merchant, parsed.merchant),
-                eq(transactions.type, parsed.type),
-                gte(transactions.transactedAt, windowStart),
-                lte(transactions.transactedAt, windowEnd)
-              )
-            )
-            .limit(1);
-
-          if (duplicates.length > 0 && duplicates[0].notificationLogId !== log.id) {
-            skipCount++;
-            items.push({
-              logId: log.id,
-              title,
-              text,
-              receivedAt: log.receivedAt.toISOString(),
-              action: "skip",
-              reason: "중복 거래 (±2분 내 동일 금액/가맹점)",
-              parsed,
-            });
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "progress",
-                processed: i + 1,
-                total: logs.length,
-                created: createCount,
-                updated: updateCount,
-                skipped: skipCount,
-                failed: failCount,
-              });
-            }
-            continue;
-          }
-
-          // Determine action: skip if existing data is identical
-          let action: "create" | "update" | "skip";
-          if (!existing) {
-            action = "create";
-          } else if (
-            existing.type === parsed.type &&
-            existing.amount === parsed.amount &&
-            existing.merchant === parsed.merchant &&
-            existing.accountName === parsed.accountName
-          ) {
-            action = "skip";
-          } else {
-            action = "update";
-          }
-
-          if (action === "skip") {
-            skipCount++;
-            items.push({
-              logId: log.id,
-              title,
-              text,
-              receivedAt: log.receivedAt.toISOString(),
-              action: "skip",
-              reason: "변경 없음",
-              parsed,
-            });
-            if ((i + 1) % progressInterval === 0) {
-              send({
-                type: "progress",
-                processed: i + 1,
-                total: logs.length,
-                created: createCount,
-                updated: updateCount,
-                skipped: skipCount,
-                failed: failCount,
-              });
-            }
-            continue;
-          }
-
-          if (action === "create") createCount++;
-          else updateCount++;
-
-          const item: ReparseItem = {
-            logId: log.id,
-            title,
-            text,
-            receivedAt: log.receivedAt.toISOString(),
-            action,
-            parsed,
-          };
-          items.push(item);
-
-          // Stream actionable items immediately
-          send({ type: "item", ...item });
-
-          // Apply if not dry-run
-          if (!dryRun) {
-            try {
-              await db
-                .insert(transactions)
-                .values({
-                  userId,
-                  notificationLogId: log.id,
-                  type: parsed.type,
-                  amount: parsed.amount,
-                  merchant: parsed.merchant,
-                  accountName: parsed.accountName,
-                  rawTitle: title,
-                  rawText: text,
-                  transactedAt: receivedAt,
-                  createdAt: new Date(),
-                })
-                .onConflictDoUpdate({
-                  target: [transactions.userId, transactions.notificationLogId],
-                  set: {
-                    type: sql`excluded.type`,
-                    amount: sql`excluded.amount`,
-                    merchant: sql`excluded.merchant`,
-                    accountName: sql`excluded.account_name`,
-                    rawTitle: sql`excluded.raw_title`,
-                    rawText: sql`excluded.raw_text`,
-                  },
-                });
-            } catch {
-              failCount++;
-            }
-          }
-
-          // Send progress update
-          if ((i + 1) % progressInterval === 0) {
+          if (p.processed % progressThrottle === 0 || p.processed === p.total) {
             send({
               type: "progress",
-              processed: i + 1,
-              total: logs.length,
-              created: createCount,
-              updated: updateCount,
-              skipped: skipCount,
-              failed: failCount,
+              processed: p.processed,
+              total: p.total,
+              created: p.created,
+              updated: p.updated,
+              skipped: p.skipped,
+              failed: p.failed,
             });
           }
-        }
+        };
+
+        const onItem = (item: ReparseItem) => {
+          items.push(item);
+          if (item.action !== "skip") send({ type: "item", ...item });
+        };
+
+        const totals = await reparseNotifications(db, userId, {
+          dryRun,
+          tossMyName,
+          onProgress,
+          onItem,
+        });
+
+        if (!startSent) send({ type: "start", total: 0 });
 
         logger.info(`Reparse ${dryRun ? "dry-run" : "applied"}`, {
           userId,
-          total: logs.length,
-          created: createCount,
-          updated: updateCount,
-          skipped: skipCount,
-          failed: failCount,
+          total: totals.total,
+          created: totals.created,
+          updated: totals.updated,
+          skipped: totals.skipped,
+          failed: totals.failed,
         });
 
         send({
           type: "done",
           dryRun,
-          total: logs.length,
-          created: createCount,
-          updated: updateCount,
-          skipped: skipCount,
-          failed: failCount,
+          total: totals.total,
+          created: totals.created,
+          updated: totals.updated,
+          skipped: totals.skipped,
+          failed: totals.failed,
           items: items.filter((i) => i.action !== "skip"),
         });
       } catch (err) {

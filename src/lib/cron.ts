@@ -359,7 +359,6 @@ async function reparseTodayNotifications() {
   const db = getDb();
 
   try {
-    // Find users with toss notification key
     const tossUsers = await db
       .select({ id: users.id, githubLogin: users.githubLogin, tossMyName: users.tossMyName })
       .from(users)
@@ -375,116 +374,19 @@ async function reparseTodayNotifications() {
     let totalUpdated = 0;
     let totalSkipped = 0;
 
+    const { reparseNotifications } = await import("@/modules/transaction/reparse-service");
+
     for (const user of tossUsers) {
       try {
-        const logs = await db
-          .select({
-            id: notificationLogs.id,
-            rawPayload: notificationLogs.rawPayload,
-            receivedAt: notificationLogs.receivedAt,
-          })
-          .from(notificationLogs)
-          .where(
-            and(
-              eq(notificationLogs.userId, user.id),
-              gte(notificationLogs.receivedAt, dayStart),
-              lt(notificationLogs.receivedAt, dayEnd)
-            )
-          )
-          .orderBy(desc(notificationLogs.receivedAt));
-
-        if (logs.length === 0) continue;
-
-        for (const log of logs) {
-          let title = "";
-          let text = "";
-          try {
-            const payload = JSON.parse(log.rawPayload);
-            title = typeof payload.title === "string" ? payload.title : "";
-            text = typeof payload.text === "string" ? payload.text : "";
-          } catch {
-            totalSkipped++;
-            continue;
-          }
-
-          if (!title || !text) {
-            totalSkipped++;
-            continue;
-          }
-
-          const parsed = parseTossNotification(title, text, { myName: user.tossMyName });
-          if (!parsed) {
-            totalSkipped++;
-            continue;
-          }
-
-          // Check if transaction already exists for this log
-          const existing = await db
-            .select({ id: transactions.id })
-            .from(transactions)
-            .where(
-              and(eq(transactions.userId, user.id), eq(transactions.notificationLogId, log.id))
-            )
-            .limit(1);
-
-          const isUpdate = existing.length > 0;
-
-          // Check for duplicate within ±2 minutes
-          const windowMs = 2 * 60 * 1000;
-          const receivedAt = new Date(log.receivedAt);
-          const windowStart = new Date(receivedAt.getTime() - windowMs);
-          const windowEnd = new Date(receivedAt.getTime() + windowMs);
-
-          const duplicates = await db
-            .select({ id: transactions.id, notificationLogId: transactions.notificationLogId })
-            .from(transactions)
-            .where(
-              and(
-                eq(transactions.userId, user.id),
-                eq(transactions.amount, parsed.amount),
-                eq(transactions.merchant, parsed.merchant),
-                eq(transactions.type, parsed.type),
-                gte(transactions.transactedAt, windowStart),
-                lte(transactions.transactedAt, windowEnd)
-              )
-            )
-            .limit(1);
-
-          if (duplicates.length > 0 && duplicates[0].notificationLogId !== log.id) {
-            totalSkipped++;
-            continue;
-          }
-
-          // Upsert transaction
-          await db
-            .insert(transactions)
-            .values({
-              userId: user.id,
-              notificationLogId: log.id,
-              type: parsed.type,
-              amount: parsed.amount,
-              merchant: parsed.merchant,
-              accountName: parsed.accountName,
-              rawTitle: title,
-              rawText: text,
-              transactedAt: receivedAt,
-              createdAt: new Date(),
-            })
-            .onConflictDoUpdate({
-              target: [transactions.userId, transactions.notificationLogId],
-              set: {
-                type: sql`excluded.type`,
-                amount: sql`excluded.amount`,
-                merchant: sql`excluded.merchant`,
-                accountName: sql`excluded.account_name`,
-                rawTitle: sql`excluded.raw_title`,
-                rawText: sql`excluded.raw_text`,
-              },
-            });
-
-          if (isUpdate) totalUpdated++;
-          else totalCreated++;
-        }
+        const totals = await reparseNotifications(db, user.id, {
+          dryRun: false,
+          from: dayStart,
+          to: dayEnd,
+          tossMyName: user.tossMyName,
+        });
+        totalCreated += totals.created;
+        totalUpdated += totals.updated;
+        totalSkipped += totals.skipped;
       } catch (error) {
         logger.error("[Cron] Toss reparse error for user", {
           userId: user.id,
