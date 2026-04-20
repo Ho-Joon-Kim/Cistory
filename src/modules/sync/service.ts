@@ -13,7 +13,7 @@ import { createGitHubAdapter, type VCSSearchCommit } from "@/lib/adapters/vcs/gi
 import { generateId, now } from "@/lib/utils";
 
 export interface SyncProgress {
-  status: "pending" | "fetching" | "summarizing" | "completed" | "failed";
+  status: "fetching" | "summarizing" | "completed" | "failed";
   message: string;
   totalCommits: number;
   processedCommits: number;

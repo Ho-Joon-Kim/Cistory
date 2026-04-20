@@ -99,7 +99,7 @@ export const syncJobs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     syncType: text("sync_type").notNull(), // 'events' | 'search' | 'initial'
-    status: text("status").default("pending"), // 'pending' | 'fetching' | 'summarizing' | 'completed' | 'failed'
+    status: text("status").default("fetching"), // 'fetching' | 'summarizing' | 'completed' | 'failed'
     triggerType: text("trigger_type").notNull(), // 'manual' | 'scheduled' | 'login'
     totalCommits: integer("total_commits").default(0),
     processedCommits: integer("processed_commits").default(0),

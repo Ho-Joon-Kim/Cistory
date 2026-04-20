@@ -1,0 +1,1 @@
+ALTER TABLE "sync_jobs" ALTER COLUMN "status" SET DEFAULT 'fetching';
