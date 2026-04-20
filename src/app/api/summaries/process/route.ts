@@ -7,7 +7,7 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { commitSummaries, commits, users } from "@/db/schema";
+import { commitSummaries, commits } from "@/db/schema";
 import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
 import { createSummaryService } from "@/modules/summary/service";
 

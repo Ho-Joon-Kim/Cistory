@@ -12,7 +12,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb, visits } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
-import { detectAndPersistVisits } from "@/modules/location/services/visit-persister";
+import {
+  detectAndPersistVisits,
+  type EnrichedVisit,
+} from "@/modules/location/services/visit-persister";
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,7 +39,7 @@ export async function GET(request: NextRequest) {
     const today = toLocalDateString(new Date());
     const isToday = dateParam === today;
 
-    let enrichedVisits;
+    let enrichedVisits: EnrichedVisit[];
     if (isToday) {
       enrichedVisits = await detectAndPersistVisits(user.id, dateParam);
     } else {

@@ -5,23 +5,14 @@
  * Runs independently of user sessions - works even if users haven't logged in for months
  */
 
-import { and, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import * as cron from "node-cron";
-import {
-  commitSummaries,
-  commits,
-  getDb,
-  notificationLogs,
-  syncJobs,
-  transactions,
-  users,
-} from "@/db";
+import { commitSummaries, commits, getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
 import { createSummaryService } from "@/modules/summary/service";
 import { createSyncService } from "@/modules/sync/service";
-import { parseTossNotification } from "@/modules/transaction/parser";
 import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
 let isInitialized = false;

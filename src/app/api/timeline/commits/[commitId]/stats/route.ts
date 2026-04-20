@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { commits, users } from "@/db/schema";
+import { commits } from "@/db/schema";
 import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
 import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
 
