@@ -5,7 +5,7 @@
  * POST /api/timeline/locations/tracks?date=YYYY-MM-DD — Trigger track recalculation
  */
 
-import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, tracks, transportationSegments } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
@@ -47,40 +47,50 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(asc(tracks.startTime));
 
-    // Fetch segments for each track
-    const result = await Promise.all(
-      dayTracks.map(async (track) => {
-        const segments = await db
-          .select()
-          .from(transportationSegments)
-          .where(eq(transportationSegments.trackId, track.id))
-          .orderBy(asc(transportationSegments.startTime));
+    // Fetch all segments for these tracks in a single query, then group (P6).
+    // Previous code issued one SELECT per track (O(N) round-trips); a day
+    // with 20+ tracks was taking 20+ DB hits for what is conceptually one join.
+    const trackIds = dayTracks.map((t) => t.id);
+    const allSegments =
+      trackIds.length === 0
+        ? []
+        : await db
+            .select()
+            .from(transportationSegments)
+            .where(inArray(transportationSegments.trackId, trackIds))
+            .orderBy(asc(transportationSegments.startTime));
 
-        return {
-          id: track.id,
-          startTime: track.startTime.toISOString(),
-          endTime: track.endTime.toISOString(),
-          distanceMeters: track.distanceMeters,
-          durationSeconds: track.durationSeconds,
-          pointCount: track.pointCount,
-          startPlaceName: track.startPlaceName,
-          endPlaceName: track.endPlaceName,
-          dominantMode: track.dominantMode,
-          elevationGain: track.elevationGain,
-          elevationLoss: track.elevationLoss,
-          segments: segments.map((s) => ({
-            mode: s.mode,
-            confidence: s.confidence,
-            startTime: s.startTime.toISOString(),
-            endTime: s.endTime.toISOString(),
-            distanceMeters: s.distanceMeters,
-            durationSeconds: s.durationSeconds,
-            avgSpeedKmh: s.avgSpeedKmh,
-            maxSpeedKmh: s.maxSpeedKmh,
-          })),
-        };
-      })
-    );
+    const segmentsByTrackId = new Map<string, typeof allSegments>();
+    for (const s of allSegments) {
+      if (!s.trackId) continue;
+      const bucket = segmentsByTrackId.get(s.trackId);
+      if (bucket) bucket.push(s);
+      else segmentsByTrackId.set(s.trackId, [s]);
+    }
+
+    const result = dayTracks.map((track) => ({
+      id: track.id,
+      startTime: track.startTime.toISOString(),
+      endTime: track.endTime.toISOString(),
+      distanceMeters: track.distanceMeters,
+      durationSeconds: track.durationSeconds,
+      pointCount: track.pointCount,
+      startPlaceName: track.startPlaceName,
+      endPlaceName: track.endPlaceName,
+      dominantMode: track.dominantMode,
+      elevationGain: track.elevationGain,
+      elevationLoss: track.elevationLoss,
+      segments: (segmentsByTrackId.get(track.id) ?? []).map((s) => ({
+        mode: s.mode,
+        confidence: s.confidence,
+        startTime: s.startTime.toISOString(),
+        endTime: s.endTime.toISOString(),
+        distanceMeters: s.distanceMeters,
+        durationSeconds: s.durationSeconds,
+        avgSpeedKmh: s.avgSpeedKmh,
+        maxSpeedKmh: s.maxSpeedKmh,
+      })),
+    }));
 
     return NextResponse.json({ tracks: result });
   } catch (error) {
