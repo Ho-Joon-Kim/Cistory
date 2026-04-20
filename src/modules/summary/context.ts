@@ -7,9 +7,34 @@
 import type { GitHubAdapter } from "@/lib/adapters/vcs/github";
 import type { RecentCommitPattern, RepoContext } from "./prompts";
 
-// 캐시 (메모리 - 프로덕션에서는 KV 사용 권장)
+// In-memory LRU cache with TTL. Bounded to MAX_ENTRIES so long-running
+// processes (cron, standalone Next.js) don't accumulate unbounded repo
+// contexts. 100 repos × ~3KB each ≈ 300KB upper bound.
+const MAX_ENTRIES = 100;
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const contextCache = new Map<string, { context: RepoContext; timestamp: number }>();
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24시간
+
+function cacheGet(key: string): RepoContext | null {
+  const hit = contextCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.timestamp >= CACHE_TTL) {
+    contextCache.delete(key);
+    return null;
+  }
+  // Refresh recency by re-inserting (Map preserves insertion order).
+  contextCache.delete(key);
+  contextCache.set(key, hit);
+  return hit.context;
+}
+
+function cacheSet(key: string, context: RepoContext): void {
+  if (contextCache.size >= MAX_ENTRIES) {
+    // Evict oldest (first) entry.
+    const firstKey = contextCache.keys().next().value;
+    if (firstKey) contextCache.delete(firstKey);
+  }
+  contextCache.set(key, { context, timestamp: Date.now() });
+}
 
 /**
  * 레포지토리 컨텍스트 수집
@@ -22,12 +47,8 @@ export async function fetchRepoContext(
   description: string = ""
 ): Promise<RepoContext> {
   const cacheKey = `${owner}/${repo}`;
-  const cached = contextCache.get(cacheKey);
-
-  // 캐시 확인
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.context;
-  }
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
 
   const context: RepoContext = {
     description,
@@ -93,8 +114,7 @@ export async function fetchRepoContext(
     }
   }
 
-  // 캐시 저장
-  contextCache.set(cacheKey, { context, timestamp: Date.now() });
+  cacheSet(cacheKey, context);
 
   return context;
 }

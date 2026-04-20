@@ -17,7 +17,32 @@ export async function GET(request: NextRequest) {
     }
 
     const section = request.nextUrl.searchParams.get("section");
-    if (!section || !VALID_SECTIONS.has(section)) {
+    const year = parseInt(yearParam, 10);
+    const db = getDb();
+
+    // P2: /api/insights?year=... (no section) returns all five sections in one
+    // round-trip, so clients that render the full page in parallel don't have
+    // to fire five separate requests (each running its own overlapping COUNT
+    // over commits). Per-section calls stay supported for any caller that
+    // wants section-level lazy loading.
+    if (!section) {
+      const [streaks, patterns, routines, digests, commitHeatmap] = await Promise.all([
+        InsightsService.calculateStreaks(db, user.id, year),
+        InsightsService.calculateWorkPatterns(db, user.id, year),
+        InsightsService.calculateRoutinePatterns(db, user.id, year),
+        InsightsService.calculateMonthlyDigests(db, user.id, year),
+        InsightsService.getCommitHeatmapData(db, user.id, year),
+      ]);
+      return NextResponse.json({
+        streaks,
+        patterns,
+        routines,
+        digests,
+        commitHeatmap,
+      });
+    }
+
+    if (!VALID_SECTIONS.has(section)) {
       return NextResponse.json(
         {
           error:
@@ -26,9 +51,6 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const year = parseInt(yearParam, 10);
-    const db = getDb();
 
     switch (section) {
       case "streaks": {
