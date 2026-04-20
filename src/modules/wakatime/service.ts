@@ -25,32 +25,31 @@ export class WakaTimeSyncService {
 
     if (durations.length === 0) return 0;
 
+    // Batch insert — one round-trip per day instead of N per-duration inserts.
+    // onConflictDoNothing + returning lets Postgres tell us exactly which rows
+    // were new, so we don't have to track individual results in JS.
     const now = new Date();
-    let inserted = 0;
+    const rows = durations.map((d) => ({
+      userId,
+      project: d.project,
+      startedAt: new Date(d.time * 1000),
+      durationSeconds: Math.round(d.duration),
+      humanAdditions: d.humanAdditions,
+      humanDeletions: d.humanDeletions,
+      aiAdditions: d.aiAdditions,
+      aiDeletions: d.aiDeletions,
+      createdAt: now,
+    }));
 
-    for (const d of durations) {
-      const result = await this.db
-        .insert(codingSessions)
-        .values({
-          userId,
-          project: d.project,
-          startedAt: new Date(d.time * 1000),
-          durationSeconds: Math.round(d.duration),
-          humanAdditions: d.humanAdditions,
-          humanDeletions: d.humanDeletions,
-          aiAdditions: d.aiAdditions,
-          aiDeletions: d.aiDeletions,
-          createdAt: now,
-        })
-        .onConflictDoNothing({
-          target: [codingSessions.userId, codingSessions.startedAt, codingSessions.project],
-        })
-        .returning({ id: codingSessions.id });
+    const result = await this.db
+      .insert(codingSessions)
+      .values(rows)
+      .onConflictDoNothing({
+        target: [codingSessions.userId, codingSessions.startedAt, codingSessions.project],
+      })
+      .returning({ id: codingSessions.id });
 
-      if (result.length > 0) inserted++;
-    }
-
-    return inserted;
+    return result.length;
   }
 
   async syncSummaries(userId: string, start: string, end: string): Promise<number> {
