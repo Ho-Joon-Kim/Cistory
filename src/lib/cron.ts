@@ -273,8 +273,13 @@ async function syncAllUsers() {
 }
 
 /**
- * Process yesterday's location data: anomaly detection, visit detection, transport modes.
- * Runs daily at 01:00 KST.
+ * Process un-anomaly-scanned days (location pipeline: anomaly → visits →
+ * tracks → fog-cells). Runs daily at 01:00 KST and on container boot.
+ *
+ * Finds every past date for the user that still has location_points with
+ * anomaly IS NULL (the signal that the day hasn't been processed yet) and
+ * runs the pipeline for each. Cap at 14 days per invocation so we don't block
+ * the event loop on a months-long backlog — subsequent boots catch the rest.
  */
 async function processYesterdayLocations() {
   const startTime = Date.now();
@@ -296,40 +301,63 @@ async function processYesterdayLocations() {
       return;
     }
 
-    // Yesterday in local timezone (KST in production)
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = toLocalDateString(yesterday);
-
     const { detectAndPersistVisits } = await import("@/modules/location/services/visit-persister");
     const { detectAndPersistTracks } = await import("@/modules/location/services/track-persister");
 
+    // Always include yesterday. Adding it explicitly covers the case where
+    // yesterday has no points with anomaly IS NULL yet (edge race at 00:00).
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = toLocalDateString(yesterday);
+    const todayStr = toLocalDateString(new Date());
+
     for (const user of allUsers) {
       try {
-        // 1. Anomaly detection
-        const anomalyResult = await runAnomalyDetectionForDay(user.id, yesterdayStr);
-        if (anomalyResult.total > 0) {
+        // Find unprocessed dates (at most 14, oldest first).
+        const unprocessedResult = await db.execute<{ d: string; [key: string]: unknown }>(sql`
+          SELECT to_char(d, 'YYYY-MM-DD') AS d FROM (
+            SELECT date(timestamp) AS d
+            FROM location_points
+            WHERE user_id = ${user.id}
+              AND date(timestamp) < ${todayStr}::date
+            GROUP BY date(timestamp)
+            HAVING count(*) FILTER (WHERE anomaly IS NULL) > 0
+            ORDER BY date(timestamp) DESC
+            LIMIT 14
+          ) recent
+          ORDER BY d
+        `);
+        const datesToProcess = new Set<string>(unprocessedResult.rows.map((r) => r.d));
+        datesToProcess.add(yesterdayStr);
+        const dateList = Array.from(datesToProcess).sort();
+
+        if (dateList.length > 1) {
           logger.info(
-            `[Cron] Anomaly detection for ${user.id}: ${anomalyResult.total} anomalies marked`
+            `[Cron] Location catch-up for ${user.id}: ${dateList.length} dates (${dateList[0]} .. ${dateList[dateList.length - 1]})`
           );
         }
 
-        // 2. Visit detection + persist
-        const detectedVisits = await detectAndPersistVisits(user.id, yesterdayStr);
-        if (detectedVisits.length > 0) {
-          logger.info(
-            `[Cron] Visit detection for ${user.id}: ${detectedVisits.length} visits persisted`
-          );
-        }
+        for (const dateStr of dateList) {
+          const anomalyResult = await runAnomalyDetectionForDay(user.id, dateStr);
+          if (anomalyResult.total > 0) {
+            logger.info(
+              `[Cron] Anomaly detection for ${user.id} ${dateStr}: ${anomalyResult.total} anomalies marked`
+            );
+          }
 
-        // 3. Track + transport-mode detection + persist.
-        // Uses the same track-persister as location-backfill so cron-written
-        // days also have rows in `tracks` (not orphan segments with trackId=null).
-        const trackResult = await detectAndPersistTracks(user.id, yesterdayStr);
-        if (trackResult.trackCount > 0 || trackResult.segmentCount > 0) {
-          logger.info(
-            `[Cron] Track detection for ${user.id}: ${trackResult.trackCount} tracks, ${trackResult.segmentCount} segments persisted`
-          );
+          const detectedVisits = await detectAndPersistVisits(user.id, dateStr);
+          if (detectedVisits.length > 0) {
+            logger.info(
+              `[Cron] Visit detection for ${user.id} ${dateStr}: ${detectedVisits.length} visits persisted`
+            );
+          }
+
+          const trackResult = await detectAndPersistTracks(user.id, dateStr);
+          if (trackResult.trackCount > 0 || trackResult.segmentCount > 0) {
+            logger.info(
+              `[Cron] Track detection for ${user.id} ${dateStr}: ${trackResult.trackCount} tracks, ${trackResult.segmentCount} segments persisted`
+            );
+          }
         }
 
         // P7: refresh fog_cells_cache so the map endpoint doesn't GROUP BY the
@@ -490,7 +518,13 @@ export function initializeCron() {
 
   isInitialized = true;
 
-  // Run immediately on start if environment variable is set
+  // Boot-time catch-up. Cron schedules only fire while the process is alive —
+  // if the container restarted past 01:00 KST, yesterday's location processing
+  // silently skipped. If it was down longer than syncIntervalHours, commit sync
+  // is overdue. Run both on boot so a long outage auto-heals.
+  //
+  // RUN_ON_START=true remains a manual override that forces syncAllUsers
+  // regardless of interval.
   if (process.env.RUN_ON_START === "true") {
     logger.info("[Cron] RUN_ON_START=true detected. Running sync immediately...");
     syncAllUsers().catch((error) => {
@@ -498,6 +532,22 @@ export function initializeCron() {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+  } else {
+    // Short delay so the HTTP listener binds first (health checks shouldn't
+    // compete with DB-heavy startup work).
+    setTimeout(() => {
+      logger.info("[Cron] Running boot-time catch-up");
+      syncAllUsers().catch((error) => {
+        logger.error("[Cron] Boot-time sync failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      processYesterdayLocations().catch((error) => {
+        logger.error("[Cron] Boot-time location processing failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }, 10_000);
   }
 
   logger.info("[Cron] Service initialized successfully.");
