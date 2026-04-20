@@ -488,33 +488,49 @@ export function initializeCron() {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
 
-  // Set up cron job (every 10 minutes)
-  cronTask = cron.schedule(CRON_SCHEDULE, () => {
-    syncAllUsers().catch((error) => {
-      logger.error("[Cron] Unhandled error in sync job", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-  });
+  // node-cron v4 options: pass timezone explicitly. Relying on the process-
+  // level TZ env is risky because node-cron falls back to Intl lookup which
+  // depends on the container having tzdata — alpine images often lack it,
+  // which would silently resolve to UTC and make "0 1 * * *" fire at 10:00 KST
+  // (during business hours / deploy windows, easy to miss).
+  const TZ = "Asia/Seoul";
 
-  // Daily Toss notification reparse (23:00)
-  dailyReparseTask = cron.schedule(DAILY_REPARSE_SCHEDULE, () => {
-    reparseTodayNotifications().catch((error) => {
-      logger.error("[Cron] Unhandled error in daily reparse", {
-        error: error instanceof Error ? error.message : String(error),
+  cronTask = cron.schedule(
+    CRON_SCHEDULE,
+    () => {
+      syncAllUsers().catch((error) => {
+        logger.error("[Cron] Unhandled error in sync job", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
-    });
-  });
+    },
+    { timezone: TZ, name: "sync-users" }
+  );
 
-  // Daily location processing (01:00 — anomaly detection, visit detection, transport modes)
+  dailyReparseTask = cron.schedule(
+    DAILY_REPARSE_SCHEDULE,
+    () => {
+      reparseTodayNotifications().catch((error) => {
+        logger.error("[Cron] Unhandled error in daily reparse", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    { timezone: TZ, name: "toss-reparse" }
+  );
+
   const LOCATION_PROCESSING_SCHEDULE = "0 1 * * *";
-  locationProcessingTask = cron.schedule(LOCATION_PROCESSING_SCHEDULE, () => {
-    processYesterdayLocations().catch((error) => {
-      logger.error("[Cron] Unhandled error in location processing", {
-        error: error instanceof Error ? error.message : String(error),
+  locationProcessingTask = cron.schedule(
+    LOCATION_PROCESSING_SCHEDULE,
+    () => {
+      processYesterdayLocations().catch((error) => {
+        logger.error("[Cron] Unhandled error in location processing", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
-    });
-  });
+    },
+    { timezone: TZ, name: "location-processing" }
+  );
 
   isInitialized = true;
 

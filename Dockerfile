@@ -36,6 +36,11 @@ COPY scripts/migrate.ts ./scripts/migrate.ts
 FROM node:22-alpine AS runner
 WORKDIR /app
 
+# tzdata is required for Intl to resolve IANA zone names like "Asia/Seoul".
+# Without it, Intl silently falls back to UTC, which breaks node-cron
+# expressions like "0 1 * * *" (they'd fire at 10:00 KST, not 01:00).
+RUN apk add --no-cache tzdata
+
 ENV NODE_ENV=production
 ENV TZ=Asia/Seoul
 
