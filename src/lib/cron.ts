@@ -12,6 +12,10 @@ import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
 import { createSummaryService } from "@/modules/summary/service";
+import {
+  refreshAllSubwaySystems,
+  seedSubwaySystemsIfEmpty,
+} from "@/modules/subway/service";
 import { createSyncService } from "@/modules/sync/service";
 import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
@@ -19,6 +23,59 @@ let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
 let dailyReparseTask: cron.ScheduledTask | null = null;
 let locationProcessingTask: cron.ScheduledTask | null = null;
+let subwayRefreshTask: cron.ScheduledTask | null = null;
+let isSubwayRefreshRunning = false;
+
+/**
+ * Wraps refreshAllSubwaySystems with a single-flight guard. Yearly cron + boot
+ * catch-up could otherwise stack up if a refresh hangs (Overpass slow path).
+ */
+async function runSubwayRefresh(reason: string): Promise<void> {
+  if (isSubwayRefreshRunning) {
+    logger.info("[Cron] subway refresh already running, skipping", { reason });
+    return;
+  }
+  isSubwayRefreshRunning = true;
+  try {
+    logger.info("[Cron] subway refresh starting", { reason });
+    await refreshAllSubwaySystems();
+    logger.info("[Cron] subway refresh complete", { reason });
+  } finally {
+    isSubwayRefreshRunning = false;
+  }
+}
+
+/**
+ * Seed (idempotent) and check if any subway_system has never been fetched or is
+ * older than 350 days. If so, kick off refreshAllSubwaySystems in the background.
+ */
+async function maybeRunSubwayBootCatchUp(): Promise<void> {
+  try {
+    await seedSubwaySystemsIfEmpty();
+    const db = getDb();
+    const res = await db.execute(sql`
+      SELECT COUNT(*)::int AS c FROM subway_systems
+      WHERE last_refreshed_at IS NULL OR last_refreshed_at < now() - interval '350 days'
+    `);
+    const overdue = Number((res.rows[0] as { c?: number } | undefined)?.c ?? 0);
+    if (overdue === 0) {
+      logger.info("[Cron] subway data fresh, skipping boot refresh");
+      return;
+    }
+    logger.info("[Cron] subway systems overdue, queueing background refresh", {
+      overdue,
+    });
+    runSubwayRefresh("boot-catch-up").catch((error) => {
+      logger.error("[Cron] subway boot refresh failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  } catch (error) {
+    logger.error("[Cron] subway boot seed/check failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 async function syncAllUsers() {
   const startTime = Date.now();
@@ -394,6 +451,47 @@ async function processYesterdayLocations() {
             error: fogError instanceof Error ? fogError.message : String(fogError),
           });
         }
+        // Subway track matching (Phase 2). For each processed date, score the
+        // segments against subway_lines geometry and label trips. Then group
+        // consecutive matches into transfer sessions. Non-fatal — segments
+        // remain in their original mode if matching fails.
+        try {
+          const { matchSubwayTrips } = await import(
+            "@/modules/location/services/subway-match/matcher"
+          );
+          const { groupMatchesIntoSessions } = await import(
+            "@/modules/location/services/subway-match/session-grouper"
+          );
+          for (const dateStr of dateList) {
+            const matchResult = await matchSubwayTrips(user.id, dateStr);
+            if (matchResult.legsInserted > 0) {
+              const sessionResult = await groupMatchesIntoSessions(user.id, dateStr);
+              if (sessionResult.multiLegSessions > 0) {
+                logger.info(`[Cron] Subway transfers for ${user.id} ${dateStr}: ${sessionResult.multiLegSessions} multi-leg sessions`);
+              }
+            }
+          }
+        } catch (matchErr) {
+          logger.warn("[Cron] Subway matching failed (non-fatal)", {
+            userId: user.id,
+            error: matchErr instanceof Error ? matchErr.message : String(matchErr),
+          });
+        }
+
+        // Subway discovery: scan visits.city for new cities not yet covered by
+        // any subway_systems bbox. Probes Overpass; capped at 3 new cities per
+        // run. Failure is non-fatal — the catch-up will retry tomorrow.
+        try {
+          const { discoverMissingSubwayCities } = await import(
+            "@/modules/location/services/subway-discovery"
+          );
+          await discoverMissingSubwayCities(user.id);
+        } catch (discErr) {
+          logger.warn("[Cron] Subway discovery failed (non-fatal)", {
+            userId: user.id,
+            error: discErr instanceof Error ? discErr.message : String(discErr),
+          });
+        }
       } catch (err) {
         logger.error(`[Cron] Location processing failed for user ${user.id}`, {
           error: err instanceof Error ? err.message : String(err),
@@ -532,6 +630,23 @@ export function initializeCron() {
     { timezone: TZ, name: "location-processing" }
   );
 
+  // Yearly subway data refresh — Jan 1, 03:00 KST. OSM subway data is near-static
+  // (new lines/stations open occasionally; line colors and geometry rarely
+  // change). The boot catch-up below also re-fetches anything older than 350
+  // days so a container that's been down on Jan 1 still gets the update.
+  const SUBWAY_REFRESH_SCHEDULE = "0 3 1 1 *";
+  subwayRefreshTask = cron.schedule(
+    SUBWAY_REFRESH_SCHEDULE,
+    () => {
+      runSubwayRefresh("yearly-cron").catch((error) => {
+        logger.error("[Cron] Unhandled error in yearly subway refresh", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    { timezone: TZ, name: "subway-refresh" }
+  );
+
   isInitialized = true;
 
   // Boot-time catch-up. Cron schedules only fire while the process is alive —
@@ -563,6 +678,11 @@ export function initializeCron() {
           error: error instanceof Error ? error.message : String(error),
         });
       });
+      maybeRunSubwayBootCatchUp().catch((error) => {
+        logger.error("[Cron] Boot-time subway catch-up failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }, 10_000);
   }
 
@@ -585,6 +705,10 @@ export async function stopCron() {
   if (locationProcessingTask) {
     locationProcessingTask.stop();
     locationProcessingTask = null;
+  }
+  if (subwayRefreshTask) {
+    subwayRefreshTask.stop();
+    subwayRefreshTask = null;
   }
   if (isInitialized) {
     await logger.flush();

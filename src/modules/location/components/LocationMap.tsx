@@ -22,23 +22,30 @@ import { MapSkeleton } from "./MapSkeleton";
 import type { LayerVisibility } from "./panels/LayersPanel";
 import { RouteReplayController } from "./RouteReplayController";
 import { SegmentedRouteAnimator } from "./SegmentedRouteAnimator";
+import { SubwayLayer } from "@/components/map/SubwayLayer";
 import { TimelineSegmentBar } from "./TimelineSegmentBar";
 import "mapbox-gl/dist/mapbox-gl.css";
 
+const DEFAULT_LAYER_VISIBILITY: LayerVisibility = {
+  routes: true,
+  stayPoints: true,
+  savedPlaces: true,
+  speedColors: false,
+  fogOfWar: false,
+  subway: false,
+};
+
 function loadLayerVisibility(): LayerVisibility {
-  if (typeof window === "undefined")
-    return {
-      routes: true,
-      stayPoints: true,
-      savedPlaces: true,
-      speedColors: false,
-      fogOfWar: false,
-    };
+  if (typeof window === "undefined") return DEFAULT_LAYER_VISIBILITY;
   try {
     const saved = sessionStorage.getItem("cistory-layer-visibility");
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      // Merge with defaults so new layer keys don't get lost when an older
+      // persisted value is loaded.
+      return { ...DEFAULT_LAYER_VISIBILITY, ...JSON.parse(saved) };
+    }
   } catch {}
-  return { routes: true, stayPoints: true, savedPlaces: true, speedColors: false, fogOfWar: false };
+  return DEFAULT_LAYER_VISIBILITY;
 }
 
 function saveLayerVisibility(v: LayerVisibility) {
@@ -407,6 +414,8 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
           {mapLoaded && layerVisibility.fogOfWar && fogCells.length > 0 && (
             <FogOfWarLayer cells={fogCells} />
           )}
+          {/* OSM-sourced subway lines + stations overlay */}
+          {mapLoaded && <SubwayLayer visible={layerVisibility.subway} />}
         </MapGL>
 
         {/* Map Side Panel */}

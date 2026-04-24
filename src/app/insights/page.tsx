@@ -11,6 +11,7 @@ import { MonthlyDigestCard } from "@/modules/insights/components/MonthlyDigestCa
 import { ProductivityByLocation } from "@/modules/insights/components/ProductivityByLocation";
 import { RoutineDiscovery } from "@/modules/insights/components/RoutineDiscovery";
 import { StreakGamification } from "@/modules/insights/components/StreakGamification";
+import { SubwayInsightsCard } from "@/modules/insights/components/SubwayInsightsCard";
 import { WorkPatternCard } from "@/modules/insights/components/WorkPatternCard";
 import { useInsights } from "@/modules/insights/hooks";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
@@ -24,7 +25,7 @@ function InsightsContent() {
   const yearParam = searchParams.get("year");
   const year = yearParam ? parseInt(yearParam, 10) : currentYear;
 
-  const { streaks, patterns, routines, digests, commitHeatmap } = useInsights(year);
+  const { streaks, patterns, routines, digests, commitHeatmap, subway } = useInsights(year);
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) {
@@ -95,6 +96,8 @@ function InsightsContent() {
             <RoutineDiscovery data={routines.data} isLoading={routines.isLoading} />
 
             <ProductivityByLocation />
+
+            <SubwayInsightsCard data={subway.data} isLoading={subway.isLoading} />
 
             <MonthlyDigestCard data={digests.data} isLoading={digests.isLoading} year={year} />
           </div>

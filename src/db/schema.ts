@@ -1,8 +1,10 @@
 import {
+  bigint,
   boolean,
   doublePrecision,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -424,6 +426,104 @@ export const fogCellsCache = pgTable(
   ]
 );
 
+// ============ Subway Systems (OSM) ============
+// NOTE: `bbox geometry(Polygon, 4326)` column is managed via raw SQL in migration 0019
+// (not in Drizzle schema) — same pattern as location_points.lonlat.
+export const subwaySystems = pgTable(
+  "subway_systems",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    cityKey: text("city_key").notNull().unique(),
+    cityName: text("city_name").notNull(),
+    countryCode: text("country_code").notNull(),
+    source: text("source").notNull().default("seed"), // 'seed' | 'discovered'
+    lastRefreshedAt: timestamp("last_refreshed_at"),
+    lineCount: integer("line_count").notNull().default(0),
+    stationCount: integer("station_count").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_subway_systems_city_key").on(table.cityKey)]
+);
+
+// ============ Subway Lines (OSM relations) ============
+// NOTE: `geometry geometry(MultiLineString, 4326)` managed via raw SQL.
+export const subwayLines = pgTable(
+  "subway_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    systemId: uuid("system_id")
+      .notNull()
+      .references(() => subwaySystems.id, { onDelete: "cascade" }),
+    osmRelationId: bigint("osm_relation_id", { mode: "number" }).notNull(),
+    name: text("name"),
+    nameEn: text("name_en"),
+    ref: text("ref"),
+    colour: text("colour"), // normalized "#RRGGBB" or null
+    operator: text("operator"),
+    network: text("network"),
+  },
+  (table) => [
+    uniqueIndex("idx_subway_lines_system_relation").on(table.systemId, table.osmRelationId),
+    index("idx_subway_lines_system").on(table.systemId),
+  ]
+);
+
+// ============ Subway Stations (OSM nodes) ============
+// NOTE: `location geometry(Point, 4326)` managed via raw SQL.
+export const subwayStations = pgTable(
+  "subway_stations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    systemId: uuid("system_id")
+      .notNull()
+      .references(() => subwaySystems.id, { onDelete: "cascade" }),
+    osmNodeId: bigint("osm_node_id", { mode: "number" }).notNull(),
+    name: text("name"),
+    nameEn: text("name_en"),
+    lineRefs: jsonb("line_refs"), // e.g. ["2","3"] — transfers have multiple
+  },
+  (table) => [
+    uniqueIndex("idx_subway_stations_system_node").on(table.systemId, table.osmNodeId),
+    index("idx_subway_stations_system").on(table.systemId),
+  ]
+);
+
+// ============ Subway Trip Matches (Phase 2) ============
+// Links user's transportation segments to subway lines, with transfer-aware session grouping.
+export const subwayTripMatches = pgTable(
+  "subway_trip_matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    transportationSegmentId: uuid("transportation_segment_id")
+      .notNull()
+      .references(() => transportationSegments.id, { onDelete: "cascade" }),
+    lineId: uuid("line_id")
+      .notNull()
+      .references(() => subwayLines.id),
+    sessionId: uuid("session_id"),
+    legOrder: integer("leg_order").notNull().default(0),
+    subStartTime: timestamp("sub_start_time").notNull(),
+    subEndTime: timestamp("sub_end_time").notNull(),
+    startStationId: uuid("start_station_id").references(() => subwayStations.id),
+    endStationId: uuid("end_station_id").references(() => subwayStations.id),
+    coverageRatio: doublePrecision("coverage_ratio").notNull(),
+    speedProfileScore: doublePrecision("speed_profile_score").notNull(),
+    gapScore: doublePrecision("gap_score").notNull(),
+    stationScore: doublePrecision("station_score").notNull(),
+    totalConfidence: doublePrecision("total_confidence").notNull(),
+    matchedAt: timestamp("matched_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_stm_segment_leg").on(table.transportationSegmentId, table.legOrder),
+    index("idx_stm_user").on(table.userId),
+    index("idx_stm_line").on(table.lineId),
+    index("idx_stm_session").on(table.sessionId),
+  ]
+);
+
 // ============ Type Exports ============
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -475,3 +575,15 @@ export type NewTransportationSegment = typeof transportationSegments.$inferInser
 
 export type Trip = typeof trips.$inferSelect;
 export type NewTrip = typeof trips.$inferInsert;
+
+export type SubwaySystem = typeof subwaySystems.$inferSelect;
+export type NewSubwaySystem = typeof subwaySystems.$inferInsert;
+
+export type SubwayLine = typeof subwayLines.$inferSelect;
+export type NewSubwayLine = typeof subwayLines.$inferInsert;
+
+export type SubwayStation = typeof subwayStations.$inferSelect;
+export type NewSubwayStation = typeof subwayStations.$inferInsert;
+
+export type SubwayTripMatch = typeof subwayTripMatches.$inferSelect;
+export type NewSubwayTripMatch = typeof subwayTripMatches.$inferInsert;

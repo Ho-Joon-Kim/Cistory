@@ -20,6 +20,7 @@ import { OverseasTripCards } from "@/modules/report/components/OverseasTripCards
 import { PlaceProductivityCard } from "@/modules/report/components/PlaceProductivityCard";
 import { ScratchMapStats } from "@/modules/report/components/ScratchMapStats";
 import { StatCards } from "@/modules/report/components/StatCards";
+import { SubwayUsageCard } from "@/modules/report/components/SubwayUsageCard";
 import { StreakHighlight } from "@/modules/report/components/StreakHighlight";
 import { TopPlaces } from "@/modules/report/components/TopPlaces";
 import { WeekdayHourBubble } from "@/modules/report/components/WeekdayHourBubble";
@@ -300,6 +301,8 @@ function ReportContent() {
                 isLoading={report.location.isLoading}
                 locationData={locationData as LocationSectionData | null}
                 crossAnalysisData={crossAnalysisData}
+                period={period}
+                reportType={reportType}
               />
 
               {/* Scratch Map (yearly only) */}
@@ -532,10 +535,14 @@ function LocationSection({
   isLoading,
   locationData,
   crossAnalysisData,
+  period,
+  reportType,
 }: {
   isLoading: boolean;
   locationData: LocationSectionData | null;
   crossAnalysisData?: CrossAnalysisData | null;
+  period: string;
+  reportType: "monthly" | "yearly";
 }) {
   if (isLoading) return <SectionSkeleton title="이동/생활" />;
   if (
@@ -544,6 +551,18 @@ function LocationSection({
   ) {
     return null;
   }
+
+  // Derive YYYY-MM-DD bounds from `period` for the subway-usage card.
+  const subwayRange = (() => {
+    if (reportType === "monthly") {
+      const [y, m] = period.split("-").map(Number);
+      const from = `${y}-${String(m).padStart(2, "0")}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
+      const to = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+      return { from, to };
+    }
+    return { from: `${period}-01-01`, to: `${period}-12-31` };
+  })();
 
   return (
     <Section title="이동/생활">
@@ -598,6 +617,10 @@ function LocationSection({
           <FirstVisitCards cities={locationData.newCities} countries={locationData.newCountries} />
         </div>
       )}
+
+      <div className="mt-6">
+        <SubwayUsageCard from={subwayRange.from} to={subwayRange.to} />
+      </div>
     </Section>
   );
 }

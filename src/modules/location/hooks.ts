@@ -269,6 +269,18 @@ export function useLocations(date: string) {
 
 // ── Track Data ───────────────────────────────────────────────────────────────
 
+export interface SubwayLegData {
+  lineId: string;
+  lineRef: string | null;
+  lineName: string | null;
+  lineColor: string;
+  startStationName: string | null;
+  endStationName: string | null;
+  sessionId: string | null;
+  legOrder: number;
+  totalConfidence: number;
+}
+
 export interface TrackSegmentData {
   mode: string;
   confidence: string;
@@ -278,6 +290,7 @@ export interface TrackSegmentData {
   durationSeconds: number;
   avgSpeedKmh: number | null;
   maxSpeedKmh: number | null;
+  subwayLegs: SubwayLegData[];
 }
 
 export interface TrackData {

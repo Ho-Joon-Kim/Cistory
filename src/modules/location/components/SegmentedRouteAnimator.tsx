@@ -35,7 +35,7 @@ const LINE_LAYER: LayerProps = {
   id: "route-line",
   type: "line" as const,
   paint: {
-    "line-color": "hsl(80, 60%, 40%)",
+    "line-color": "hsl(153, 60%, 38%)",
     "line-width": 3,
     "line-opacity": 0.8,
   },
@@ -79,7 +79,7 @@ const NEAREST_POINT_LAYER: LayerProps = {
   type: "circle" as const,
   paint: {
     "circle-radius": 5,
-    "circle-color": "hsl(80, 60%, 40%)",
+    "circle-color": "hsl(153, 60%, 38%)",
     "circle-opacity": 0,
     "circle-stroke-width": 1.5,
     "circle-stroke-color": "#ffffff",

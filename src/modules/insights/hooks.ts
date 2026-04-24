@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { SubwayInsightsData } from "@/modules/location/services/subway-match/usage";
 import type {
   CommitHeatmapResult,
   MonthlyDigestsResult,
@@ -60,6 +61,7 @@ export interface UseInsightsReturn {
   routines: SectionState<RoutinePatternsResult>;
   digests: SectionState<MonthlyDigestsResult>;
   commitHeatmap: SectionState<CommitHeatmapResult>;
+  subway: SectionState<SubwayInsightsData>;
 }
 
 export function useInsights(year: number): UseInsightsReturn {
@@ -70,6 +72,7 @@ export function useInsights(year: number): UseInsightsReturn {
   const routines = useSectionFetch<RoutinePatternsResult>(`${baseUrl}&section=routines`);
   const digests = useSectionFetch<MonthlyDigestsResult>(`${baseUrl}&section=digests`);
   const commitHeatmap = useSectionFetch<CommitHeatmapResult>(`${baseUrl}&section=commit-heatmap`);
+  const subway = useSectionFetch<SubwayInsightsData>(`${baseUrl}&section=subway`);
 
-  return { streaks, patterns, routines, digests, commitHeatmap };
+  return { streaks, patterns, routines, digests, commitHeatmap, subway };
 }

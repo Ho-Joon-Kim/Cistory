@@ -8,42 +8,42 @@
   --card-foreground: 240 10% 3.9%;
   --popover: 0 0% 100%;
   --popover-foreground: 240 10% 3.9%;
-  --primary: 80 60% 35%;
+  --primary: 153 60% 38%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 80 40% 95%;
-  --secondary-foreground: 80 60% 28%;
+  --secondary: 153 40% 95%;
+  --secondary-foreground: 153 60% 28%;
   --muted: 210 40% 96%;
   --muted-foreground: 215 16% 47%;
-  --accent: 80 60% 35%;
+  --accent: 153 60% 38%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 80 60% 35%;
+  --ring: 153 60% 38%;
   --radius: 0.5rem;
 }
 
 .dark {
-  --background: 0 0% 4%;
+  --background: 0 0% 0%;
   --foreground: 0 0% 98%;
   --card: 0 0% 8%;
   --card-foreground: 0 0% 98%;
   --popover: 0 0% 8%;
   --popover-foreground: 0 0% 98%;
-  --primary: 80 75% 56%;
+  --primary: 153 70% 53%;
   --primary-foreground: 0 0% 0%;
-  --secondary: 80 20% 14%;
+  --secondary: 153 20% 14%;
   --secondary-foreground: 0 0% 98%;
   --muted: 0 0% 14%;
   --muted-foreground: 0 0% 64%;
-  --accent: 80 10% 16%;
+  --accent: 153 10% 16%;
   --accent-foreground: 0 0% 98%;
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 14%;
   --input: 0 0% 14%;
-  --ring: 80 75% 56%;
+  --ring: 153 70% 53%;
 }
 
 @theme inline {
@@ -976,8 +976,8 @@ body {
   z-index: 1;
   background: repeating-linear-gradient(
     90deg,
-    hsl(80 60% 40% / 0.5) 0px,
-    hsl(80 60% 40% / 0.5) 4px,
+    hsl(153 60% 38% / 0.5) 0px,
+    hsl(153 60% 38% / 0.5) 4px,
     transparent 4px,
     transparent 8px
   );
@@ -989,8 +989,8 @@ body {
 .stepper-dash:hover {
   background: repeating-linear-gradient(
     90deg,
-    hsl(80 60% 40% / 0.8) 0px,
-    hsl(80 60% 40% / 0.8) 4px,
+    hsl(153 60% 38% / 0.8) 0px,
+    hsl(153 60% 38% / 0.8) 4px,
     transparent 4px,
     transparent 8px
   );
