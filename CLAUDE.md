@@ -99,14 +99,24 @@ sentry.edge.config.ts        # Sentry edge config
 
 ### Key Patterns
 
-**API Route Authentication**: All API routes use shared helpers from `src/lib/auth-helpers.ts`:
+**API Route Authentication**: Three layered helper modules cover the common shapes:
+
+- `src/lib/auth-helpers.ts` — `getAuthenticatedUser(request)` for session check, `getGitHubToken(userId)` for reading the GitHub OAuth token (now sourced directly from Better Auth's `account` table — the old `users.github_access_token` column was dropped in migration 0017).
+- `src/lib/api-handler.ts` — `withAuth` / `withValidation` wrappers that bundle session check + Zod body parse + structured error responses. Prefer these for new session-based routes. Throw `ApiError(status, message, code)` inside a handler to surface a structured error.
+- `src/lib/api-key-route.ts` — `createApiKeyRoute({ column, prefix, label })` factory for the POST/DELETE pair that generates or revokes a prefixed API key on `users`. Used by OwnTracks and Toss key routes; WakaTime stays hand-written because it also verifies + kicks off an initial sync.
+- `src/lib/api-auth.ts` — hardening for public ingestion endpoints reachable by API key (OwnTracks, Toss). Exposes `verifyApiKey()` (DB probe + `timingSafeEqual`), `enforceRateLimit()` (in-memory 60 req / 60s per key+IP), `checkBodySize()` (10 KB cap), `checkSameOrigin()`, and `logIngestionFailure()`. All ingestion routes must pass the request through these before touching DB state.
+
 ```typescript
-// Auth-only routes (most routes)
+// Auth-only routes
 const { user, error } = await getAuthenticatedUser(request);
 if (error) return error;
 
-// Routes that also need GitHub API access
-const accessToken = await getGitHubToken(user.id, db, users);
+// Or wrapper-style
+export const GET = withAuth(async ({ user, request }) => { ... });
+export const POST = withValidation(Body, async ({ user, body }) => { ... });
+
+// GitHub-backed routes
+const accessToken = await getGitHubToken(user.id);
 ```
 
 **Adapter Pattern**: Extensible interfaces in `lib/adapters/`:
@@ -126,7 +136,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (17 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (18 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 - `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Better Auth `user.id`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
@@ -144,6 +154,7 @@ const db = getDb();
 - `notificationLogs` - Raw Toss/MacroDroid push notification payloads (source, rawPayload, headers)
 - `transactions` - Parsed Toss financial transactions (type: withdrawal/deposit, amount, merchant, accountName). Unique on `(userId, notificationLogId)`
 - `dataUsageCache` - Per-user per-table row count and estimated byte size cache
+- `fogCellsCache` - Precomputed coarse-grid fog-of-war cells refreshed by the main cron (avoids a live GROUP BY over `locationPoints` on every map view)
 
 PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` columns rather than a `geography` type, but the extension is expected to be available for spatial queries.
 
@@ -161,14 +172,14 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - Both flows use shared `_executeSyncCommits()` private method
 - Deduplication via SHA batch lookup (batch size: 500)
 - Rate limiting: 100ms delay between commit saves
-- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, refreshes data usage cache, and auto-deletes sync jobs older than 7 days
+- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, refreshes data usage cache, refreshes `fog_cells_cache` per user, and auto-deletes sync jobs older than 7 days
 - Daily Toss reparse cron (`0 23 * * *` — 23:00 KST): reparses today's Toss notifications to pick up parser improvements
 - Daily location-processing cron (`0 1 * * *` — 01:00 KST): for each user with OwnTracks configured, runs anomaly detection, visit detection + persist, track building + persist, and transportation-mode detection for the previous day (see `src/modules/location/services/`)
 
 **Session/Token Management**:
 - Cookie-based sessions managed by Better Auth with cookie cache (5-minute TTL to minimize DB lookups)
-- GitHub access token stored in Better Auth `account` table and synced to `users.githubAccessToken` on each sign-in
-- Cron worker reads `githubAccessToken` directly from `users` table via `getDb()`
+- GitHub access token is stored **only** in Better Auth's `account` table. Migration 0017 dropped the duplicate `users.github_access_token` column; `getGitHubToken(userId)` is now the single accessor.
+- The cron worker filters users via `EXISTS (SELECT 1 FROM account WHERE providerId = 'github' AND accessToken IS NOT NULL)` rather than reading a column on `users`.
 
 **Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`. Also initializes Sentry and registers graceful shutdown handlers (SIGINT/SIGTERM). Set `RUN_ON_START=true` to trigger an immediate sync on boot.
 
@@ -218,7 +229,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - `/api/timeline/coding-sessions` - GET WakaTime coding sessions
 - `/api/timeline/coding-stats` - GET WakaTime coding statistics
 - `/api/trips` - GET/POST trips; `/api/trips/[id]` - PUT/DELETE trip; `/api/trips/detect` - POST auto-detect trips from visits
-- `/api/insights` - GET insights dashboard data (places, transport, residency aggregates)
+- `/api/insights` - GET insights dashboard data. With no `section` param returns all five groups in one batched response; `?section=streaks|patterns|routines|digests|commit-heatmap` fetches a single group
 - `/api/reports/monthly` - GET monthly report data (supports `?section=` for commits/coding/location); POST AI narrative
 - `/api/reports/yearly` - GET yearly report data (supports `?section=`); POST AI narrative
 - `/api/summaries/process` - POST batch summary generation
@@ -256,9 +267,11 @@ NEXT_PUBLIC_ENABLE_DB_BENCHMARK=true # Show the matching UI card
 
 1. Modify `src/db/schema.ts`
 2. `yarn db:generate` to create migration files in `drizzle/`
-3. `yarn db:migrate` to apply to PostgreSQL
+3. `yarn db:migrate` to apply to PostgreSQL (local dev)
 
 Drizzle config loads env from `.env.local` (not `.env`). Fallback `DATABASE_URL` for local dev: `postgresql://cistory:cistory@localhost:5432/cistory`.
+
+CI/production uses `scripts/migrate.ts` (invoked via `npx tsx scripts/migrate.ts`) rather than `drizzle-kit migrate`. That script sets `lock_timeout=60s` and `statement_timeout=2m` at the connection level so a stuck `__drizzle_migrations` lock fails the build fast instead of hanging Jenkins. Jenkins additionally kills stale `idle in transaction` sessions on `drizzle`/DDL queries before starting a run.
 
 ### CI/CD & Deployment
 
