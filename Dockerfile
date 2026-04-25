@@ -24,7 +24,8 @@ ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
 ENV BETTER_AUTH_SECRET=build-placeholder
 
-RUN mkdir -p public && yarn build
+RUN mkdir -p public && yarn build && \
+    node scripts/fix-standalone-instrumentation.mjs
 
 # Stage: Lightweight migration runner (no build, no secrets needed)
 FROM base AS migrator
@@ -51,6 +52,11 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+
+# scripts/fix-standalone-instrumentation.mjs (run in the builder stage above)
+# already injected the compiled hook + its NFT-traced deps + chunk requires
+# back into .next/standalone — the COPY above brings the patched bundle over
+# unchanged.
 
 RUN chown -R nextjs:nodejs /app
 

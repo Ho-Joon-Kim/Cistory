@@ -17,6 +17,55 @@ import { checkBodySize, enforceRateLimit, logIngestionFailure, verifyApiKey } fr
 import { logger } from "@/lib/logger";
 import { parseTossNotification } from "@/modules/transaction/parser";
 
+/**
+ * MacroDroid forwards Toss notification text with literal LF/CR/TAB inside
+ * JSON string values (e.g. multi-line receipts: "체크카드 | 가게\n..."), which
+ * makes the payload invalid JSON. JSON.parse throws on the first 0x0a and the
+ * caller's silent catch block was dropping every transaction since 4/20. This
+ * scanner walks the raw bytes and escapes control chars only while inside a
+ * JSON string, leaving structure ("`{`/`}`/`,`/whitespace) untouched. Cheap
+ * (single pass) and never makes valid input invalid.
+ */
+function sanitizeMacrodroidJson(raw: string): string {
+  let out = "";
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (escape) {
+      out += c;
+      escape = false;
+      continue;
+    }
+    if (c === "\\") {
+      out += c;
+      escape = true;
+      continue;
+    }
+    if (c === '"') {
+      out += c;
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      if (c === "\n") {
+        out += "\\n";
+        continue;
+      }
+      if (c === "\r") {
+        out += "\\r";
+        continue;
+      }
+      if (c === "\t") {
+        out += "\\t";
+        continue;
+      }
+    }
+    out += c;
+  }
+  return out;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = checkBodySize(request);
@@ -67,16 +116,31 @@ export async function POST(request: NextRequest) {
       })
       .returning({ id: notificationLogs.id });
 
-    // Try parsing as a transaction (출금/입금)
+    // Try parsing as a transaction (출금/입금/결제/송금수신)
     let parsed = null;
+    let parseSkipReason: string | null = null;
+    let parseTitleLen = 0;
+    let parseTextLen = 0;
+    let parseError: string | null = null;
     try {
-      const payload = JSON.parse(rawPayload);
+      const payload = JSON.parse(sanitizeMacrodroidJson(rawPayload));
       const title = typeof payload.title === "string" ? payload.title : "";
       const text = typeof payload.text === "string" ? payload.text : "";
+      parseTitleLen = title.length;
+      parseTextLen = text.length;
 
-      if (title && text) {
+      // Title-only patterns (e.g. "OOO님이 N원을 보냈어요") are valid even when
+      // notification text is empty — gating on `title && text` was silently
+      // dropping every transfer-received notification, which is what broke
+      // transactions parsing after 4/20 when Toss started shipping a few of
+      // those without text bodies.
+      if (!title) {
+        parseSkipReason = "no_title";
+      } else {
         parsed = parseTossNotification(title, text, { myName: tossMyName });
-        if (parsed) {
+        if (!parsed) {
+          parseSkipReason = "no_pattern_match";
+        } else {
           await db.insert(transactions).values({
             userId,
             notificationLogId: inserted.id,
@@ -92,14 +156,25 @@ export async function POST(request: NextRequest) {
           });
         }
       }
-    } catch {
-      // Parse failure is fine — raw log is already saved
+    } catch (err) {
+      // Raw log is already saved; surface the failure reason to logging so
+      // the parser regression that caused the 4/20 outage is visible next
+      // time instead of dying silently.
+      parseError = err instanceof Error ? err.message : String(err);
+      parseSkipReason = "exception";
     }
 
-    logger.info("Toss notification received", {
-      userId,
-      transactionParsed: parsed !== null,
-    });
+    if (parsed) {
+      logger.info("Toss notification parsed", { userId, type: parsed.type });
+    } else {
+      logger.warn("Toss notification parse skipped", {
+        userId,
+        reason: parseSkipReason,
+        titleLen: parseTitleLen,
+        textLen: parseTextLen,
+        error: parseError,
+      });
+    }
 
     return NextResponse.json({ success: true, transactionParsed: parsed !== null });
   } catch (error) {

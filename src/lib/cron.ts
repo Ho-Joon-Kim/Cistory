@@ -335,8 +335,10 @@ async function syncAllUsers() {
  *
  * Finds every past date for the user that still has location_points with
  * anomaly IS NULL (the signal that the day hasn't been processed yet) and
- * runs the pipeline for each. Cap at 14 days per invocation so we don't block
- * the event loop on a months-long backlog — subsequent boots catch the rest.
+ * runs the pipeline for each. Cap at 30 days per invocation so a multi-week
+ * outage (e.g. the 3/5 → 4/25 cron downtime that left 25 days unprocessed)
+ * recovers in a single boot catch-up rather than dragging on across reboots.
+ * Subsequent boots still catch the rest if the backlog exceeds 30 days.
  */
 async function processYesterdayLocations() {
   const startTime = Date.now();
@@ -380,7 +382,7 @@ async function processYesterdayLocations() {
             GROUP BY date(timestamp)
             HAVING count(*) FILTER (WHERE anomaly IS NULL) > 0
             ORDER BY date(timestamp) DESC
-            LIMIT 14
+            LIMIT 30
           ) recent
           ORDER BY d
         `);
