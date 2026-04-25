@@ -331,7 +331,7 @@ async function syncAllUsers() {
 
 /**
  * Process un-anomaly-scanned days (location pipeline: anomaly → visits →
- * tracks → fog-cells). Runs daily at 01:00 KST and on container boot.
+ * tracks → transportation → subway). Runs daily at 01:00 KST and on container boot.
  *
  * Finds every past date for the user that still has location_points with
  * anomaly IS NULL (the signal that the day hasn't been processed yet) and
@@ -417,40 +417,6 @@ async function processYesterdayLocations() {
           }
         }
 
-        // P7: refresh fog_cells_cache so the map endpoint doesn't GROUP BY the
-        // full location_points table on every user pageview. Recomputes the
-        // whole grid (full, not incremental) — the aggregate is cheap once per
-        // day and keeps the cache simple to reason about.
-        try {
-          const fogResult = await db.execute<{ refreshed: number; [key: string]: unknown }>(sql`
-            WITH aggregated AS (
-              SELECT
-                ROUND(lat::numeric * 100) / 100 AS lat,
-                ROUND(lon::numeric * 100) / 100 AS lon
-              FROM location_points
-              WHERE user_id = ${user.id}
-              GROUP BY 1, 2
-            ),
-            deleted AS (
-              DELETE FROM fog_cells_cache WHERE user_id = ${user.id}
-            ),
-            inserted AS (
-              INSERT INTO fog_cells_cache (user_id, lat, lon, calculated_at)
-              SELECT ${user.id}, lat, lon, NOW() FROM aggregated
-              RETURNING id
-            )
-            SELECT count(*)::int AS refreshed FROM inserted
-          `);
-          const refreshed = fogResult.rows[0]?.refreshed ?? 0;
-          if (refreshed > 0) {
-            logger.info(`[Cron] Fog cells refreshed for ${user.id}: ${refreshed} cells`);
-          }
-        } catch (fogError) {
-          logger.error("[Cron] Fog cells refresh error", {
-            userId: user.id,
-            error: fogError instanceof Error ? fogError.message : String(fogError),
-          });
-        }
         // Subway track matching (Phase 2). For each processed date, score the
         // segments against subway_lines geometry and label trips. Then group
         // consecutive matches into transfer sessions. Non-fatal — segments

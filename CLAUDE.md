@@ -62,7 +62,7 @@ src/
 │   └── report/              # Monthly/yearly report pages
 ├── components/              # Shared components (Layout/, ui/ with 19 shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (17 app tables)
+│   ├── schema.ts            # Drizzle schema (16 app tables)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
 │   ├── adapters/            # Adapter pattern interfaces + implementations
@@ -136,7 +136,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (18 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (17 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 - `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Better Auth `user.id`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
@@ -154,7 +154,6 @@ const db = getDb();
 - `notificationLogs` - Raw Toss/MacroDroid push notification payloads (source, rawPayload, headers)
 - `transactions` - Parsed Toss financial transactions (type: withdrawal/deposit, amount, merchant, accountName). Unique on `(userId, notificationLogId)`
 - `dataUsageCache` - Per-user per-table row count and estimated byte size cache
-- `fogCellsCache` - Precomputed coarse-grid fog-of-war cells refreshed by the main cron (avoids a live GROUP BY over `locationPoints` on every map view)
 
 PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` columns rather than a `geography` type, but the extension is expected to be available for spatial queries.
 
@@ -172,7 +171,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - Both flows use shared `_executeSyncCommits()` private method
 - Deduplication via SHA batch lookup (batch size: 500)
 - Rate limiting: 100ms delay between commit saves
-- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, refreshes data usage cache, refreshes `fog_cells_cache` per user, and auto-deletes sync jobs older than 7 days
+- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, refreshes data usage cache, and auto-deletes sync jobs older than 7 days
 - Daily Toss reparse cron (`0 23 * * *` — 23:00 KST): reparses today's Toss notifications to pick up parser improvements
 - Daily location-processing cron (`0 1 * * *` — 01:00 KST): for each user with OwnTracks configured, runs anomaly detection, visit detection + persist, track building + persist, and transportation-mode detection for the previous day (see `src/modules/location/services/`)
 
@@ -225,7 +224,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - `/api/timeline` - GET paginated commits with filters
 - `/api/timeline/repos` - GET user repos; `/api/timeline/stats` - GET commit stats
 - `/api/timeline/commits/[commitId]` - GET details; `.../stats` - GET file stats; `.../summary` - GET/POST summary
-- `/api/timeline/locations` - GET location points; `.../stay-points` - detected stay points; `.../distances` - daily travel distances; `.../tracks` - movement tracks; `.../fog-cells` - visited-area fog-of-war grid; `.../import` - GPX/external import
+- `/api/timeline/locations` - GET location points; `.../stay-points` - detected stay points; `.../distances` - daily travel distances; `.../tracks` - movement tracks; `.../import` - GPX/external import
 - `/api/timeline/coding-sessions` - GET WakaTime coding sessions
 - `/api/timeline/coding-stats` - GET WakaTime coding statistics
 - `/api/trips` - GET/POST trips; `/api/trips/[id]` - PUT/DELETE trip; `/api/trips/detect` - POST auto-detect trips from visits

@@ -1,0 +1,1 @@
+DROP TABLE "fog_cells_cache" CASCADE;

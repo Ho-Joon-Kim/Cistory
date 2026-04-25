@@ -13,10 +13,8 @@ import {
   useSavedPlaces,
   useStayPoints,
 } from "../hooks";
-import { useFogOfWar } from "../hooks/useFogOfWar";
 import { useRouteReplay } from "../hooks/useRouteReplay";
 import { createGeoCircle, findSegmentIndexByStayPoint, segmentLocations } from "../utils";
-import { FogOfWarLayer } from "./FogOfWarLayer";
 import { MapSidePanel } from "./MapSidePanel";
 import { MapSkeleton } from "./MapSkeleton";
 import type { LayerVisibility } from "./panels/LayersPanel";
@@ -31,7 +29,6 @@ const DEFAULT_LAYER_VISIBILITY: LayerVisibility = {
   stayPoints: true,
   savedPlaces: true,
   speedColors: false,
-  fogOfWar: false,
   subway: false,
 };
 
@@ -232,9 +229,6 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
     });
   }, []);
 
-  // Fog of War
-  const { cells: fogCells } = useFogOfWar(layerVisibility.fogOfWar);
-
   // Bidirectional state
   const [selectedSegmentIndex, setSelectedSegmentIndex] = useState<number | null>(null);
   const [hoveredSegmentIndex, setHoveredSegmentIndex] = useState<number | null>(null);
@@ -409,10 +403,6 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
           )}
           {mapLoaded && layerVisibility.savedPlaces && savedPlaces.length > 0 && (
             <SavedPlacesOverlay places={savedPlaces} />
-          )}
-          {/* Fog of War canvas overlay */}
-          {mapLoaded && layerVisibility.fogOfWar && fogCells.length > 0 && (
-            <FogOfWarLayer cells={fogCells} />
           )}
           {/* OSM-sourced subway lines + stations overlay */}
           {mapLoaded && <SubwayLayer visible={layerVisibility.subway} />}

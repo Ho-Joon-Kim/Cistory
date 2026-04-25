@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, Eye, MapPin, Palette, Route, TrainFront } from "lucide-react";
+import { Bookmark, MapPin, Palette, Route, TrainFront } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 export interface LayerVisibility {
@@ -8,7 +8,6 @@ export interface LayerVisibility {
   stayPoints: boolean;
   savedPlaces: boolean;
   speedColors: boolean;
-  fogOfWar: boolean;
   subway: boolean;
 }
 
@@ -26,7 +25,6 @@ const LAYER_OPTIONS: {
   { key: "stayPoints", label: "체류 포인트", icon: <MapPin className="h-4 w-4" /> },
   { key: "savedPlaces", label: "저장 장소", icon: <Bookmark className="h-4 w-4" /> },
   { key: "speedColors", label: "속도 색상", icon: <Palette className="h-4 w-4" /> },
-  { key: "fogOfWar", label: "전쟁의 안개", icon: <Eye className="h-4 w-4" /> },
   { key: "subway", label: "지하철 노선", icon: <TrainFront className="h-4 w-4" /> },
 ];
 
