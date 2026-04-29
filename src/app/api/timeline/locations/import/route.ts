@@ -5,138 +5,70 @@
  * Accepts multipart/form-data with a file (GPX, GeoJSON, Google Takeout JSON).
  * Returns SSE stream with parsing and insertion progress.
  *
- * Inspired by Dawarich's broadcast pattern (5s / 100 points throttle).
- * Supports files up to 50MB (see MAX_FILE_SIZE below).
+ * Memory peak is bounded by streaming JSON parsing for Google Takeout (the
+ * common large case): file bytes flow through busboy → stream-json → batched
+ * INSERTs without ever materializing the full document. GPX/GeoJSON files
+ * (typically small) are still buffered to a string.
  */
 
+import { Readable } from "node:stream";
+import Busboy from "busboy";
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { detectFormat } from "@/modules/location/services/import/format-detector";
+import { parseGeoJson } from "@/modules/location/services/import/geojson-parser";
 import {
-  type ImportProgress,
-  importPoints,
-  parseFile,
-} from "@/modules/location/services/import/importer";
-import type { ImportFormat } from "@/modules/location/services/import/types";
+  parseGoogleTakeout,
+  streamGoogleTakeout,
+} from "@/modules/location/services/import/google-takeout-parser";
+import { parseGpx } from "@/modules/location/services/import/gpx-parser";
+import { type ImportProgress, importPoints } from "@/modules/location/services/import/importer";
+import type { ParsedPoint } from "@/modules/location/services/import/types";
 
-// Hard cap file size — parser materializes the full string in memory, so the
-// effective limit is bound by the Node.js heap of the server. 50MB covers the
-// realistic Google Takeout / GPX export cases while keeping peak heap well
-// under typical container limits. Follow-up work to stream the parser itself
-// would allow raising this safely; see Phase 7.6.
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+// Hard cap as defense-in-depth. With streaming Google Takeout import the
+// effective memory peak no longer scales with file size, but we still cap
+// the upload to protect bandwidth + disk and to bound buffered GPX/GeoJSON.
+const MAX_FILE_SIZE_MB = Number(process.env.IMPORT_MAX_FILE_SIZE_MB ?? "500");
+const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+// Bytes sniffed from the file head for format auto-detection. Enough for the
+// JSON envelope (`{"locations":[...]}` etc.) and the GPX `<?xml ...><gpx`.
+const SNIFF_BYTES = 4096;
 
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await getAuthenticatedUser(request);
   if (authError) return authError;
 
-  // Reject oversized bodies before parsing formData — Content-Length is the
-  // client's advertised size. formData() parsing of a 500MB body already
-  // causes memory pressure regardless of file.size checks below.
   const contentLength = Number.parseInt(request.headers.get("content-length") ?? "", 10);
   if (Number.isFinite(contentLength) && contentLength > MAX_FILE_SIZE + 1024 * 1024) {
     return NextResponse.json(
-      { error: `파일 크기는 ${MAX_FILE_SIZE / 1024 / 1024}MB 이하여야 합니다` },
+      { error: `파일 크기는 ${MAX_FILE_SIZE_MB}MB 이하여야 합니다` },
       { status: 413 }
     );
   }
 
-  let formData: FormData;
-  try {
-    formData = await request.formData();
-  } catch {
-    return NextResponse.json({ error: "요청을 파싱할 수 없습니다" }, { status: 400 });
+  const contentType = request.headers.get("content-type");
+  if (!contentType?.startsWith("multipart/form-data")) {
+    return NextResponse.json({ error: "multipart/form-data 요청이 필요합니다" }, { status: 400 });
   }
 
-  const file = formData.get("file");
-
-  if (!file || !(file instanceof File)) {
-    return NextResponse.json({ error: "file 필드가 필요합니다" }, { status: 400 });
+  if (!request.body) {
+    return NextResponse.json({ error: "요청 본문이 없습니다" }, { status: 400 });
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json(
-      { error: `파일 크기는 ${MAX_FILE_SIZE / 1024 / 1024}MB 이하여야 합니다` },
-      { status: 413 }
-    );
-  }
-
-  const formatParam = formData.get("format") as string | null;
-  const format = (formatParam ?? "auto") as ImportFormat | "auto";
-  const fileName = file.name;
-  const _fileSize = file.size;
-
-  // SSE stream for progress
   const encoder = new TextEncoder();
-  const stream = new ReadableStream({
+  const sse = new ReadableStream({
     async start(controller) {
-      function send(data: ImportProgress) {
+      const send = (data: ImportProgress) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-      }
+      };
 
       try {
-        // Phase 1: Read file content
-        send({
-          phase: "parsing",
-          progress: 0,
-          totalParsed: 0,
-        });
-
-        const content = await file.text();
-
-        // Phase 2: Parse
-        send({
-          phase: "parsing",
-          progress: 10,
-          totalParsed: 0,
-        });
-
-        const { points, detectedFormat } = parseFile(content, fileName, format);
-
-        if (detectedFormat === "unknown") {
-          send({
-            phase: "error",
-            error: "지원하지 않는 파일 형식입니다. GPX, GeoJSON, Google Takeout JSON을 사용하세요.",
-          });
-          controller.close();
-          return;
-        }
-
-        if (points.length === 0) {
-          send({
-            phase: "error",
-            error: "파일에서 위치 데이터를 찾을 수 없습니다",
-          });
-          controller.close();
-          return;
-        }
-
-        send({
-          phase: "parsing",
-          progress: 15,
-          totalParsed: points.length,
-          format: detectedFormat,
-        });
-
-        // Phase 3: Import with progress callbacks
-        const result = await importPoints(user.id, points, (progress) => {
-          // Scale progress: 15-95 range for insertion phase
-          const scaledProgress = 15 + Math.round((progress.progress ?? 0) * 0.8);
-          send({
-            ...progress,
-            progress: scaledProgress,
-            format: detectedFormat,
-          });
-        });
-
-        // Phase 4: Done
-        send({
-          phase: "done",
-          totalParsed: result.totalParsed,
-          inserted: result.imported,
-          duplicates: result.duplicates,
-          dateRange: result.dateRange,
-          format: detectedFormat,
-          progress: 100,
+        await runImport({
+          userId: user.id,
+          contentType,
+          body: request.body as ReadableStream<Uint8Array>,
+          send,
         });
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
@@ -148,11 +80,160 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  return new Response(stream, {
+  return new Response(sse, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
     },
   });
+}
+
+interface RunImportArgs {
+  userId: string;
+  contentType: string;
+  body: ReadableStream<Uint8Array>;
+  send: (data: ImportProgress) => void;
+}
+
+/**
+ * Pipe the request body through busboy, locate the `file` field, and dispatch
+ * to the format-specific parser. Resolves once the import completes (success
+ * or error already sent via `send`).
+ */
+async function runImport({ userId, contentType, body, send }: RunImportArgs): Promise<void> {
+  const bb = Busboy({
+    headers: { "content-type": contentType },
+    limits: { fileSize: MAX_FILE_SIZE, files: 1 },
+  });
+
+  const nodeBody = Readable.fromWeb(body as unknown as import("node:stream/web").ReadableStream);
+
+  // Race a single file event vs. the body finishing without one.
+  const filePromise = new Promise<{ name: string; stream: Readable }>((resolve, reject) => {
+    let handled = false;
+    bb.on("file", (_field, fileStream, info) => {
+      handled = true;
+      resolve({ name: info.filename ?? "upload", stream: fileStream });
+    });
+    bb.on("close", () => {
+      if (!handled) reject(new Error("file 필드가 필요합니다"));
+    });
+    bb.on("error", (e) => reject(e));
+    nodeBody.on("error", (e) => reject(e));
+  });
+
+  nodeBody.pipe(bb);
+
+  const { name: fileName, stream: fileStream } = await filePromise;
+
+  // Sniff a prefix to decide format, then re-prepend it before handing the
+  // remainder to the parser. We can't peek-then-rewind a Node Readable.
+  const { prefix, prefixedStream, fileTooLarge } = await sniffPrefix(fileStream, SNIFF_BYTES);
+
+  // busboy emits 'limit' on the file stream when fileSize is exceeded; we
+  // surface that here too so the user sees a clean error instead of a
+  // truncated parse.
+  fileStream.on("limit", () => {
+    fileStream.unpipe?.();
+  });
+
+  const detected = detectFormat(fileName, prefix.toString("utf-8"));
+
+  if (detected === "unknown") {
+    // Drain the rest so the request finishes cleanly.
+    prefixedStream.resume();
+    send({
+      phase: "error",
+      error: "지원하지 않는 파일 형식입니다. GPX, GeoJSON, Google Takeout JSON을 사용하세요.",
+    });
+    return;
+  }
+
+  send({ phase: "parsing", progress: 0, totalParsed: 0, format: detected });
+
+  let pointSource: ParsedPoint[] | AsyncIterable<ParsedPoint>;
+
+  if (detected === "google-records" || detected === "google-phone-takeout") {
+    // Stream — no full materialization.
+    pointSource = streamGoogleTakeout(prefixedStream);
+  } else {
+    // GPX / GeoJSON: small files, buffer to text and use existing parsers.
+    const text = await readAllToString(prefixedStream);
+    if (detected === "gpx") {
+      pointSource = parseGpx(text);
+    } else if (detected === "geojson") {
+      pointSource = parseGeoJson(JSON.parse(text));
+    } else {
+      // Includes any future ImportFormat we forgot to wire up.
+      pointSource = parseGoogleTakeout(JSON.parse(text));
+    }
+  }
+
+  if (fileTooLarge) {
+    send({ phase: "error", error: `파일 크기는 ${MAX_FILE_SIZE_MB}MB 이하여야 합니다` });
+    return;
+  }
+
+  const result = await importPoints(userId, pointSource, (progress) => {
+    send({ ...progress, format: detected });
+  });
+
+  if (result.totalParsed === 0) {
+    send({ phase: "error", error: "파일에서 위치 데이터를 찾을 수 없습니다" });
+    return;
+  }
+
+  send({
+    phase: "done",
+    totalParsed: result.totalParsed,
+    inserted: result.imported,
+    duplicates: result.duplicates,
+    dateRange: result.dateRange,
+    format: detected,
+    progress: 100,
+  });
+}
+
+/** Read up to `bytes` from `src`, return the captured prefix and a Readable that replays prefix + rest. */
+async function sniffPrefix(
+  src: Readable,
+  bytes: number
+): Promise<{ prefix: Buffer; prefixedStream: Readable; fileTooLarge: boolean }> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  let fileTooLarge = false;
+
+  src.on("limit", () => {
+    fileTooLarge = true;
+  });
+
+  for await (const chunk of src) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    chunks.push(buf);
+    total += buf.length;
+    if (total >= bytes) break;
+  }
+
+  const prefix = Buffer.concat(chunks).subarray(0, bytes);
+
+  // Node Readable that yields the captured prefix first, then the live tail.
+  const prefixedStream = Readable.from(
+    (async function* () {
+      yield Buffer.concat(chunks);
+      for await (const chunk of src) {
+        yield Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      }
+    })()
+  );
+
+  return { prefix, prefixedStream, fileTooLarge };
+}
+
+async function readAllToString(src: Readable): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of src) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf-8");
 }

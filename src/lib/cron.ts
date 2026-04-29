@@ -23,8 +23,10 @@ let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
 let dailyReparseTask: cron.ScheduledTask | null = null;
 let locationProcessingTask: cron.ScheduledTask | null = null;
+let locationCatchUpTask: cron.ScheduledTask | null = null;
 let subwayRefreshTask: cron.ScheduledTask | null = null;
 let isSubwayRefreshRunning = false;
+let isLocationProcessingRunning = false;
 
 /**
  * Wraps refreshAllSubwaySystems with a single-flight guard. Yearly cron + boot
@@ -331,7 +333,8 @@ async function syncAllUsers() {
 
 /**
  * Process un-anomaly-scanned days (location pipeline: anomaly → visits →
- * tracks → transportation → subway). Runs daily at 01:00 KST and on container boot.
+ * tracks → transportation → subway). Runs daily at 01:00 KST, hourly as a
+ * lightweight catch-up tick, and on container boot.
  *
  * Finds every past date for the user that still has location_points with
  * anomaly IS NULL (the signal that the day hasn't been processed yet) and
@@ -339,10 +342,19 @@ async function syncAllUsers() {
  * outage (e.g. the 3/5 → 4/25 cron downtime that left 25 days unprocessed)
  * recovers in a single boot catch-up rather than dragging on across reboots.
  * Subsequent boots still catch the rest if the backlog exceeds 30 days.
+ *
+ * A single-flight guard skips re-entrant runs — the hourly catch-up tick + the
+ * daily 01:00 schedule + boot catch-up can all overlap if a previous run is
+ * still in flight (subway discovery probes Overpass and can be slow).
  */
-async function processYesterdayLocations() {
+async function processYesterdayLocations(reason: string) {
+  if (isLocationProcessingRunning) {
+    logger.info("[Cron] Location processing already running, skipping", { reason });
+    return;
+  }
+  isLocationProcessingRunning = true;
   const startTime = Date.now();
-  logger.info("[Cron] Starting daily location processing");
+  logger.info("[Cron] Starting daily location processing", { reason });
 
   try {
     const { runAnomalyDetectionForDay } = await import(
@@ -468,11 +480,14 @@ async function processYesterdayLocations() {
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    logger.info(`[Cron] Daily location processing completed in ${elapsed}s`);
+    logger.info(`[Cron] Daily location processing completed in ${elapsed}s`, { reason });
   } catch (error) {
     logger.error("[Cron] Daily location processing failed", {
+      reason,
       error: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    isLocationProcessingRunning = false;
   }
 }
 
@@ -589,13 +604,32 @@ export function initializeCron() {
   locationProcessingTask = cron.schedule(
     LOCATION_PROCESSING_SCHEDULE,
     () => {
-      processYesterdayLocations().catch((error) => {
+      processYesterdayLocations("daily-01:00").catch((error) => {
         logger.error("[Cron] Unhandled error in location processing", {
           error: error instanceof Error ? error.message : String(error),
         });
       });
     },
     { timezone: TZ, name: "location-processing" }
+  );
+
+  // Hourly safety net. The daily 01:00 schedule only fires if the container is
+  // alive at exactly that minute and the run completes. A single missed tick
+  // (crash, deploy, DB blip) used to mean 24h of unprocessed location data.
+  // The hourly tick re-uses the same anomaly-IS-NULL date scan, so when there
+  // is no backlog it is essentially a single empty-set query per OwnTracks
+  // user. Single-flight guard prevents overlap with the daily run.
+  const LOCATION_CATCHUP_SCHEDULE = "15 * * * *";
+  locationCatchUpTask = cron.schedule(
+    LOCATION_CATCHUP_SCHEDULE,
+    () => {
+      processYesterdayLocations("hourly-catchup").catch((error) => {
+        logger.error("[Cron] Unhandled error in location catch-up", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    { timezone: TZ, name: "location-catchup" }
   );
 
   // Yearly subway data refresh — Jan 1, 03:00 KST. OSM subway data is near-static
@@ -631,6 +665,16 @@ export function initializeCron() {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+    processYesterdayLocations("run-on-start").catch((error) => {
+      logger.error("[Cron] RUN_ON_START location processing failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    maybeRunSubwayBootCatchUp().catch((error) => {
+      logger.error("[Cron] RUN_ON_START subway catch-up failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   } else {
     // Short delay so the HTTP listener binds first (health checks shouldn't
     // compete with DB-heavy startup work).
@@ -641,7 +685,7 @@ export function initializeCron() {
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      processYesterdayLocations().catch((error) => {
+      processYesterdayLocations("boot-catchup").catch((error) => {
         logger.error("[Cron] Boot-time location processing failed", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -673,6 +717,10 @@ export async function stopCron() {
   if (locationProcessingTask) {
     locationProcessingTask.stop();
     locationProcessingTask = null;
+  }
+  if (locationCatchUpTask) {
+    locationCatchUpTask.stop();
+    locationCatchUpTask = null;
   }
   if (subwayRefreshTask) {
     subwayRefreshTask.stop();

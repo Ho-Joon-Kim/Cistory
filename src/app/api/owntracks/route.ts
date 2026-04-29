@@ -12,6 +12,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { locationPoints, users } from "@/db/schema";
 import { checkBodySize, enforceRateLimit, logIngestionFailure, verifyApiKey } from "@/lib/api-auth";
+import { roundCoord } from "@/lib/geo";
 import { logger } from "@/lib/logger";
 
 interface OwnTracksPayload {
@@ -65,8 +66,8 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const rows = locationPayloads.map((p) => ({
       userId,
-      lat: p.lat,
-      lon: p.lon,
+      lat: roundCoord(p.lat),
+      lon: roundCoord(p.lon),
       accuracy: p.acc ?? null,
       altitude: p.alt ?? null,
       velocity: p.vel ?? null,

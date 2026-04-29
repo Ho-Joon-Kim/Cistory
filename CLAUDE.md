@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks (with visit/track/transport-mode/trip detection), monitors coding activity via WakaTime, and logs Toss financial transactions via MacroDroid push notifications. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL, and the Anthropic SDK. Includes comprehensive monthly/yearly reports and an "insights" dashboard with AI narratives, map visualization (Mapbox/Kakao), and automatic background sync via an integrated Cron worker, with Sentry error tracking and Better Stack structured logging.
+Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks (with visit/track/transport-mode/trip/subway detection), monitors coding activity via WakaTime, and logs Toss financial transactions via MacroDroid push notifications. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. Includes comprehensive monthly/yearly reports and an "insights" dashboard with AI narratives, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and automatic background sync via an integrated Cron worker, with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -68,6 +68,7 @@ src/
 │   ├── adapters/            # Adapter pattern interfaces + implementations
 │   │   ├── ai/             # AI adapter (interface.ts + claude.ts)
 │   │   ├── geocoding/      # Geocoding adapter (kakao.ts, mapbox.ts, google.ts, index.ts)
+│   │   ├── overpass/       # OSM Overpass adapter for subway lines/stations (interface.ts, index.ts, colour.ts, seed-cities.ts)
 │   │   ├── vcs/            # VCS adapter (interface.ts + github.ts)
 │   │   └── wakatime/       # WakaTime adapter (interface.ts + wakatime.ts)
 │   ├── auth.ts              # Better Auth server config (GitHub OAuth, session, DB hooks)
@@ -86,6 +87,7 @@ src/
 │   ├── report/             # Monthly/yearly reports (service, hooks, AI narratives, 20+ chart components, comparison-service, travel)
 │   ├── settings/           # User settings (theme, sync interval, OwnTracks/WakaTime/Toss keys)
 │   ├── spending/           # Spending data hooks (Toss transactions)
+│   ├── subway/             # Subway system seeding + OSM data refresh (service.ts)
 │   ├── summary/            # AI commit summary service
 │   ├── sync/               # Commit sync service (SyncService class)
 │   ├── timeline/           # Timeline display (hooks, CommitCard, Timeline, Filters)
@@ -124,6 +126,7 @@ const accessToken = await getGitHubToken(user.id);
 - `vcs/interface.ts` - VCS abstraction (implemented: `github.ts`)
 - `geocoding/interface.ts` - Geocoding abstraction (implemented: `kakao.ts` for Korea, `google.ts` for Google Places, `mapbox.ts` for international; auto-selected by coordinates in `index.ts`)
 - `wakatime/interface.ts` - WakaTime coding activity abstraction (implemented: `wakatime.ts`)
+- `overpass/interface.ts` - OSM Overpass abstraction for fetching subway lines/stations per city (`SEED_CITIES` lists bbox-defined seed systems; `colour.ts` normalizes line colors)
 
 **Module Organization**: Features in `src/modules/` follow:
 - `hooks.ts` - React hooks for client-side data fetching
@@ -136,7 +139,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (17 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (21 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 - `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Better Auth `user.id`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
@@ -154,8 +157,12 @@ const db = getDb();
 - `notificationLogs` - Raw Toss/MacroDroid push notification payloads (source, rawPayload, headers)
 - `transactions` - Parsed Toss financial transactions (type: withdrawal/deposit, amount, merchant, accountName). Unique on `(userId, notificationLogId)`
 - `dataUsageCache` - Per-user per-table row count and estimated byte size cache
+- `subwaySystems` - City-level subway systems with PostGIS `bbox` (Polygon, SRID 4326), seeded idempotently from `SEED_CITIES` and discoverable from user transportation segments
+- `subwayLines` - OSM relations per system with `geometry` (MultiLineString, 4326), name/ref/colour/operator. Unique on `(systemId, osmRelationId)`
+- `subwayStations` - OSM nodes per system with `location` (Point, 4326). Unique on `(systemId, osmNodeId)`
+- `subwayTripMatches` - Links a user's `transportationSegments` row to a matched subway line + start/end station, supporting transfer-aware session grouping
 
-PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` columns rather than a `geography` type, but the extension is expected to be available for spatial queries.
+PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use `doublePrecision` lat/lon columns, while the `subway*` tables (added in migrations 0019/0020) use real PostGIS `geometry` columns and require the extension. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (see commit `a3df73a`), so don't reintroduce it.
 
 **Better Auth Setup** (`src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/lib/auth-helpers.ts`):
 - Server: `betterAuth()` with `pg.Pool`, GitHub OAuth, cookie cache (5min), UUID ID generation
@@ -173,7 +180,8 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - Rate limiting: 100ms delay between commit saves
 - Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, refreshes data usage cache, and auto-deletes sync jobs older than 7 days
 - Daily Toss reparse cron (`0 23 * * *` — 23:00 KST): reparses today's Toss notifications to pick up parser improvements
-- Daily location-processing cron (`0 1 * * *` — 01:00 KST): for each user with OwnTracks configured, runs anomaly detection, visit detection + persist, track building + persist, and transportation-mode detection for the previous day (see `src/modules/location/services/`)
+- Daily location-processing cron (`0 1 * * *` — 01:00 KST): for each user with OwnTracks configured, runs anomaly detection, visit detection + persist, track building + persist, transportation-mode detection, then subway matching (`src/modules/location/services/subway-match/{matcher,session-grouper}`) and subway-system discovery (`src/modules/location/services/subway-discovery`, capped at 3 new cities/run) for the previous day
+- Yearly subway data refresh (`0 3 1 1 *` — Jan 1, 03:00 KST) plus a boot-time catch-up that re-fetches any `subway_systems` row never fetched or older than ~350 days. `seedSubwaySystemsIfEmpty()` from `src/modules/subway/service.ts` runs on every boot and is idempotent
 
 **Session/Token Management**:
 - Cookie-based sessions managed by Better Auth with cookie cache (5-minute TTL to minimize DB lookups)
@@ -186,7 +194,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - OwnTracks app sends GPS data to `/api/owntracks?apikey={key}` (returns `[]` per OwnTracks protocol)
 - On-demand stay-point detection for client views: clusters points within 100m radius, minimum 10-minute stay
 - Persisted `visits`/`tracks`/`transportationSegments` are computed by the daily 01:00 cron (previous-day KST window) and exposed via `/api/timeline/locations/*` and insights endpoints
-- Pipeline stages: `anomaly-filter` → `visit-detector`/`visit-persister` → `track-builder`/`track-persister` → `transportation/detector`. `trip-detector` + `/api/trips/detect` group visits into multi-day trips (overseas detection included)
+- Pipeline stages: `anomaly-filter` → `visit-detector`/`visit-persister` → `track-builder`/`track-persister` → `transportation/detector` → `subway-match` (matches segments against `subway_lines` PostGIS geometry, groups transfers into sessions) → `subway-discovery` (probes Overpass for new cities encountered). `trip-detector` + `/api/trips/detect` group visits into multi-day trips (overseas detection included)
 - Geocoding auto-selects Kakao (Korean coordinates), Google Places, or Mapbox (international); results cached in `placeCache`
 - Backfill & import: `/api/settings/location-backfill` and `/api/timeline/locations/import` re-run processing or ingest GPX/external data
 - Location hooks poll every 60 seconds when viewing today's date
@@ -233,6 +241,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - `/api/reports/yearly` - GET yearly report data (supports `?section=`); POST AI narrative
 - `/api/summaries/process` - POST batch summary generation
 - `/api/owntracks` - POST location data ingestion
+- `/api/map/subway` - GET subway lines/stations for map rendering (filtered by viewport bbox)
 - `/api/saved-places` - GET/POST saved places; `/api/saved-places/[id]` - PUT/DELETE individual place; `/api/saved-places/search` - GET place search
 - `/api/toss-notifications` - POST Toss notification ingestion (via MacroDroid)
 - `/api/health` - GET health check

@@ -36,27 +36,22 @@ export function LocationImport() {
     const phase = data.phase as string;
 
     if (phase === "parsing") {
-      const totalParsed = (data.totalParsed as number) ?? 0;
       const format = data.format as string | undefined;
       setState({
         phase: "parsing",
-        progress: (data.progress as number) ?? 10,
-        detail:
-          totalParsed > 0
-            ? `${format ?? ""} ${totalParsed.toLocaleString()}개 포인트 파싱 완료`
-            : "파일 분석 중...",
+        progress: 0,
+        detail: format ? `${format} 분석 중...` : "파일 분석 중...",
         format,
-        totalParsed,
+        totalParsed: 0,
       });
     } else if (phase === "inserting") {
       const inserted = (data.inserted as number) ?? 0;
       const totalParsed = (data.totalParsed as number) ?? 0;
-      const batchIndex = (data.batchIndex as number) ?? 0;
-      const totalBatches = (data.totalBatches as number) ?? 1;
       setState({
         phase: "inserting",
-        progress: (data.progress as number) ?? 50,
-        detail: `저장 중... ${inserted.toLocaleString()}개 저장됨 (${batchIndex}/${totalBatches} 배치)`,
+        // Total is unknown while streaming; the bar is indeterminate.
+        progress: 0,
+        detail: `저장 중... ${inserted.toLocaleString()}개 저장 / ${totalParsed.toLocaleString()}개 스캔`,
         format: data.format as string,
         totalParsed,
         inserted,
@@ -236,14 +231,20 @@ export function LocationImport() {
           )}
         </Button>
 
-        {/* Progress bar */}
+        {/* Progress bar — `uploading` is determinate (XHR upload progress);
+            `parsing`/`inserting` are indeterminate because the streaming parser
+            doesn't know the total point count up front. */}
         {isActive && state && (
           <div className="space-y-2">
             <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{ width: `${state.progress}%` }}
-              />
+              {state.phase === "uploading" ? (
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-300"
+                  style={{ width: `${state.progress}%` }}
+                />
+              ) : (
+                <div className="h-full w-1/3 rounded-full bg-primary animate-pulse" />
+              )}
             </div>
             <p className="text-xs text-muted-foreground">{state.detail}</p>
           </div>
