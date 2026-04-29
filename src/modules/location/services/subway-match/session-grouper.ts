@@ -58,13 +58,18 @@ async function loadStationCoords(stationIds: string[]): Promise<Map<string, Stat
   const result = new Map<string, StationCoord>();
   if (stationIds.length === 0) return result;
   const db = getDb();
+  // Build a Postgres array literal explicitly. Passing a JS array into
+  // `ANY(${ids}::uuid[])` via drizzle's sql template would bind it as a single
+  // text parameter, which then fails to cast when the array has exactly one
+  // element ('uuid'::uuid[] is invalid; only '{uuid,...}'::uuid[] works).
+  const arrayLiteral = `{${stationIds.join(",")}}`;
   const res = await db.execute(sql`
     SELECT id::text AS id,
            ST_Y(location) AS lat,
            ST_X(location) AS lon,
            name
     FROM subway_stations
-    WHERE id = ANY(${stationIds}::uuid[])
+    WHERE id = ANY(${arrayLiteral}::uuid[])
   `);
   for (const row of res.rows as unknown as Array<{
     id: string;

@@ -101,6 +101,11 @@ export async function GET(request: NextRequest) {
     const segmentIds = allSegments.map((s) => s.id);
     const legsBySegmentId = new Map<string, SubwayLeg[]>();
     if (segmentIds.length > 0) {
+      // Postgres array literal — drizzle's sql template binds JS arrays as a
+      // single text param, which fails to cast as uuid[] when the array has
+      // exactly one element ("uuid"::uuid[] is malformed; only "{uuid,...}"
+      // is valid).
+      const segmentIdsLiteral = `{${segmentIds.join(",")}}`;
       const legRes = await db.execute(sql`
         WITH numbered_lines AS (
           SELECT id, system_id, name, name_en, ref, colour, network,
@@ -127,7 +132,7 @@ export async function GET(request: NextRequest) {
         JOIN numbered_lines l ON l.id = m.line_id
         LEFT JOIN subway_stations ss_start ON ss_start.id = m.start_station_id
         LEFT JOIN subway_stations ss_end ON ss_end.id = m.end_station_id
-        WHERE m.transportation_segment_id = ANY(${segmentIds}::uuid[])
+        WHERE m.transportation_segment_id = ANY(${segmentIdsLiteral}::uuid[])
         ORDER BY m.transportation_segment_id, m.leg_order
       `);
       for (const row of legRes.rows as unknown as SubwayLegRow[]) {
