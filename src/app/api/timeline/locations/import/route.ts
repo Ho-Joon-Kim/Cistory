@@ -36,11 +36,22 @@ const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 const SNIFF_BYTES = 4096;
 
 export async function POST(request: NextRequest) {
+  const reqId = Math.random().toString(36).slice(2, 8);
+  console.log(`[import:${reqId}] POST received`, {
+    contentType: request.headers.get("content-type"),
+    contentLength: request.headers.get("content-length"),
+    hasBody: !!request.body,
+  });
+
   const { user, error: authError } = await getAuthenticatedUser(request);
-  if (authError) return authError;
+  if (authError) {
+    console.log(`[import:${reqId}] auth failed`);
+    return authError;
+  }
 
   const contentLength = Number.parseInt(request.headers.get("content-length") ?? "", 10);
   if (Number.isFinite(contentLength) && contentLength > MAX_FILE_SIZE + 1024 * 1024) {
+    console.log(`[import:${reqId}] reject 413 (content-length=${contentLength})`);
     return NextResponse.json(
       { error: `파일 크기는 ${MAX_FILE_SIZE_MB}MB 이하여야 합니다` },
       { status: 413 }
@@ -49,12 +60,16 @@ export async function POST(request: NextRequest) {
 
   const contentType = request.headers.get("content-type");
   if (!contentType?.startsWith("multipart/form-data")) {
+    console.log(`[import:${reqId}] reject 400 (bad content-type)`);
     return NextResponse.json({ error: "multipart/form-data 요청이 필요합니다" }, { status: 400 });
   }
 
   if (!request.body) {
+    console.log(`[import:${reqId}] reject 400 (no body)`);
     return NextResponse.json({ error: "요청 본문이 없습니다" }, { status: 400 });
   }
+
+  console.log(`[import:${reqId}] starting SSE stream for user ${user.id}`);
 
   const encoder = new TextEncoder();
   const sse = new ReadableStream({
@@ -63,16 +78,24 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
+      // Flush an initial SSE comment so the client + any intermediate proxy
+      // commits to the response immediately. Without this, a 30s+ delay
+      // between handler entry and the first real event can land as
+      // ERR_CONNECTION_CLOSED on the browser side.
+      controller.enqueue(encoder.encode(`: connected\n\n`));
+
       try {
+        console.log(`[import:${reqId}] runImport begin`);
         await runImport({
           userId: user.id,
           contentType,
           body: request.body as ReadableStream<Uint8Array>,
           send,
         });
+        console.log(`[import:${reqId}] runImport done`);
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
-        console.error("Import error:", error);
+        console.error(`[import:${reqId}] runImport threw:`, error);
         send({ phase: "error", error: `임포트 실패: ${errMsg}` });
       } finally {
         controller.close();
