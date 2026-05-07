@@ -136,67 +136,62 @@ function InsightsContent() {
             </div>
           </div>
 
-          {/* Mockup-faithful layout — weighted columns, schema grouping, section dividers.
-              Row sizes match planned/components_v2/app.jsx. */}
+          {/* Layout — content-aware: only Hero / Heatmap / Monthly are full-width.
+              Everything else is a clean 2-col grid. Schema groups stay intact via order. */}
           <div className="flex flex-col gap-4">
-            {/* Hero — full width */}
+            {/* Hero — full width (year overview swimlane) */}
             <HeroSwimlane data={swimlane.data} isLoading={swimlane.isLoading} year={year} />
 
-            {/* Cross-stream row 1: place × productivity (wider) + commute reliability */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
-              <PlaceProductivityCard
-                data={placeProductivity.data}
-                isLoading={placeProductivity.isLoading}
-              />
-              <CommuteReliabilityCard data={commute.data} isLoading={commute.isLoading} />
-            </div>
-
-            {/* Cross-stream row 2: net spend (wider) + subway */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4">
-              <NetSpendCard data={netSpend.data} isLoading={netSpend.isLoading} />
-              <SubwayInsightsCard data={subway.data} isLoading={subway.isLoading} />
-            </div>
-
-            {/* Discoveries — narrative bullets, full width */}
-            <DiscoveriesCard data={discoveries.data} isLoading={discoveries.isLoading} />
-
-            {/* Section divider — Schema-Grounded */}
-            <SectionDivider label="Schema-Grounded" subtitle="실제 DB 스키마 기반" tone="primary" />
-
-            {/* AI clock — full width, the most important coding card */}
-            <AIClockCard data={aiClock.data} isLoading={aiClock.isLoading} />
-
-            {/* Mobility row — transport modes + trips */}
+            {/* CODING — AI clock + Work pattern */}
+            <SectionDivider label="코딩" tone="primary" />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <TransportModeCard data={transport.data} isLoading={transport.isLoading} />
-              <TripsCard data={trips.data} isLoading={trips.isLoading} year={year} />
+              <AIClockCard data={aiClock.data} isLoading={aiClock.isLoading} />
+              <WorkPatternCard data={patterns.data} isLoading={patterns.isLoading} />
             </div>
-
-            {/* Place × commits + Repo split */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4">
-              <VisitsXCommitsCard data={visitsXCommits.data} isLoading={visitsXCommits.isLoading} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <RepoSplitCard data={repoSplit.data} isLoading={repoSplit.isLoading} />
+              <StreakGamification data={streaks.data} isLoading={streaks.isLoading} year={year} />
             </div>
 
-            {/* Data usage — meta row, full width */}
-            <DataUsageCard data={dataUsage.data} isLoading={dataUsage.isLoading} />
-
-            {/* Section divider — basic patterns */}
-            <SectionDivider label="기본 패턴" />
-
-            {/* Refined trio — heatmap (full) then streak / work pattern / routine */}
+            {/* Heatmap — full width (only chart that genuinely needs 12 months horizontally) */}
             <CodingHeatmap
               data={commitHeatmap.data}
               isLoading={commitHeatmap.isLoading}
               year={year}
             />
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <StreakGamification data={streaks.data} isLoading={streaks.isLoading} year={year} />
-              <WorkPatternCard data={patterns.data} isLoading={patterns.isLoading} />
+
+            {/* LOCATION — visits, transport, trips */}
+            <SectionDivider label="위치 · 이동" tone="primary" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <PlaceProductivityCard
+                data={placeProductivity.data}
+                isLoading={placeProductivity.isLoading}
+              />
+              <VisitsXCommitsCard data={visitsXCommits.data} isLoading={visitsXCommits.isLoading} />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <TransportModeCard data={transport.data} isLoading={transport.isLoading} />
+              <SubwayInsightsCard data={subway.data} isLoading={subway.isLoading} />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <CommuteReliabilityCard data={commute.data} isLoading={commute.isLoading} />
+              <TripsCard data={trips.data} isLoading={trips.isLoading} year={year} />
+            </div>
+
+            {/* SPENDING + META */}
+            <SectionDivider label="소비 · 메타" tone="primary" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <NetSpendCard data={netSpend.data} isLoading={netSpend.isLoading} />
+              <DataUsageCard data={dataUsage.data} isLoading={dataUsage.isLoading} />
+            </div>
+
+            {/* DISCOVERIES + ROUTINE — narrative pair */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <DiscoveriesCard data={discoveries.data} isLoading={discoveries.isLoading} />
               <RoutineDiscovery data={routines.data} isLoading={routines.isLoading} />
             </div>
 
-            {/* Monthly digest — full-width strip */}
+            {/* Monthly digest — full-width strip (12 months × 4 cols) */}
             <MonthlyDigestCard data={digests.data} isLoading={digests.isLoading} year={year} />
           </div>
         </main>
