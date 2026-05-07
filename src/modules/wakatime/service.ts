@@ -93,33 +93,55 @@ export class WakaTimeSyncService {
   async syncUser(
     userId: string
   ): Promise<{ syncedDays: number; totalSessions: number; totalSummaries: number }> {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = yesterday.toISOString().slice(0, 10);
+    // Catch-up window: from wakatime_last_synced_at (minus 1 day overlap) to today.
+    // Falls back to 7 days if never synced — initial bulk sync goes via syncAllCommitDates.
+    // The overlap day re-fetches yesterday's data so late-arriving heartbeats are picked up.
+    const userRow = await this.db
+      .select({ lastSyncedAt: users.wakatimeLastSyncedAt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
 
-    const today = new Date().toISOString().slice(0, 10);
+    const lastSyncedAt = userRow[0]?.lastSyncedAt;
+    const today = new Date();
+    const startDate = new Date(today);
+    if (lastSyncedAt) {
+      startDate.setTime(lastSyncedAt.getTime());
+      startDate.setDate(startDate.getDate() - 1);
+    } else {
+      startDate.setDate(today.getDate() - 7);
+    }
 
-    // Sync durations for yesterday and today
-    const insertedYesterday = await this.syncDurations(userId, dateStr);
-    const insertedToday = await this.syncDurations(userId, today);
-    const totalSessions = insertedYesterday + insertedToday;
+    // Build the list of dates [start..today] inclusive.
+    const dates: string[] = [];
+    const cursor = new Date(startDate);
+    while (cursor <= today) {
+      dates.push(cursor.toISOString().slice(0, 10));
+      cursor.setDate(cursor.getDate() + 1);
+    }
 
-    // Sync summaries for yesterday and today
-    const totalSummaries = await this.syncSummaries(userId, dateStr, today);
+    let totalSessions = 0;
+    for (const date of dates) {
+      totalSessions += await this.syncDurations(userId, date);
+    }
+
+    const totalSummaries = await this.syncSummaries(userId, dates[0], dates[dates.length - 1]);
 
     logger.info("[WakaTime] Sync completed", {
       userId,
+      windowStart: dates[0],
+      windowEnd: dates[dates.length - 1],
+      syncedDays: dates.length,
       durationsInserted: totalSessions,
       summariesUpserted: totalSummaries,
     });
 
-    // Update last synced timestamp
     await this.db
       .update(users)
       .set({ wakatimeLastSyncedAt: new Date(), updatedAt: new Date() })
       .where(eq(users.id, userId));
 
-    return { syncedDays: 2, totalSessions, totalSummaries };
+    return { syncedDays: dates.length, totalSessions, totalSummaries };
   }
 
   async syncAllCommitDates(

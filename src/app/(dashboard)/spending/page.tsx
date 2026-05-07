@@ -6,6 +6,7 @@ import {
   Bell,
   Check,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -20,6 +21,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -30,7 +38,13 @@ import { formatBytes, formatDate } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { MonthlySpendingBar } from "@/modules/spending/components/MonthlySpendingBar";
 import { SpendingTrendChart } from "@/modules/spending/components/SpendingTrendChart";
-import type { CleanupItem, ReparseItem, SpendingFilters } from "@/modules/spending/hooks";
+import type {
+  Bucket,
+  CleanupItem,
+  ReparseItem,
+  SpendingFilters,
+  TransactionItem,
+} from "@/modules/spending/hooks";
 import {
   useCleanup,
   useDeleteTransaction,
@@ -38,6 +52,7 @@ import {
   useReparse,
   useSpendingTrend,
   useTransactions,
+  useUpdateTransactionOverride,
 } from "@/modules/spending/hooks";
 
 type Tab = "transactions" | "notifications";
@@ -187,6 +202,109 @@ function ReparseItemRow({ item }: { item: ReparseItem }) {
   );
 }
 
+const BUCKET_LABEL: Record<Bucket, string> = {
+  spending: "소비",
+  income: "수입",
+  ignore: "무시",
+};
+
+function BucketBadge({ bucket }: { bucket: Bucket }) {
+  const className =
+    bucket === "spending"
+      ? "bg-red-500/10 text-red-600 dark:text-red-400"
+      : bucket === "income"
+        ? "bg-green-500/10 text-green-600 dark:text-green-400"
+        : "bg-muted text-muted-foreground";
+  return (
+    <span
+      className={`text-[10px] px-1.5 py-0.5 rounded-sm font-medium flex-shrink-0 ${className}`}
+    >
+      {BUCKET_LABEL[bucket]}
+    </span>
+  );
+}
+
+function TransactionRow({
+  tx,
+  onChangeOverride,
+}: {
+  tx: TransactionItem;
+  onChangeOverride: (id: string, value: "include" | "exclude" | null) => void;
+}) {
+  const isIgnored = tx.bucket === "ignore";
+  const amountSign = tx.type === "withdrawal" ? "-" : "+";
+  const amountColor = isIgnored
+    ? "text-muted-foreground"
+    : tx.bucket === "spending"
+      ? "text-red-500"
+      : "text-green-500";
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 px-3 py-1.5 ${
+        isIgnored ? "opacity-60" : ""
+      }`}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        {tx.type === "withdrawal" ? (
+          <ArrowUpRight className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
+        ) : (
+          <ArrowDownLeft className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+        )}
+        <span className="text-sm font-medium truncate">{tx.merchant}</span>
+        <BucketBadge bucket={tx.bucket} />
+        {tx.spendingOverride && (
+          <span
+            className="text-[10px] px-1 py-0.5 rounded-sm bg-primary/10 text-primary flex-shrink-0"
+            title={tx.spendingOverride === "include" ? "수동: 소비 포함" : "수동: 집계 제외"}
+          >
+            수동
+          </span>
+        )}
+        <span className="text-xs text-muted-foreground flex-shrink-0">{tx.accountName}</span>
+        <span className="text-xs text-muted-foreground flex-shrink-0 hidden sm:inline">
+          {formatDate(tx.transactedAt)}
+        </span>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <span className={`text-sm tabular-nums font-medium ${amountColor}`}>
+          {amountSign}
+          {formatAmount(tx.amount)}원
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-6 w-6">
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={() => onChangeOverride(tx.id, "exclude")}
+              disabled={tx.spendingOverride === "exclude"}
+            >
+              집계에서 제외
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => onChangeOverride(tx.id, "include")}
+              disabled={tx.spendingOverride === "include"}
+            >
+              소비로 포함
+            </DropdownMenuItem>
+            {tx.spendingOverride && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => onChangeOverride(tx.id, null)}>
+                  기본값으로 되돌리기
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
+
 export default function SpendingPage() {
   const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
   const defaultRange = getDefaultDateRange();
@@ -231,6 +349,26 @@ export default function SpendingPage() {
   } = useReparse();
 
   const { deleteTransaction, isDeleting } = useDeleteTransaction();
+  const { updateOverride } = useUpdateTransactionOverride();
+
+  const handleChangeOverride = async (
+    id: string,
+    value: "include" | "exclude" | null
+  ) => {
+    const success = await updateOverride(id, value);
+    if (success) {
+      toast.success(
+        value === "include"
+          ? "소비로 포함했습니다"
+          : value === "exclude"
+            ? "집계에서 제외했습니다"
+            : "기본값으로 되돌렸습니다"
+      );
+      refreshTransactions();
+    } else {
+      toast.error("저장에 실패했습니다");
+    }
+  };
 
   const {
     preview: cleanupPreview,
@@ -440,33 +578,11 @@ export default function SpendingPage() {
               <Card>
                 <CardContent className="p-0 divide-y">
                   {transactions.map((tx) => (
-                    <div
+                    <TransactionRow
                       key={tx.id}
-                      className="flex items-center justify-between gap-3 px-3 py-1.5"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {tx.type === "withdrawal" ? (
-                          <ArrowUpRight className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
-                        ) : (
-                          <ArrowDownLeft className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                        )}
-                        <span className="text-sm font-medium truncate">{tx.merchant}</span>
-                        <span className="text-xs text-muted-foreground flex-shrink-0">
-                          {tx.accountName}
-                        </span>
-                        <span className="text-xs text-muted-foreground flex-shrink-0 hidden sm:inline">
-                          {formatDate(tx.transactedAt)}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-sm tabular-nums font-medium flex-shrink-0 ${
-                          tx.type === "withdrawal" ? "text-red-500" : "text-green-500"
-                        }`}
-                      >
-                        {tx.type === "withdrawal" ? "-" : "+"}
-                        {formatAmount(tx.amount)}원
-                      </span>
-                    </div>
+                      tx={tx}
+                      onChangeOverride={handleChangeOverride}
+                    />
                   ))}
                 </CardContent>
               </Card>

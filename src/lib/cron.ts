@@ -16,6 +16,7 @@ import {
   refreshAllSubwaySystems,
   seedSubwaySystemsIfEmpty,
 } from "@/modules/subway/service";
+import { createPortfolioSyncService } from "@/modules/portfolio/service";
 import { createSyncService } from "@/modules/sync/service";
 import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
@@ -223,6 +224,28 @@ async function syncAllUsers() {
               });
             }
           }
+        }
+
+        // KIS Portfolio sync (24h interval)
+        try {
+          const portfolio = createPortfolioSyncService(db);
+          if (await portfolio.hasActiveAccounts(user.id)) {
+            const portfolioResults = await portfolio.syncUserAccounts(user.id);
+            const failed = portfolioResults.filter((r) => r.error).length;
+            logger.info("[Cron] Portfolio sync done", {
+              userId: user.id,
+              githubLogin: user.githubLogin,
+              total: portfolioResults.length,
+              failed,
+            });
+          }
+        } catch (portfolioError) {
+          logger.error("[Cron] Portfolio sync error", {
+            userId: user.id,
+            githubLogin: user.githubLogin,
+            error:
+              portfolioError instanceof Error ? portfolioError.message : String(portfolioError),
+          });
         }
 
         // Data usage cache refresh (once per 24h)

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNdjsonStream } from "@/lib/hooks/useNdjsonStream";
 
+export type Bucket = "spending" | "income" | "ignore";
+
 export interface TransactionItem {
   id: string;
   type: "withdrawal" | "deposit";
@@ -12,9 +14,18 @@ export interface TransactionItem {
   rawTitle: string;
   rawText: string;
   transactedAt: string;
+  bucket: Bucket;
+  spendingOverride: "include" | "exclude" | null;
+  overrideNote: string | null;
 }
 
 export interface TransactionSummary {
+  totalSpending: number;
+  totalIncome: number;
+  totalIgnored: number;
+  spendingCount: number;
+  incomeCount: number;
+  ignoredCount: number;
   totalWithdrawal: number;
   totalDeposit: number;
   withdrawalCount: number;
@@ -25,6 +36,7 @@ export interface SpendingFilters {
   from?: string;
   to?: string;
   type?: "withdrawal" | "deposit";
+  bucket?: Bucket;
 }
 
 interface UseTransactionsOptions {
@@ -43,11 +55,50 @@ interface UseTransactionsReturn {
 }
 
 const emptySummary: TransactionSummary = {
+  totalSpending: 0,
+  totalIncome: 0,
+  totalIgnored: 0,
+  spendingCount: 0,
+  incomeCount: 0,
+  ignoredCount: 0,
   totalWithdrawal: 0,
   totalDeposit: 0,
   withdrawalCount: 0,
   depositCount: 0,
 };
+
+export function useUpdateTransactionOverride() {
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const update = useCallback(
+    async (
+      transactionId: string,
+      spendingOverride: "include" | "exclude" | null,
+      overrideNote?: string | null
+    ) => {
+      setIsUpdating(true);
+      try {
+        const body: Record<string, unknown> = { spendingOverride };
+        if (overrideNote !== undefined) body.overrideNote = overrideNote;
+        const response = await fetch(`/api/spending/transactions/${transactionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new Error("Failed to update transaction");
+        return true;
+      } catch (err) {
+        console.error("Failed to update transaction override:", err);
+        return false;
+      } finally {
+        setIsUpdating(false);
+      }
+    },
+    []
+  );
+
+  return { updateOverride: update, isUpdating };
+}
 
 export function useDeleteTransaction() {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -76,6 +127,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
   const filterFrom = filters?.from;
   const filterTo = filters?.to;
   const filterType = filters?.type;
+  const filterBucket = filters?.bucket;
 
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [summary, setSummary] = useState<TransactionSummary>(emptySummary);
@@ -95,6 +147,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
         if (filterFrom) params.set("from", filterFrom);
         if (filterTo) params.set("to", filterTo);
         if (filterType) params.set("type", filterType);
+        if (filterBucket) params.set("bucket", filterBucket);
 
         const response = await fetch(`/api/spending?${params}`, { signal });
 
@@ -119,7 +172,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
         setIsLoading(false);
       }
     },
-    [perPage, filterFrom, filterTo, filterType]
+    [perPage, filterFrom, filterTo, filterType, filterBucket]
   );
 
   useEffect(() => {

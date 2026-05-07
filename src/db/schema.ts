@@ -5,6 +5,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -375,6 +376,8 @@ export const transactions = pgTable(
     merchant: text("merchant").notNull(), // 가맹점/출처명
     accountName: text("account_name").notNull(), // 계좌명
     isSelfTransfer: boolean("is_self_transfer").notNull().default(false),
+    spendingOverride: text("spending_override"), // 'include' | 'exclude' | null
+    overrideNote: text("override_note"),
     rawTitle: text("raw_title").notNull(),
     rawText: text("raw_text").notNull(),
     transactedAt: timestamp("transacted_at").notNull(),
@@ -384,6 +387,21 @@ export const transactions = pgTable(
     index("idx_transaction_user_transacted").on(table.userId, table.transactedAt),
     uniqueIndex("idx_transaction_user_log").on(table.userId, table.notificationLogId),
   ]
+);
+
+// ============ Account Roles (Spending Classification) ============
+export const accountRoles = pgTable(
+  "account_roles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accountName: text("account_name").notNull(),
+    role: text("role").notNull(), // 'spending' | 'default' | 'ignore'
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [uniqueIndex("idx_account_role_user_name").on(table.userId, table.accountName)]
 );
 
 // ============ Data Usage Cache ============
@@ -567,3 +585,139 @@ export type NewSubwayStation = typeof subwayStations.$inferInsert;
 
 export type SubwayTripMatch = typeof subwayTripMatches.$inferSelect;
 export type NewSubwayTripMatch = typeof subwayTripMatches.$inferInsert;
+
+// ============ Brokerage / Portfolio ============
+export const brokerageAccounts = pgTable(
+  "brokerage_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    broker: text("broker").notNull().default("kis"),
+    cano: text("cano").notNull(),
+    acntPrdtCd: text("acnt_prdt_cd").notNull(),
+    accountType: text("account_type").notNull(),
+    appKeyEnc: text("app_key_enc").notNull(),
+    appSecretEnc: text("app_secret_enc").notNull(),
+    accessToken: text("access_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    isActive: boolean("is_active").notNull().default(true),
+    lastSyncedAt: timestamp("last_synced_at"),
+    lastSyncError: text("last_sync_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_brokerage_user").on(t.userId),
+    uniqueIndex("idx_brokerage_user_cano").on(t.userId, t.cano, t.acntPrdtCd),
+  ]
+);
+
+export const holdingSnapshots = pgTable(
+  "holding_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => brokerageAccounts.id, { onDelete: "cascade" }),
+    takenAt: timestamp("taken_at").notNull(),
+    asOfDate: text("as_of_date").notNull(),
+    totalEvalAmount: numeric("total_eval_amount").notNull(),
+    securitiesEvalAmount: numeric("securities_eval_amount").notNull(),
+    deposit: numeric("deposit").notNull(),
+    totalPurchaseAmount: numeric("total_purchase_amount").notNull(),
+    totalPnl: numeric("total_pnl").notNull(),
+    totalPnlRate: numeric("total_pnl_rate"),
+    realizedPnl: numeric("realized_pnl"),
+    prevDayTotalAsset: numeric("prev_day_total_asset"),
+    assetIcdcAmt: numeric("asset_icdc_amt"),
+    rawOutput2: text("raw_output2").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_snapshot_account_date").on(t.accountId, t.asOfDate),
+    uniqueIndex("idx_snapshot_unique").on(t.accountId, t.asOfDate),
+  ]
+);
+
+export const holdingPositions = pgTable(
+  "holding_positions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => holdingSnapshots.id, { onDelete: "cascade" }),
+    ticker: text("ticker").notNull(),
+    name: text("name").notNull(),
+    quantity: numeric("quantity").notNull(),
+    avgPrice: numeric("avg_price").notNull(),
+    currentPrice: numeric("current_price").notNull(),
+    evalAmount: numeric("eval_amount").notNull(),
+    pnl: numeric("pnl").notNull(),
+    pnlRate: numeric("pnl_rate"),
+    weight: numeric("weight").notNull(),
+    market: text("market"),
+    rawData: text("raw_data").notNull(),
+  },
+  (t) => [
+    index("idx_position_snapshot").on(t.snapshotId),
+    index("idx_position_ticker").on(t.ticker, t.snapshotId),
+  ]
+);
+
+export const brokerageExecutions = pgTable(
+  "brokerage_executions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => brokerageAccounts.id, { onDelete: "cascade" }),
+    odno: text("odno").notNull(),
+    ordDt: text("ord_dt").notNull(),
+    ordTime: text("ord_time"),
+    side: text("side").notNull(),
+    ticker: text("ticker").notNull(),
+    name: text("name").notNull(),
+    orderQty: numeric("order_qty").notNull(),
+    filledQty: numeric("filled_qty").notNull(),
+    filledAmount: numeric("filled_amount").notNull(),
+    avgPrice: numeric("avg_price").notNull(),
+    cancelled: boolean("cancelled").notNull().default(false),
+    rawData: text("raw_data").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_exec_account_date").on(t.accountId, t.ordDt),
+    uniqueIndex("idx_exec_unique").on(t.accountId, t.odno, t.ordDt),
+  ]
+);
+
+export const brokerageDailyPnl = pgTable(
+  "brokerage_daily_pnl",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => brokerageAccounts.id, { onDelete: "cascade" }),
+    tradeDate: text("trade_date").notNull(),
+    buyAmount: numeric("buy_amount").notNull(),
+    sellAmount: numeric("sell_amount").notNull(),
+    realizedPnl: numeric("realized_pnl").notNull(),
+    fee: numeric("fee").notNull(),
+    tax: numeric("tax").notNull(),
+  },
+  (t) => [uniqueIndex("idx_daily_pnl_unique").on(t.accountId, t.tradeDate)]
+);
+
+export type BrokerageAccount = typeof brokerageAccounts.$inferSelect;
+export type NewBrokerageAccount = typeof brokerageAccounts.$inferInsert;
+export type HoldingSnapshot = typeof holdingSnapshots.$inferSelect;
+export type NewHoldingSnapshot = typeof holdingSnapshots.$inferInsert;
+export type HoldingPosition = typeof holdingPositions.$inferSelect;
+export type NewHoldingPosition = typeof holdingPositions.$inferInsert;
+export type BrokerageExecution = typeof brokerageExecutions.$inferSelect;
+export type NewBrokerageExecution = typeof brokerageExecutions.$inferInsert;
+export type BrokerageDailyPnl = typeof brokerageDailyPnl.$inferSelect;
+export type NewBrokerageDailyPnl = typeof brokerageDailyPnl.$inferInsert;

@@ -41,26 +41,39 @@ export interface BackfillPlan {
   totalSteps: number;
 }
 
-export async function planBackfill(userId: string): Promise<BackfillPlan | null> {
+export type BackfillScope = "all" | "past" | "today";
+
+export async function planBackfill(
+  userId: string,
+  scope: BackfillScope = "all"
+): Promise<BackfillPlan | null> {
   const db = getDb();
   const [dateRange] = await db
     .select({
-      earliest: sql<string>`min(timestamp)::date::text`,
-      latest: sql<string>`max(timestamp)::date::text`,
+      earliest: sql<string>`min(timestamp at time zone 'Asia/Seoul')::date::text`,
+      latest: sql<string>`max(timestamp at time zone 'Asia/Seoul')::date::text`,
     })
     .from(locationPoints)
     .where(eq(locationPoints.userId, userId));
 
   if (!dateRange.earliest) return null;
 
+  const scopeFilter =
+    scope === "past"
+      ? sql`AND d < (now() at time zone 'Asia/Seoul')::date`
+      : scope === "today"
+        ? sql`AND d = (now() at time zone 'Asia/Seoul')::date`
+        : sql``;
+
   const unprocessed = await db.execute<{ d: string; [key: string]: unknown }>(sql`
     SELECT to_char(d, 'YYYY-MM-DD') as d FROM (
-      SELECT date(timestamp) as d
+      SELECT (timestamp at time zone 'Asia/Seoul')::date as d
       FROM location_points
       WHERE user_id = ${userId}
-      GROUP BY date(timestamp)
+      GROUP BY (timestamp at time zone 'Asia/Seoul')::date
       HAVING count(*) filter (where anomaly IS NULL) > 0
     ) unprocessed
+    WHERE 1=1 ${scopeFilter}
     ORDER BY d
   `);
 

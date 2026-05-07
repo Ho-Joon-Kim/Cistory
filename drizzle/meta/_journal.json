@@ -148,6 +148,20 @@
       "when": 1777076864429,
       "tag": "0020_sharp_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1778137685105,
+      "tag": "0021_blue_brother_voodoo",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1778139710079,
+      "tag": "0022_clammy_scalphunter",
+      "breakpoints": true
     }
   ]
 }

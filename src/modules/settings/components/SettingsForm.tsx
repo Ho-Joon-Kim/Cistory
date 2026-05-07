@@ -17,11 +17,13 @@ import { useAuth } from "@/modules/auth/hooks";
 import { LocationImport } from "@/modules/location/components/LocationImport";
 import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
 import { useSettings } from "../hooks";
+import { AccountRolesCard } from "./AccountRolesCard";
 import { DataUsageCard } from "./DataUsageCard";
 import { DbBenchmarkCard } from "./DbBenchmarkCard";
 import { LocationBackfillCard } from "./LocationBackfillCard";
 import { OwnTracksSettings } from "./OwnTracksSettings";
 import { SummaryStats } from "./SummaryStats";
+import { KISAccountSettingsCard } from "@/modules/portfolio/components/KISAccountSettingsCard";
 import { TossNotificationSettings } from "./TossNotificationSettings";
 import { TripDetectionCard } from "./TripDetectionCard";
 import { WakaTimeSettings } from "./WakaTimeSettings";
@@ -169,8 +171,14 @@ export function SettingsForm() {
         }
       />
 
+      {/* 계좌 역할 (소비/수입 분류) */}
+      {settings.hasTossKey && <AccountRolesCard />}
+
       {/* Coding */}
       <WakaTimeSettings hasKey={settings.hasWakaTimeKey} />
+
+      {/* 포트폴리오 (KIS) */}
+      <KISAccountSettingsCard />
 
       {/* AI 요약 */}
       <SummaryStats />

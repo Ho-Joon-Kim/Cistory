@@ -1,6 +1,7 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import type { Database } from "@/db";
-import { codingDailyStats, commits, transactions } from "@/db/schema";
+import { accountRoles, codingDailyStats, commits, transactions, users } from "@/db/schema";
+import { accountRolesJoinOn, bucketSql } from "@/modules/spending/classify";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -269,15 +270,25 @@ export class InsightsService {
       dayCoding[dt.getDay()] += r.totalSeconds;
     }
 
-    // Transactions by day of week
+    // Transactions by day of week. Exclude rows whose classification bucket is
+    // 'ignore' (e.g. withdrawals from a 모임통장 marked as a spending account).
+    const [userRow] = await db
+      .select({ tossMyName: users.tossMyName })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const tossMyName = userRow?.tossMyName ?? null;
+    const bucket = bucketSql(tossMyName);
     const txRows = await db
       .select({ transactedAt: transactions.transactedAt })
       .from(transactions)
+      .leftJoin(accountRoles, accountRolesJoinOn)
       .where(
         and(
           eq(transactions.userId, userId),
           gte(transactions.transactedAt, start),
-          lte(transactions.transactedAt, end)
+          lte(transactions.transactedAt, end),
+          sql`${bucket} <> 'ignore'`
         )
       );
 

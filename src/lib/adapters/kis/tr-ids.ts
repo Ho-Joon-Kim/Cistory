@@ -1,0 +1,9 @@
+export const KIS_TR = {
+  INQUIRE_BALANCE_RLZ_PL: "TTTC8494R",
+  INQUIRE_DAILY_CCLD: "TTTC8001R",
+  INQUIRE_PERIOD_TRADE_PROFIT: "TTTC8708R",
+  INQUIRE_PRICE: "FHKST01010100",
+  SEARCH_STOCK_INFO: "CTPF1002R",
+} as const;
+
+export const KIS_BASE_URL = "https://openapi.koreainvestment.com:9443";

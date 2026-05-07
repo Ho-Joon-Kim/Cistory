@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Lightbulb, Wallet } from "lucide-react";
+import { BarChart3, Lightbulb, PieChart, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CommitHeatmap } from "@/components/CommitHeatmap";
@@ -19,6 +19,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
   const isReportPage = pathname === "/report";
   const isSpendingPage = pathname === "/spending";
   const isInsightsPage = pathname === "/insights";
+  const isPortfolioPage = pathname === "/portfolio";
 
   return (
     <header className="shrink-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -46,6 +47,17 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
           >
             <Wallet className="h-4 w-4" />
             <span className="hidden sm:inline">소비</span>
+          </Link>
+          <Link
+            href="/portfolio"
+            className={`flex items-center gap-1.5 text-sm transition-colors ${
+              isPortfolioPage
+                ? "text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <PieChart className="h-4 w-4" />
+            <span className="hidden sm:inline">포트폴리오</span>
           </Link>
           <Link
             href="/insights"

@@ -1,6 +1,7 @@
-import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import type { Database } from "@/db";
-import { transactions, users } from "@/db/schema";
+import { accountRoles, transactions, users } from "@/db/schema";
+import { accountRolesJoinOn, bucketSql } from "./classify";
 import { forecastMonthEnd } from "./forecast";
 import type {
   CumulativeDataPoint,
@@ -100,22 +101,21 @@ export class SpendingTrendService {
     cutoff.setDate(1);
     cutoff.setHours(0, 0, 0, 0);
 
-    const conditions = [
-      eq(transactions.userId, userId),
-      eq(transactions.type, "withdrawal"),
-      gte(transactions.transactedAt, cutoff),
-    ];
-    if (tossMyName) {
-      conditions.push(ne(transactions.merchant, tossMyName));
-    }
-
+    const bucket = bucketSql(tossMyName);
     const rows = await this.db
       .select({
         month: sql<string>`to_char(${transactions.transactedAt}, 'YYYY-MM')`.as("month"),
         total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
       })
       .from(transactions)
-      .where(and(...conditions))
+      .leftJoin(accountRoles, accountRolesJoinOn)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          gte(transactions.transactedAt, cutoff),
+          sql`${bucket} = 'spending'`
+        )
+      )
       .groupBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM')`)
       .orderBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM')`);
 
@@ -130,16 +130,7 @@ export class SpendingTrendService {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    const conditions = [
-      eq(transactions.userId, userId),
-      eq(transactions.type, "withdrawal"),
-      gte(transactions.transactedAt, monthStart),
-      lte(transactions.transactedAt, monthEnd),
-    ];
-    if (tossMyName) {
-      conditions.push(ne(transactions.merchant, tossMyName));
-    }
-
+    const bucket = bucketSql(tossMyName);
     const rows = await this.db
       .select({
         date: sql<string>`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`.as("date"),
@@ -147,7 +138,15 @@ export class SpendingTrendService {
         total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
       })
       .from(transactions)
-      .where(and(...conditions))
+      .leftJoin(accountRoles, accountRolesJoinOn)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          gte(transactions.transactedAt, monthStart),
+          lte(transactions.transactedAt, monthEnd),
+          sql`${bucket} = 'spending'`
+        )
+      )
       .groupBy(
         sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`,
         sql`extract(dow from ${transactions.transactedAt})`

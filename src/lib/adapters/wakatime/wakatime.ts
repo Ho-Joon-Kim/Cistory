@@ -2,6 +2,10 @@ import { logger } from "@/lib/logger";
 
 const BASE_URL = "https://wakatime.com/api/v1";
 
+function sleepBackoff(attempt: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
+}
+
 // ── Types (previously in ./interface.ts) ─────────────────────────────────────
 
 export interface WakaTimeDuration {
@@ -43,12 +47,20 @@ export class WakaTimeAdapter {
     this.authHeader = `Basic ${Buffer.from(apiKey).toString("base64")}`;
   }
 
-  private async fetch<T>(endpoint: string): Promise<T> {
-    const url = `${BASE_URL}${endpoint}`;
-    const response = await fetch(url, {
-      headers: { Authorization: this.authHeader },
-    });
+  private async fetchOnce(endpoint: string): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      return await fetch(`${BASE_URL}${endpoint}`, {
+        headers: { Authorization: this.authHeader },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 
+  private async parseOrThrow<T>(endpoint: string, response: Response): Promise<T> {
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       logger.error("WakaTime API error", {
@@ -58,8 +70,36 @@ export class WakaTimeAdapter {
       });
       throw new Error(`WakaTime API error: ${response.status}`);
     }
+    return (await response.json()) as T;
+  }
 
-    return response.json() as Promise<T>;
+  private async fetch<T>(endpoint: string): Promise<T> {
+    const maxAttempts = 3;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await this.fetchOnce(endpoint);
+        const retriable = response.status >= 500 || response.status === 429;
+        if (retriable && attempt < maxAttempts) {
+          lastError = new Error(`WakaTime API transient ${response.status}`);
+          await sleepBackoff(attempt);
+          continue;
+        }
+        return await this.parseOrThrow<T>(endpoint, response);
+      } catch (err) {
+        lastError = err;
+        const transient =
+          (err instanceof Error && err.name === "AbortError") || err instanceof TypeError;
+        if (transient && attempt < maxAttempts) {
+          await sleepBackoff(attempt);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("WakaTime API failed");
   }
 
   async getDurations(date: string): Promise<WakaTimeDuration[]> {

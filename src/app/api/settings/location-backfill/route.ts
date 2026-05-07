@@ -27,12 +27,14 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
+    // All date arithmetic uses KST so "today" lines up with the daily 01:00 cron window.
     const [dateRange] = await db
       .select({
-        earliest: sql<string>`min(timestamp)::date::text`,
-        latest: sql<string>`max(timestamp)::date::text`,
-        totalDays: sql<number>`(max(timestamp)::date - min(timestamp)::date + 1)::int`,
+        earliest: sql<string>`min(timestamp at time zone 'Asia/Seoul')::date::text`,
+        latest: sql<string>`max(timestamp at time zone 'Asia/Seoul')::date::text`,
+        totalDays: sql<number>`((max(timestamp at time zone 'Asia/Seoul')::date - min(timestamp at time zone 'Asia/Seoul')::date) + 1)::int`,
         totalPoints: sql<number>`count(*)::int`,
+        today: sql<string>`(now() at time zone 'Asia/Seoul')::date::text`,
       })
       .from(locationPoints)
       .where(eq(locationPoints.userId, user.id));
@@ -47,24 +49,38 @@ export async function GET(request: NextRequest) {
         scanned: sql<number>`count(*) filter (where anomaly is not null)::int`,
         unscanned: sql<number>`count(*) filter (where anomaly is null)::int`,
         anomalies: sql<number>`count(*) filter (where anomaly = true)::int`,
+        todayUnscanned: sql<number>`count(*) filter (where anomaly is null and (timestamp at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date)::int`,
       })
       .from(locationPoints)
       .where(eq(locationPoints.userId, user.id));
 
-    // Days fully scanned = all points on that day have anomaly IS NOT NULL
+    // Days fully scanned = all points on that day have anomaly IS NOT NULL.
+    // We exclude today from "past" reporting so the daily 01:00 KST cron isn't
+    // mistaken for a backlog the user has to clear manually.
     const scannedDaysResult = await db.execute<{
-      scanned_days: number;
+      past_total_days: number;
+      past_scanned_days: number;
+      past_unscanned_days: number;
       [key: string]: unknown;
     }>(sql`
-      SELECT count(*)::int as scanned_days FROM (
-        SELECT date(timestamp) as d
+      WITH per_day AS (
+        SELECT
+          (timestamp at time zone 'Asia/Seoul')::date AS d,
+          count(*) FILTER (WHERE anomaly IS NULL) AS unscanned
         FROM location_points
         WHERE user_id = ${user.id}
-        GROUP BY date(timestamp)
-        HAVING count(*) filter (where anomaly IS NULL) = 0
-      ) scanned
+        GROUP BY (timestamp at time zone 'Asia/Seoul')::date
+      )
+      SELECT
+        count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date)::int AS past_total_days,
+        count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date AND unscanned = 0)::int AS past_scanned_days,
+        count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date AND unscanned > 0)::int AS past_unscanned_days
+      FROM per_day
     `);
-    const scannedDays = scannedDaysResult.rows[0]?.scanned_days ?? 0;
+    const pastTotalDays = scannedDaysResult.rows[0]?.past_total_days ?? 0;
+    const pastScannedDays = scannedDaysResult.rows[0]?.past_scanned_days ?? 0;
+    const pastDaysRemaining = scannedDaysResult.rows[0]?.past_unscanned_days ?? 0;
+    const todayHasUnscanned = (anomalyStats.todayUnscanned ?? 0) > 0;
 
     const [_visitStats] = await db
       .select({ daysWithVisits: sql<number>`count(distinct start_time::date)::int` })
@@ -119,21 +135,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Use scannedDays as the ground truth for all three phases
-    // A day is "done" when all its points have anomaly IS NOT NULL (= anomaly pass completed)
-    // Since backfill always runs anomaly → visits → transport in order,
-    // scannedDays represents days that have been fully processed through the pipeline
-    const anomalyDaysRemaining = dateRange.totalDays - scannedDays;
-    const visitsDaysRemaining = dateRange.totalDays - scannedDays;
-    const transportDaysRemaining = dateRange.totalDays - scannedDays;
-
-    const needsAnomaly = anomalyDaysRemaining > 0;
-    const needsVisits = visitsDaysRemaining > 0;
-    const needsTransport = transportDaysRemaining > 0;
-    const totalSteps =
-      (needsAnomaly ? anomalyDaysRemaining : 0) +
-      (needsVisits ? visitsDaysRemaining : 0) +
-      (needsTransport ? transportDaysRemaining : 0);
+    // Past-only "needsBackfill" gates the primary action. Today is reported
+    // separately as a pending state that the daily cron will pick up.
+    const needsPastBackfill = pastDaysRemaining > 0;
+    const totalSteps = needsPastBackfill ? pastDaysRemaining * 3 : 0;
 
     return NextResponse.json({
       hasData: true,
@@ -141,27 +146,24 @@ export async function GET(request: NextRequest) {
         earliest: dateRange.earliest,
         latest: dateRange.latest,
         totalDays: dateRange.totalDays,
+        today: dateRange.today,
+      },
+      past: {
+        totalDays: pastTotalDays,
+        daysProcessed: pastScannedDays,
+        daysRemaining: pastDaysRemaining,
+        needsBackfill: needsPastBackfill,
+      },
+      today: {
+        date: dateRange.today,
+        unscannedPoints: anomalyStats.todayUnscanned ?? 0,
+        pending: todayHasUnscanned,
       },
       anomaly: {
         totalPoints: anomalyStats.total,
         scanned: anomalyStats.scanned,
         unscanned: anomalyStats.unscanned,
         anomaliesFound: anomalyStats.anomalies,
-        daysProcessed: scannedDays,
-        daysRemaining: anomalyDaysRemaining,
-        needsBackfill: needsAnomaly,
-      },
-      visits: {
-        totalDays: dateRange.totalDays,
-        daysProcessed: scannedDays,
-        daysRemaining: visitsDaysRemaining,
-        needsBackfill: needsVisits,
-      },
-      transport: {
-        totalDays: dateRange.totalDays,
-        daysProcessed: scannedDays,
-        daysRemaining: transportDaysRemaining,
-        needsBackfill: needsTransport,
       },
       geocoding: {
         uncachedTotal,
@@ -190,7 +192,11 @@ export async function POST(request: NextRequest) {
     "@/modules/location/services/backfill-orchestrator"
   );
 
-  const plan = await planBackfill(user.id);
+  const scopeParam = new URL(request.url).searchParams.get("scope");
+  const scope: "all" | "past" | "today" =
+    scopeParam === "past" || scopeParam === "today" ? scopeParam : "all";
+
+  const plan = await planBackfill(user.id, scope);
   if (!plan) {
     return NextResponse.json({ error: "위치 데이터가 없습니다" }, { status: 400 });
   }
