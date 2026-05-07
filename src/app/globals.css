@@ -1191,63 +1191,61 @@ body {
 .dark {
   /* Extended accent palette — match insights mockup */
   --accent-green: 153 70% 53%;       /* aliases existing --primary */
-  --accent-amber: 45 95% 60%;
-  --accent-orange: 22 90% 60%;
-  --accent-violet: 265 70% 65%;
+  --accent-amber: 45 100% 60%;
+  --accent-orange: 30 90% 60%;
+  --accent-violet: 260 70% 70%;
   --accent-blue: 210 90% 62%;
-  --accent-red: 0 75% 60%;
+  --accent-red: 0 70% 60%;
 
   /* Surface tokens (mockup-matching dark canvas) */
+  --neon-card: 0 0% 5%;              /* card surface — slightly lifted from page 0% */
   --hairline: 0 0% 12%;              /* card border */
+  --hairline-hover: 0 0% 18%;        /* card border on hover */
   --ink-dim: 0 0% 78%;               /* secondary text */
   --ink-mute: 0 0% 56%;              /* tertiary text */
+  --ink-faint: 0 0% 32%;             /* labels / quaternary */
 
-  /* Glow scale — used as box-shadow / drop-shadow / filter */
+  /* 2-layer glow — coreRadius/coreAlpha + haloRadius/haloAlpha (matches mockup .glow-text) */
   --glow-sm: 0 0 6px;
   --glow-md: 0 0 12px;
   --glow-lg: 0 0 20px;
   --glow-xl: 0 0 32px;
 }
 
-/* ─────────── insight-card: card chrome + hover-lift + schema accent ─────────── */
+[data-neon] {
+  font-feature-settings: "ss01", "cv11";
+}
+[data-neon] ::selection {
+  background: hsl(var(--accent-green) / 0.35);
+}
+
+/* ─────────── insight-card: mockup-faithful card chrome ─────────── */
 [data-neon] .insight-card {
   position: relative;
   border: 1px solid hsl(var(--hairline));
-  background: hsl(var(--card));
-  border-radius: 12px;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  background: hsl(var(--neon-card));
+  border-radius: 14px;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 [data-neon] .insight-card:hover {
-  transform: translateY(-1px);
-  border-color: hsl(var(--hairline) / 1.3);
-}
-
-/* Schema-grounded badge: data-schema="commits" puts a colored 2px left edge */
-[data-neon] .insight-card[data-schema="commits"]    { box-shadow: inset 2px 0 0 hsl(var(--accent-green)); }
-[data-neon] .insight-card[data-schema="coding"]     { box-shadow: inset 2px 0 0 hsl(var(--accent-amber)); }
-[data-neon] .insight-card[data-schema="location"]   { box-shadow: inset 2px 0 0 hsl(var(--accent-violet)); }
-[data-neon] .insight-card[data-schema="transport"]  { box-shadow: inset 2px 0 0 hsl(var(--accent-blue)); }
-[data-neon] .insight-card[data-schema="spending"]   { box-shadow: inset 2px 0 0 hsl(var(--accent-orange)); }
-[data-neon] .insight-card[data-schema="cross"]      {
+  transform: translateY(-2px);
+  border-color: hsl(var(--hairline-hover));
   box-shadow:
-    inset 1px 0 0 hsl(var(--accent-green)),
-    inset 3px 0 0 hsl(var(--accent-violet) / 0.5);
+    0 6px 20px hsl(0 0% 0% / 0.5),
+    0 0 0 1px hsl(var(--accent-green) / 0.08);
 }
 
-[data-neon] .insight-card:hover[data-schema="commits"]   { box-shadow: inset 2px 0 0 hsl(var(--accent-green)),   var(--glow-md) hsl(var(--accent-green) / 0.18); }
-[data-neon] .insight-card:hover[data-schema="coding"]    { box-shadow: inset 2px 0 0 hsl(var(--accent-amber)),   var(--glow-md) hsl(var(--accent-amber) / 0.18); }
-[data-neon] .insight-card:hover[data-schema="location"]  { box-shadow: inset 2px 0 0 hsl(var(--accent-violet)),  var(--glow-md) hsl(var(--accent-violet) / 0.18); }
-[data-neon] .insight-card:hover[data-schema="transport"] { box-shadow: inset 2px 0 0 hsl(var(--accent-blue)),    var(--glow-md) hsl(var(--accent-blue) / 0.18); }
-[data-neon] .insight-card:hover[data-schema="spending"]  { box-shadow: inset 2px 0 0 hsl(var(--accent-orange)),  var(--glow-md) hsl(var(--accent-orange) / 0.18); }
+/* Schema accents removed — mockup uses uniform hairline border, no left-edge color rail.
+   Keep [data-schema] hooks available for future per-card use without painting anything. */
 
-/* ─────────── glow-text-* — text glow per hue ─────────── */
-[data-neon] .glow-text-green  { color: hsl(var(--accent-green));  text-shadow: var(--glow-sm) hsl(var(--accent-green)  / 0.5); }
-[data-neon] .glow-text-amber  { color: hsl(var(--accent-amber));  text-shadow: var(--glow-sm) hsl(var(--accent-amber)  / 0.5); }
-[data-neon] .glow-text-orange { color: hsl(var(--accent-orange)); text-shadow: var(--glow-sm) hsl(var(--accent-orange) / 0.5); }
-[data-neon] .glow-text-violet { color: hsl(var(--accent-violet)); text-shadow: var(--glow-sm) hsl(var(--accent-violet) / 0.5); }
-[data-neon] .glow-text-blue   { color: hsl(var(--accent-blue));   text-shadow: var(--glow-sm) hsl(var(--accent-blue)   / 0.5); }
-[data-neon] .glow-text-red    { color: hsl(var(--accent-red));    text-shadow: var(--glow-sm) hsl(var(--accent-red)    / 0.5); }
+/* ─────────── glow-text-*: 2-layer (core + halo) — matches mockup .glow-text ─────────── */
+[data-neon] .glow-text-green  { color: hsl(var(--accent-green));  text-shadow: 0 0 14px hsl(var(--accent-green)  / 0.55), 0 0 28px hsl(var(--accent-green)  / 0.25); }
+[data-neon] .glow-text-amber  { color: hsl(var(--accent-amber));  text-shadow: 0 0 12px hsl(var(--accent-amber)  / 0.45), 0 0 24px hsl(var(--accent-amber)  / 0.20); }
+[data-neon] .glow-text-orange { color: hsl(var(--accent-orange)); text-shadow: 0 0 12px hsl(var(--accent-orange) / 0.45), 0 0 24px hsl(var(--accent-orange) / 0.20); }
+[data-neon] .glow-text-violet { color: hsl(var(--accent-violet)); text-shadow: 0 0 12px hsl(var(--accent-violet) / 0.50), 0 0 24px hsl(var(--accent-violet) / 0.22); }
+[data-neon] .glow-text-blue   { color: hsl(var(--accent-blue));   text-shadow: 0 0 12px hsl(var(--accent-blue)   / 0.45), 0 0 24px hsl(var(--accent-blue)   / 0.20); }
+[data-neon] .glow-text-red    { color: hsl(var(--accent-red));    text-shadow: 0 0 12px hsl(var(--accent-red)    / 0.45), 0 0 24px hsl(var(--accent-red)    / 0.20); }
 
 /* ─────────── glow-fill-* — for SVG fills ─────────── */
 [data-neon] .glow-fill-green  { fill: hsl(var(--accent-green));  filter: drop-shadow(var(--glow-sm) hsl(var(--accent-green)  / 0.6)); }

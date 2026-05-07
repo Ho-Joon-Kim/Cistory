@@ -39,14 +39,16 @@ export function InsightCard({
     <section
       data-slot="insight-card"
       data-schema={schema}
-      className={cn("insight-card", padded && "p-6", className)}
+      className={cn("insight-card", padded && "px-5 py-[18px]", className)}
       {...props}
     >
-      <header className="flex items-start justify-between gap-3 mb-4">
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold tracking-tight text-foreground">{title}</h3>
+      <header className="flex items-start justify-between gap-3 mb-3.5">
+        <div className="min-w-0 flex flex-col gap-0.5">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.02em] text-foreground">
+            {title}
+          </h3>
           {subtitle ? (
-            <p className="mt-1 text-xs text-ink-mute leading-relaxed">{subtitle}</p>
+            <p className="text-[11px] text-ink-mute leading-snug">{subtitle}</p>
           ) : null}
         </div>
         {right ? <div className="shrink-0 flex items-center gap-2">{right}</div> : null}
