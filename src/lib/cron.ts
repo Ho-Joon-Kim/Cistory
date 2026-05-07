@@ -5,13 +5,13 @@
  * Runs independently of user sessions - works even if users haven't logged in for months
  */
 
-import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { lt, sql } from "drizzle-orm";
 import * as cron from "node-cron";
-import { commitSummaries, commits, getDb, syncJobs, users } from "@/db";
+import { getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
-import { createSummaryService } from "@/modules/summary/service";
+import { createSummaryService, SummaryService } from "@/modules/summary/service";
 import {
   refreshAllSubwaySystems,
   seedSubwaySystemsIfEmpty,
@@ -87,6 +87,16 @@ async function syncAllUsers() {
 
   const db = getDb();
 
+  // Revive `processing` rows abandoned by a crashed worker. Without this a
+  // SIGTERM mid-call leaves the row stuck out of every queue forever.
+  try {
+    await SummaryService.reviveStaleProcessing(db);
+  } catch (reviveError) {
+    logger.error("[Cron] reviveStaleProcessing failed", {
+      error: reviveError instanceof Error ? reviveError.message : String(reviveError),
+    });
+  }
+
   try {
     // Find all users who have a GitHub OAuth token stored in Better Auth's
     // account table. Phase 9.2 removed the duplicate users.github_access_token
@@ -161,7 +171,12 @@ async function syncAllUsers() {
           }
         }
 
-        // Process pending summaries for recent commits (last 7 days)
+        // Process queued summaries. The previous "last 7 days" filter meant
+        // any commit older than a week (e.g. backfilled via Search API) could
+        // never reach the AI, even though it was sitting in `pending`. We now
+        // hand off to processPendingSummaries which scopes by user, orders by
+        // commit date (oldest first so the backlog drains), and respects
+        // MAX_RETRY_COUNT so a poison commit stops re-trying forever.
         if (process.env.ANTHROPIC_API_KEY) {
           try {
             const summaryService = createSummaryService(
@@ -169,51 +184,16 @@ async function syncAllUsers() {
               process.env.ANTHROPIC_API_KEY,
               accessToken
             );
-
-            // Find commits from last 7 days with pending/failed summaries
-            const oneWeekAgo = new Date();
-            oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-
-            const recentCommitsWithPendingSummaries = await db
-              .select({ commitId: commits.id })
-              .from(commits)
-              .innerJoin(commitSummaries, eq(commits.id, commitSummaries.commitId))
-              .where(
-                and(
-                  eq(commits.userId, user.id),
-                  gte(commits.committedAt, oneWeekAgo),
-                  inArray(commitSummaries.status, ["pending", "failed"])
-                )
-              )
-              .limit(5);
-
-            if (recentCommitsWithPendingSummaries.length > 0) {
-              logger.info(
-                `[Cron] Found ${recentCommitsWithPendingSummaries.length} recent commits needing summaries`,
-                {
-                  userId: user.id,
-                  githubLogin: user.githubLogin,
-                }
-              );
-
-              let processed = 0;
-              for (const { commitId } of recentCommitsWithPendingSummaries) {
-                try {
-                  await summaryService.generateSummary(commitId);
-                  processed++;
-                } catch (_error) {
-                  // Continue with next commit even if one fails
-                }
-                // Rate limiting
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-              }
-
-              if (processed > 0) {
-                logger.info(`[Cron] Processed ${processed} summaries`, {
-                  userId: user.id,
-                  githubLogin: user.githubLogin,
-                });
-              }
+            const processed = await summaryService.processPendingSummaries(
+              20,
+              undefined,
+              user.id
+            );
+            if (processed > 0) {
+              logger.info(`[Cron] Processed ${processed} summaries`, {
+                userId: user.id,
+                githubLogin: user.githubLogin,
+              });
             }
           } catch (summaryError) {
             logger.error(`[Cron] Summary processing error`, {

@@ -97,33 +97,58 @@ export class GitHubAdapter {
 
   private async fetch<T>(endpoint: string, options: RequestInit = {}, accept?: string): Promise<T> {
     const url = endpoint.startsWith("http") ? endpoint : `${GITHUB_API_BASE}${endpoint}`;
+    const isDiff = accept === "application/vnd.github.diff";
+    // diff payloads can be megabytes for large commits; give them a longer
+    // budget than the JSON metadata calls. Both have a hard ceiling so a
+    // hung connection can't pin a cron tick.
+    const timeoutMs = isDiff ? 30_000 : 15_000;
+    const maxAttempts = 2;
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-        Accept: accept ?? "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        ...options.headers,
-      },
-    });
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: AbortSignal.timeout(timeoutMs),
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            Accept: accept ?? "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            ...options.headers,
+          },
+        });
 
-    if (!response.ok) {
-      const error = await response.text();
-      logger.error("GitHub API error", {
-        statusCode: response.status,
-        endpoint: endpoint.startsWith("http") ? new URL(endpoint).pathname : endpoint,
-        error,
-      });
-      throw new Error(`GitHub API error: ${response.status} - ${error}`);
+        if (!response.ok) {
+          const errorBody = await response.text();
+          // Retry only on 5xx; 4xx is permanent (auth, missing, oversize).
+          if (response.status >= 500 && attempt < maxAttempts) {
+            lastError = new Error(`GitHub API ${response.status}: ${errorBody}`);
+            await new Promise((r) => setTimeout(r, 500 * attempt));
+            continue;
+          }
+          logger.error("GitHub API error", {
+            statusCode: response.status,
+            endpoint: endpoint.startsWith("http") ? new URL(endpoint).pathname : endpoint,
+            error: errorBody,
+          });
+          throw new Error(`GitHub API error: ${response.status} - ${errorBody}`);
+        }
+
+        if (isDiff) {
+          return (await response.text()) as unknown as T;
+        }
+        return (await response.json()) as T;
+      } catch (err) {
+        // AbortSignal.timeout fires a TimeoutError DOMException; treat it like 5xx.
+        const isTimeout = err instanceof Error && err.name === "TimeoutError";
+        if (isTimeout && attempt < maxAttempts) {
+          lastError = err;
+          continue;
+        }
+        throw err;
+      }
     }
-
-    // diff 요청 시 텍스트로 반환
-    if (accept === "application/vnd.github.diff") {
-      return response.text() as unknown as T;
-    }
-
-    return response.json() as Promise<T>;
+    throw lastError instanceof Error ? lastError : new Error("GitHub fetch failed");
   }
 
   async getRepositories(options: GetRepositoriesOptions = {}): Promise<VCSRepository[]> {

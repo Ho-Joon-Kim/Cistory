@@ -27,13 +27,13 @@ const MONTH_LABELS = [
   "12월",
 ];
 
-function getColor(count: number, max: number): string {
-  if (count === 0) return "bg-muted";
+function getFillClass(count: number, max: number): string {
+  if (count === 0) return "fill-muted";
   const ratio = count / Math.max(max, 1);
-  if (ratio <= 0.25) return "bg-emerald-200 dark:bg-emerald-900";
-  if (ratio <= 0.5) return "bg-emerald-400 dark:bg-emerald-700";
-  if (ratio <= 0.75) return "bg-emerald-500 dark:bg-emerald-500";
-  return "bg-emerald-600 dark:bg-emerald-400";
+  if (ratio <= 0.25) return "fill-emerald-200 dark:fill-emerald-900";
+  if (ratio <= 0.5) return "fill-emerald-400 dark:fill-emerald-700";
+  if (ratio <= 0.75) return "fill-emerald-500 dark:fill-emerald-500";
+  return "fill-emerald-600 dark:fill-emerald-400";
 }
 
 export function CodingHeatmap({ data, isLoading, year }: CodingHeatmapProps) {
@@ -190,7 +190,7 @@ export function CodingHeatmap({ data, isLoading, year }: CodingHeatmapProps) {
                   width={cellSize}
                   height={cellSize}
                   rx={2}
-                  className={`${getColor(cell.count, maxCount)} transition-colors`}
+                  className={`${getFillClass(cell.count, maxCount)} transition-colors`}
                   onMouseEnter={(e) => {
                     const rect = (e.target as SVGRectElement).getBoundingClientRect();
                     setTooltip({

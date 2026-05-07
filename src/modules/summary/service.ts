@@ -4,11 +4,12 @@
  * AI 요약 생성 및 관리
  */
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
+import { logger } from "@/lib/logger";
 import { now, parseRepoFullName, truncateDiff } from "@/lib/utils";
 import { analyzeRecentCommits, fetchRepoContext } from "./context";
 import {
@@ -22,6 +23,13 @@ import {
 export interface SummaryResult {
   summary: string;
 }
+
+const MAX_RETRY_COUNT = 3;
+const MAX_CHANGED_FILES_IN_PROMPT = 50;
+// Stale `processing` rows older than this are revived to `pending`. Cron tick
+// is 10 min and Anthropic timeout is 60s, so anything past 15 min is a
+// crashed/killed worker, not in-flight work.
+const PROCESSING_STALE_MS = 15 * 60 * 1000;
 
 export class SummaryService {
   private db: Database;
@@ -81,11 +89,20 @@ export class SummaryService {
       const diffResult = await this.vcsAdapter.getCommitDiff(owner, repo, commit.sha);
 
       const truncatedDiff = truncateDiff(diffResult.rawDiff, 8000);
-      const changedFiles = diffResult.files.map((f) => f.filename);
+      // Cap the file list so a 200-file commit doesn't blow up the prompt
+      // independently of the diff truncation.
+      const allFiles = diffResult.files.map((f) => f.filename);
+      const changedFiles =
+        allFiles.length > MAX_CHANGED_FILES_IN_PROMPT
+          ? [
+              ...allFiles.slice(0, MAX_CHANGED_FILES_IN_PROMPT),
+              `... 외 ${allFiles.length - MAX_CHANGED_FILES_IN_PROMPT}개 파일`,
+            ]
+          : allFiles;
 
       // 커밋 컨텍스트
       const commitContext: CommitContext = {
-        message: commit.message,
+        message: commit.message.slice(0, 2000),
         changedFiles,
         additions: commit.additions ?? 0,
         deletions: commit.deletions ?? 0,
@@ -146,27 +163,63 @@ export class SummaryService {
 
       return result;
     } catch (error) {
-      // Atomic retry increment + terminal failure after MAX_RETRY_COUNT.
-      //
-      // Previous behavior: select-then-update raced against concurrent cron
-      // workers, and the "flip status to pending" path meant the cron would
-      // immediately re-enqueue and loop forever on a persistent upstream error.
-      // Now we increment in-place and leave the row as `failed` so it drops
-      // out of the pending queue. Manual regenerate (regenerateSummary) is
-      // still available and resets the counter.
+      // Atomic retry increment. After MAX_RETRY_COUNT attempts the row stays
+      // in `failed` and drops out of the pending/failed queue scan in cron —
+      // manual regenerateSummary resets retry_count and is the only way back
+      // in. Below the cap we keep status='failed' too; the cron `inArray
+      // (['pending','failed'])` filter still picks it up next tick.
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       await this.db
         .update(commitSummaries)
         .set({
           status: "failed",
           retryCount: sql`${commitSummaries.retryCount} + 1`,
-          errorMessage,
+          errorMessage: errorMessage.slice(0, 1000),
           updatedAt: now(),
         })
         .where(eq(commitSummaries.commitId, commitId));
 
+      // Visibility: the cron path used to swallow these into a console.error
+      // that never reached Better Stack. Surface them.
+      logger.warn("[Summary] generateSummary failed", {
+        commitId,
+        repoFullName: commit.repoFullName,
+        sha: commit.sha,
+        error: errorMessage,
+      });
+
       throw error;
     }
+  }
+
+  /**
+   * Revive `processing` rows abandoned by a crashed/killed worker. We mark
+   * status='processing' before the AI call and only flip back to 'failed' in
+   * the catch — if the process dies mid-call the row is stuck out of the
+   * queue forever. Cron should call this at the top of each tick.
+   */
+  static async reviveStaleProcessing(db: Database): Promise<number> {
+    const cutoff = new Date(Date.now() - PROCESSING_STALE_MS);
+    const revived = await db
+      .update(commitSummaries)
+      .set({ status: "pending", updatedAt: now() })
+      .where(
+        and(eq(commitSummaries.status, "processing"), lt(commitSummaries.updatedAt, cutoff))
+      )
+      .returning({ id: commitSummaries.id });
+    if (revived.length > 0) {
+      logger.info("[Summary] revived stale processing rows", { count: revived.length });
+    }
+    return revived.length;
+  }
+
+  /**
+   * Whether a commit's summary should be skipped from the queue (terminal
+   * failure that exceeded retry budget). Used by cron to filter out poison
+   * commits without re-enqueuing them on every tick.
+   */
+  static isTerminalRetryCount(retryCount: number): boolean {
+    return retryCount >= MAX_RETRY_COUNT;
   }
 
   /**
@@ -199,32 +252,45 @@ export class SummaryService {
   }
 
   /**
-   * pending 상태의 요약 일괄 처리
+   * Process queued summaries (status pending or failed-but-retriable).
+   *
+   * Caller can scope to a single user via `userId`; `limit` caps work per
+   * invocation so the cron tick can't spend its whole budget on one user.
+   * Rows past MAX_RETRY_COUNT stay `failed` and are skipped here.
    */
   async processPendingSummaries(
     limit: number = 10,
-    onProgress?: (processed: number, total: number) => void
+    onProgress?: (processed: number, total: number) => void,
+    userId?: string
   ): Promise<number> {
-    // pending 상태의 요약 조회
-    const pending = await this.db
+    const userFilter = userId ? eq(commits.userId, userId) : undefined;
+    const queued = await this.db
       .select({ commitId: commitSummaries.commitId })
       .from(commitSummaries)
-      .where(eq(commitSummaries.status, "pending"))
+      .innerJoin(commits, eq(commits.id, commitSummaries.commitId))
+      .where(
+        and(
+          sql`${commitSummaries.status} IN ('pending','failed')`,
+          lt(commitSummaries.retryCount, MAX_RETRY_COUNT),
+          ...(userFilter ? [userFilter] : [])
+        )
+      )
+      .orderBy(commits.committedAt)
       .limit(limit);
 
-    if (pending.length === 0) {
+    if (queued.length === 0) {
       return 0;
     }
 
     let processed = 0;
 
-    for (const { commitId } of pending) {
+    for (const { commitId } of queued) {
       try {
         await this.generateSummary(commitId);
         processed++;
-        onProgress?.(processed, pending.length);
-      } catch (error) {
-        console.error(`Failed to generate summary for ${commitId}:`, error);
+        onProgress?.(processed, queued.length);
+      } catch (_error) {
+        // generateSummary already logged + persisted error_message + retry_count
       }
 
       // Rate limiting - 요청 간 1초 대기

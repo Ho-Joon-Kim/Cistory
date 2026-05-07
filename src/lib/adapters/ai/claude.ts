@@ -29,7 +29,9 @@ export class ClaudeAdapter {
   private client: Anthropic;
 
   constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    // 60s per-request ceiling so a slow Anthropic response can't outrun the
+    // 10-min cron tick; SDK retries idempotent failures (5xx, 429, network).
+    this.client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 });
   }
 
   async generateText(options: AIGenerateOptions): Promise<AIGenerateResult> {
