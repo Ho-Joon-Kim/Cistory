@@ -27,6 +27,31 @@ import { WorkPatternCard } from "@/modules/insights/components/WorkPatternCard";
 import { useInsights } from "@/modules/insights/hooks";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 
+function SectionDivider({
+  label,
+  subtitle,
+  tone,
+}: {
+  label: string;
+  subtitle?: string;
+  tone?: "primary";
+}) {
+  return (
+    <div className="flex items-baseline gap-3 px-1 pt-3">
+      <div
+        className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${
+          tone === "primary" ? "glow-text-green" : "text-ink-mute"
+        }`}
+      >
+        {tone === "primary" ? "✦ " : ""}
+        {label}
+      </div>
+      <div className="flex-1 h-px bg-[hsl(var(--hairline))]" />
+      {subtitle ? <div className="text-[11px] text-ink-mute">{subtitle}</div> : null}
+    </div>
+  );
+}
+
 function InsightsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -111,53 +136,68 @@ function InsightsContent() {
             </div>
           </div>
 
-          {/* Grid layout — hero spans 2 cols, then a 2-col grid of insight cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Mockup-faithful layout — weighted columns, schema grouping, section dividers.
+              Row sizes match planned/components_v2/app.jsx. */}
+          <div className="flex flex-col gap-4">
             {/* Hero — full width */}
             <HeroSwimlane data={swimlane.data} isLoading={swimlane.isLoading} year={year} />
 
-            {/* Discoveries — short narrative summary, paired with hero */}
+            {/* Cross-stream row 1: place × productivity (wider) + commute reliability */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
+              <PlaceProductivityCard
+                data={placeProductivity.data}
+                isLoading={placeProductivity.isLoading}
+              />
+              <CommuteReliabilityCard data={commute.data} isLoading={commute.isLoading} />
+            </div>
+
+            {/* Cross-stream row 2: net spend (wider) + subway */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4">
+              <NetSpendCard data={netSpend.data} isLoading={netSpend.isLoading} />
+              <SubwayInsightsCard data={subway.data} isLoading={subway.isLoading} />
+            </div>
+
+            {/* Discoveries — narrative bullets, full width */}
             <DiscoveriesCard data={discoveries.data} isLoading={discoveries.isLoading} />
 
-            {/* Coding row */}
-            <AIClockCard data={aiClock.data} isLoading={aiClock.isLoading} />
-            <WorkPatternCard data={patterns.data} isLoading={patterns.isLoading} />
+            {/* Section divider — Schema-Grounded */}
+            <SectionDivider label="Schema-Grounded" subtitle="실제 DB 스키마 기반" tone="primary" />
 
-            {/* Commits row */}
+            {/* AI clock — full width, the most important coding card */}
+            <AIClockCard data={aiClock.data} isLoading={aiClock.isLoading} />
+
+            {/* Mobility row — transport modes + trips */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <TransportModeCard data={transport.data} isLoading={transport.isLoading} />
+              <TripsCard data={trips.data} isLoading={trips.isLoading} year={year} />
+            </div>
+
+            {/* Place × commits + Repo split */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4">
+              <VisitsXCommitsCard data={visitsXCommits.data} isLoading={visitsXCommits.isLoading} />
+              <RepoSplitCard data={repoSplit.data} isLoading={repoSplit.isLoading} />
+            </div>
+
+            {/* Data usage — meta row, full width */}
+            <DataUsageCard data={dataUsage.data} isLoading={dataUsage.isLoading} />
+
+            {/* Section divider — basic patterns */}
+            <SectionDivider label="기본 패턴" />
+
+            {/* Refined trio — heatmap (full) then streak / work pattern / routine */}
             <CodingHeatmap
               data={commitHeatmap.data}
               isLoading={commitHeatmap.isLoading}
               year={year}
             />
-            <StreakGamification data={streaks.data} isLoading={streaks.isLoading} year={year} />
-
-            <RepoSplitCard data={repoSplit.data} isLoading={repoSplit.isLoading} />
-            <RoutineDiscovery data={routines.data} isLoading={routines.isLoading} />
-
-            {/* Cross-stream */}
-            <PlaceProductivityCard
-              data={placeProductivity.data}
-              isLoading={placeProductivity.isLoading}
-            />
-            <VisitsXCommitsCard data={visitsXCommits.data} isLoading={visitsXCommits.isLoading} />
-
-            {/* Location & transport */}
-            <TripsCard data={trips.data} isLoading={trips.isLoading} year={year} />
-            <TransportModeCard data={transport.data} isLoading={transport.isLoading} />
-
-            <CommuteReliabilityCard data={commute.data} isLoading={commute.isLoading} />
-            <SubwayInsightsCard data={subway.data} isLoading={subway.isLoading} />
-
-            {/* Spending */}
-            <NetSpendCard data={netSpend.data} isLoading={netSpend.isLoading} />
-
-            {/* Monthly digest spans 2 cols at the bottom */}
-            <div className="lg:col-span-2">
-              <MonthlyDigestCard data={digests.data} isLoading={digests.isLoading} year={year} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <StreakGamification data={streaks.data} isLoading={streaks.isLoading} year={year} />
+              <WorkPatternCard data={patterns.data} isLoading={patterns.isLoading} />
+              <RoutineDiscovery data={routines.data} isLoading={routines.isLoading} />
             </div>
 
-            {/* Data footprint */}
-            <DataUsageCard data={dataUsage.data} isLoading={dataUsage.isLoading} />
+            {/* Monthly digest — full-width strip */}
+            <MonthlyDigestCard data={digests.data} isLoading={digests.isLoading} year={year} />
           </div>
         </main>
       </div>
