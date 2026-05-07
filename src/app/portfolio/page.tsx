@@ -98,7 +98,7 @@ function PortfolioContent() {
           ) : !summary || summary.accounts.length === 0 ? (
             <div className="border-2 border-dashed rounded-lg p-12 text-center">
               <p className="text-muted-foreground mb-4">아직 등록된 계좌가 없습니다</p>
-              <Button onClick={() => router.push("/dashboard/settings")} variant="outline">
+              <Button onClick={() => router.push("/settings")} variant="outline">
                 설정에서 계좌 추가하기
               </Button>
             </div>

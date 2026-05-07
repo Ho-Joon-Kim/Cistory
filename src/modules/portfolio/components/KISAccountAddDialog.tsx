@@ -118,7 +118,7 @@ export function KISAccountAddDialog({ open, onOpenChange, onAdded }: Props) {
               <Label htmlFor="cano">계좌번호 (앞 8자리)</Label>
               <Input
                 id="cano"
-                placeholder="64854415"
+                placeholder="12345678"
                 inputMode="numeric"
                 maxLength={8}
                 value={cano}
