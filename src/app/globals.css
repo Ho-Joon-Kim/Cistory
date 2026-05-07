@@ -1239,6 +1239,34 @@ body {
 /* Schema accents removed — mockup uses uniform hairline border, no left-edge color rail.
    Keep [data-schema] hooks available for future per-card use without painting anything. */
 
+/* ─────────── shadcn Card override inside insights — pull legacy cards into mockup tone ─────────── */
+[data-neon] [data-slot="card"] {
+  background: hsl(var(--neon-card));
+  border: 1px solid hsl(var(--hairline));
+  border-radius: 14px;
+  box-shadow: none;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+[data-neon] [data-slot="card"]:hover {
+  transform: translateY(-2px);
+  border-color: hsl(var(--hairline-hover));
+  box-shadow:
+    0 6px 20px hsl(0 0% 0% / 0.5),
+    0 0 0 1px hsl(var(--accent-green) / 0.08);
+}
+[data-neon] [data-slot="card-title"] {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: hsl(var(--foreground));
+}
+[data-neon] [data-slot="card-description"] {
+  font-size: 11px;
+  color: hsl(var(--ink-mute));
+  line-height: 1.35;
+}
+
 /* ─────────── glow-text-*: 2-layer (core + halo) — matches mockup .glow-text ─────────── */
 [data-neon] .glow-text-green  { color: hsl(var(--accent-green));  text-shadow: 0 0 14px hsl(var(--accent-green)  / 0.55), 0 0 28px hsl(var(--accent-green)  / 0.25); }
 [data-neon] .glow-text-amber  { color: hsl(var(--accent-amber));  text-shadow: 0 0 12px hsl(var(--accent-amber)  / 0.45), 0 0 24px hsl(var(--accent-amber)  / 0.20); }
