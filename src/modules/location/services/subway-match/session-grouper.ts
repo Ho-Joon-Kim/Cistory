@@ -87,17 +87,10 @@ async function loadStationCoords(stationIds: string[]): Promise<Map<string, Stat
   return result;
 }
 
-function sameInterchange(
-  a: StationCoord | undefined,
-  b: StationCoord | undefined
-): boolean {
+function sameInterchange(a: StationCoord | undefined, b: StationCoord | undefined): boolean {
   if (!a || !b) return false;
   if (a.id === b.id) return true;
-  if (
-    a.nameNormalized &&
-    b.nameNormalized &&
-    a.nameNormalized === b.nameNormalized
-  ) {
+  if (a.nameNormalized && b.nameNormalized && a.nameNormalized === b.nameNormalized) {
     return true;
   }
   const dist = haversineMeters(a.lat, a.lon, b.lat, b.lon);

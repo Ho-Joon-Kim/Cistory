@@ -54,10 +54,7 @@ async function getSystemWithBbox(systemId: string): Promise<SystemRow | null> {
   return row ?? null;
 }
 
-async function persistFetchResult(
-  systemId: string,
-  result: SubwayFetchResult
-): Promise<void> {
+async function persistFetchResult(systemId: string, result: SubwayFetchResult): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx) => {
     await tx.execute(sql`DELETE FROM subway_lines WHERE system_id = ${systemId}`);

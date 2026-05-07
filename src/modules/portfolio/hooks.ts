@@ -213,7 +213,9 @@ export async function syncAllAccounts(): Promise<{ ok: boolean; results: unknown
   return { ok: res.ok, results: data.results };
 }
 
-export async function syncAccount(accountId: string): Promise<{ ok: boolean; result?: unknown; error?: string }> {
+export async function syncAccount(
+  accountId: string
+): Promise<{ ok: boolean; result?: unknown; error?: string }> {
   const res = await fetch(`/api/portfolio/accounts/${accountId}/sync`, { method: "POST" });
   const data = await res.json();
   if (!res.ok) return { ok: false, error: data.error };

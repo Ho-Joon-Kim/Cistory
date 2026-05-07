@@ -74,8 +74,7 @@ function lineRefLabel(ref: string | null, name: string | null): string {
 }
 
 function ConfidenceDot({ score }: { score: number }) {
-  const color =
-    score >= 0.8 ? "bg-green-500" : score >= 0.55 ? "bg-yellow-400" : "bg-zinc-300";
+  const color = score >= 0.8 ? "bg-green-500" : score >= 0.55 ? "bg-yellow-400" : "bg-zinc-300";
   return (
     <span
       className={`inline-block w-1.5 h-1.5 rounded-full ${color}`}
@@ -213,9 +212,7 @@ export function TrackCard({ track }: TrackCardProps) {
                 >
                   {chunk.legs.map((leg, li) => (
                     <span key={`${leg.lineId}-${li}`} className="flex items-center gap-1">
-                      {li > 0 && (
-                        <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
-                      )}
+                      {li > 0 && <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />}
                       <SubwayLegBadge leg={leg} />
                     </span>
                   ))}

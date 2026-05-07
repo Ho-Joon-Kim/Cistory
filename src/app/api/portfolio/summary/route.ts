@@ -39,10 +39,7 @@ export const GET = withAuth(async ({ user }) => {
         .select()
         .from(holdingSnapshots)
         .where(
-          and(
-            eq(holdingSnapshots.accountId, r.accountId),
-            eq(holdingSnapshots.asOfDate, r.maxDate)
-          )
+          and(eq(holdingSnapshots.accountId, r.accountId), eq(holdingSnapshots.asOfDate, r.maxDate))
         )
         .orderBy(desc(holdingSnapshots.takenAt))
         .limit(1);

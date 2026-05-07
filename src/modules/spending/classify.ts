@@ -39,9 +39,7 @@ export function classify(
  */
 export function bucketSql(tossMyName: string | null) {
   const myNameClause =
-    tossMyName !== null
-      ? sql`AND ${transactions.merchant} <> ${tossMyName}`
-      : sql``;
+    tossMyName !== null ? sql`AND ${transactions.merchant} <> ${tossMyName}` : sql``;
   return sql<Bucket>`CASE
     WHEN ${transactions.spendingOverride} = 'include' THEN 'spending'
     WHEN ${transactions.spendingOverride} = 'exclude' THEN 'ignore'

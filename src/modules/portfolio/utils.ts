@@ -1,4 +1,7 @@
-export function formatKRW(value: number, options: { compact?: boolean; sign?: boolean } = {}): string {
+export function formatKRW(
+  value: number,
+  options: { compact?: boolean; sign?: boolean } = {}
+): string {
   const sign = options.sign && value > 0 ? "+" : "";
   if (options.compact && Math.abs(value) >= 10000) {
     const fmt = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });

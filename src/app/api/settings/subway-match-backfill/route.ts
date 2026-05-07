@@ -27,11 +27,13 @@ export async function POST(request: NextRequest) {
   }
 
   const { from, to } = (body ?? {}) as { from?: unknown; to?: unknown };
-  if (typeof from !== "string" || typeof to !== "string" || !DATE_RE.test(from) || !DATE_RE.test(to)) {
-    return NextResponse.json(
-      { error: "from/to required, format YYYY-MM-DD" },
-      { status: 400 }
-    );
+  if (
+    typeof from !== "string" ||
+    typeof to !== "string" ||
+    !DATE_RE.test(from) ||
+    !DATE_RE.test(to)
+  ) {
+    return NextResponse.json({ error: "from/to required, format YYYY-MM-DD" }, { status: 400 });
   }
 
   const fromDate = new Date(`${from}T00:00:00Z`);
@@ -55,9 +57,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ...summary });
   } catch (err) {
     console.error("subway-match-backfill failed:", err);
-    return NextResponse.json(
-      { error: "subway match backfill failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "subway match backfill failed" }, { status: 500 });
   }
 }

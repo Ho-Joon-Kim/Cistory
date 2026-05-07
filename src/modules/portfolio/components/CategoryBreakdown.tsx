@@ -30,7 +30,9 @@ export function CategoryBreakdown({ positions }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-medium text-muted-foreground">카테고리별 비중</CardTitle>
+        <CardTitle className="text-base font-medium text-muted-foreground">
+          카테고리별 비중
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (

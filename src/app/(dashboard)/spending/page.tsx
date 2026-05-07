@@ -216,9 +216,7 @@ function BucketBadge({ bucket }: { bucket: Bucket }) {
         ? "bg-green-500/10 text-green-600 dark:text-green-400"
         : "bg-muted text-muted-foreground";
   return (
-    <span
-      className={`text-[10px] px-1.5 py-0.5 rounded-sm font-medium flex-shrink-0 ${className}`}
-    >
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-sm font-medium flex-shrink-0 ${className}`}>
       {BUCKET_LABEL[bucket]}
     </span>
   );
@@ -351,10 +349,7 @@ export default function SpendingPage() {
   const { deleteTransaction, isDeleting } = useDeleteTransaction();
   const { updateOverride } = useUpdateTransactionOverride();
 
-  const handleChangeOverride = async (
-    id: string,
-    value: "include" | "exclude" | null
-  ) => {
+  const handleChangeOverride = async (id: string, value: "include" | "exclude" | null) => {
     const success = await updateOverride(id, value);
     if (success) {
       toast.success(
@@ -578,11 +573,7 @@ export default function SpendingPage() {
               <Card>
                 <CardContent className="p-0 divide-y">
                   {transactions.map((tx) => (
-                    <TransactionRow
-                      key={tx.id}
-                      tx={tx}
-                      onChangeOverride={handleChangeOverride}
-                    />
+                    <TransactionRow key={tx.id} tx={tx} onChangeOverride={handleChangeOverride} />
                   ))}
                 </CardContent>
               </Card>

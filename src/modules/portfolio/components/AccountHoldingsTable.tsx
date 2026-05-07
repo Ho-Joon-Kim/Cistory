@@ -33,7 +33,7 @@ export function AccountHoldingsTable({ accounts, snapshots, positions }: Props) 
         <div className="divide-y">
           {accounts.map((acc) => {
             const snap = snapshotByAccount.get(acc.id);
-            const accPositions = snap ? positionsBySnapshot.get(snap.id) ?? [] : [];
+            const accPositions = snap ? (positionsBySnapshot.get(snap.id) ?? []) : [];
             const sorted = [...accPositions].sort((a, b) => b.evalAmount - a.evalAmount);
             const open = expanded[acc.id];
 
@@ -53,21 +53,19 @@ export function AccountHoldingsTable({ accounts, snapshots, positions }: Props) 
                     <div className="flex items-baseline gap-2">
                       <span className="font-semibold">{acc.label}</span>
                       <span className="text-xs text-muted-foreground">
-                        {ACCOUNT_TYPE_LABEL[acc.accountType] ?? acc.accountType} ·{" "}
-                        {acc.cano}-{acc.acntPrdtCd}
+                        {ACCOUNT_TYPE_LABEL[acc.accountType] ?? acc.accountType} · {acc.cano}-
+                        {acc.acntPrdtCd}
                       </span>
                       {acc.lastSyncError && (
-                        <span className="text-xs text-red-600 dark:text-red-400">
-                          동기화 실패
-                        </span>
+                        <span className="text-xs text-red-600 dark:text-red-400">동기화 실패</span>
                       )}
                     </div>
                     {snap && (
                       <div className="text-sm mt-0.5">
                         <span className="font-semibold">{formatKRW(snap.totalEvalAmount)}</span>
                         <span className={`ml-2 ${pnlColorClass(snap.totalPnl)}`}>
-                          {formatKRW(snap.totalPnl, { sign: true })}{" "}
-                          ({formatPercent(snap.totalPnlRate)})
+                          {formatKRW(snap.totalPnl, { sign: true })} (
+                          {formatPercent(snap.totalPnlRate)})
                         </span>
                         <span className="ml-2 text-xs text-muted-foreground">
                           예수금 {formatKRW(snap.deposit, { compact: true })}

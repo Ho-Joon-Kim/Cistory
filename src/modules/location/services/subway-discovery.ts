@@ -37,9 +37,7 @@ function slugifyCityKey(city: string, countryCode: string | null): string {
   return `disc-${cc}-${base}`.slice(0, 60);
 }
 
-async function probeSubwayCount(
-  bbox: [number, number, number, number]
-): Promise<number> {
+async function probeSubwayCount(bbox: [number, number, number, number]): Promise<number> {
   const result = await getOverpassAdapter().fetchSubwayInBbox(bbox);
   return result.lines.length;
 }

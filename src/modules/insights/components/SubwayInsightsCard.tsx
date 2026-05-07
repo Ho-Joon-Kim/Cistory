@@ -107,14 +107,22 @@ export function SubwayInsightsCard({ data, isLoading }: SubwayInsightsCardProps)
                 >
                   <span
                     className="font-medium px-1.5 py-0.5 rounded"
-                    style={{ color: pair.fromLineColor, borderColor: pair.fromLineColor, borderWidth: 1 }}
+                    style={{
+                      color: pair.fromLineColor,
+                      borderColor: pair.fromLineColor,
+                      borderWidth: 1,
+                    }}
                   >
                     {lineLabel(pair.fromLineRef, pair.fromLineName)}
                   </span>
                   <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
                   <span
                     className="font-medium px-1.5 py-0.5 rounded"
-                    style={{ color: pair.toLineColor, borderColor: pair.toLineColor, borderWidth: 1 }}
+                    style={{
+                      color: pair.toLineColor,
+                      borderColor: pair.toLineColor,
+                      borderWidth: 1,
+                    }}
                   >
                     {lineLabel(pair.toLineRef, pair.toLineName)}
                   </span>

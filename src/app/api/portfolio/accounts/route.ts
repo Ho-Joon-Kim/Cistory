@@ -7,12 +7,7 @@ import { ApiError, withAuth, withValidation } from "@/lib/api-handler";
 import { encryptSecret, maskSecret } from "@/lib/crypto";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
 
-const ACCOUNT_TYPES = [
-  "general",
-  "isa_brokerage",
-  "irp",
-  "pension",
-] as const;
+const ACCOUNT_TYPES = ["general", "isa_brokerage", "irp", "pension"] as const;
 
 const CreateBody = z.object({
   label: z.string().min(1).max(60),

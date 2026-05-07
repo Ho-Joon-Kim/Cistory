@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayerProps, MapRef } from "react-map-gl/mapbox";
 import { Layer, default as MapGL, Marker, Popup, Source } from "react-map-gl/mapbox";
 import { toast } from "sonner";
+import { SubwayLayer } from "@/components/map/SubwayLayer";
 import {
   type SavedPlaceData,
   type StayPointData,
@@ -20,7 +21,6 @@ import { MapSkeleton } from "./MapSkeleton";
 import type { LayerVisibility } from "./panels/LayersPanel";
 import { RouteReplayController } from "./RouteReplayController";
 import { SegmentedRouteAnimator } from "./SegmentedRouteAnimator";
-import { SubwayLayer } from "@/components/map/SubwayLayer";
 import { TimelineSegmentBar } from "./TimelineSegmentBar";
 import "mapbox-gl/dist/mapbox-gl.css";
 

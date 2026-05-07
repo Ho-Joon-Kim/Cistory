@@ -81,25 +81,23 @@ export async function GET(request: NextRequest) {
       SELECT id, name, name_en, ref, colour, network, fallback_idx, geom FROM numbered
     `);
 
-    const lineFeatures: GeoJSON.Feature[] = (linesRes.rows as unknown as LineRow[]).map(
-      (row) => ({
-        type: "Feature",
-        geometry: row.geom,
-        properties: {
-          id: row.id,
-          name: row.name,
-          nameEn: row.name_en,
+    const lineFeatures: GeoJSON.Feature[] = (linesRes.rows as unknown as LineRow[]).map((row) => ({
+      type: "Feature",
+      geometry: row.geom,
+      properties: {
+        id: row.id,
+        name: row.name,
+        nameEn: row.name_en,
+        ref: row.ref,
+        color: resolveLineColor({
+          colour: row.colour,
+          network: row.network,
           ref: row.ref,
-          color: resolveLineColor({
-            colour: row.colour,
-            network: row.network,
-            ref: row.ref,
-            name: row.name,
-            fallbackIndex: Number(row.fallback_idx) || 0,
-          }),
-        },
-      })
-    );
+          name: row.name,
+          fallbackIndex: Number(row.fallback_idx) || 0,
+        }),
+      },
+    }));
 
     const stationsRes = await db.execute(sql`
       SELECT id, name, name_en, line_refs,
@@ -111,8 +109,8 @@ export async function GET(request: NextRequest) {
       )
     `);
 
-    const stationFeatures: GeoJSON.Feature[] = (stationsRes.rows as unknown as StationRow[])
-      .map((row) => ({
+    const stationFeatures: GeoJSON.Feature[] = (stationsRes.rows as unknown as StationRow[]).map(
+      (row) => ({
         type: "Feature" as const,
         geometry: {
           type: "Point" as const,
@@ -124,7 +122,8 @@ export async function GET(request: NextRequest) {
           nameEn: row.name_en,
           lineRefs: row.line_refs ?? [],
         },
-      }));
+      })
+    );
 
     return NextResponse.json(
       {

@@ -177,11 +177,7 @@ export class KISAdapter {
     throw lastError ?? new Error(`KIS ${trId} failed`);
   }
 
-  async inquireBalance(
-    token: string,
-    cano: string,
-    acntPrdtCd: string
-  ): Promise<ParsedBalance> {
+  async inquireBalance(token: string, cano: string, acntPrdtCd: string): Promise<ParsedBalance> {
     const positions: ParsedBalance["positions"] = [];
     let summary: ParsedBalance["summary"] | null = null;
     let fk = "";
@@ -218,8 +214,7 @@ export class KISAdapter {
           totalPurchaseAmount: toNumber(o2.pchs_amt_smtl_amt),
           totalPnl: toNumber(o2.evlu_pfls_smtl_amt),
           totalPnlRate:
-            toNumberOrNull(o2.real_evlu_pfls_erng_rt) ??
-            toNumberOrNull(o2.asst_icdc_erng_rt),
+            toNumberOrNull(o2.real_evlu_pfls_erng_rt) ?? toNumberOrNull(o2.asst_icdc_erng_rt),
           realizedPnl: toNumberOrNull(o2.real_evlu_pfls) ?? toNumberOrNull(o2.rlzt_pfls),
           prevDayTotalAsset: toNumberOrNull(o2.bfdy_tot_asst_evlu_amt),
           assetIcdcAmt: toNumberOrNull(o2.asst_icdc_amt),

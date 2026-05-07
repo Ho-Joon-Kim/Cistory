@@ -3,10 +3,21 @@
 import { useEffect, useState } from "react";
 import type { SubwayInsightsData } from "@/modules/location/services/subway-match/usage";
 import type {
+  AIClockResult,
   CommitHeatmapResult,
+  CommuteReliabilityResult,
+  DataUsageResult,
+  DiscoveriesResult,
   MonthlyDigestsResult,
+  NetSpendResult,
+  PlaceProductivityResult,
+  RepoSplitResult,
   RoutinePatternsResult,
   StreaksResult,
+  SwimlaneResult,
+  TransportModesResult,
+  TripsResult,
+  VisitsXCommitsResult,
   WorkPatternsResult,
 } from "./service";
 
@@ -27,7 +38,6 @@ function useSectionFetch<T>(url: string | null): SectionState<T> {
       setError(null);
       return;
     }
-
     let cancelled = false;
     setIsLoading(true);
     setError(null);
@@ -56,23 +66,48 @@ function useSectionFetch<T>(url: string | null): SectionState<T> {
 }
 
 export interface UseInsightsReturn {
+  // existing
   streaks: SectionState<StreaksResult>;
   patterns: SectionState<WorkPatternsResult>;
   routines: SectionState<RoutinePatternsResult>;
   digests: SectionState<MonthlyDigestsResult>;
   commitHeatmap: SectionState<CommitHeatmapResult>;
   subway: SectionState<SubwayInsightsData>;
+  // new
+  swimlane: SectionState<SwimlaneResult>;
+  aiClock: SectionState<AIClockResult>;
+  commute: SectionState<CommuteReliabilityResult>;
+  placeProductivity: SectionState<PlaceProductivityResult>;
+  trips: SectionState<TripsResult>;
+  transport: SectionState<TransportModesResult>;
+  visitsXCommits: SectionState<VisitsXCommitsResult>;
+  netSpend: SectionState<NetSpendResult>;
+  repoSplit: SectionState<RepoSplitResult>;
+  dataUsage: SectionState<DataUsageResult>;
+  discoveries: SectionState<DiscoveriesResult>;
 }
 
 export function useInsights(year: number): UseInsightsReturn {
   const baseUrl = `/api/insights?year=${year}`;
-
-  const streaks = useSectionFetch<StreaksResult>(`${baseUrl}&section=streaks`);
-  const patterns = useSectionFetch<WorkPatternsResult>(`${baseUrl}&section=patterns`);
-  const routines = useSectionFetch<RoutinePatternsResult>(`${baseUrl}&section=routines`);
-  const digests = useSectionFetch<MonthlyDigestsResult>(`${baseUrl}&section=digests`);
-  const commitHeatmap = useSectionFetch<CommitHeatmapResult>(`${baseUrl}&section=commit-heatmap`);
-  const subway = useSectionFetch<SubwayInsightsData>(`${baseUrl}&section=subway`);
-
-  return { streaks, patterns, routines, digests, commitHeatmap, subway };
+  return {
+    streaks: useSectionFetch<StreaksResult>(`${baseUrl}&section=streaks`),
+    patterns: useSectionFetch<WorkPatternsResult>(`${baseUrl}&section=patterns`),
+    routines: useSectionFetch<RoutinePatternsResult>(`${baseUrl}&section=routines`),
+    digests: useSectionFetch<MonthlyDigestsResult>(`${baseUrl}&section=digests`),
+    commitHeatmap: useSectionFetch<CommitHeatmapResult>(`${baseUrl}&section=commit-heatmap`),
+    subway: useSectionFetch<SubwayInsightsData>(`${baseUrl}&section=subway`),
+    swimlane: useSectionFetch<SwimlaneResult>(`${baseUrl}&section=swimlane`),
+    aiClock: useSectionFetch<AIClockResult>(`${baseUrl}&section=ai-clock`),
+    commute: useSectionFetch<CommuteReliabilityResult>(`${baseUrl}&section=commute-reliability`),
+    placeProductivity: useSectionFetch<PlaceProductivityResult>(
+      `${baseUrl}&section=place-productivity`
+    ),
+    trips: useSectionFetch<TripsResult>(`${baseUrl}&section=trips`),
+    transport: useSectionFetch<TransportModesResult>(`${baseUrl}&section=transport-modes`),
+    visitsXCommits: useSectionFetch<VisitsXCommitsResult>(`${baseUrl}&section=visits-x-commits`),
+    netSpend: useSectionFetch<NetSpendResult>(`${baseUrl}&section=net-spend`),
+    repoSplit: useSectionFetch<RepoSplitResult>(`${baseUrl}&section=repo-split`),
+    dataUsage: useSectionFetch<DataUsageResult>(`${baseUrl}&section=data-usage`),
+    discoveries: useSectionFetch<DiscoveriesResult>(`${baseUrl}&section=discoveries`),
+  };
 }

@@ -20,8 +20,8 @@ import { OverseasTripCards } from "@/modules/report/components/OverseasTripCards
 import { PlaceProductivityCard } from "@/modules/report/components/PlaceProductivityCard";
 import { ScratchMapStats } from "@/modules/report/components/ScratchMapStats";
 import { StatCards } from "@/modules/report/components/StatCards";
-import { SubwayUsageCard } from "@/modules/report/components/SubwayUsageCard";
 import { StreakHighlight } from "@/modules/report/components/StreakHighlight";
+import { SubwayUsageCard } from "@/modules/report/components/SubwayUsageCard";
 import { TopPlaces } from "@/modules/report/components/TopPlaces";
 import { WeekdayHourBubble } from "@/modules/report/components/WeekdayHourBubble";
 import { WorkLifeBalanceCard } from "@/modules/report/components/WorkLifeBalanceCard";

@@ -27,7 +27,10 @@ export function AssetTimelineChart() {
 
   // Aggregate by date across accounts
   const data = useMemo(() => {
-    const byDate = new Map<string, { date: string; total: number; purchase: number; pnl: number }>();
+    const byDate = new Map<
+      string,
+      { date: string; total: number; purchase: number; pnl: number }
+    >();
     for (const s of snapshots) {
       const existing = byDate.get(s.asOfDate) ?? {
         date: s.asOfDate,

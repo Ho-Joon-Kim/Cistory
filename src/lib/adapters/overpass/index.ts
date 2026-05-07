@@ -141,10 +141,7 @@ function indexElements(elements: OverpassElement[]): ElementIndex {
   return { nodes, ways, relations };
 }
 
-function buildLineGeometry(
-  rel: OverpassElement,
-  idx: ElementIndex
-): number[][][] {
+function buildLineGeometry(rel: OverpassElement, idx: ElementIndex): number[][][] {
   const coordinates: number[][][] = [];
   for (const m of rel.members ?? []) {
     if (m.type !== "way") continue;
@@ -312,7 +309,8 @@ function collectStations(
       );
     });
     const subwayMemberName = subwayMember?.tags?.name;
-    const rawName = subwayMemberName ?? rel.tags?.name ?? memberNodes.find((n) => n.tags?.name)?.tags?.name;
+    const rawName =
+      subwayMemberName ?? rel.tags?.name ?? memberNodes.find((n) => n.tags?.name)?.tags?.name;
     if (!rawName) continue;
     const name = stripAnnotationSuffix(rawName);
 
@@ -620,9 +618,7 @@ function parseResponse(data: OverpassResponse): SubwayFetchResult {
 }
 
 export class OverpassSubwayAdapter implements OverpassAdapter {
-  async fetchSubwayInBbox(
-    bbox: [number, number, number, number]
-  ): Promise<SubwayFetchResult> {
+  async fetchSubwayInBbox(bbox: [number, number, number, number]): Promise<SubwayFetchResult> {
     const query = buildQuery(bbox);
     const data = await callOverpass(query);
     const result = parseResponse(data);

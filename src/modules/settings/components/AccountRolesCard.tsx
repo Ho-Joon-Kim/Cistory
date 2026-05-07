@@ -124,9 +124,7 @@ export function AccountRolesCard() {
                         <span className="text-xs text-muted-foreground">
                           {a.transactionCount}건
                         </span>
-                        {isDirty && (
-                          <span className="text-xs text-primary">변경됨</span>
-                        )}
+                        {isDirty && <span className="text-xs text-primary">변경됨</span>}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1">
@@ -153,11 +151,7 @@ export function AccountRolesCard() {
               <p className="text-xs text-muted-foreground">
                 기본=출금이 소비 / 소비 계좌=입금이 소비 / 무시=양방향 집계 제외
               </p>
-              <Button
-                onClick={handleSave}
-                disabled={edited.size === 0 || isSaving}
-                size="sm"
-              >
+              <Button onClick={handleSave} disabled={edited.size === 0 || isSaving} size="sm">
                 {isSaving ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (

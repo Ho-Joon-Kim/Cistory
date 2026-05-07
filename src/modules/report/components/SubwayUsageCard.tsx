@@ -142,10 +142,7 @@ export function SubwayUsageCard({ from, to, title = "지하철 이용" }: Subway
             </div>
             <ul className="space-y-1 text-sm">
               {data.topStations.map((s) => (
-                <li
-                  key={s.stationName}
-                  className="flex items-center justify-between"
-                >
+                <li key={s.stationName} className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <Train className="h-3 w-3 text-muted-foreground" />
                     {s.stationName}
@@ -164,10 +161,7 @@ export function SubwayUsageCard({ from, to, title = "지하철 이용" }: Subway
             </div>
             <ul className="space-y-1 text-sm">
               {data.topTransferStations.map((s) => (
-                <li
-                  key={s.stationName}
-                  className="flex items-center justify-between"
-                >
+                <li key={s.stationName} className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
                     {s.stationName}
@@ -183,15 +177,7 @@ export function SubwayUsageCard({ from, to, title = "지하철 이용" }: Subway
   );
 }
 
-function Stat({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon?: React.ReactNode;
-}) {
+function Stat({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
   return (
     <div>
       <div className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1">

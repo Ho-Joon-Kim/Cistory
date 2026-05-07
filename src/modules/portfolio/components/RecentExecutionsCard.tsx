@@ -32,10 +32,7 @@ export function RecentExecutionsCard({ limit = 15 }: { limit?: number }) {
                   ? "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30"
                   : "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30";
               return (
-                <div
-                  key={e.id}
-                  className="flex items-center gap-3 py-2 border-b last:border-0"
-                >
+                <div key={e.id} className="flex items-center gap-3 py-2 border-b last:border-0">
                   <div className="text-xs text-muted-foreground tabular-nums w-24 flex-shrink-0">
                     {formatDate(e.ordDt)}
                   </div>

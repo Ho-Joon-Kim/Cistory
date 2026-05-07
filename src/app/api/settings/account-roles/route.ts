@@ -69,18 +69,14 @@ export const PUT = withValidation(Body, async ({ user, body }) => {
   const db = getDb();
   const now = new Date();
 
-  const toDelete = body.roles
-    .filter((r) => r.role === "default")
-    .map((r) => r.accountName);
+  const toDelete = body.roles.filter((r) => r.role === "default").map((r) => r.accountName);
   const toUpsert = body.roles.filter((r) => r.role !== "default");
 
   await db.transaction(async (tx) => {
     if (toDelete.length > 0) {
       await tx
         .delete(accountRoles)
-        .where(
-          and(eq(accountRoles.userId, user.id), inArray(accountRoles.accountName, toDelete))
-        );
+        .where(and(eq(accountRoles.userId, user.id), inArray(accountRoles.accountName, toDelete)));
     }
 
     for (const r of toUpsert) {

@@ -203,9 +203,7 @@ export class SummaryService {
     const revived = await db
       .update(commitSummaries)
       .set({ status: "pending", updatedAt: now() })
-      .where(
-        and(eq(commitSummaries.status, "processing"), lt(commitSummaries.updatedAt, cutoff))
-      )
+      .where(and(eq(commitSummaries.status, "processing"), lt(commitSummaries.updatedAt, cutoff)))
       .returning({ id: commitSummaries.id });
     if (revived.length > 0) {
       logger.info("[Summary] revived stale processing rows", { count: revived.length });

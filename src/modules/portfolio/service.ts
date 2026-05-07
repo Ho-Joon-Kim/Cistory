@@ -8,11 +8,7 @@ import {
   holdingPositions,
   holdingSnapshots,
 } from "@/db/schema";
-import {
-  createKISAdapter,
-  KISAuthError,
-  type ParsedBalance,
-} from "@/lib/adapters/kis/interface";
+import { createKISAdapter, KISAuthError, type ParsedBalance } from "@/lib/adapters/kis/interface";
 import { decryptSecret } from "@/lib/crypto";
 import { logger } from "@/lib/logger";
 
@@ -246,7 +242,11 @@ export class PortfolioSyncService {
         }))
       )
       .onConflictDoNothing({
-        target: [brokerageExecutions.accountId, brokerageExecutions.odno, brokerageExecutions.ordDt],
+        target: [
+          brokerageExecutions.accountId,
+          brokerageExecutions.odno,
+          brokerageExecutions.ordDt,
+        ],
       })
       .returning({ id: brokerageExecutions.id });
 

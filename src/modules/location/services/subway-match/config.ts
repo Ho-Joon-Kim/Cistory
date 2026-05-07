@@ -86,9 +86,4 @@ export const subwayMatchConfig = {
 export type SubwayMatchConfig = typeof subwayMatchConfig;
 
 /** Modes that are eligible to be re-classified as 'subway'. */
-export const ELIGIBLE_MODES_FOR_MATCHING = [
-  "driving",
-  "train",
-  "unknown",
-  "cycling",
-] as const;
+export const ELIGIBLE_MODES_FOR_MATCHING = ["driving", "train", "unknown", "cycling"] as const;

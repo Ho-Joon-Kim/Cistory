@@ -56,12 +56,7 @@ export async function GET(request: NextRequest) {
   const recent = await db
     .select({ id: subwayTripMatches.id })
     .from(subwayTripMatches)
-    .where(
-      and(
-        eq(subwayTripMatches.userId, user.id),
-        gte(subwayTripMatches.subEndTime, since)
-      )
-    )
+    .where(and(eq(subwayTripMatches.userId, user.id), gte(subwayTripMatches.subEndTime, since)))
     .orderBy(desc(subwayTripMatches.subEndTime))
     .limit(1);
 

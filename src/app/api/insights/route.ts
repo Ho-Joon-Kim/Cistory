@@ -12,6 +12,17 @@ const VALID_SECTIONS = new Set([
   "digests",
   "commit-heatmap",
   "subway",
+  "swimlane",
+  "ai-clock",
+  "commute-reliability",
+  "place-productivity",
+  "trips",
+  "transport-modes",
+  "visits-x-commits",
+  "net-spend",
+  "repo-split",
+  "data-usage",
+  "discoveries",
 ]);
 
 function yearBounds(year: number): { from: Date; toExclusive: Date } {
@@ -35,20 +46,45 @@ export async function GET(request: NextRequest) {
     const year = parseInt(yearParam, 10);
     const db = getDb();
 
-    // P2: /api/insights?year=... (no section) returns all five sections in one
-    // round-trip, so clients that render the full page in parallel don't have
-    // to fire five separate requests (each running its own overlapping COUNT
-    // over commits). Per-section calls stay supported for any caller that
-    // wants section-level lazy loading.
     if (!section) {
+      // No section: return all sections in one round-trip.
       const { from, toExclusive } = yearBounds(year);
-      const [streaks, patterns, routines, digests, commitHeatmap, subway] = await Promise.all([
+      const [
+        streaks,
+        patterns,
+        routines,
+        digests,
+        commitHeatmap,
+        subway,
+        swimlane,
+        aiClock,
+        commute,
+        placeProductivity,
+        trips,
+        transport,
+        visitsXCommits,
+        netSpend,
+        repoSplit,
+        dataUsage,
+        discoveries,
+      ] = await Promise.all([
         InsightsService.calculateStreaks(db, user.id, year),
         InsightsService.calculateWorkPatterns(db, user.id, year),
         InsightsService.calculateRoutinePatterns(db, user.id, year),
         InsightsService.calculateMonthlyDigests(db, user.id, year),
         InsightsService.getCommitHeatmapData(db, user.id, year),
         getSubwayInsights(user.id, from, toExclusive),
+        InsightsService.getYearSwimlane(db, user.id, year),
+        InsightsService.getAIClock(db, user.id, year),
+        InsightsService.getCommuteReliability(db, user.id, year),
+        InsightsService.getPlaceProductivity(db, user.id, year),
+        InsightsService.getTrips(db, user.id, year),
+        InsightsService.getTransportModes(db, user.id, year),
+        InsightsService.getVisitsXCommits(db, user.id, year),
+        InsightsService.getNetSpend(db, user.id, year),
+        InsightsService.getRepoSplit(db, user.id, year),
+        InsightsService.getDataUsage(db, user.id),
+        InsightsService.getDiscoveries(db, user.id, year),
       ]);
       return NextResponse.json({
         streaks,
@@ -57,45 +93,81 @@ export async function GET(request: NextRequest) {
         digests,
         commitHeatmap,
         subway,
+        swimlane,
+        aiClock,
+        commute,
+        placeProductivity,
+        trips,
+        transport,
+        visitsXCommits,
+        netSpend,
+        repoSplit,
+        dataUsage,
+        discoveries,
       });
     }
 
     if (!VALID_SECTIONS.has(section)) {
-      return NextResponse.json(
-        {
-          error:
-            "유효하지 않은 section 파라미터입니다 (streaks, patterns, routines, digests, commit-heatmap, subway)",
-        },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "유효하지 않은 section 파라미터입니다" }, { status: 400 });
     }
 
     switch (section) {
-      case "streaks": {
-        const data = await InsightsService.calculateStreaks(db, user.id, year);
-        return NextResponse.json({ data });
-      }
-      case "patterns": {
-        const data = await InsightsService.calculateWorkPatterns(db, user.id, year);
-        return NextResponse.json({ data });
-      }
-      case "routines": {
-        const data = await InsightsService.calculateRoutinePatterns(db, user.id, year);
-        return NextResponse.json({ data });
-      }
-      case "digests": {
-        const data = await InsightsService.calculateMonthlyDigests(db, user.id, year);
-        return NextResponse.json({ data });
-      }
-      case "commit-heatmap": {
-        const data = await InsightsService.getCommitHeatmapData(db, user.id, year);
-        return NextResponse.json({ data });
-      }
+      case "streaks":
+        return NextResponse.json({
+          data: await InsightsService.calculateStreaks(db, user.id, year),
+        });
+      case "patterns":
+        return NextResponse.json({
+          data: await InsightsService.calculateWorkPatterns(db, user.id, year),
+        });
+      case "routines":
+        return NextResponse.json({
+          data: await InsightsService.calculateRoutinePatterns(db, user.id, year),
+        });
+      case "digests":
+        return NextResponse.json({
+          data: await InsightsService.calculateMonthlyDigests(db, user.id, year),
+        });
+      case "commit-heatmap":
+        return NextResponse.json({
+          data: await InsightsService.getCommitHeatmapData(db, user.id, year),
+        });
       case "subway": {
         const { from, toExclusive } = yearBounds(year);
-        const data = await getSubwayInsights(user.id, from, toExclusive);
-        return NextResponse.json({ data });
+        return NextResponse.json({ data: await getSubwayInsights(user.id, from, toExclusive) });
       }
+      case "swimlane":
+        return NextResponse.json({
+          data: await InsightsService.getYearSwimlane(db, user.id, year),
+        });
+      case "ai-clock":
+        return NextResponse.json({ data: await InsightsService.getAIClock(db, user.id, year) });
+      case "commute-reliability":
+        return NextResponse.json({
+          data: await InsightsService.getCommuteReliability(db, user.id, year),
+        });
+      case "place-productivity":
+        return NextResponse.json({
+          data: await InsightsService.getPlaceProductivity(db, user.id, year),
+        });
+      case "trips":
+        return NextResponse.json({ data: await InsightsService.getTrips(db, user.id, year) });
+      case "transport-modes":
+        return NextResponse.json({
+          data: await InsightsService.getTransportModes(db, user.id, year),
+        });
+      case "visits-x-commits":
+        return NextResponse.json({
+          data: await InsightsService.getVisitsXCommits(db, user.id, year),
+        });
+      case "net-spend":
+        return NextResponse.json({ data: await InsightsService.getNetSpend(db, user.id, year) });
+      case "repo-split":
+        return NextResponse.json({ data: await InsightsService.getRepoSplit(db, user.id, year) });
+      case "data-usage":
+        return NextResponse.json({ data: await InsightsService.getDataUsage(db, user.id) });
+      case "discoveries":
+        return NextResponse.json({ data: await InsightsService.getDiscoveries(db, user.id, year) });
       default:
         return NextResponse.json({ error: "유효하지 않은 section" }, { status: 400 });
     }

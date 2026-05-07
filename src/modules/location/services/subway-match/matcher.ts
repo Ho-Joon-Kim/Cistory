@@ -16,18 +16,10 @@
  */
 
 import { and, asc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
-import {
-  getDb,
-  locationPoints,
-  subwayTripMatches,
-  transportationSegments,
-} from "@/db";
+import { getDb, locationPoints, subwayTripMatches, transportationSegments } from "@/db";
 import { logger } from "@/lib/logger";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
-import {
-  ELIGIBLE_MODES_FOR_MATCHING,
-  subwayMatchConfig as cfg,
-} from "./config";
+import { subwayMatchConfig as cfg, ELIGIBLE_MODES_FOR_MATCHING } from "./config";
 import { type ScorerPoint, scoreGpsGaps, scoreSpeedProfile } from "./scorers";
 
 interface SegmentRow {
@@ -177,9 +169,12 @@ async function nearestStationOnLine(
     ORDER BY dist_m ASC
     LIMIT 1
   `);
-  const row = (res.rows[0] ?? null) as unknown as
-    | { id: string; lat: number | string; lon: number | string; dist_m: number | string }
-    | null;
+  const row = (res.rows[0] ?? null) as unknown as {
+    id: string;
+    lat: number | string;
+    lon: number | string;
+    dist_m: number | string;
+  } | null;
   if (!row) return null;
   return {
     id: row.id,
@@ -250,11 +245,7 @@ async function fetchLineGeometryAsCoords(lineId: string): Promise<number[][]> {
   return all;
 }
 
-function nearestDistanceToPolyline(
-  lat: number,
-  lon: number,
-  coords: number[][]
-): number {
+function nearestDistanceToPolyline(lat: number, lon: number, coords: number[][]): number {
   // Approximate (point-to-vertex) — coords are typically dense (every 50-100m
   // on subway lines), so vertex distance ≈ segment distance for our purpose.
   let best = Infinity;
@@ -285,8 +276,11 @@ function detectSplit(
   for (let i = minRun; i <= labels.length - minRun; i++) {
     const before = labels.slice(Math.max(0, i - minRun), i);
     const after = labels.slice(i, i + minRun);
-    if (before.every((l) => l === before[0]) && after.every((l) => l === after[0]) &&
-        before[0] !== after[0]) {
+    if (
+      before.every((l) => l === before[0]) &&
+      after.every((l) => l === after[0]) &&
+      before[0] !== after[0]
+    ) {
       return { transitionIndex: i };
     }
   }
@@ -411,10 +405,7 @@ async function tryMatchSegment(seg: SegmentRow, userId: string): Promise<number>
     if (split) {
       const headPoints = points.slice(0, split.transitionIndex);
       const tailPoints = points.slice(split.transitionIndex);
-      if (
-        headPoints.length >= cfg.minSegmentPoints &&
-        tailPoints.length >= cfg.minSegmentPoints
-      ) {
+      if (headPoints.length >= cfg.minSegmentPoints && tailPoints.length >= cfg.minSegmentPoints) {
         // Score each leg in isolation against ITS line.
         const headWkt = pointsToWkt(headPoints);
         const tailWkt = pointsToWkt(tailPoints);
@@ -429,8 +420,18 @@ async function tryMatchSegment(seg: SegmentRow, userId: string): Promise<number>
           const tailScored = await scoreCandidate(tailBest, tailPoints);
           if (passesThresholds(headScored) && passesThresholds(tailScored)) {
             await persistMatches(userId, seg.id, [
-              scoredToInsert(headScored, 0, headPoints[0].timestamp, headPoints[headPoints.length - 1].timestamp),
-              scoredToInsert(tailScored, 1, tailPoints[0].timestamp, tailPoints[tailPoints.length - 1].timestamp),
+              scoredToInsert(
+                headScored,
+                0,
+                headPoints[0].timestamp,
+                headPoints[headPoints.length - 1].timestamp
+              ),
+              scoredToInsert(
+                tailScored,
+                1,
+                tailPoints[0].timestamp,
+                tailPoints[tailPoints.length - 1].timestamp
+              ),
             ]);
             return 2;
           }
@@ -478,10 +479,7 @@ export interface MatchSummary {
 }
 
 /** Run the matcher across all eligible segments for a (user, date). */
-export async function matchSubwayTrips(
-  userId: string,
-  dateStr: string
-): Promise<MatchSummary> {
+export async function matchSubwayTrips(userId: string, dateStr: string): Promise<MatchSummary> {
   const db = getDb();
   const dayStart = startOfLocalDay(dateStr);
   const dayEnd = endOfLocalDay(dateStr);

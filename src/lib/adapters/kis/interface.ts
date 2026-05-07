@@ -1,4 +1,4 @@
-export { KISAdapter, createKISAdapter } from "./kis";
+export { createKISAdapter, KISAdapter } from "./kis";
 export { KIS_BASE_URL, KIS_TR } from "./tr-ids";
 export {
   KISApiError,

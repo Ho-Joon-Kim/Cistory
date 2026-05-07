@@ -90,7 +90,10 @@ export function KISAccountSettingsCard() {
                     </div>
                     <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
                       <div>
-                        계좌번호 <span className="font-mono">{a.cano}-{a.acntPrdtCd}</span>
+                        계좌번호{" "}
+                        <span className="font-mono">
+                          {a.cano}-{a.acntPrdtCd}
+                        </span>
                       </div>
                       <div>
                         상태{" "}
@@ -155,11 +158,7 @@ export function KISAccountSettingsCard() {
         </div>
       </CardContent>
 
-      <KISAccountAddDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onAdded={refresh}
-      />
+      <KISAccountAddDialog open={dialogOpen} onOpenChange={setDialogOpen} onAdded={refresh} />
     </Card>
   );
 }

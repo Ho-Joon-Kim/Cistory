@@ -11,12 +11,9 @@ import { getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
-import { createSummaryService, SummaryService } from "@/modules/summary/service";
-import {
-  refreshAllSubwaySystems,
-  seedSubwaySystemsIfEmpty,
-} from "@/modules/subway/service";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
+import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/subway/service";
+import { createSummaryService, SummaryService } from "@/modules/summary/service";
 import { createSyncService } from "@/modules/sync/service";
 import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
@@ -185,11 +182,7 @@ async function syncAllUsers() {
               process.env.ANTHROPIC_API_KEY,
               accessToken
             );
-            const processed = await summaryService.processPendingSummaries(
-              20,
-              undefined,
-              user.id
-            );
+            const processed = await summaryService.processPendingSummaries(20, undefined, user.id);
             if (processed > 0) {
               logger.info(`[Cron] Processed ${processed} summaries`, {
                 userId: user.id,
@@ -450,7 +443,9 @@ async function processYesterdayLocations(reason: string) {
             if (matchResult.legsInserted > 0) {
               const sessionResult = await groupMatchesIntoSessions(user.id, dateStr);
               if (sessionResult.multiLegSessions > 0) {
-                logger.info(`[Cron] Subway transfers for ${user.id} ${dateStr}: ${sessionResult.multiLegSessions} multi-leg sessions`);
+                logger.info(
+                  `[Cron] Subway transfers for ${user.id} ${dateStr}: ${sessionResult.multiLegSessions} multi-leg sessions`
+                );
               }
             }
           }
