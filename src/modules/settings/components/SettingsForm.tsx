@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Github, Loader2, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
+import { ExternalLink, Github, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,13 +38,6 @@ export function SettingsForm() {
     );
   }
 
-  const handleThemeChange = async (theme: string) => {
-    const success = await updateSettings({ theme: theme as "light" | "dark" | "system" });
-    if (success) {
-      toast.success("테마가 변경되었습니다");
-    }
-  };
-
   const handleSyncIntervalChange = async (interval: string) => {
     const success = await updateSettings({ syncIntervalHours: parseInt(interval, 10) });
     if (success) {
@@ -69,12 +62,12 @@ export function SettingsForm() {
       {/* DB 벤치마크 — admin-only, gated by NEXT_PUBLIC_ENABLE_DB_BENCHMARK */}
       {process.env.NEXT_PUBLIC_ENABLE_DB_BENCHMARK === "true" && <DbBenchmarkCard />}
 
-      {/* GitHub 연결 */}
+      {/* GitHub 연결 & 동기화 */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">GitHub 연결</CardTitle>
+          <CardTitle className="text-lg">GitHub</CardTitle>
           <CardDescription>
-            GitHub 계정 연결 상태와 Organization 접근 권한을 관리합니다
+            GitHub 계정 연결 상태, Organization 접근 권한, 동기화 간격을 관리합니다
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -93,6 +86,30 @@ export function SettingsForm() {
               <RefreshCw className="h-4 w-4 mr-2" />
               재연결
             </Button>
+          </div>
+
+          {/* 동기화 간격 */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>동기화 간격</Label>
+              <p className="text-sm text-muted-foreground">자동 동기화 실행 간격</p>
+            </div>
+            <Select
+              value={settings.syncIntervalHours.toString()}
+              onValueChange={handleSyncIntervalChange}
+              disabled={isSaving}
+            >
+              <SelectTrigger className="w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">1시간</SelectItem>
+                <SelectItem value="3">3시간</SelectItem>
+                <SelectItem value="6">6시간</SelectItem>
+                <SelectItem value="12">12시간</SelectItem>
+                <SelectItem value="24">24시간</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Organization 권한 안내 */}
@@ -124,81 +141,6 @@ export function SettingsForm() {
                 </a>
               </Button>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 외관 설정 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">외관</CardTitle>
-          <CardDescription>앱의 테마와 표시 방식을 설정합니다</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* 테마 */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>테마</Label>
-              <p className="text-sm text-muted-foreground">앱의 색상 테마를 선택합니다</p>
-            </div>
-            <Select value={settings.theme} onValueChange={handleThemeChange} disabled={isSaving}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="light">
-                  <div className="flex items-center gap-2">
-                    <Sun className="h-4 w-4" />
-                    라이트
-                  </div>
-                </SelectItem>
-                <SelectItem value="dark">
-                  <div className="flex items-center gap-2">
-                    <Moon className="h-4 w-4" />
-                    다크
-                  </div>
-                </SelectItem>
-                <SelectItem value="system">
-                  <div className="flex items-center gap-2">
-                    <Monitor className="h-4 w-4" />
-                    시스템
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 동기화 설정 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">동기화</CardTitle>
-          <CardDescription>GitHub 레포지토리 동기화 설정을 관리합니다</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* 동기화 간격 */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>동기화 간격</Label>
-              <p className="text-sm text-muted-foreground">자동 동기화 실행 간격</p>
-            </div>
-            <Select
-              value={settings.syncIntervalHours.toString()}
-              onValueChange={handleSyncIntervalChange}
-              disabled={isSaving}
-            >
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1시간</SelectItem>
-                <SelectItem value="3">3시간</SelectItem>
-                <SelectItem value="6">6시간</SelectItem>
-                <SelectItem value="12">12시간</SelectItem>
-                <SelectItem value="24">24시간</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </CardContent>
       </Card>

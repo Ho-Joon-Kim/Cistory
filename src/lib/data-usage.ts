@@ -8,6 +8,7 @@
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { dataUsageCache } from "@/db/schema";
+import { logger } from "@/lib/logger";
 import { now } from "@/lib/utils";
 
 export interface UsageRow {
@@ -77,9 +78,9 @@ const TABLE_DEFS: TableDef[] = [
   {
     category: "location",
     table: "location_points",
-    textColumns: ["tracker_id", "trigger"],
-    // uuid(36) + user_id(36) + lat(8) + lon(8) + accuracy(8) + altitude(8) + velocity(8) + battery(8) + timestamp(26) + created_at(26)
-    fixedBytesPerRow: 172,
+    textColumns: ["tracker_id", "city", "country_name"],
+    // uuid(36) + user_id(36) + lat(8) + lon(8) + accuracy(8) + altitude(8) + velocity(8) + battery(8) + timestamp(26) + created_at(26) + anomaly(1) + lonlat geography(~32)
+    fixedBytesPerRow: 205,
   },
   {
     category: "location",
@@ -91,9 +92,37 @@ const TABLE_DEFS: TableDef[] = [
   {
     category: "location",
     table: "saved_places",
-    textColumns: ["name", "address", "category", "icon", "color"],
+    textColumns: ["name", "address", "category"],
     // uuid(36) + user_id(36) + lat(8) + lon(8) + radius_m(8) + created_at(26) + updated_at(26)
     fixedBytesPerRow: 148,
+  },
+  {
+    category: "location",
+    table: "visits",
+    textColumns: ["place_name", "address", "category", "city", "country_name"],
+    // uuid(36) + user_id(36) + center_lat(8) + center_lon(8) + radius_m(8) + start_time(26) + end_time(26) + duration_seconds(8) + saved_place_id(36) + calculated_at(26)
+    fixedBytesPerRow: 218,
+  },
+  {
+    category: "location",
+    table: "tracks",
+    textColumns: ["start_place_name", "end_place_name", "dominant_mode"],
+    // uuid(36) + user_id(36) + start_time(26) + end_time(26) + distance_meters(8) + duration_seconds(8) + point_count(8) + elevation_gain(8) + elevation_loss(8) + calculated_at(26)
+    fixedBytesPerRow: 190,
+  },
+  {
+    category: "location",
+    table: "transportation_segments",
+    textColumns: ["date", "mode", "confidence"],
+    // uuid(36) + user_id(36) + track_id(36) + start_time(26) + end_time(26) + distance_meters(8) + duration_seconds(8) + avg_speed_kmh(8) + max_speed_kmh(8) + avg_acceleration(8) + calculated_at(26)
+    fixedBytesPerRow: 226,
+  },
+  {
+    category: "location",
+    table: "trips",
+    textColumns: ["name", "start_date", "end_date", "visited_cities", "visited_countries", "notes"],
+    // uuid(36) + user_id(36) + total_distance_meters(8) + is_overseas(1) + created_at(26) + updated_at(26)
+    fixedBytesPerRow: 133,
   },
   // coding category
   {
@@ -171,8 +200,12 @@ export async function calculateDataUsage(db: Database, userId: string): Promise<
       };
 
       results.push(usageRow);
-    } catch (_error) {
-      // If a table query fails, record zeros
+    } catch (error) {
+      logger.error("data-usage: estimate query failed", {
+        table: def.table,
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       results.push({
         category: def.category,
         tableName: def.table,
