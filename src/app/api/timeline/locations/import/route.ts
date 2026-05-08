@@ -167,11 +167,16 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
   if (isGzipped) {
     const gunzip = createGunzip();
     fileStream.pipe(gunzip);
-    gunzip.on("error", (e) => {
-      // Surface invalid-gzip as a clean SSE error instead of a 500. The
-      // prefixedStream/sniff iteration will reject and runImport's catch
-      // sends the message — but emitting here too avoids hanging on small
-      // truncated files that error before any data is yielded.
+    // The downstream stream-json chain calls `pipeline.destroy()` in its
+    // finally block once it has yielded all interesting top-level array
+    // elements, which propagates upstream and lands here as ABORT_ERR /
+    // ERR_STREAM_PREMATURE_CLOSE. That's a normal end-of-pipeline signal,
+    // not a user-visible failure — swallow it. Real corruption surfaces as
+    // Z_DATA_ERROR / Z_BUF_ERROR before the parser yields anything, in
+    // which case streamGoogleTakeout will reject and runImport's catch
+    // turns it into a clean SSE error event.
+    gunzip.on("error", (e: NodeJS.ErrnoException) => {
+      if (e.code === "ABORT_ERR" || e.code === "ERR_STREAM_PREMATURE_CLOSE") return;
       console.error("[import] gunzip error:", e);
     });
     decoded = gunzip;
