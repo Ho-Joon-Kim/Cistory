@@ -332,14 +332,14 @@ function sniffPrefix(
       total += buf.length;
       if (total < bytes) return;
 
-      // Got enough. Pause the source and put back any bytes beyond the
-      // prefix so downstream consumers see the full content unchanged.
+      // Got enough. Pause the source and unshift everything we consumed
+      // back onto its read buffer so downstream consumers see the full
+      // content unchanged — including the prefix bytes we sniffed.
       settled = true;
       src.pause();
       const all = Buffer.concat(chunks);
       const prefix = all.subarray(0, bytes);
-      const overflow = all.subarray(bytes);
-      if (overflow.length > 0) src.unshift(overflow);
+      if (all.length > 0) src.unshift(all);
       cleanup();
       resolve({ prefix, prefixedStream: src, fileTooLarge });
     };
