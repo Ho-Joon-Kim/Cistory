@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const sse = new ReadableStream({
     async start(controller) {
+      let closed = false;
       const send = (data: ImportProgress) => {
         // Trace every phase transition to disambiguate "runImport done" —
         // we want to know which SSE event actually fired (parsing, error,
@@ -89,7 +90,20 @@ export async function POST(request: NextRequest) {
           error: data.error,
         };
         console.log(`[import:${reqId}] send`, summary);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        // The client may abort the SSE stream while we're still processing
+        // (closes the tab, navigates away, fetch AbortController). After
+        // abort the controller is closed and `enqueue` throws
+        // ERR_INVALID_STATE. Server-side INSERT work continues regardless;
+        // we just stop emitting progress.
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch (e) {
+          closed = true;
+          console.log(`[import:${reqId}] sse closed by client, dropping further events`, {
+            code: (e as NodeJS.ErrnoException).code,
+          });
+        }
       };
 
       // Flush an initial SSE comment so the client + any intermediate proxy
