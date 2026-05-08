@@ -139,7 +139,7 @@ interface RunImportArgs {
  * or error already sent via `send`).
  */
 async function runImport({ userId, contentType, body, send }: RunImportArgs): Promise<void> {
-  const trace = (msg: string, extra?: Record<string, unknown>) => {
+  const trace = (msg: string, extra?: unknown) => {
     console.log(`[import:run] ${msg}`, extra ?? "");
   };
   trace("entering runImport");
