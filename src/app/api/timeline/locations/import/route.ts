@@ -142,7 +142,12 @@ export async function POST(request: NextRequest) {
         console.error(`[import:${reqId}] runImport threw:`, error);
         send({ phase: "error", error: `임포트 실패: ${errMsg}` });
       } finally {
-        controller.close();
+        clearInterval(keepAlive);
+        try {
+          controller.close();
+        } catch {
+          // already closed by client abort
+        }
       }
     },
   });
