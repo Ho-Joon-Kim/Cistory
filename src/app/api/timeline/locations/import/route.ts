@@ -151,12 +151,28 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
 
   const { name: fileName, stream: fileStream } = await filePromise;
 
+  // The streaming JSON pipeline (stream-json) calls `destroy()` in its
+  // finally block as soon as it has yielded all top-level array elements
+  // it cares about. That destroy propagates upstream — through the busboy
+  // file stream and (if gzipped) the gunzip transform — emitting `error`
+  // events with code ABORT_ERR / ERR_STREAM_PREMATURE_CLOSE. Without
+  // explicit listeners these escalate to uncaughtException and crash the
+  // Node process. The data import itself has already finished successfully
+  // at that point, so we swallow these specific codes everywhere the
+  // upstream chain touches.
+  const isBenignAbort = (e: NodeJS.ErrnoException): boolean =>
+    e.code === "ABORT_ERR" || e.code === "ERR_STREAM_PREMATURE_CLOSE";
+
   // busboy emits 'limit' on the file stream when fileSize is exceeded; we
   // surface that here too so the user sees a clean error instead of a
   // truncated parse. Attach this on the raw fileStream regardless of gzip,
   // because the limit applies to compressed bytes.
   fileStream.on("limit", () => {
     fileStream.unpipe?.();
+  });
+  fileStream.on("error", (e: NodeJS.ErrnoException) => {
+    if (isBenignAbort(e)) return;
+    console.error("[import] fileStream error:", e);
   });
 
   // Gzip support: users on Cloudflare can hit the 100MB body limit with raw
@@ -167,16 +183,8 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
   if (isGzipped) {
     const gunzip = createGunzip();
     fileStream.pipe(gunzip);
-    // The downstream stream-json chain calls `pipeline.destroy()` in its
-    // finally block once it has yielded all interesting top-level array
-    // elements, which propagates upstream and lands here as ABORT_ERR /
-    // ERR_STREAM_PREMATURE_CLOSE. That's a normal end-of-pipeline signal,
-    // not a user-visible failure — swallow it. Real corruption surfaces as
-    // Z_DATA_ERROR / Z_BUF_ERROR before the parser yields anything, in
-    // which case streamGoogleTakeout will reject and runImport's catch
-    // turns it into a clean SSE error event.
     gunzip.on("error", (e: NodeJS.ErrnoException) => {
-      if (e.code === "ABORT_ERR" || e.code === "ERR_STREAM_PREMATURE_CLOSE") return;
+      if (isBenignAbort(e)) return;
       console.error("[import] gunzip error:", e);
     });
     decoded = gunzip;
@@ -185,6 +193,10 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
   // Sniff a prefix to decide format, then re-prepend it before handing the
   // remainder to the parser. We can't peek-then-rewind a Node Readable.
   const { prefix, prefixedStream, fileTooLarge } = await sniffPrefix(decoded, SNIFF_BYTES);
+  prefixedStream.on("error", (e: NodeJS.ErrnoException) => {
+    if (isBenignAbort(e)) return;
+    console.error("[import] prefixedStream error:", e);
+  });
 
   // Strip a trailing `.gz` so detectFormat sees the inner extension
   // (e.g. Records.json.gz → Records.json).

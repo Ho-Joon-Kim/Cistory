@@ -15,8 +15,9 @@ import {
 } from "./types";
 
 const REQUEST_TIMEOUT_MS = 15_000;
-const MAX_RETRIES = 3;
-const THROTTLE_MS = 250;
+const MAX_RETRIES = 5;
+const THROTTLE_MS = 350;
+const THROTTLE_BACKOFF_BASE_MS = 1_200;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -24,6 +25,10 @@ function sleep(ms: number): Promise<void> {
 
 function backoff(attempt: number): Promise<void> {
   return sleep(500 * 2 ** (attempt - 1));
+}
+
+function throttleBackoff(attempt: number): Promise<void> {
+  return sleep(THROTTLE_BACKOFF_BASE_MS * 2 ** (attempt - 1));
 }
 
 function toNumber(value: string | undefined | null): number {
@@ -99,6 +104,37 @@ export class KISAdapter {
     this.lastCallAt = Date.now();
   }
 
+  private async handle5xx(
+    response: Response,
+    trId: string,
+    attempt: number
+  ): Promise<{ retryable: boolean; error: Error }> {
+    const bodyText = await response.text().catch(() => "");
+    let parsed: { rt_cd?: string; msg_cd?: string; msg1?: string } | null = null;
+    try {
+      parsed = bodyText ? JSON.parse(bodyText) : null;
+    } catch {
+      // body wasn't JSON — keep as raw text
+    }
+    const isThrottled = parsed?.msg_cd === "EGW00201";
+    logger.warn("[KIS] 5xx response", {
+      trId,
+      status: response.status,
+      attempt,
+      msgCd: parsed?.msg_cd,
+      msg1: parsed?.msg1,
+      bodySnippet: parsed ? undefined : bodyText.slice(0, 500),
+    });
+    const error = new Error(
+      `KIS ${trId} HTTP ${response.status}${parsed?.msg_cd ? ` ${parsed.msg_cd}` : ""}${parsed?.msg1 ? `: ${parsed.msg1}` : ""}`
+    );
+    if (attempt < MAX_RETRIES) {
+      await (isThrottled ? throttleBackoff(attempt) : backoff(attempt));
+      return { retryable: true, error };
+    }
+    return { retryable: false, error };
+  }
+
   private async fetchKIS<T extends { rt_cd: string; msg_cd?: string; msg1?: string }>(
     options: KISRequestOptions
   ): Promise<T> {
@@ -127,36 +163,17 @@ export class KISAdapter {
         });
 
         if (response.status >= 500) {
-          const bodyText = await response.text().catch(() => "");
-          let parsed: { rt_cd?: string; msg_cd?: string; msg1?: string } | null = null;
-          try {
-            parsed = bodyText ? JSON.parse(bodyText) : null;
-          } catch {
-            // body wasn't JSON — keep as raw text
-          }
-          logger.warn("[KIS] 5xx response", {
-            trId,
-            status: response.status,
-            attempt,
-            msgCd: parsed?.msg_cd,
-            msg1: parsed?.msg1,
-            bodySnippet: parsed ? undefined : bodyText.slice(0, 500),
-          });
-          lastError = new Error(
-            `KIS ${trId} HTTP ${response.status}${parsed?.msg_cd ? ` ${parsed.msg_cd}` : ""}${parsed?.msg1 ? `: ${parsed.msg1}` : ""}`
-          );
-          if (attempt < MAX_RETRIES) {
-            await backoff(attempt);
-            continue;
-          }
+          const result = await this.handle5xx(response, trId, attempt);
+          lastError = result.error;
+          if (result.retryable) continue;
           throw lastError;
         }
 
         const body = (await response.json()) as T;
 
-        // Throttle error → retry with backoff
+        // Throttle error → retry with throttle-specific backoff
         if (body.msg_cd === "EGW00201" && attempt < MAX_RETRIES) {
-          await backoff(attempt);
+          await throttleBackoff(attempt);
           continue;
         }
 

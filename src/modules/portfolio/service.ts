@@ -144,7 +144,8 @@ export class PortfolioSyncService {
 
   async snapshotAccount(
     accountId: string,
-    balance?: ParsedBalance
+    balance?: ParsedBalance,
+    sharedAdapter?: ReturnType<typeof createKISAdapter>
   ): Promise<{ snapshotId: string; positionCount: number }> {
     const account = await this.getAccount(accountId);
     if (!account) throw new Error(`Account not found: ${accountId}`);
@@ -152,7 +153,7 @@ export class PortfolioSyncService {
     let parsed = balance;
     if (!parsed) {
       const token = await this.getValidToken(account);
-      const adapter = this.getAdapter(account);
+      const adapter = sharedAdapter ?? this.getAdapter(account);
       parsed = await adapter.inquireBalance(token, account.cano, account.acntPrdtCd);
     }
 
@@ -236,13 +237,14 @@ export class PortfolioSyncService {
 
   async syncExecutions(
     accountId: string,
-    options: { startDt?: string; endDt?: string } = {}
+    options: { startDt?: string; endDt?: string } = {},
+    sharedAdapter?: ReturnType<typeof createKISAdapter>
   ): Promise<{ inserted: number }> {
     const account = await this.getAccount(accountId);
     if (!account) throw new Error(`Account not found: ${accountId}`);
 
     const token = await this.getValidToken(account);
-    const adapter = this.getAdapter(account);
+    const adapter = sharedAdapter ?? this.getAdapter(account);
 
     const endDt = options.endDt ?? ymd(new Date());
     let startDt = options.startDt;
@@ -301,13 +303,14 @@ export class PortfolioSyncService {
 
   async syncDailyPnl(
     accountId: string,
-    options: { startDt?: string; endDt?: string } = {}
+    options: { startDt?: string; endDt?: string } = {},
+    sharedAdapter?: ReturnType<typeof createKISAdapter>
   ): Promise<{ upserted: number }> {
     const account = await this.getAccount(accountId);
     if (!account) throw new Error(`Account not found: ${accountId}`);
 
     const token = await this.getValidToken(account);
-    const adapter = this.getAdapter(account);
+    const adapter = sharedAdapter ?? this.getAdapter(account);
 
     const startDt = options.startDt ?? daysAgoYmd(90);
     const endDt = options.endDt ?? ymd(new Date());
@@ -376,14 +379,19 @@ export class PortfolioSyncService {
     };
 
     try {
-      const snap = await this.snapshotAccount(accountId);
+      // Reuse one adapter across all calls for this account so its internal
+      // throttle (lastCallAt) actually paces back-to-back TR requests against
+      // KIS's 2-3 req/sec personal-account limit.
+      const adapter = this.getAdapter(account);
+
+      const snap = await this.snapshotAccount(accountId, undefined, adapter);
       result.snapshotId = snap.snapshotId;
       result.positionsCount = snap.positionCount;
 
-      const ex = await this.syncExecutions(accountId);
+      const ex = await this.syncExecutions(accountId, {}, adapter);
       result.executionsInserted = ex.inserted;
 
-      const pnl = await this.syncDailyPnl(accountId);
+      const pnl = await this.syncDailyPnl(accountId, {}, adapter);
       result.dailyPnlUpserted = pnl.upserted;
 
       await this.db

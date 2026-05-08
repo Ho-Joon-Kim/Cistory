@@ -346,6 +346,14 @@ export async function* streamGoogleTakeout(
     streamValues.asStream(),
   ]);
 
+  // Calling `pipeline.destroy()` below propagates upstream and emits
+  // ABORT_ERR / ERR_STREAM_PREMATURE_CLOSE on the source chain (busboy
+  // file stream, gunzip transform). Those `error` events will crash the
+  // Node process if no listener is attached, so register a no-op terminal
+  // listener on the pipeline itself. The route handler attaches matching
+  // listeners on the upstream stages.
+  pipeline.on("error", () => {});
+
   try {
     for await (const item of pipeline as AsyncIterable<{ key: number; value: unknown }>) {
       yield* expandElement(item.value as Record<string, unknown>);
