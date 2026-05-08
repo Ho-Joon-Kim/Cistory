@@ -206,13 +206,14 @@ export function LocationImport() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          GPX, GeoJSON, Google Takeout (Records.json / Phone Takeout) 파일을 업로드하세요.
+          GPX, GeoJSON, Google Takeout (Records.json / Phone Takeout) 파일을 업로드하세요. 큰
+          파일은 <code className="text-xs">.gz</code>로 압축해서 올리면 빠릅니다.
         </p>
 
         <input
           ref={fileInputRef}
           type="file"
-          accept=".gpx,.geojson,.json,.zip"
+          accept=".gpx,.geojson,.json,.zip,.gz,.gpx.gz,.geojson.gz,.json.gz"
           className="hidden"
           onChange={onFileChange}
         />

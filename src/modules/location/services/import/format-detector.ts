@@ -8,7 +8,7 @@
 import type { ImportFormat } from "./types";
 
 export function detectFormat(fileName: string, content: string): ImportFormat {
-  const ext = fileName.toLowerCase().split(".").pop();
+  const ext = fileName.toLowerCase().replace(/\.gz$/, "").split(".").pop();
 
   // Extension-based detection
   if (ext === "gpx") return "gpx";

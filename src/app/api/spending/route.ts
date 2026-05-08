@@ -138,8 +138,32 @@ export async function GET(request: NextRequest) {
       offset,
     });
   } catch (error) {
+    const cause = error instanceof Error ? (error as Error & { cause?: unknown }).cause : undefined;
+    const pg = (cause ?? error) as {
+      message?: string;
+      code?: string;
+      detail?: string;
+      hint?: string;
+      position?: string;
+      where?: string;
+      schema?: string;
+      table?: string;
+      column?: string;
+      dataType?: string;
+      constraint?: string;
+    };
     logger.error("Spending fetch error", {
       error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      pgMessage: pg?.message,
+      pgCode: pg?.code,
+      pgDetail: pg?.detail,
+      pgHint: pg?.hint,
+      pgPosition: pg?.position,
+      pgWhere: pg?.where,
+      pgTable: pg?.table,
+      pgColumn: pg?.column,
+      pgConstraint: pg?.constraint,
     });
     return NextResponse.json({ error: "조회 실패" }, { status: 500 });
   }

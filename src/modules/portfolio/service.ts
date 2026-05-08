@@ -72,22 +72,68 @@ export class PortfolioSyncService {
       return account.accessToken;
     }
 
-    const appKey = decryptSecret(account.appKeyEnc);
-    const appSecret = decryptSecret(account.appSecretEnc);
-    const adapter = createKISAdapter(appKey, appSecret);
+    // KIS enforces a "1 token per day" policy and rate-limits frequent
+    // re-issuance. Serialize issuance per-account with a Postgres advisory
+    // lock so two concurrent syncs (cron + manual, multi-worker, etc.) can't
+    // each call /oauth2/tokenP. Re-read the row inside the lock so the
+    // second waiter sees the freshly-issued token instead of re-issuing.
+    return this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`kis-token:${account.id}`}, 0))`
+      );
 
-    const { accessToken, expiresAt } = await adapter.issueToken();
+      const fresh = (
+        await tx
+          .select({
+            accessToken: brokerageAccounts.accessToken,
+            accessTokenExpiresAt: brokerageAccounts.accessTokenExpiresAt,
+            appKeyEnc: brokerageAccounts.appKeyEnc,
+            appSecretEnc: brokerageAccounts.appSecretEnc,
+          })
+          .from(brokerageAccounts)
+          .where(eq(brokerageAccounts.id, account.id))
+          .limit(1)
+      )[0];
 
-    await this.db
-      .update(brokerageAccounts)
-      .set({
-        accessToken,
-        accessTokenExpiresAt: expiresAt,
-        updatedAt: new Date(),
-      })
-      .where(eq(brokerageAccounts.id, account.id));
+      if (!fresh) {
+        throw new Error(`Brokerage account ${account.id} disappeared during token refresh`);
+      }
 
-    return accessToken;
+      const tNow = Date.now();
+      if (
+        fresh.accessToken &&
+        fresh.accessTokenExpiresAt &&
+        fresh.accessTokenExpiresAt.getTime() > tNow + TOKEN_REFRESH_GRACE_MS
+      ) {
+        return fresh.accessToken;
+      }
+
+      const appKey = decryptSecret(fresh.appKeyEnc);
+      const appSecret = decryptSecret(fresh.appSecretEnc);
+      const adapter = createKISAdapter(appKey, appSecret);
+
+      const { accessToken, expiresAt } = await adapter.issueToken();
+
+      logger.info("[KIS] Token issued", {
+        accountId: account.id,
+        previousExpiresAt: fresh.accessTokenExpiresAt?.toISOString() ?? null,
+        newExpiresAt: expiresAt.toISOString(),
+        msSincePrevious: fresh.accessTokenExpiresAt
+          ? tNow - (fresh.accessTokenExpiresAt.getTime() - 24 * 60 * 60 * 1000)
+          : null,
+      });
+
+      await tx
+        .update(brokerageAccounts)
+        .set({
+          accessToken,
+          accessTokenExpiresAt: expiresAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(brokerageAccounts.id, account.id));
+
+      return accessToken;
+    });
   }
 
   private getAdapter(account: BrokerageAccount) {

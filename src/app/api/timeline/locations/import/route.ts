@@ -12,6 +12,7 @@
  */
 
 import { Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
 import Busboy from "busboy";
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
@@ -150,18 +151,40 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
 
   const { name: fileName, stream: fileStream } = await filePromise;
 
-  // Sniff a prefix to decide format, then re-prepend it before handing the
-  // remainder to the parser. We can't peek-then-rewind a Node Readable.
-  const { prefix, prefixedStream, fileTooLarge } = await sniffPrefix(fileStream, SNIFF_BYTES);
-
   // busboy emits 'limit' on the file stream when fileSize is exceeded; we
   // surface that here too so the user sees a clean error instead of a
-  // truncated parse.
+  // truncated parse. Attach this on the raw fileStream regardless of gzip,
+  // because the limit applies to compressed bytes.
   fileStream.on("limit", () => {
     fileStream.unpipe?.();
   });
 
-  const detected = detectFormat(fileName, prefix.toString("utf-8"));
+  // Gzip support: users on Cloudflare can hit the 100MB body limit with raw
+  // Google Takeout JSON. Uploading `Records.json.gz` (~10x smaller) and
+  // gunzipping here lets the existing streaming pipeline run unchanged.
+  const isGzipped = fileName.toLowerCase().endsWith(".gz");
+  let decoded: Readable = fileStream;
+  if (isGzipped) {
+    const gunzip = createGunzip();
+    fileStream.pipe(gunzip);
+    gunzip.on("error", (e) => {
+      // Surface invalid-gzip as a clean SSE error instead of a 500. The
+      // prefixedStream/sniff iteration will reject and runImport's catch
+      // sends the message — but emitting here too avoids hanging on small
+      // truncated files that error before any data is yielded.
+      console.error("[import] gunzip error:", e);
+    });
+    decoded = gunzip;
+  }
+
+  // Sniff a prefix to decide format, then re-prepend it before handing the
+  // remainder to the parser. We can't peek-then-rewind a Node Readable.
+  const { prefix, prefixedStream, fileTooLarge } = await sniffPrefix(decoded, SNIFF_BYTES);
+
+  // Strip a trailing `.gz` so detectFormat sees the inner extension
+  // (e.g. Records.json.gz → Records.json).
+  const sniffName = fileName.replace(/\.gz$/i, "");
+  const detected = detectFormat(sniffName, prefix.toString("utf-8"));
 
   if (detected === "unknown") {
     // Drain the rest so the request finishes cleanly.

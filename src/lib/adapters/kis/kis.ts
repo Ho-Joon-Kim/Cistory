@@ -127,7 +127,24 @@ export class KISAdapter {
         });
 
         if (response.status >= 500) {
-          lastError = new Error(`KIS ${trId} HTTP ${response.status}`);
+          const bodyText = await response.text().catch(() => "");
+          let parsed: { rt_cd?: string; msg_cd?: string; msg1?: string } | null = null;
+          try {
+            parsed = bodyText ? JSON.parse(bodyText) : null;
+          } catch {
+            // body wasn't JSON — keep as raw text
+          }
+          logger.warn("[KIS] 5xx response", {
+            trId,
+            status: response.status,
+            attempt,
+            msgCd: parsed?.msg_cd,
+            msg1: parsed?.msg1,
+            bodySnippet: parsed ? undefined : bodyText.slice(0, 500),
+          });
+          lastError = new Error(
+            `KIS ${trId} HTTP ${response.status}${parsed?.msg_cd ? ` ${parsed.msg_cd}` : ""}${parsed?.msg1 ? `: ${parsed.msg1}` : ""}`
+          );
           if (attempt < MAX_RETRIES) {
             await backoff(attempt);
             continue;
