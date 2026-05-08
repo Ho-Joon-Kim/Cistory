@@ -296,39 +296,82 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
   });
 }
 
-/** Read up to `bytes` from `src`, return the captured prefix and a Readable that replays prefix + rest. */
-async function sniffPrefix(
+/**
+ * Read up to `bytes` from `src` without consuming it via `for await`. Using
+ * the async iterator and breaking out of the loop calls the iterator's
+ * `return()`, which destroys the underlying stream — fatal for Transform
+ * streams like `zlib.createGunzip()`. We instead listen to `data`/`end`
+ * directly, pause the source as soon as we have enough, and stitch the
+ * captured prefix back onto the live tail with `unshift()`.
+ */
+function sniffPrefix(
   src: Readable,
   bytes: number
 ): Promise<{ prefix: Buffer; prefixedStream: Readable; fileTooLarge: boolean }> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  let fileTooLarge = false;
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let fileTooLarge = false;
+    let settled = false;
 
-  src.on("limit", () => {
-    fileTooLarge = true;
+    const onLimit = () => {
+      fileTooLarge = true;
+    };
+    src.on("limit", onLimit);
+
+    const cleanup = () => {
+      src.off("data", onData);
+      src.off("end", onEnd);
+      src.off("error", onError);
+    };
+
+    const onData = (chunk: Buffer | string) => {
+      if (settled) return;
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      chunks.push(buf);
+      total += buf.length;
+      if (total < bytes) return;
+
+      // Got enough. Pause the source and put back any bytes beyond the
+      // prefix so downstream consumers see the full content unchanged.
+      settled = true;
+      src.pause();
+      const all = Buffer.concat(chunks);
+      const prefix = all.subarray(0, bytes);
+      const overflow = all.subarray(bytes);
+      if (overflow.length > 0) src.unshift(overflow);
+      cleanup();
+      resolve({ prefix, prefixedStream: src, fileTooLarge });
+    };
+
+    const onEnd = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      // Source ended before reaching `bytes` — return what we have. The
+      // prefixedStream is already at EOF; downstream parsers will simply
+      // see no more data after replaying the captured prefix.
+      const prefix = Buffer.concat(chunks);
+      const replay = new Readable({
+        read() {
+          this.push(prefix);
+          this.push(null);
+        },
+      });
+      resolve({ prefix, prefixedStream: replay, fileTooLarge });
+    };
+
+    const onError = (e: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(e);
+    };
+
+    src.on("data", onData);
+    src.on("end", onEnd);
+    src.on("error", onError);
   });
-
-  for await (const chunk of src) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    chunks.push(buf);
-    total += buf.length;
-    if (total >= bytes) break;
-  }
-
-  const prefix = Buffer.concat(chunks).subarray(0, bytes);
-
-  // Node Readable that yields the captured prefix first, then the live tail.
-  const prefixedStream = Readable.from(
-    (async function* () {
-      yield Buffer.concat(chunks);
-      for await (const chunk of src) {
-        yield Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      }
-    })()
-  );
-
-  return { prefix, prefixedStream, fileTooLarge };
 }
 
 async function readAllToString(src: Readable): Promise<string> {
