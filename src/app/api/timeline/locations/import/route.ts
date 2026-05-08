@@ -76,6 +76,19 @@ export async function POST(request: NextRequest) {
   const sse = new ReadableStream({
     async start(controller) {
       const send = (data: ImportProgress) => {
+        // Trace every phase transition to disambiguate "runImport done" —
+        // we want to know which SSE event actually fired (parsing, error,
+        // done, ...) and with what payload.
+        const summary = {
+          phase: data.phase,
+          format: data.format,
+          totalParsed: data.totalParsed,
+          inserted: data.inserted,
+          duplicates: data.duplicates,
+          batchIndex: data.batchIndex,
+          error: data.error,
+        };
+        console.log(`[import:${reqId}] send`, summary);
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
@@ -126,6 +139,11 @@ interface RunImportArgs {
  * or error already sent via `send`).
  */
 async function runImport({ userId, contentType, body, send }: RunImportArgs): Promise<void> {
+  const trace = (msg: string, extra?: Record<string, unknown>) => {
+    console.log(`[import:run] ${msg}`, extra ?? "");
+  };
+  trace("entering runImport");
+
   const bb = Busboy({
     headers: { "content-type": contentType },
     limits: { fileSize: MAX_FILE_SIZE, files: 1 },
@@ -138,18 +156,29 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
     let handled = false;
     bb.on("file", (_field, fileStream, info) => {
       handled = true;
+      trace("busboy:file", { filename: info.filename, mimeType: info.mimeType });
       resolve({ name: info.filename ?? "upload", stream: fileStream });
     });
     bb.on("close", () => {
+      trace("busboy:close", { handled });
       if (!handled) reject(new Error("file 필드가 필요합니다"));
     });
-    bb.on("error", (e) => reject(e));
-    nodeBody.on("error", (e) => reject(e));
+    bb.on("error", (e) => {
+      trace("busboy:error", { message: (e as Error).message });
+      reject(e);
+    });
+    nodeBody.on("error", (e) => {
+      trace("nodeBody:error", { message: (e as Error).message });
+      reject(e);
+    });
+    nodeBody.on("end", () => trace("nodeBody:end"));
+    nodeBody.on("close", () => trace("nodeBody:close"));
   });
 
   nodeBody.pipe(bb);
 
   const { name: fileName, stream: fileStream } = await filePromise;
+  trace("got file", { fileName });
 
   // The streaming JSON pipeline (stream-json) calls `destroy()` in its
   // finally block as soon as it has yielded all top-level array elements
@@ -179,6 +208,7 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
   // Google Takeout JSON. Uploading `Records.json.gz` (~10x smaller) and
   // gunzipping here lets the existing streaming pipeline run unchanged.
   const isGzipped = fileName.toLowerCase().endsWith(".gz");
+  trace("gzip?", { isGzipped });
   let decoded: Readable = fileStream;
   if (isGzipped) {
     const gunzip = createGunzip();
@@ -193,6 +223,11 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
   // Sniff a prefix to decide format, then re-prepend it before handing the
   // remainder to the parser. We can't peek-then-rewind a Node Readable.
   const { prefix, prefixedStream, fileTooLarge } = await sniffPrefix(decoded, SNIFF_BYTES);
+  trace("sniff done", {
+    prefixBytes: prefix.length,
+    fileTooLarge,
+    prefixHead: prefix.subarray(0, 64).toString("utf-8").replace(/\s+/g, " "),
+  });
   prefixedStream.on("error", (e: NodeJS.ErrnoException) => {
     if (isBenignAbort(e)) return;
     console.error("[import] prefixedStream error:", e);
@@ -202,6 +237,7 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
   // (e.g. Records.json.gz → Records.json).
   const sniffName = fileName.replace(/\.gz$/i, "");
   const detected = detectFormat(sniffName, prefix.toString("utf-8"));
+  trace("format detected", { sniffName, detected });
 
   if (detected === "unknown") {
     // Drain the rest so the request finishes cleanly.
@@ -238,9 +274,11 @@ async function runImport({ userId, contentType, body, send }: RunImportArgs): Pr
     return;
   }
 
+  trace("calling importPoints", { detected });
   const result = await importPoints(userId, pointSource, (progress) => {
     send({ ...progress, format: detected });
   });
+  trace("importPoints returned", result);
 
   if (result.totalParsed === 0) {
     send({ phase: "error", error: "파일에서 위치 데이터를 찾을 수 없습니다" });
