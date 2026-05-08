@@ -112,6 +112,22 @@ export async function POST(request: NextRequest) {
       // ERR_CONNECTION_CLOSED on the browser side.
       controller.enqueue(encoder.encode(`: connected\n\n`));
 
+      // Keep-alive comment ping every 30s. Cloudflare aborts the response
+      // after ~100s without any bytes flowing — a 17MB Phone Takeout
+      // import takes ~2 min, and stream-json can spend tens of seconds in
+      // a single batch when a long stretch is fully duplicate (every
+      // INSERT returns 0 inserts but the JSON parser still scans). The
+      // ping keeps the connection alive without affecting the data stream
+      // (clients ignore SSE comments).
+      const keepAlive = setInterval(() => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`: ping\n\n`));
+        } catch {
+          closed = true;
+        }
+      }, 30_000);
+
       try {
         console.log(`[import:${reqId}] runImport begin`);
         await runImport({
