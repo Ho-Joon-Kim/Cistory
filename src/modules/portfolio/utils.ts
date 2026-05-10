@@ -142,10 +142,11 @@ export interface RebalanceRow {
   name: string;
   currentWeight: number;
   targetWeight: number;
+  afterWeight: number;
   currentEval: number;
   targetEval: number;
   diffAmount: number;
-  buyAmount: number;
+  buyAmount: number; // 분배된 예산 (실제 floor 전)
   buyShares: number;
   actualBuyAmount: number;
   currentPrice: number;
@@ -159,70 +160,125 @@ export interface RebalanceResult {
   totalActualBuy: number;
   remainingCash: number;
   warnings: string[];
+  avgDriftBefore: number; // 평균 절대 편차 (0~1)
+  avgDriftAfter: number;
 }
 
+/**
+ * 매수 only 리밸런싱.
+ *
+ * 알고리즘:
+ * 1. 각 종목의 "이상적 매수액(deficit)" 계산: max(0, totalAfter * targetWeight - currentEval)
+ *    여기서 totalAfter = totalCurrent + cashToInvest (가상 균형 시점 자산)
+ * 2. sumDeficit > cash 이면 부족분 비율로 cash를 비례 분배 (scale = cash / sumDeficit)
+ *    sumDeficit <= cash 면 그대로 (scale = 1, 잔여 발생)
+ * 3. 각 종목 floor(budget / currentPrice) = 실제 매수 주식
+ * 4. 매수 후 비중 = (currentEval + actualBuyAmount) / actualTotalAfter
+ */
 export function computeRebalance(input: RebalanceInput): RebalanceResult {
   const totalCurrent = input.positions.reduce((s, p) => s + p.evalAmount, 0);
-  const totalAfter = totalCurrent + Math.max(0, input.cashToInvest);
+  const cash = Math.max(0, input.cashToInvest);
+  const totalAfter = totalCurrent + cash;
 
   const posMap = new Map(input.positions.map((p) => [p.ticker, p]));
   const tgtMap = new Map(input.targets.map((t) => [t.ticker, t]));
   const tickers = new Set<string>([...posMap.keys(), ...tgtMap.keys()]);
 
   const warnings: string[] = [];
-  const rows: RebalanceRow[] = [];
 
+  interface Working {
+    ticker: string;
+    name: string;
+    currentEval: number;
+    targetWeight: number;
+    targetEval: number;
+    deficit: number;
+    currentPrice: number;
+    budget: number;
+    buyShares: number;
+    actualBuyAmount: number;
+    status: RebalanceStatus;
+  }
+
+  const working: Working[] = [];
   for (const ticker of tickers) {
     const pos = posMap.get(ticker);
     const tgt = tgtMap.get(ticker);
     const currentEval = pos?.evalAmount ?? 0;
     const targetWeight = tgt?.targetWeight ?? 0;
     const targetEval = totalAfter * targetWeight;
-    const diffAmount = targetEval - currentEval;
-    const buyAmount = Math.max(0, diffAmount);
-    const currentPrice = pos?.currentPrice ?? 0;
-    const name = pos?.name ?? tgt?.name ?? ticker;
-
-    let status: RebalanceStatus;
-    let buyShares = 0;
-    let actualBuyAmount = 0;
-
-    if (currentPrice > 0) {
-      buyShares = Math.floor(buyAmount / currentPrice);
-      actualBuyAmount = buyShares * currentPrice;
-      status = buyShares > 0 ? "buy" : "hold";
-    } else if (buyAmount > 0) {
-      status = "missing-price";
-      warnings.push(`${name} (${ticker}): 현재가 정보가 없어 매수 수량 계산 불가`);
-    } else {
-      status = "hold";
-    }
-
-    rows.push({
+    const deficit = Math.max(0, targetEval - currentEval);
+    working.push({
       ticker,
-      name,
-      currentWeight: totalCurrent > 0 ? currentEval / totalCurrent : 0,
-      targetWeight,
+      name: pos?.name ?? tgt?.name ?? ticker,
       currentEval,
+      targetWeight,
       targetEval,
-      diffAmount,
-      buyAmount,
-      buyShares,
-      actualBuyAmount,
-      currentPrice,
-      status,
+      deficit,
+      currentPrice: pos?.currentPrice ?? 0,
+      budget: 0,
+      buyShares: 0,
+      actualBuyAmount: 0,
+      status: "hold",
     });
   }
 
+  const sumDeficit = working.reduce((s, w) => s + w.deficit, 0);
+  const scale = sumDeficit > 0 ? Math.min(1, cash / sumDeficit) : 0;
+
+  for (const w of working) {
+    w.budget = w.deficit * scale;
+    if (w.currentPrice > 0) {
+      w.buyShares = Math.floor(w.budget / w.currentPrice);
+      w.actualBuyAmount = w.buyShares * w.currentPrice;
+      w.status = w.buyShares > 0 ? "buy" : "hold";
+    } else if (w.deficit > 0 && cash > 0) {
+      w.status = "missing-price";
+      warnings.push(`${w.name} (${w.ticker}): 현재가 정보가 없어 매수 수량 계산 불가`);
+    }
+  }
+
+  const totalActualBuy = working.reduce((s, w) => s + w.actualBuyAmount, 0);
+  const actualTotalAfter = totalCurrent + totalActualBuy;
+
+  const rows: RebalanceRow[] = working.map((w) => {
+    const newEval = w.currentEval + w.actualBuyAmount;
+    return {
+      ticker: w.ticker,
+      name: w.name,
+      currentWeight: totalCurrent > 0 ? w.currentEval / totalCurrent : 0,
+      targetWeight: w.targetWeight,
+      afterWeight: actualTotalAfter > 0 ? newEval / actualTotalAfter : 0,
+      currentEval: w.currentEval,
+      targetEval: w.targetEval,
+      diffAmount: w.targetEval - w.currentEval,
+      buyAmount: w.budget,
+      buyShares: w.buyShares,
+      actualBuyAmount: w.actualBuyAmount,
+      currentPrice: w.currentPrice,
+      status: w.status,
+    };
+  });
+
   rows.sort((a, b) => b.targetWeight - a.targetWeight);
-  const totalActualBuy = rows.reduce((s, r) => s + r.actualBuyAmount, 0);
+
+  const avgDriftBefore =
+    rows.length > 0
+      ? rows.reduce((s, r) => s + Math.abs(r.currentWeight - r.targetWeight), 0) / rows.length
+      : 0;
+  const avgDriftAfter =
+    rows.length > 0
+      ? rows.reduce((s, r) => s + Math.abs(r.afterWeight - r.targetWeight), 0) / rows.length
+      : 0;
 
   return {
     rows,
     totalCurrent,
-    totalAfter,
+    totalAfter: actualTotalAfter,
     totalActualBuy,
-    remainingCash: Math.max(0, input.cashToInvest) - totalActualBuy,
+    remainingCash: cash - totalActualBuy,
     warnings,
+    avgDriftBefore,
+    avgDriftAfter,
   };
 }
