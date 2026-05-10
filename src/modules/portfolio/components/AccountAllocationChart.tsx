@@ -3,7 +3,7 @@
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { ACCOUNT_TYPE_LABEL, formatKRW } from "../utils";
+import { ACCOUNT_TYPE_LABEL, CHART_COLORS, formatKRW } from "../utils";
 
 interface AccountAllocation {
   accountId: string;
@@ -16,7 +16,7 @@ interface Props {
   accounts: AccountAllocation[];
 }
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#9333ea", "#0891b2"];
+const COLORS = CHART_COLORS;
 
 export function AccountAllocationChart({ accounts }: Props) {
   const total = accounts.reduce((sum, a) => sum + a.totalEvalAmount, 0);

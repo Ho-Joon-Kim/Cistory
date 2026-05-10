@@ -162,6 +162,13 @@
       "when": 1778139710079,
       "tag": "0022_clammy_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1778454533763,
+      "tag": "0023_conscious_pete_wisdom",
+      "breakpoints": true
     }
   ]
 }

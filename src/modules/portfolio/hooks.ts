@@ -256,3 +256,57 @@ export async function patchAccount(
   });
   return res.ok;
 }
+
+export interface TargetAllocation {
+  ticker: string;
+  name: string;
+  targetWeight: number;
+}
+
+export function useTargetAllocations(accountId: string | null) {
+  const [targets, setTargets] = useState<TargetAllocation[]>([]);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!accountId) {
+      setTargets([]);
+      setUpdatedAt(null);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/portfolio/accounts/${accountId}/targets`);
+      if (!res.ok) throw new Error("Failed to fetch targets");
+      const data = await res.json();
+      setTargets(data.targets ?? []);
+      setUpdatedAt(data.updatedAt ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accountId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return { targets, updatedAt, isLoading, error, refresh };
+}
+
+export async function saveTargetAllocations(
+  accountId: string,
+  targets: TargetAllocation[]
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`/api/portfolio/accounts/${accountId}/targets`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ targets }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: data.error ?? "저장 실패" };
+  return { ok: true };
+}

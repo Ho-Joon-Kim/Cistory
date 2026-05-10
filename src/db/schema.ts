@@ -711,6 +711,25 @@ export const brokerageDailyPnl = pgTable(
   (t) => [uniqueIndex("idx_daily_pnl_unique").on(t.accountId, t.tradeDate)]
 );
 
+export const brokerageTargetAllocations = pgTable(
+  "brokerage_target_allocations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => brokerageAccounts.id, { onDelete: "cascade" }),
+    ticker: text("ticker").notNull(),
+    name: text("name").notNull(),
+    targetWeight: numeric("target_weight").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_target_alloc_account").on(t.accountId),
+    uniqueIndex("idx_target_alloc_unique").on(t.accountId, t.ticker),
+  ]
+);
+
 export type BrokerageAccount = typeof brokerageAccounts.$inferSelect;
 export type NewBrokerageAccount = typeof brokerageAccounts.$inferInsert;
 export type HoldingSnapshot = typeof holdingSnapshots.$inferSelect;
@@ -721,3 +740,5 @@ export type BrokerageExecution = typeof brokerageExecutions.$inferSelect;
 export type NewBrokerageExecution = typeof brokerageExecutions.$inferInsert;
 export type BrokerageDailyPnl = typeof brokerageDailyPnl.$inferSelect;
 export type NewBrokerageDailyPnl = typeof brokerageDailyPnl.$inferInsert;
+export type BrokerageTargetAllocation = typeof brokerageTargetAllocations.$inferSelect;
+export type NewBrokerageTargetAllocation = typeof brokerageTargetAllocations.$inferInsert;

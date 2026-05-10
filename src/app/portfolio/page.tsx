@@ -8,11 +8,14 @@ import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/modules/auth/hooks";
 import { AccountAllocationChart } from "@/modules/portfolio/components/AccountAllocationChart";
+import { AccountHoldingsPieChart } from "@/modules/portfolio/components/AccountHoldingsPieChart";
 import { AccountHoldingsTable } from "@/modules/portfolio/components/AccountHoldingsTable";
 import { AssetTimelineChart } from "@/modules/portfolio/components/AssetTimelineChart";
 import { CategoryBreakdown } from "@/modules/portfolio/components/CategoryBreakdown";
 import { HoldingWeightList } from "@/modules/portfolio/components/HoldingWeightList";
+import { InflationAdjustedReturnCard } from "@/modules/portfolio/components/InflationAdjustedReturnCard";
 import { PortfolioOverviewCard } from "@/modules/portfolio/components/PortfolioOverviewCard";
+import { RebalanceCard } from "@/modules/portfolio/components/RebalanceCard";
 import { RecentExecutionsCard } from "@/modules/portfolio/components/RecentExecutionsCard";
 import { syncAllAccounts, usePortfolioSummary } from "@/modules/portfolio/hooks";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
@@ -118,7 +121,15 @@ function PortfolioContent() {
                 <AccountAllocationChart accounts={accountAllocations} />
               </div>
 
+              <InflationAdjustedReturnCard summary={summary} />
+
               <AssetTimelineChart />
+
+              <AccountHoldingsPieChart
+                accounts={summary.accounts}
+                latestSnapshots={summary.latestSnapshots}
+                positions={summary.positions}
+              />
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <HoldingWeightList positions={summary.positions} />
@@ -130,6 +141,8 @@ function PortfolioContent() {
                 snapshots={summary.latestSnapshots}
                 positions={summary.positions}
               />
+
+              <RebalanceCard summary={summary} />
 
               <RecentExecutionsCard limit={15} />
             </div>

@@ -5,8 +5,15 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } fro
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSnapshots } from "../hooks";
-import { formatKRW } from "../utils";
+import { formatKRW, parseKstDate } from "../utils";
 
 const RANGES = [
   { key: "30", label: "30일", days: 30 },
@@ -14,23 +21,35 @@ const RANGES = [
   { key: "365", label: "1년", days: 365 },
 ] as const;
 
+const INFLATION_OPTIONS = [
+  { value: "0.02", label: "2%" },
+  { value: "0.03", label: "3%" },
+  { value: "0.04", label: "4%" },
+  { value: "0.05", label: "5%" },
+];
+
 function ymdAgo(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
 }
 
+interface AggregatedPoint {
+  date: string;
+  total: number;
+  purchase: number;
+  pnl: number;
+  inflated?: number;
+}
+
 export function AssetTimelineChart() {
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("30");
+  const [inflationRate, setInflationRate] = useState(0.03);
   const days = RANGES.find((r) => r.key === range)?.days ?? 30;
   const { snapshots, isLoading } = useSnapshots({ from: ymdAgo(days) });
 
-  // Aggregate by date across accounts
   const data = useMemo(() => {
-    const byDate = new Map<
-      string,
-      { date: string; total: number; purchase: number; pnl: number }
-    >();
+    const byDate = new Map<string, AggregatedPoint>();
     for (const s of snapshots) {
       const existing = byDate.get(s.asOfDate) ?? {
         date: s.asOfDate,
@@ -43,24 +62,55 @@ export function AssetTimelineChart() {
       existing.pnl += s.totalPnl;
       byDate.set(s.asOfDate, existing);
     }
-    return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-  }, [snapshots]);
+    const sorted = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+    if (sorted.length > 1) {
+      const first = sorted[0];
+      const startMs = parseKstDate(first.date).getTime();
+      const startPurchase = first.purchase;
+      for (const row of sorted) {
+        const yrs = (parseKstDate(row.date).getTime() - startMs) / (365.25 * 86_400_000);
+        row.inflated = startPurchase * (1 + inflationRate) ** yrs;
+      }
+    }
+
+    return sorted;
+  }, [snapshots, inflationRate]);
+
+  const showInflation = data.length > 1;
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
         <CardTitle className="text-base font-medium text-muted-foreground">자산 추이</CardTitle>
-        <div className="flex gap-1">
-          {RANGES.map((r) => (
-            <Button
-              key={r.key}
-              size="sm"
-              variant={range === r.key ? "default" : "outline"}
-              onClick={() => setRange(r.key)}
-            >
-              {r.label}
-            </Button>
-          ))}
+        <div className="flex items-center gap-2">
+          <Select
+            value={inflationRate.toString()}
+            onValueChange={(v) => setInflationRate(Number(v))}
+          >
+            <SelectTrigger size="sm" className="h-8 w-[110px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {INFLATION_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  물가 {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex gap-1">
+            {RANGES.map((r) => (
+              <Button
+                key={r.key}
+                size="sm"
+                variant={range === r.key ? "default" : "outline"}
+                onClick={() => setRange(r.key)}
+              >
+                {r.label}
+              </Button>
+            ))}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -109,7 +159,9 @@ export function AssetTimelineChart() {
                           ? "총자산"
                           : name === "purchase"
                             ? "매입금액"
-                            : String(name),
+                            : name === "inflated"
+                              ? "물가 보정 매입액"
+                              : String(name),
                       ]}
                     />
                   }
@@ -129,6 +181,16 @@ export function AssetTimelineChart() {
                   strokeDasharray="4 4"
                   fillOpacity={0}
                 />
+                {showInflation && (
+                  <Area
+                    type="monotone"
+                    dataKey="inflated"
+                    stroke="#f97316"
+                    strokeWidth={1.5}
+                    strokeDasharray="6 3"
+                    fillOpacity={0}
+                  />
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </ChartContainer>
