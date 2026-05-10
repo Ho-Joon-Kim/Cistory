@@ -41,7 +41,7 @@ Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `y
 - **TypeScript 5** (strict mode)
 - **Better Auth** - Authentication (GitHub OAuth) with cookie-based sessions
 - **Drizzle ORM** - Type-safe PostgreSQL access via `pg.Pool` singleton (PostGIS-enabled PostgreSQL in production)
-- **Anthropic SDK** - Claude AI for commit summaries (`claude-sonnet-4-20250514`)
+- **Anthropic SDK** - Claude AI for commit summaries (`claude-sonnet-4-5`, set in `src/lib/adapters/ai/claude.ts`)
 - **shadcn/ui** + **Tailwind CSS v4** - UI components and styling
 - **Biome** - Linter and formatter (replaces ESLint + Prettier)
 - **node-cron** - Background sync within Next.js process
@@ -59,8 +59,10 @@ src/
 │   ├── api/                 # API routes (14 top-level groups, ~50+ endpoints)
 │   ├── dashboard/           # Main dashboard page
 │   ├── insights/            # Insights dashboard (places, transportation, residency, etc.)
+│   ├── portfolio/           # KIS brokerage portfolio page (top-level, not in (dashboard) group)
 │   └── report/              # Monthly/yearly report pages
 ├── components/              # Shared components (Layout/, ui/ with 19 shadcn components)
+├── hooks/                   # Top-level shared hooks (useCountUp)
 ├── db/
 │   ├── schema.ts            # Drizzle schema (16 app tables)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
@@ -79,8 +81,9 @@ src/
 │   ├── crypto.ts            # AES-GCM secret encryption for stored API credentials (KIS app key/secret)
 │   ├── data-usage.ts        # Data usage cache refresh utility
 │   ├── geo.ts               # Geospatial utilities (Haversine distance)
-│   ├── hooks/               # Shared React hooks (usePageVisible)
+│   ├── hooks/               # Shared React hooks (usePageVisible, useDebouncedValue, useNdjsonStream)
 │   ├── logger.ts            # Structured logging (Better Stack / console fallback)
+│   ├── subway-color.ts      # Shared subway line color helpers (used by map + insights UI)
 │   └── utils.ts             # Shared utilities (cn, generateId, now, formatRelativeTime, etc.)
 ├── modules/                 # Feature modules (hooks.ts, service.ts, components/)
 │   ├── auth/               # Auth hooks (useAuth, useUser)
@@ -100,6 +103,9 @@ instrumentation.ts           # (project root) Initializes Cron + Sentry on serve
 sentry.server.config.ts      # Sentry server config
 sentry.client.config.ts      # Sentry client config
 sentry.edge.config.ts        # Sentry edge config
+prompts/                     # External prompt assets (e.g. commit-system-prompt.txt for AI summaries)
+docs/                        # In-repo docs (currently `docs/portfolio` for KIS integration notes)
+scripts/                     # Operational scripts: `migrate.ts` (CI-safe Drizzle migrate), `refresh-subway.ts`, `calibrate-subway-matcher.ts`, `fix-standalone-instrumentation.mjs` (post-build patch for Next standalone output)
 ```
 
 ### Key Patterns
