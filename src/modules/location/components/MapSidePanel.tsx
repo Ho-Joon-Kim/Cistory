@@ -99,39 +99,49 @@ export function MapSidePanel({
     </>
   );
 
-  // Mobile: bottom sheet
+  // Mobile: icons in map corner, sheet fixed to viewport
   if (isMobile) {
     return (
-      <div className="absolute inset-0 pointer-events-none z-20">
-        {/* Icon bar at bottom-left */}
-        <div
-          ref={iconBarRef}
-          className="pointer-events-auto absolute bottom-14 left-3 flex flex-row gap-1.5"
-        >
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={`flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm transition-colors ${
-                activeTab === tab.id
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background/90 backdrop-blur text-muted-foreground border-border/50 hover:bg-accent"
-              }`}
-              onClick={() => handleTabClick(tab.id)}
-              title={tab.label}
-            >
-              {tab.icon}
-            </button>
-          ))}
+      <>
+        {/* Icon bar at top-left of map (consistent with desktop) */}
+        <div className="absolute inset-0 pointer-events-none z-20">
+          <div
+            ref={iconBarRef}
+            className="pointer-events-auto absolute top-3 left-3 flex flex-col gap-1.5"
+          >
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm transition-colors ${
+                  activeTab === tab.id
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background/90 backdrop-blur text-muted-foreground border-border/50 hover:bg-accent"
+                }`}
+                onClick={() => handleTabClick(tab.id)}
+                title={tab.label}
+              >
+                {tab.icon}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Bottom sheet */}
+        {/* Backdrop + bottom sheet rendered at viewport level (not clipped by map container) */}
+        {isOpen && (
+          <button
+            type="button"
+            aria-label="닫기"
+            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]"
+            onClick={handleClose}
+          />
+        )}
         <div
           ref={panelRef}
-          className={`pointer-events-auto absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t border-border/50 shadow-lg transition-transform duration-200 ease-out ${
-            isOpen ? "translate-y-0" : "translate-y-full"
+          className={`fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-t border-border/50 shadow-lg transition-transform duration-200 ease-out ${
+            isOpen ? "translate-y-0" : "translate-y-full pointer-events-none"
           }`}
-          style={{ maxHeight: "50vh" }}
+          style={{ maxHeight: "60vh" }}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
             <span className="text-xs font-medium text-muted-foreground">
@@ -145,11 +155,11 @@ export function MapSidePanel({
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="overflow-y-auto" style={{ maxHeight: "calc(50vh - 36px)" }}>
+          <div className="overflow-y-auto" style={{ maxHeight: "calc(60vh - 36px)" }}>
             {panelContent}
           </div>
         </div>
-      </div>
+      </>
     );
   }
 

@@ -1095,6 +1095,27 @@ body {
   }
 }
 
+/* Responsive: phone (smaller still) */
+@media (max-width: 640px) {
+  .stepper-bar {
+    padding: 2px 4px;
+  }
+
+  .stepper-bar-dot {
+    width: 8px;
+    height: 8px;
+    min-width: 8px;
+  }
+
+  .stepper-bar-track {
+    height: 10px;
+  }
+
+  .stepper-bar-ticks {
+    height: 10px;
+  }
+}
+
 /* ===== Saved Place Label (on map) ===== */
 
 .saved-place-label {

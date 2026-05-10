@@ -78,7 +78,7 @@ export function AccountHoldingsTable({ accounts, snapshots, positions }: Props) 
                 {open && sorted.length > 0 && (
                   <div className="px-4 pb-3">
                     <div className="overflow-x-auto rounded-md border">
-                      <table className="w-full text-sm">
+                      <table className="w-full min-w-[560px] text-sm whitespace-nowrap">
                         <thead className="bg-muted/50">
                           <tr className="text-xs text-muted-foreground">
                             <th className="text-left p-2 font-medium">종목</th>

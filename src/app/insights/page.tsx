@@ -113,7 +113,7 @@ function InsightsContent() {
 
         <main className="container mx-auto px-4 py-6">
           {/* Year selector */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <h1 className="text-2xl font-bold">인사이트</h1>
             <div className="flex items-center gap-2">
               <Button
@@ -144,11 +144,11 @@ function InsightsContent() {
 
             {/* CODING — AI clock + Work pattern */}
             <SectionDivider label="코딩" tone="primary" />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <AIClockCard data={aiClock.data} isLoading={aiClock.isLoading} />
               <WorkPatternCard data={patterns.data} isLoading={patterns.isLoading} />
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <RepoSplitCard data={repoSplit.data} isLoading={repoSplit.isLoading} />
               <StreakGamification data={streaks.data} isLoading={streaks.isLoading} year={year} />
             </div>
@@ -162,31 +162,31 @@ function InsightsContent() {
 
             {/* LOCATION — visits, transport, trips */}
             <SectionDivider label="위치 · 이동" tone="primary" />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <PlaceProductivityCard
                 data={placeProductivity.data}
                 isLoading={placeProductivity.isLoading}
               />
               <VisitsXCommitsCard data={visitsXCommits.data} isLoading={visitsXCommits.isLoading} />
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <TransportModeCard data={transport.data} isLoading={transport.isLoading} />
               <SubwayInsightsCard data={subway.data} isLoading={subway.isLoading} />
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <CommuteReliabilityCard data={commute.data} isLoading={commute.isLoading} />
               <TripsCard data={trips.data} isLoading={trips.isLoading} year={year} />
             </div>
 
             {/* SPENDING + META */}
             <SectionDivider label="소비 · 메타" tone="primary" />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <NetSpendCard data={netSpend.data} isLoading={netSpend.isLoading} />
               <DataUsageCard data={dataUsage.data} isLoading={dataUsage.isLoading} />
             </div>
 
             {/* DISCOVERIES + ROUTINE — narrative pair */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <DiscoveriesCard data={discoveries.data} isLoading={discoveries.isLoading} />
               <RoutineDiscovery data={routines.data} isLoading={routines.isLoading} />
             </div>

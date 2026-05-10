@@ -95,7 +95,7 @@ export function TossNotificationSettings({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 rounded bg-muted text-sm font-mono break-all">
+                  <code className="flex-1 min-w-0 p-2 rounded bg-muted text-xs sm:text-sm font-mono break-all">
                     {newKey}
                   </code>
                   <Button variant="outline" size="icon" onClick={() => handleCopy(newKey)}>
@@ -105,7 +105,7 @@ export function TossNotificationSettings({
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <code className="flex-1 p-2 rounded bg-muted text-sm font-mono text-muted-foreground">
+                <code className="flex-1 min-w-0 p-2 rounded bg-muted text-xs sm:text-sm font-mono text-muted-foreground break-all">
                   toss_••••••••••••••••••••••••••••••••
                 </code>
               </div>
@@ -142,12 +142,12 @@ export function TossNotificationSettings({
             <p className="text-xs text-muted-foreground">
               설정하면 이 이름으로 송금받은 내역(자기 계좌 간 이체)이 소비 집계에서 제외됩니다.
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
               <Input
                 value={myName}
                 onChange={(e) => setMyName(e.target.value)}
                 placeholder="예: 홍길동"
-                className="h-8 text-sm max-w-[200px]"
+                className="h-8 text-sm w-full sm:max-w-[240px]"
               />
               <Button
                 variant="outline"

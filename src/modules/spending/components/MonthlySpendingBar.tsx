@@ -28,7 +28,8 @@ function formatManwon(value: number): string {
 
 export function MonthlySpendingBar({ data }: MonthlySpendingBarProps) {
   return (
-    <ResponsiveContainer width="100%" height={200}>
+    <div className="h-[160px] md:h-[200px] w-full">
+    <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
         <XAxis
@@ -73,5 +74,6 @@ export function MonthlySpendingBar({ data }: MonthlySpendingBarProps) {
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+    </div>
   );
 }

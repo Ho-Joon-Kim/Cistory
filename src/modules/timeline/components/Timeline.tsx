@@ -190,7 +190,7 @@ const DateGroupSection = memo(function DateGroupSection({
         <button
           type="button"
           className={`
-            stepper-dot absolute left-1 md:left-3 flex items-center justify-center w-6 h-6
+            stepper-dot absolute left-1 sm:left-2 md:left-3 flex items-center justify-center w-6 h-6
           `}
           onClick={() => onSelectDate(date)}
           aria-label={`${label} 선택`}
@@ -209,7 +209,7 @@ const DateGroupSection = memo(function DateGroupSection({
 
         <button
           type="button"
-          className="ml-10 md:ml-14 flex items-center gap-2 cursor-pointer bg-transparent border-0 text-left"
+          className="ml-10 sm:ml-12 md:ml-14 flex items-center gap-2 cursor-pointer bg-transparent border-0 text-left"
           onClick={() => onSelectDate(date)}
           aria-label={`${label} 선택`}
         >
@@ -257,7 +257,7 @@ const DateGroupSection = memo(function DateGroupSection({
       </div>
 
       {/* Content */}
-      <div className="ml-10 md:ml-14">
+      <div className="ml-10 sm:ml-12 md:ml-14">
         {/* Selected date: unified timeline */}
         {isSelected && unifiedEventGroups && (
           <div className="space-y-1">
@@ -281,7 +281,7 @@ const DateGroupSection = memo(function DateGroupSection({
                             key={`commit-${event.data.id}`}
                             className="relative commit-card-stagger"
                           >
-                            <div className="timeline-tick absolute -left-[23px] md:-left-[31px] top-1/2 -translate-y-1/2" />
+                            <div className="timeline-tick absolute -left-[23px] sm:-left-[27px] md:-left-[31px] top-1/2 -translate-y-1/2" />
                             <CommitCard
                               commit={event.data}
                               isNew={newCommitIds.has(event.data.id)}

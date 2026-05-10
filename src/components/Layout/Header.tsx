@@ -46,7 +46,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
             }`}
           >
             <Wallet className="h-4 w-4" />
-            <span className="hidden sm:inline">소비</span>
+            <span className="hidden lg:inline">소비</span>
           </Link>
           <Link
             href="/portfolio"
@@ -57,7 +57,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
             }`}
           >
             <PieChart className="h-4 w-4" />
-            <span className="hidden sm:inline">포트폴리오</span>
+            <span className="hidden lg:inline">포트폴리오</span>
           </Link>
           <Link
             href="/insights"
@@ -68,18 +68,18 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
             }`}
           >
             <Lightbulb className="h-4 w-4" />
-            <span className="hidden sm:inline">인사이트</span>
+            <span className="hidden lg:inline">인사이트</span>
           </Link>
           <Link
             href={isReportPage ? "/" : "/report"}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <BarChart3 className="h-4 w-4" />
-            <span className="hidden sm:inline">{isReportPage ? "타임라인" : "보고서"}</span>
+            <span className="hidden lg:inline">{isReportPage ? "타임라인" : "보고서"}</span>
           </Link>
           {showSync && (
             <>
-              <div className="hidden sm:block">
+              <div className="hidden lg:block">
                 <SyncStatus />
               </div>
               <SyncButton size="icon" variant="ghost" onSyncStarted={onSyncStarted} />

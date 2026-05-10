@@ -313,7 +313,7 @@ function ReportContent() {
                     <div className="lg:col-span-2">
                       <Card>
                         <CardContent className="pt-4">
-                          <div className="h-[400px]">
+                          <div className="h-[300px] md:h-[400px]">
                             <ScratchMap regions={scratchMap.data.regions} />
                           </div>
                         </CardContent>
@@ -380,7 +380,7 @@ function ReportPeriodSelector({
   onNavigate: (direction: -1 | 1) => void;
 }) {
   return (
-    <div className="flex items-center justify-between mb-6">
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
       <div className="flex items-center gap-2">
         <Button
           variant={reportType === "monthly" ? "default" : "outline"}
@@ -405,7 +405,7 @@ function ReportPeriodSelector({
         <Button variant="ghost" size="icon" onClick={() => onNavigate(-1)}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="font-medium text-sm min-w-[100px] text-center">{periodLabel}</span>
+        <span className="font-medium text-sm min-w-[80px] sm:min-w-[100px] text-center">{periodLabel}</span>
         <Button variant="ghost" size="icon" onClick={() => onNavigate(1)}>
           <ChevronRight className="h-4 w-4" />
         </Button>
@@ -439,7 +439,7 @@ function CommitsSection({
       )}
 
       <Section title="커밋 활동">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {commitsData.dailyCommits.length > 0 && (
             <ChartCard title="일별 커밋">
               <CommitChart dailyCommits={commitsData.dailyCommits} />
@@ -493,7 +493,7 @@ function CodingSection({
 
   return (
     <Section title="코딩 활동">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {codingData.dailyCodingSeconds.length > 0 && (
           <ChartCard title="일별 코딩 시간">
             <CodingTimeChart dailyCodingSeconds={codingData.dailyCodingSeconds} />
@@ -515,7 +515,7 @@ function CodingSection({
         )}
       </div>
       {enrichedData && (
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
           {enrichedData.deepWorkStats?.totalSessions > 0 && (
             <DeepWorkCard
               sessions={enrichedData.deepWorkSessions}
@@ -566,7 +566,7 @@ function LocationSection({
 
   return (
     <Section title="이동/생활">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {locationData.dailyDistances.length > 0 && (
           <ChartCard title="일별 이동거리">
             <DistanceChart dailyDistances={locationData.dailyDistances} />
@@ -574,7 +574,7 @@ function LocationSection({
         )}
         {locationData.locationHeatmapPoints.length > 0 && (
           <ChartCard title="활동 히트맵 지도">
-            <div className="h-[300px]">
+            <div className="h-[240px] md:h-[300px]">
               <LocationHeatmap
                 points={locationData.locationHeatmapPoints}
                 className="h-full w-full"
@@ -600,7 +600,7 @@ function LocationSection({
         <div className="mt-6 space-y-6">
           <OverseasTripCards trips={locationData.overseasTrips} />
           <ChartCard title="해외여행 지도">
-            <div className="h-[400px]">
+            <div className="h-[300px] md:h-[400px]">
               <TravelMap
                 trips={locationData.overseasTrips}
                 topPlaces={locationData.topPlaces}
@@ -705,7 +705,7 @@ function SectionSkeleton({ title }: { title: string }) {
   return (
     <section>
       <h2 className="text-lg font-semibold mb-4">{title}</h2>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardContent className="pt-4">
             <Skeleton className="h-4 w-24 mb-3" />

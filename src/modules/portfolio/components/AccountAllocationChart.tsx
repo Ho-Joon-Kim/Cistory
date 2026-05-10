@@ -40,7 +40,7 @@ export function AccountAllocationChart({ accounts }: Props) {
         ) : (
           <div className="flex items-center gap-4">
             <div className="flex-shrink-0">
-              <ChartContainer config={{}} className="h-[160px] w-[160px]">
+              <ChartContainer config={{}} className="h-[140px] w-[140px] md:h-[160px] md:w-[160px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <ChartTooltip

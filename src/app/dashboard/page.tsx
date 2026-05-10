@@ -142,7 +142,7 @@ function DashboardContent() {
           ) : (
             <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
               {/* Map */}
-              <div className="shrink-0 h-[250px] lg:h-auto lg:flex-1 rounded-lg overflow-hidden border">
+              <div className="flex-[2] min-h-0 lg:flex-1 rounded-lg overflow-hidden border">
                 <LocationMap
                   date={selectedDate}
                   className="h-full w-full"
@@ -151,7 +151,7 @@ function DashboardContent() {
               </div>
 
               {/* Timeline (only scrollable area) */}
-              <div className="flex-1 overflow-y-auto overscroll-contain lg:flex-1 pl-3 pt-3 timeline-scroll-container">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain lg:flex-1 pt-3 lg:pl-3 timeline-scroll-container">
                 <Timeline
                   commits={commits}
                   isLoading={isLoading}

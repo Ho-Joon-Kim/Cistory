@@ -61,8 +61,8 @@ export function RouteReplayController({
   );
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-2">
-      <div className="bg-background/90 backdrop-blur rounded-lg border shadow-sm px-3 py-2 flex items-center gap-2">
+    <div className="absolute bottom-0 left-0 right-0 z-10 px-2 sm:px-3 pb-2">
+      <div className="bg-background/90 backdrop-blur rounded-lg border shadow-sm px-2 sm:px-3 py-2 flex items-center gap-1.5 sm:gap-2">
         {/* Play/Pause */}
         <button
           type="button"
