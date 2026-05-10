@@ -104,7 +104,7 @@ function PortfolioContent() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <PortfolioOverviewCard
                   totalEval={summary.totals?.totalEvalAmount ?? 0}
                   deposit={summary.totals?.totalDeposit ?? 0}
@@ -120,7 +120,7 @@ function PortfolioContent() {
 
               <AssetTimelineChart />
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <HoldingWeightList positions={summary.positions} />
                 <CategoryBreakdown positions={summary.positions} />
               </div>

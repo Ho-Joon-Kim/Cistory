@@ -74,7 +74,7 @@ export function SettingsForm() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* 현재 연결 상태 */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-full bg-muted">
                 <Github className="h-5 w-5" />
@@ -84,14 +84,14 @@ export function SettingsForm() {
                 <p className="text-sm text-muted-foreground">GitHub 계정</p>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={handleReconnectGithub}>
+            <Button variant="outline" size="sm" onClick={handleReconnectGithub} className="self-start sm:self-auto">
               <RefreshCw className="h-4 w-4 mr-2" />
               재연결
             </Button>
           </div>
 
           {/* 동기화 간격 */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-0.5">
               <Label>동기화 간격</Label>
               <p className="text-sm text-muted-foreground">자동 동기화 실행 간격</p>
@@ -101,7 +101,7 @@ export function SettingsForm() {
               onValueChange={handleSyncIntervalChange}
               disabled={isSaving}
             >
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-full sm:w-[140px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

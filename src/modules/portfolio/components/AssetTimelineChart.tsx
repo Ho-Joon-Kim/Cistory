@@ -71,7 +71,7 @@ export function AssetTimelineChart() {
             스냅샷 데이터가 아직 없습니다
           </div>
         ) : (
-          <ChartContainer config={{}} className="h-[260px] w-full">
+          <ChartContainer config={{}} className="h-[200px] md:h-[260px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>

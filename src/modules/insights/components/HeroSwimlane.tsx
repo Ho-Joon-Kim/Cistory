@@ -50,7 +50,7 @@ export function HeroSwimlane({ data, isLoading, year }: HeroSwimlaneProps) {
       className="lg:col-span-2"
     >
       <Swimlane streams={streams} year={year} height={200} />
-      <div className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-4 pt-4 border-t border-hairline">
+      <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-hairline">
         <Stat label="활동일" value={activeDays} suffix="일" tone="green" glow size="sm" />
         <Stat label="커밋" value={totalCommits.toLocaleString()} tone="green" glow size="sm" />
         <Stat
