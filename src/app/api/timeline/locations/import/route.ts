@@ -1,16 +1,25 @@
 /**
- * Location Data Import API (SSE Streaming)
+ * Location Data Import API (HTTPS polling)
  *
  * POST /api/timeline/locations/import
- * Accepts multipart/form-data with a file (GPX, GeoJSON, Google Takeout JSON).
- * Returns SSE stream with parsing and insertion progress.
+ *   Accepts multipart/form-data with a file (GPX, GeoJSON, Google Takeout JSON,
+ *   optionally gzipped). Spools the upload to a temp file, returns
+ *   `{ jobId }` immediately, then continues parsing/inserting in the background.
  *
- * Memory peak is bounded by streaming JSON parsing for Google Takeout (the
- * common large case): file bytes flow through busboy → stream-json → batched
- * INSERTs without ever materializing the full document. GPX/GeoJSON files
- * (typically small) are still buffered to a string.
+ * GET  /api/timeline/locations/import?jobId=...
+ *   Returns the current `ImportProgress` for the given job (must belong to the
+ *   authenticated user).
+ *
+ * SSE was replaced with polling because Cloudflare cuts long-lived responses
+ * once data stops flowing — a 17MB Phone Takeout import spends ~2 min in
+ * batched INSERTs with little visible byte output, which Cloudflare treats as
+ * idle. Polling keeps every HTTP exchange short.
  */
 
+import { createReadStream, createWriteStream } from "node:fs";
+import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Readable } from "node:stream";
 import { createGunzip } from "node:zlib";
 import Busboy from "busboy";
@@ -24,16 +33,15 @@ import {
 } from "@/modules/location/services/import/google-takeout-parser";
 import { parseGpx } from "@/modules/location/services/import/gpx-parser";
 import { type ImportProgress, importPoints } from "@/modules/location/services/import/importer";
+import { createJob, getJob, updateJob } from "@/modules/location/services/import/job-store";
 import type { ParsedPoint } from "@/modules/location/services/import/types";
 
-// Hard cap as defense-in-depth. With streaming Google Takeout import the
-// effective memory peak no longer scales with file size, but we still cap
-// the upload to protect bandwidth + disk and to bound buffered GPX/GeoJSON.
+// Hard cap as defense-in-depth. Bounds disk usage of the spooled temp file
+// and the bandwidth a single client can push.
 const MAX_FILE_SIZE_MB = Number(process.env.IMPORT_MAX_FILE_SIZE_MB ?? "500");
 const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-// Bytes sniffed from the file head for format auto-detection. Enough for the
-// JSON envelope (`{"locations":[...]}` etc.) and the GPX `<?xml ...><gpx`.
+// Bytes sniffed from the file head for format auto-detection.
 const SNIFF_BYTES = 4096;
 
 export async function POST(request: NextRequest) {
@@ -70,343 +78,289 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "요청 본문이 없습니다" }, { status: 400 });
   }
 
-  console.log(`[import:${reqId}] starting SSE stream for user ${user.id}`);
+  let upload: SpooledUpload;
+  try {
+    upload = await spoolUpload({
+      reqId,
+      contentType,
+      body: request.body as ReadableStream<Uint8Array>,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log(`[import:${reqId}] spool failed: ${msg}`);
+    if (msg.includes("파일 크기")) {
+      return NextResponse.json({ error: msg }, { status: 413 });
+    }
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
 
-  const encoder = new TextEncoder();
-  const sse = new ReadableStream({
-    async start(controller) {
-      let closed = false;
-      const send = (data: ImportProgress) => {
-        // Trace every phase transition to disambiguate "runImport done" —
-        // we want to know which SSE event actually fired (parsing, error,
-        // done, ...) and with what payload.
-        const summary = {
-          phase: data.phase,
-          format: data.format,
-          totalParsed: data.totalParsed,
-          inserted: data.inserted,
-          duplicates: data.duplicates,
-          batchIndex: data.batchIndex,
-          error: data.error,
-        };
-        console.log(`[import:${reqId}] send`, summary);
-        // The client may abort the SSE stream while we're still processing
-        // (closes the tab, navigates away, fetch AbortController). After
-        // abort the controller is closed and `enqueue` throws
-        // ERR_INVALID_STATE. Server-side INSERT work continues regardless;
-        // we just stop emitting progress.
-        if (closed) return;
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-        } catch (e) {
-          closed = true;
-          console.log(`[import:${reqId}] sse closed by client, dropping further events`, {
-            code: (e as NodeJS.ErrnoException).code,
-          });
-        }
-      };
+  const jobId = createJob(user.id);
+  console.log(`[import:${reqId}] spooled ${upload.bytes}B → ${upload.tmpPath}, jobId=${jobId}`);
 
-      // Flush an initial SSE comment so the client + any intermediate proxy
-      // commits to the response immediately. Without this, a 30s+ delay
-      // between handler entry and the first real event can land as
-      // ERR_CONNECTION_CLOSED on the browser side.
-      controller.enqueue(encoder.encode(`: connected\n\n`));
+  // Fire and forget. processImport handles its own errors by updating the job
+  // store; we never want to leave a jobId without a terminal state.
+  void processImport({ reqId, jobId, userId: user.id, upload });
 
-      // Keep-alive comment ping every 30s. Cloudflare aborts the response
-      // after ~100s without any bytes flowing — a 17MB Phone Takeout
-      // import takes ~2 min, and stream-json can spend tens of seconds in
-      // a single batch when a long stretch is fully duplicate (every
-      // INSERT returns 0 inserts but the JSON parser still scans). The
-      // ping keeps the connection alive without affecting the data stream
-      // (clients ignore SSE comments).
-      const keepAlive = setInterval(() => {
-        if (closed) return;
-        try {
-          controller.enqueue(encoder.encode(`: ping\n\n`));
-        } catch {
-          closed = true;
-        }
-      }, 30_000);
-
-      try {
-        console.log(`[import:${reqId}] runImport begin`);
-        await runImport({
-          userId: user.id,
-          contentType,
-          body: request.body as ReadableStream<Uint8Array>,
-          send,
-        });
-        console.log(`[import:${reqId}] runImport done`);
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        console.error(`[import:${reqId}] runImport threw:`, error);
-        send({ phase: "error", error: `임포트 실패: ${errMsg}` });
-      } finally {
-        clearInterval(keepAlive);
-        try {
-          controller.close();
-        } catch {
-          // already closed by client abort
-        }
-      }
-    },
-  });
-
-  return new Response(sse, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  return NextResponse.json({ jobId });
 }
 
-interface RunImportArgs {
-  userId: string;
+export async function GET(request: NextRequest) {
+  const { user, error: authError } = await getAuthenticatedUser(request);
+  if (authError) return authError;
+
+  const jobId = new URL(request.url).searchParams.get("jobId");
+  if (!jobId) {
+    return NextResponse.json({ error: "jobId가 필요합니다" }, { status: 400 });
+  }
+
+  const job = getJob(jobId, user.id);
+  if (!job) {
+    return NextResponse.json({ error: "작업을 찾을 수 없습니다" }, { status: 404 });
+  }
+
+  return NextResponse.json(job.progress);
+}
+
+interface SpoolArgs {
+  reqId: string;
   contentType: string;
   body: ReadableStream<Uint8Array>;
-  send: (data: ImportProgress) => void;
+}
+
+interface SpooledUpload {
+  tmpPath: string;
+  fileName: string;
+  bytes: number;
 }
 
 /**
- * Pipe the request body through busboy, locate the `file` field, and dispatch
- * to the format-specific parser. Resolves once the import completes (success
- * or error already sent via `send`).
+ * Receive the multipart body, find the `file` field, and stream it to a temp
+ * file. Resolves once the upload is fully on disk so the response can return
+ * synchronously. Memory peak is bounded by busboy's internal buffering plus
+ * the OS write buffer — no full materialization of the file in JS memory.
  */
-async function runImport({ userId, contentType, body, send }: RunImportArgs): Promise<void> {
-  const trace = (msg: string, extra?: unknown) => {
-    console.log(`[import:run] ${msg}`, extra ?? "");
-  };
-  trace("entering runImport");
+function spoolUpload({ reqId, contentType, body }: SpoolArgs): Promise<SpooledUpload> {
+  return new Promise((resolve, reject) => {
+    const bb = Busboy({
+      headers: { "content-type": contentType },
+      limits: { fileSize: MAX_FILE_SIZE, files: 1 },
+    });
 
-  const bb = Busboy({
-    headers: { "content-type": contentType },
-    limits: { fileSize: MAX_FILE_SIZE, files: 1 },
-  });
-
-  const nodeBody = Readable.fromWeb(body as unknown as import("node:stream/web").ReadableStream);
-
-  // Race a single file event vs. the body finishing without one.
-  const filePromise = new Promise<{ name: string; stream: Readable }>((resolve, reject) => {
+    let settled = false;
     let handled = false;
+    let tmpPath: string | null = null;
+    let writeStream: ReturnType<typeof createWriteStream> | null = null;
+    let bytes = 0;
+    let fileName = "upload";
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
+    const cleanupOnFail = async () => {
+      if (writeStream && !writeStream.closed) writeStream.destroy();
+      if (tmpPath) {
+        try {
+          await unlink(tmpPath);
+        } catch {
+          // best effort
+        }
+      }
+    };
+
     bb.on("file", (_field, fileStream, info) => {
       handled = true;
-      trace("busboy:file", { filename: info.filename, mimeType: info.mimeType });
-      resolve({ name: info.filename ?? "upload", stream: fileStream });
+      fileName = info.filename ?? "upload";
+      const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      tmpPath = join(tmpdir(), `cistory-import-${reqId}-${Date.now()}-${safeName}`);
+      writeStream = createWriteStream(tmpPath);
+
+      fileStream.on("limit", () => {
+        finish(() => {
+          void cleanupOnFail().then(() =>
+            reject(new Error(`파일 크기는 ${MAX_FILE_SIZE_MB}MB 이하여야 합니다`))
+          );
+        });
+      });
+
+      fileStream.on("data", (chunk: Buffer) => {
+        bytes += chunk.length;
+      });
+
+      fileStream.on("error", (e) => {
+        finish(() => {
+          void cleanupOnFail().then(() => reject(e));
+        });
+      });
+
+      writeStream.on("error", (e) => {
+        finish(() => {
+          void cleanupOnFail().then(() => reject(e));
+        });
+      });
+
+      writeStream.on("finish", () => {
+        finish(() => {
+          if (!tmpPath) {
+            reject(new Error("temp 파일 생성 실패"));
+            return;
+          }
+          resolve({ tmpPath, fileName, bytes });
+        });
+      });
+
+      fileStream.pipe(writeStream);
     });
+
     bb.on("close", () => {
-      trace("busboy:close", { handled });
-      if (!handled) reject(new Error("file 필드가 필요합니다"));
+      if (handled) return;
+      finish(() => reject(new Error("file 필드가 필요합니다")));
     });
+
     bb.on("error", (e) => {
-      trace("busboy:error", { message: (e as Error).message });
-      reject(e);
+      finish(() => {
+        void cleanupOnFail().then(() => reject(e));
+      });
     });
+
+    const nodeBody = Readable.fromWeb(body as unknown as import("node:stream/web").ReadableStream);
     nodeBody.on("error", (e) => {
-      trace("nodeBody:error", { message: (e as Error).message });
-      reject(e);
+      finish(() => {
+        void cleanupOnFail().then(() => reject(e));
+      });
     });
-    nodeBody.on("end", () => trace("nodeBody:end"));
-    nodeBody.on("close", () => trace("nodeBody:close"));
-  });
-
-  nodeBody.pipe(bb);
-
-  const { name: fileName, stream: fileStream } = await filePromise;
-  trace("got file", { fileName });
-
-  // The streaming JSON pipeline (stream-json) calls `destroy()` in its
-  // finally block as soon as it has yielded all top-level array elements
-  // it cares about. That destroy propagates upstream — through the busboy
-  // file stream and (if gzipped) the gunzip transform — emitting `error`
-  // events with code ABORT_ERR / ERR_STREAM_PREMATURE_CLOSE. Without
-  // explicit listeners these escalate to uncaughtException and crash the
-  // Node process. The data import itself has already finished successfully
-  // at that point, so we swallow these specific codes everywhere the
-  // upstream chain touches.
-  const isBenignAbort = (e: NodeJS.ErrnoException): boolean =>
-    e.code === "ABORT_ERR" || e.code === "ERR_STREAM_PREMATURE_CLOSE";
-
-  // busboy emits 'limit' on the file stream when fileSize is exceeded; we
-  // surface that here too so the user sees a clean error instead of a
-  // truncated parse. Attach this on the raw fileStream regardless of gzip,
-  // because the limit applies to compressed bytes.
-  fileStream.on("limit", () => {
-    fileStream.unpipe?.();
-  });
-  fileStream.on("error", (e: NodeJS.ErrnoException) => {
-    if (isBenignAbort(e)) return;
-    console.error("[import] fileStream error:", e);
-  });
-
-  // Gzip support: users on Cloudflare can hit the 100MB body limit with raw
-  // Google Takeout JSON. Uploading `Records.json.gz` (~10x smaller) and
-  // gunzipping here lets the existing streaming pipeline run unchanged.
-  const isGzipped = fileName.toLowerCase().endsWith(".gz");
-  trace("gzip?", { isGzipped });
-  let decoded: Readable = fileStream;
-  if (isGzipped) {
-    const gunzip = createGunzip();
-    fileStream.pipe(gunzip);
-    gunzip.on("error", (e: NodeJS.ErrnoException) => {
-      if (isBenignAbort(e)) return;
-      console.error("[import] gunzip error:", e);
-    });
-    decoded = gunzip;
-  }
-
-  // Sniff a prefix to decide format, then re-prepend it before handing the
-  // remainder to the parser. We can't peek-then-rewind a Node Readable.
-  const { prefix, prefixedStream, fileTooLarge } = await sniffPrefix(decoded, SNIFF_BYTES);
-  trace("sniff done", {
-    prefixBytes: prefix.length,
-    fileTooLarge,
-    prefixHead: prefix.subarray(0, 64).toString("utf-8").replace(/\s+/g, " "),
-  });
-  prefixedStream.on("error", (e: NodeJS.ErrnoException) => {
-    if (isBenignAbort(e)) return;
-    console.error("[import] prefixedStream error:", e);
-  });
-
-  // Strip a trailing `.gz` so detectFormat sees the inner extension
-  // (e.g. Records.json.gz → Records.json).
-  const sniffName = fileName.replace(/\.gz$/i, "");
-  const detected = detectFormat(sniffName, prefix.toString("utf-8"));
-  trace("format detected", { sniffName, detected });
-
-  if (detected === "unknown") {
-    // Drain the rest so the request finishes cleanly.
-    prefixedStream.resume();
-    send({
-      phase: "error",
-      error: "지원하지 않는 파일 형식입니다. GPX, GeoJSON, Google Takeout JSON을 사용하세요.",
-    });
-    return;
-  }
-
-  send({ phase: "parsing", progress: 0, totalParsed: 0, format: detected });
-
-  let pointSource: ParsedPoint[] | AsyncIterable<ParsedPoint>;
-
-  if (detected === "google-records" || detected === "google-phone-takeout") {
-    // Stream — no full materialization.
-    pointSource = streamGoogleTakeout(prefixedStream);
-  } else {
-    // GPX / GeoJSON: small files, buffer to text and use existing parsers.
-    const text = await readAllToString(prefixedStream);
-    if (detected === "gpx") {
-      pointSource = parseGpx(text);
-    } else if (detected === "geojson") {
-      pointSource = parseGeoJson(JSON.parse(text));
-    } else {
-      // Includes any future ImportFormat we forgot to wire up.
-      pointSource = parseGoogleTakeout(JSON.parse(text));
-    }
-  }
-
-  if (fileTooLarge) {
-    send({ phase: "error", error: `파일 크기는 ${MAX_FILE_SIZE_MB}MB 이하여야 합니다` });
-    return;
-  }
-
-  trace("calling importPoints", { detected });
-  const result = await importPoints(userId, pointSource, (progress) => {
-    send({ ...progress, format: detected });
-  });
-  trace("importPoints returned", result);
-
-  if (result.totalParsed === 0) {
-    send({ phase: "error", error: "파일에서 위치 데이터를 찾을 수 없습니다" });
-    return;
-  }
-
-  send({
-    phase: "done",
-    totalParsed: result.totalParsed,
-    inserted: result.imported,
-    duplicates: result.duplicates,
-    dateRange: result.dateRange,
-    format: detected,
-    progress: 100,
+    nodeBody.pipe(bb);
   });
 }
 
+interface ProcessArgs {
+  reqId: string;
+  jobId: string;
+  userId: string;
+  upload: SpooledUpload;
+}
+
 /**
- * Read up to `bytes` from `src` without consuming it via `for await`. Using
- * the async iterator and breaking out of the loop calls the iterator's
- * `return()`, which destroys the underlying stream — fatal for Transform
- * streams like `zlib.createGunzip()`. We instead listen to `data`/`end`
- * directly, pause the source as soon as we have enough, and stitch the
- * captured prefix back onto the live tail with `unshift()`.
+ * Background processor. Reads the spooled file, gunzips if needed, detects
+ * format, parses, and feeds points into `importPoints`. Progress updates are
+ * written to the in-memory job store for the GET endpoint to surface.
+ *
+ * Errors are caught and surfaced as `phase: "error"` so the client always
+ * sees a terminal state; throwing would orphan the jobId.
  */
-function sniffPrefix(
-  src: Readable,
-  bytes: number
-): Promise<{ prefix: Buffer; prefixedStream: Readable; fileTooLarge: boolean }> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let total = 0;
-    let fileTooLarge = false;
-    let settled = false;
+async function processImport({ reqId, jobId, userId, upload }: ProcessArgs): Promise<void> {
+  const trace = (msg: string, extra?: unknown) => {
+    console.log(`[import:${reqId}:${jobId.slice(0, 8)}] ${msg}`, extra ?? "");
+  };
 
-    const onLimit = () => {
-      fileTooLarge = true;
-    };
-    src.on("limit", onLimit);
+  try {
+    trace("processing start", { fileName: upload.fileName, bytes: upload.bytes });
 
-    const cleanup = () => {
-      src.off("data", onData);
-      src.off("end", onEnd);
-      src.off("error", onError);
-    };
+    const isGzipped = upload.fileName.toLowerCase().endsWith(".gz");
+    const sniffName = upload.fileName.replace(/\.gz$/i, "");
 
-    const onData = (chunk: Buffer | string) => {
-      if (settled) return;
+    // Two reads: one for the sniff (small, gunzipped if needed), one for the
+    // full parse. Reading from a local temp file twice is cheap; piping
+    // through gunzip a second time is also cheap, and avoids the contortions
+    // the previous SSE flow needed to "peek then rewind" a single stream.
+    const prefixBuf = await readSniffPrefix(upload.tmpPath, isGzipped);
+    const detected = detectFormat(sniffName, prefixBuf.toString("utf-8"));
+    trace("format detected", { sniffName, detected });
+
+    if (detected === "unknown") {
+      updateJob(jobId, {
+        phase: "error",
+        error: "지원하지 않는 파일 형식입니다. GPX, GeoJSON, Google Takeout JSON을 사용하세요.",
+      });
+      return;
+    }
+
+    updateJob(jobId, { phase: "parsing", progress: 0, totalParsed: 0, format: detected });
+
+    const fullStream = openDecoded(upload.tmpPath, isGzipped);
+
+    let pointSource: ParsedPoint[] | AsyncIterable<ParsedPoint>;
+    if (detected === "google-records" || detected === "google-phone-takeout") {
+      pointSource = streamGoogleTakeout(fullStream);
+    } else {
+      const text = await readAllToString(fullStream);
+      if (detected === "gpx") {
+        pointSource = parseGpx(text);
+      } else if (detected === "geojson") {
+        pointSource = parseGeoJson(JSON.parse(text));
+      } else {
+        pointSource = parseGoogleTakeout(JSON.parse(text));
+      }
+    }
+
+    trace("calling importPoints");
+    const result = await importPoints(userId, pointSource, (progress) => {
+      updateJob(jobId, { ...progress, format: detected });
+    });
+    trace("importPoints returned", result);
+
+    if (result.totalParsed === 0) {
+      updateJob(jobId, { phase: "error", error: "파일에서 위치 데이터를 찾을 수 없습니다" });
+      return;
+    }
+
+    updateJob(jobId, {
+      phase: "done",
+      totalParsed: result.totalParsed,
+      inserted: result.imported,
+      duplicates: result.duplicates,
+      dateRange: result.dateRange,
+      format: detected,
+      progress: 100,
+    });
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[import:${reqId}:${jobId.slice(0, 8)}] processing threw:`, error);
+    updateJob(jobId, { phase: "error", error: `임포트 실패: ${errMsg}` } satisfies ImportProgress);
+  } finally {
+    try {
+      await unlink(upload.tmpPath);
+    } catch (e) {
+      console.warn(`[import:${reqId}:${jobId.slice(0, 8)}] temp cleanup failed`, e);
+    }
+  }
+}
+
+function openDecoded(tmpPath: string, isGzipped: boolean): Readable {
+  const raw = createReadStream(tmpPath);
+  if (!isGzipped) return raw;
+  const gunzip = createGunzip();
+  // Suppress the benign ABORT_ERR / ERR_STREAM_PREMATURE_CLOSE that
+  // stream-json's destroy() can propagate upstream after it has yielded its
+  // last element. The actual import is already complete at that point.
+  const benign = (e: NodeJS.ErrnoException) =>
+    e.code === "ABORT_ERR" || e.code === "ERR_STREAM_PREMATURE_CLOSE";
+  raw.on("error", (e: NodeJS.ErrnoException) => {
+    if (!benign(e)) console.error("[import] read stream error:", e);
+  });
+  gunzip.on("error", (e: NodeJS.ErrnoException) => {
+    if (!benign(e)) console.error("[import] gunzip error:", e);
+  });
+  return raw.pipe(gunzip);
+}
+
+async function readSniffPrefix(tmpPath: string, isGzipped: boolean): Promise<Buffer> {
+  const src = openDecoded(tmpPath, isGzipped);
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for await (const chunk of src) {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       chunks.push(buf);
       total += buf.length;
-      if (total < bytes) return;
-
-      // Got enough. Pause the source and unshift everything we consumed
-      // back onto its read buffer so downstream consumers see the full
-      // content unchanged — including the prefix bytes we sniffed.
-      settled = true;
-      src.pause();
-      const all = Buffer.concat(chunks);
-      const prefix = all.subarray(0, bytes);
-      if (all.length > 0) src.unshift(all);
-      cleanup();
-      resolve({ prefix, prefixedStream: src, fileTooLarge });
-    };
-
-    const onEnd = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      // Source ended before reaching `bytes` — return what we have. The
-      // prefixedStream is already at EOF; downstream parsers will simply
-      // see no more data after replaying the captured prefix.
-      const prefix = Buffer.concat(chunks);
-      const replay = new Readable({
-        read() {
-          this.push(prefix);
-          this.push(null);
-        },
-      });
-      resolve({ prefix, prefixedStream: replay, fileTooLarge });
-    };
-
-    const onError = (e: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(e);
-    };
-
-    src.on("data", onData);
-    src.on("end", onEnd);
-    src.on("error", onError);
-  });
+      if (total >= SNIFF_BYTES) break;
+    }
+  } finally {
+    src.destroy();
+  }
+  return Buffer.concat(chunks).subarray(0, SNIFF_BYTES);
 }
 
 async function readAllToString(src: Readable): Promise<string> {

@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle, FileCheck, Loader2, Upload } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -18,6 +18,19 @@ interface ImportProgress {
   error?: string;
 }
 
+interface ServerProgress {
+  phase: "parsing" | "inserting" | "done" | "error";
+  totalParsed?: number;
+  inserted?: number;
+  duplicates?: number;
+  dateRange?: { from: string; to: string } | null;
+  format?: string;
+  progress?: number;
+  error?: string;
+}
+
+const POLL_INTERVAL_MS = 1500;
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
@@ -28,58 +41,108 @@ export function LocationImport() {
   const [state, setState] = useState<ImportProgress | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isActive =
     state?.phase === "uploading" || state?.phase === "parsing" || state?.phase === "inserting";
 
-  const handleSSEEvent = useCallback((data: Record<string, unknown>) => {
-    const phase = data.phase as string;
+  const clearPollTimer = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
 
-    if (phase === "parsing") {
-      const format = data.format as string | undefined;
+  useEffect(() => {
+    return () => {
+      clearPollTimer();
+      abortRef.current?.abort();
+    };
+  }, [clearPollTimer]);
+
+  const applyServerProgress = useCallback((data: ServerProgress) => {
+    if (data.phase === "parsing") {
       setState({
         phase: "parsing",
         progress: 0,
-        detail: format ? `${format} 분석 중...` : "파일 분석 중...",
-        format,
+        detail: data.format ? `${data.format} 분석 중...` : "파일 분석 중...",
+        format: data.format,
         totalParsed: 0,
       });
-    } else if (phase === "inserting") {
-      const inserted = (data.inserted as number) ?? 0;
-      const totalParsed = (data.totalParsed as number) ?? 0;
+    } else if (data.phase === "inserting") {
+      const inserted = data.inserted ?? 0;
+      const totalParsed = data.totalParsed ?? 0;
       setState({
         phase: "inserting",
         // Total is unknown while streaming; the bar is indeterminate.
         progress: 0,
         detail: `저장 중... ${inserted.toLocaleString()}개 저장 / ${totalParsed.toLocaleString()}개 스캔`,
-        format: data.format as string,
+        format: data.format,
         totalParsed,
         inserted,
-        duplicates: (data.duplicates as number) ?? 0,
+        duplicates: data.duplicates ?? 0,
       });
-    } else if (phase === "done") {
+    } else if (data.phase === "done") {
       setState({
         phase: "done",
         progress: 100,
         detail: "완료",
-        format: data.format as string,
-        totalParsed: (data.totalParsed as number) ?? 0,
-        inserted: (data.inserted as number) ?? 0,
-        duplicates: (data.duplicates as number) ?? 0,
-        dateRange: data.dateRange as { from: string; to: string } | null,
+        format: data.format,
+        totalParsed: data.totalParsed ?? 0,
+        inserted: data.inserted ?? 0,
+        duplicates: data.duplicates ?? 0,
+        dateRange: data.dateRange ?? null,
       });
-    } else if (phase === "error") {
+    } else if (data.phase === "error") {
       setState({
         phase: "error",
         progress: 0,
         detail: "",
-        error: (data.error as string) ?? "임포트 실패",
+        error: data.error ?? "임포트 실패",
       });
     }
   }, []);
 
+  const pollJob = useCallback(
+    async (jobId: string, signal: AbortSignal) => {
+      try {
+        const res = await fetch(
+          `/api/timeline/locations/import?jobId=${encodeURIComponent(jobId)}`,
+          { signal, cache: "no-store" }
+        );
+        if (signal.aborted) return;
+        if (!res.ok) {
+          // 404 likely means the job was garbage-collected — surface a clear error.
+          const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+          setState({
+            phase: "error",
+            progress: 0,
+            detail: "",
+            error: errBody.error ?? `상태 조회 실패 (HTTP ${res.status})`,
+          });
+          return;
+        }
+        const data = (await res.json()) as ServerProgress;
+        applyServerProgress(data);
+
+        if (data.phase !== "done" && data.phase !== "error") {
+          pollTimerRef.current = setTimeout(() => pollJob(jobId, signal), POLL_INTERVAL_MS);
+        }
+      } catch (e) {
+        if (signal.aborted) return;
+        // Transient network error — keep polling. Cloudflare hiccups on a
+        // short GET shouldn't tear the whole import session down.
+        console.warn("[import] poll failed, retrying", e);
+        pollTimerRef.current = setTimeout(() => pollJob(jobId, signal), POLL_INTERVAL_MS);
+      }
+    },
+    [applyServerProgress]
+  );
+
   const handleUpload = useCallback(
     async (file: File) => {
+      clearPollTimer();
+      abortRef.current?.abort();
       const abort = new AbortController();
       abortRef.current = abort;
 
@@ -90,28 +153,30 @@ export function LocationImport() {
       });
 
       try {
-        // Upload with XMLHttpRequest for progress tracking
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("format", "auto");
-
-        const _uploadProgress = await new Promise<void>((resolve, reject) => {
+        const jobId = await new Promise<string>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
 
           xhr.upload.addEventListener("progress", (e) => {
-            if (e.lengthComputable) {
-              const pct = Math.round((e.loaded / e.total) * 100);
-              setState({
-                phase: "uploading",
-                progress: pct,
-                detail: `업로드 중... ${formatBytes(e.loaded)} / ${formatBytes(e.total)} (${pct}%)`,
-              });
-            }
+            if (!e.lengthComputable) return;
+            const pct = Math.round((e.loaded / e.total) * 100);
+            setState({
+              phase: "uploading",
+              progress: pct,
+              detail: `업로드 중... ${formatBytes(e.loaded)} / ${formatBytes(e.total)} (${pct}%)`,
+            });
+          });
+
+          xhr.upload.addEventListener("load", () => {
+            // Upload finished; server is now spooling + responding.
+            setState({
+              phase: "uploading",
+              progress: 100,
+              detail: "업로드 완료, 처리 시작 대기 중...",
+            });
           });
 
           xhr.addEventListener("load", () => {
             if (xhr.status >= 400) {
-              // Non-SSE error response
               try {
                 const err = JSON.parse(xhr.responseText);
                 reject(new Error(err.error ?? "업로드 실패"));
@@ -120,62 +185,35 @@ export function LocationImport() {
               }
               return;
             }
-            resolve();
+            try {
+              const body = JSON.parse(xhr.responseText) as { jobId?: string };
+              if (!body.jobId) {
+                reject(new Error("서버 응답에 jobId가 없습니다"));
+                return;
+              }
+              resolve(body.jobId);
+            } catch {
+              reject(new Error("서버 응답 파싱 실패"));
+            }
           });
 
           xhr.addEventListener("error", () => reject(new Error("네트워크 오류")));
           xhr.addEventListener("abort", () => reject(new Error("취소됨")));
 
-          // We need SSE streaming, but XMLHttpRequest can't handle SSE.
-          // So we do a two-step approach:
-          // 1. Use fetch for the actual request (SSE)
-          // 2. Only use this for upload progress estimation
-
-          // Actually, fetch doesn't support upload progress.
-          // Use XMLHttpRequest with responseType to read SSE manually.
           xhr.open("POST", "/api/timeline/locations/import");
-          xhr.setRequestHeader("Accept", "text/event-stream");
+          xhr.setRequestHeader("Accept", "application/json");
+
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("format", "auto");
           xhr.send(formData);
-
-          // Read SSE events as they arrive via onprogress
-          let lastIndex = 0;
-          xhr.addEventListener("progress", () => {
-            const text = xhr.responseText.substring(lastIndex);
-            lastIndex = xhr.responseText.length;
-
-            const lines = text.split("\n");
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              try {
-                const data = JSON.parse(line.slice(6));
-                handleSSEEvent(data);
-              } catch {
-                // ignore parse errors
-              }
-            }
-          });
-
-          xhr.addEventListener("loadend", () => {
-            // Process any remaining data
-            const text = xhr.responseText.substring(lastIndex);
-            const lines = text.split("\n");
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              try {
-                const data = JSON.parse(line.slice(6));
-                handleSSEEvent(data);
-              } catch {
-                // ignore
-              }
-            }
-          });
-
-          // Don't resolve/reject from upload events — the SSE handler will set final state
-          // We just need to wait for loadend
-          xhr.addEventListener("loadend", () => resolve());
 
           abort.signal.addEventListener("abort", () => xhr.abort());
         });
+
+        // Kick off polling. pollJob reschedules itself until the job reaches
+        // a terminal phase or the abort signal fires.
+        void pollJob(jobId, abort.signal);
       } catch (e) {
         if (e instanceof Error && e.message === "취소됨") return;
         setState({
@@ -186,7 +224,7 @@ export function LocationImport() {
         });
       }
     },
-    [handleSSEEvent]
+    [clearPollTimer, pollJob]
   );
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,8 +244,8 @@ export function LocationImport() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          GPX, GeoJSON, Google Takeout (Records.json / Phone Takeout) 파일을 업로드하세요. 큰
-          파일은 <code className="text-xs">.gz</code>로 압축해서 올리면 빠릅니다.
+          GPX, GeoJSON, Google Takeout (Records.json / Phone Takeout) 파일을 업로드하세요. 큰 파일은{" "}
+          <code className="text-xs">.gz</code>로 압축해서 올리면 빠릅니다.
         </p>
 
         <input
