@@ -304,6 +304,8 @@ export interface ReturnsCashflow {
     totalAssetDelta: number;
     purchaseAmountDelta: number;
     netExecutions: number;
+    settledExecutions: number;
+    expectedDepositDelta: number;
   };
 }
 

@@ -91,9 +91,10 @@ async function verifyAccount(accountId: string, label: string) {
   for (const cf of result.cashflows) {
     console.log(
       `  ${cf.date}  ext=${fmtKrw(cf.amount)}  ` +
-        `(totalAssetΔ=${fmtKrw(cf.inferredFrom.totalAssetDelta)}, ` +
-        `purchaseΔ=${fmtKrw(cf.inferredFrom.purchaseAmountDelta)}, ` +
-        `netExec=${fmtKrw(cf.inferredFrom.netExecutions)})`
+        `(depositΔ vs expected: ${fmtKrw(cf.inferredFrom.expectedDepositDelta)}, ` +
+        `settledExec=${fmtKrw(cf.inferredFrom.settledExecutions)}, ` +
+        `netExec(fill)=${fmtKrw(cf.inferredFrom.netExecutions)}, ` +
+        `purchaseΔ=${fmtKrw(cf.inferredFrom.purchaseAmountDelta)})`
     );
   }
   if (result.cashflows.length === 0) console.log("  (none detected)");

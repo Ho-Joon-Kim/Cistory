@@ -21,6 +21,8 @@ export interface CashflowEntry {
     totalAssetDelta: number;
     purchaseAmountDelta: number;
     netExecutions: number;
+    settledExecutions: number;
+    expectedDepositDelta: number;
   };
 }
 
@@ -44,6 +46,36 @@ const CASHFLOW_NOISE_THRESHOLD = 1000;
 const MS_PER_DAY = 86_400_000;
 const DAYS_PER_YEAR = 365.25;
 
+// KRX uses T+2 *business-day* settlement. Without a full Korean market holiday
+// calendar we approximate by skipping weekends only. (Public holidays will
+// shift settlement by an extra day; the residual either gets re-classified as
+// noise via CASHFLOW_NOISE_THRESHOLD or washes out across multi-day periods.)
+const SETTLEMENT_BUSINESS_DAYS = 2;
+
+function isoToParts(iso: string): { y: number; m: number; d: number } {
+  return {
+    y: Number(iso.slice(0, 4)),
+    m: Number(iso.slice(5, 7)),
+    d: Number(iso.slice(8, 10)),
+  };
+}
+
+function partsToIso(y: number, m: number, d: number): string {
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function addBusinessDaysIso(iso: string, businessDays: number): string {
+  const { y, m, d } = isoToParts(iso);
+  const date = new Date(y, m - 1, d);
+  let remaining = businessDays;
+  while (remaining > 0) {
+    date.setDate(date.getDate() + 1);
+    const dow = date.getDay();
+    if (dow !== 0 && dow !== 6) remaining--;
+  }
+  return partsToIso(date.getFullYear(), date.getMonth() + 1, date.getDate());
+}
+
 function aggregateExecutionsByDate(executions: ReturnExecution[]): Map<string, number> {
   const byOrdDt = new Map<string, number>();
   for (const e of executions) {
@@ -64,27 +96,30 @@ function ordDtToIso(ordDt: string): string {
 }
 
 /**
- * Infer external cashflows from snapshots + executions.
+ * Infer external cashflows by reconciling deposit changes against executions.
  *
- * The cleanest signal is the TOTAL ASSET = totalEvalAmount + deposit. In a closed
- * account, total asset changes only through (a) market P&L on positions and
- * (b) external cashflows. So:
+ * The trick: executions are *facts* (KIS gives us order numbers + filled amounts).
+ * deposit changes are an *effect* — but with KRX T+2 settlement they lag the
+ * fill by 2 business days. So we shift each execution's deposit impact to its
+ * settlement date and check what's *unexplained* by trading activity:
  *
- *   externalCashflow ≈ ΔtotalAsset - marketReturn
+ *   expectedΔDeposit = -Σ(buys settled in this period) + Σ(sells settled in this period)
+ *   externalCashflow = actualΔDeposit - expectedΔDeposit
  *
- * We approximate marketReturn as ΔtotalEvalAmount adjusted for the purchase amount
- * change caused by trades on that day (a buy moves money from deposit into eval
- * at cost basis; it shouldn't be counted as a market gain). Concretely:
+ * Examples:
+ *   - User deposits 10M, no trades yet:
+ *       Δdeposit=+10M, expected=0  →  external=+10M ✓ (inflow)
+ *   - Buy 10M on T, settles T+2:
+ *       Period spanning T+2: Δdeposit=-10M, expected=-10M  →  external=0 ✓
+ *   - User withdraws 5M:
+ *       Δdeposit=-5M, expected=0  →  external=-5M ✓ (outflow)
  *
- *   marketReturn ≈ ΔtotalEvalAmount - ΔtotalPurchaseAmount
- *   externalCashflow ≈ ΔtotalAsset - (ΔtotalEvalAmount - ΔtotalPurchaseAmount)
- *                    = Δdeposit + ΔtotalPurchaseAmount
- *
- * This is more robust than tracking deposit alone because Korean T+2 settlement
- * delays deposit changes, but totalPurchaseAmount updates immediately on fill.
- *
- * Caveat: dividends/interest/taxes flow into deposit and will be mis-detected as
- * external cashflow. The CASHFLOW_NOISE_THRESHOLD filters out small ones.
+ * Caveats:
+ *   - Dividends/interest/taxes still pass through deposit and will be
+ *     mis-classified — filtered by CASHFLOW_NOISE_THRESHOLD when small.
+ *   - We approximate "settlement date" as fill date + 2 calendar days; KRX
+ *     skips weekends/holidays but we don't have a calendar. Multi-day periods
+ *     wash this out; very short periods around weekends may show residual.
  */
 export function inferCashflows(
   snapshots: ReturnSnapshot[],
@@ -93,6 +128,19 @@ export function inferCashflows(
   if (snapshots.length < 2) return [];
 
   const sorted = [...snapshots].sort((a, b) => a.asOfDate.localeCompare(b.asOfDate));
+
+  // Build a map of settlement-date → signed amount that deposit *should* change by.
+  // Buys reduce deposit (we record them negative); sells increase deposit (positive).
+  const settledByDate = new Map<string, number>();
+  for (const e of executions) {
+    if (e.cancelled || e.filledAmount === 0) continue;
+    const fillIso = ordDtToIso(e.ordDt);
+    const settleIso = addBusinessDaysIso(fillIso, SETTLEMENT_BUSINESS_DAYS);
+    const depositImpact = e.side === "buy" ? -e.filledAmount : e.filledAmount;
+    settledByDate.set(settleIso, (settledByDate.get(settleIso) ?? 0) + depositImpact);
+  }
+
+  // Also keep raw netExecutions (by fill date) for display/debugging.
   const execByOrdDt = aggregateExecutionsByDate(executions);
 
   const result: CashflowEntry[] = [];
@@ -101,11 +149,20 @@ export function inferCashflows(
     const prev = sorted[i - 1];
     const curr = sorted[i];
 
-    const totalAssetPrev = prev.totalEvalAmount + prev.deposit;
-    const totalAssetCurr = curr.totalEvalAmount + curr.deposit;
-    const totalAssetDelta = totalAssetCurr - totalAssetPrev;
+    const totalAssetDelta =
+      curr.totalEvalAmount + curr.deposit - (prev.totalEvalAmount + prev.deposit);
     const purchaseDelta = curr.totalPurchaseAmount - prev.totalPurchaseAmount;
+    const depositDelta = curr.deposit - prev.deposit;
 
+    // Sum settlement impacts whose settle date falls in (prev.asOfDate, curr.asOfDate].
+    let settledExec = 0;
+    for (const [settleIso, amount] of settledByDate) {
+      if (settleIso > prev.asOfDate && settleIso <= curr.asOfDate) {
+        settledExec += amount;
+      }
+    }
+
+    // For display: raw fill-date executions in this window.
     let netExec = 0;
     for (const [ord, amount] of execByOrdDt) {
       const iso = ordDtToIso(ord);
@@ -114,11 +171,9 @@ export function inferCashflows(
       }
     }
 
-    // ΔtotalAsset = marketReturn + externalCashflow
-    // marketReturn ≈ ΔtotalEval - ΔtotalPurchase (eval change minus the part caused by trades)
-    // So externalCashflow ≈ ΔtotalAsset - (ΔtotalEval - ΔtotalPurchase) = Δdeposit + ΔtotalPurchase
-    const depositDelta = curr.deposit - prev.deposit;
-    const ext = depositDelta + purchaseDelta;
+    // expectedΔDeposit = settled trade impact. unexplained = external cashflow.
+    const expectedDepositDelta = settledExec;
+    const ext = depositDelta - expectedDepositDelta;
 
     if (Math.abs(ext) >= CASHFLOW_NOISE_THRESHOLD) {
       result.push({
@@ -128,6 +183,8 @@ export function inferCashflows(
           totalAssetDelta,
           purchaseAmountDelta: purchaseDelta,
           netExecutions: netExec,
+          settledExecutions: settledExec,
+          expectedDepositDelta,
         },
       });
     }
@@ -353,7 +410,13 @@ export function computeReturns(input: ComputeReturnsInput): ComputeReturnsResult
     {
       date: startDate,
       amount: startValue,
-      inferredFrom: { totalAssetDelta: 0, purchaseAmountDelta: 0, netExecutions: 0 },
+      inferredFrom: {
+        totalAssetDelta: 0,
+        purchaseAmountDelta: 0,
+        netExecutions: 0,
+        settledExecutions: 0,
+        expectedDepositDelta: 0,
+      },
     },
     ...cashflows,
   ];
