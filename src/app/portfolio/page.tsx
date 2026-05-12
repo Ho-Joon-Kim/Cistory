@@ -17,6 +17,7 @@ import { InflationAdjustedReturnCard } from "@/modules/portfolio/components/Infl
 import { PortfolioOverviewCard } from "@/modules/portfolio/components/PortfolioOverviewCard";
 import { RebalanceCard } from "@/modules/portfolio/components/RebalanceCard";
 import { RecentExecutionsCard } from "@/modules/portfolio/components/RecentExecutionsCard";
+import { ReturnsCard } from "@/modules/portfolio/components/ReturnsCard";
 import { syncAllAccounts, usePortfolioSummary } from "@/modules/portfolio/hooks";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 
@@ -122,6 +123,8 @@ function PortfolioContent() {
               </div>
 
               <InflationAdjustedReturnCard summary={summary} />
+
+              <ReturnsCard accounts={summary.accounts} />
 
               <AssetTimelineChart />
 

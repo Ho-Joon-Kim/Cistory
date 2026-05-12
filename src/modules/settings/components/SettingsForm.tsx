@@ -84,7 +84,12 @@ export function SettingsForm() {
                 <p className="text-sm text-muted-foreground">GitHub 계정</p>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={handleReconnectGithub} className="self-start sm:self-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReconnectGithub}
+              className="self-start sm:self-auto"
+            >
               <RefreshCw className="h-4 w-4 mr-2" />
               재연결
             </Button>

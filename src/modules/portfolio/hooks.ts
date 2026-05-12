@@ -297,6 +297,64 @@ export function useTargetAllocations(accountId: string | null) {
   return { targets, updatedAt, isLoading, error, refresh };
 }
 
+export interface ReturnsCashflow {
+  date: string;
+  amount: number;
+  inferredFrom: {
+    totalAssetDelta: number;
+    purchaseAmountDelta: number;
+    netExecutions: number;
+  };
+}
+
+export interface ReturnsPeriodPoint {
+  date: string;
+  startValue: number;
+  endValue: number;
+  cashflow: number;
+  periodReturn: number;
+  cumulativeReturn: number;
+}
+
+export interface ReturnsResponse {
+  twr: {
+    totalReturn: number | null;
+    annualizedReturn: number | null;
+    days: number;
+    periods: ReturnsPeriodPoint[];
+  };
+  xirr: number | null;
+  cashflows: ReturnsCashflow[];
+  startDate: string | null;
+  endDate: string | null;
+  startValue: number;
+  endValue: number;
+}
+
+export function useReturns(params: { accountId?: string; from?: string; to?: string }) {
+  const [data, setData] = useState<ReturnsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const url = new URL("/api/portfolio/returns", window.location.origin);
+    if (params.accountId) url.searchParams.set("accountId", params.accountId);
+    if (params.from) url.searchParams.set("from", params.from);
+    if (params.to) url.searchParams.set("to", params.to);
+
+    setIsLoading(true);
+    fetch(url.toString(), { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((d) => setData(d))
+      .catch(() => undefined)
+      .finally(() => setIsLoading(false));
+
+    return () => ctrl.abort();
+  }, [params.accountId, params.from, params.to]);
+
+  return { data, isLoading };
+}
+
 export async function saveTargetAllocations(
   accountId: string,
   targets: TargetAllocation[]

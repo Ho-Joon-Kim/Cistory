@@ -76,10 +76,7 @@ function StepperTooltip({
       className="stepper-tooltip"
       style={{
         position: "fixed",
-        left: Math.min(
-          Math.max(rect.left + rect.width / 2, 8 + 140),
-          window.innerWidth - 8 - 140
-        ),
+        left: Math.min(Math.max(rect.left + rect.width / 2, 8 + 140), window.innerWidth - 8 - 140),
         top: rect.top - 8,
         transform: "translate(-50%, -100%)",
         maxWidth: "min(280px, calc(100vw - 1rem))",

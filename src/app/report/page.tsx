@@ -405,7 +405,9 @@ function ReportPeriodSelector({
         <Button variant="ghost" size="icon" onClick={() => onNavigate(-1)}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="font-medium text-sm min-w-[80px] sm:min-w-[100px] text-center">{periodLabel}</span>
+        <span className="font-medium text-sm min-w-[80px] sm:min-w-[100px] text-center">
+          {periodLabel}
+        </span>
         <Button variant="ghost" size="icon" onClick={() => onNavigate(1)}>
           <ChevronRight className="h-4 w-4" />
         </Button>

@@ -47,9 +47,7 @@ export function InsightCard({
           <h3 className="text-xs font-semibold uppercase tracking-[0.02em] text-foreground">
             {title}
           </h3>
-          {subtitle ? (
-            <p className="text-[11px] text-ink-mute leading-snug">{subtitle}</p>
-          ) : null}
+          {subtitle ? <p className="text-[11px] text-ink-mute leading-snug">{subtitle}</p> : null}
         </div>
         {right ? <div className="shrink-0 flex items-center gap-2">{right}</div> : null}
       </header>
