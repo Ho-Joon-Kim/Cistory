@@ -12,6 +12,12 @@ function ymdToOrdDt(ymd: string): string {
   return ymd.replaceAll("-", "");
 }
 
+// Feature launched 2026-05-12. Earlier snapshots (5/7~5/11) have a deposit value
+// that includes pre-settlement KIS receivables, which inflates the starting
+// total asset and produces misleading TWR. Anchor every account's return
+// calculation here so the baseline is a fully settled, steady state.
+const RETURNS_EPOCH = "2026-05-12";
+
 export const GET = withAuth(async ({ user, request }) => {
   const url = new URL(request.url);
   const accountId = url.searchParams.get("accountId");
@@ -48,12 +54,16 @@ export const GET = withAuth(async ({ user, request }) => {
     ? [eq(brokerageExecutions.accountId, accountId)]
     : [inArray(brokerageExecutions.accountId, ids)];
 
+  // Always clamp the lower bound to the global epoch. A user-supplied `from`
+  // narrower than the epoch is honored; a wider one is silently clamped.
+  const effectiveFrom = from && from > RETURNS_EPOCH ? from : RETURNS_EPOCH;
+
   const snapConditions = [...accountFilter];
-  if (from) snapConditions.push(gte(holdingSnapshots.asOfDate, from));
+  snapConditions.push(gte(holdingSnapshots.asOfDate, effectiveFrom));
   if (to) snapConditions.push(lte(holdingSnapshots.asOfDate, to));
 
   const execConditions = [...execAccountFilter];
-  if (from) execConditions.push(gte(brokerageExecutions.ordDt, ymdToOrdDt(from)));
+  execConditions.push(gte(brokerageExecutions.ordDt, ymdToOrdDt(effectiveFrom)));
   if (to) execConditions.push(lte(brokerageExecutions.ordDt, ymdToOrdDt(to)));
 
   const snapRows = await db

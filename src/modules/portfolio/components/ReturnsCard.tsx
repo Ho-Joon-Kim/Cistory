@@ -123,8 +123,11 @@ export function ReturnsCard({ accounts }: Props) {
         {isLoading && !data ? (
           <div className="text-sm text-muted-foreground py-8 text-center">불러오는 중…</div>
         ) : !hasData ? (
-          <div className="text-sm text-muted-foreground py-8 text-center">
-            계산에 필요한 스냅샷 데이터가 부족합니다 (2일 이상 필요)
+          <div className="text-sm text-muted-foreground py-8 text-center space-y-1">
+            <p>계산에 필요한 스냅샷 데이터가 부족합니다 (2일 이상 필요)</p>
+            <p className="text-xs">
+              수익률은 2026-05-12 기준으로 산출됩니다. 매일 동기화되면 곧 표시됩니다.
+            </p>
           </div>
         ) : (
           <>

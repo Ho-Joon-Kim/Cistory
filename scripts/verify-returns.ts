@@ -12,7 +12,7 @@
  *   - sanity checks against simple eval delta
  */
 
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, gte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { brokerageAccounts, brokerageExecutions, holdingSnapshots } from "../src/db/schema";
@@ -27,6 +27,8 @@ const pool = new Pool({
     process.env.DATABASE_URL || "postgresql://cistory:cistory@100.103.66.56:5432/cistory",
 });
 const db = drizzle(pool);
+
+const RETURNS_EPOCH = "2026-05-12";
 
 function fmtPct(v: number | null): string {
   if (v === null) return "—";
@@ -50,7 +52,12 @@ async function verifyAccount(accountId: string, label: string) {
       totalPurchaseAmount: holdingSnapshots.totalPurchaseAmount,
     })
     .from(holdingSnapshots)
-    .where(eq(holdingSnapshots.accountId, accountId))
+    .where(
+      and(
+        eq(holdingSnapshots.accountId, accountId),
+        gte(holdingSnapshots.asOfDate, RETURNS_EPOCH)
+      )
+    )
     .orderBy(asc(holdingSnapshots.asOfDate));
 
   const rawExecutions = await db
@@ -61,7 +68,12 @@ async function verifyAccount(accountId: string, label: string) {
       cancelled: brokerageExecutions.cancelled,
     })
     .from(brokerageExecutions)
-    .where(eq(brokerageExecutions.accountId, accountId))
+    .where(
+      and(
+        eq(brokerageExecutions.accountId, accountId),
+        gte(brokerageExecutions.ordDt, RETURNS_EPOCH.replaceAll("-", ""))
+      )
+    )
     .orderBy(asc(brokerageExecutions.ordDt));
 
   const snapshots: ReturnSnapshot[] = rawSnapshots.map((s) => ({
