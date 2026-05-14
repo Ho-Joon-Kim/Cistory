@@ -28,7 +28,11 @@ interface OwnTracksPayload {
   tst: number;
 }
 
-const EMPTY_RESPONSE = NextResponse.json([]);
+// NextResponse wraps a ReadableStream body that is consumed on first send,
+// so a module-level singleton would return an empty body on every request
+// after the first — OwnTracks then fails to parse `[]` as JSON and re-queues
+// the message indefinitely. Always build a fresh response per request.
+const emptyResponse = () => NextResponse.json([]);
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,20 +40,20 @@ export async function POST(request: NextRequest) {
     if (!body.ok) {
       logIngestionFailure("owntracks", "body_too_large", request);
       // Still return OwnTracks-compatible response shape
-      return EMPTY_RESPONSE;
+      return emptyResponse();
     }
 
     const rate = enforceRateLimit(request, "owntracks");
     if (!rate.allowed) {
       logIngestionFailure("owntracks", "rate_limited", request);
-      return EMPTY_RESPONSE;
+      return emptyResponse();
     }
 
     const apikey = request.nextUrl.searchParams.get("apikey");
     const authed = await verifyApiKey(apikey, "ownTracksApiKey");
     if (!authed) {
       logIngestionFailure("owntracks", "auth_failed", request);
-      return EMPTY_RESPONSE;
+      return emptyResponse();
     }
 
     const userId = authed.id;
@@ -60,7 +64,7 @@ export async function POST(request: NextRequest) {
     const locationPayloads = payloads.filter((p) => p._type === "location");
 
     if (locationPayloads.length === 0) {
-      return EMPTY_RESPONSE;
+      return emptyResponse();
     }
 
     const now = new Date();
@@ -86,11 +90,11 @@ export async function POST(request: NextRequest) {
       .set({ lastLat: latest.lat, lastLon: latest.lon, updatedAt: now })
       .where(eq(users.id, userId));
 
-    return EMPTY_RESPONSE;
+    return emptyResponse();
   } catch (error) {
     logger.error("OwnTracks ingestion error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return EMPTY_RESPONSE;
+    return emptyResponse();
   }
 }
