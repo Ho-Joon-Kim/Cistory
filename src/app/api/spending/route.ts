@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
         .from(transactions)
         .leftJoin(accountRoles, accountRolesJoinOn)
         .where(where)
-        .groupBy(bucket),
+        .groupBy(sql`"bucket"`),
     ]);
 
     const hasMore = rows.length > limit;
