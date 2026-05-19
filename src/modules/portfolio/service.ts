@@ -40,6 +40,27 @@ function daysAgoYmd(days: number): string {
   return ymd(d);
 }
 
+function isoToYmd(iso: string): string {
+  // "YYYY-MM-DD" → "YYYYMMDD". Stored openedAt / *BackfilledFrom use ISO.
+  return iso.replaceAll("-", "");
+}
+
+function ymdToIso(value: string): string {
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+}
+
+function addDaysYmdStr(ymdStr: string, days: number): string {
+  const y = Number(ymdStr.slice(0, 4));
+  const m = Number(ymdStr.slice(4, 6));
+  const d = Number(ymdStr.slice(6, 8));
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  const ny = date.getUTCFullYear();
+  const nm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const nd = String(date.getUTCDate()).padStart(2, "0");
+  return `${ny}${nm}${nd}`;
+}
+
 export interface AccountSyncResult {
   accountId: string;
   label: string;
@@ -47,6 +68,16 @@ export interface AccountSyncResult {
   positionsCount: number;
   executionsInserted: number;
   dailyPnlUpserted: number;
+  error: string | null;
+}
+
+export interface AccountBackfillResult {
+  accountId: string;
+  label: string;
+  executionsInserted: number;
+  pnlUpserted: number;
+  fromDate: string; // ISO YYYY-MM-DD
+  toDate: string; // ISO YYYY-MM-DD
   error: string | null;
 }
 
@@ -418,6 +449,214 @@ export class PortfolioSyncService {
     }
 
     return result;
+  }
+
+  /**
+   * Backfill executions + daily-pnl from `openedAt` up to the existing
+   * watermark (or today). Idempotent: rows hit ON CONFLICT DO NOTHING /
+   * DO UPDATE. KIS silently truncates execution queries to ~3 months, so
+   * we use the adapter's slicing helper.
+   *
+   * After success, advances `executionsBackfilledFrom` / `pnlBackfilledFrom`
+   * to the earliest date we attempted. Subsequent calls then become no-ops
+   * unless `openedAt` moved earlier.
+   */
+  async backfillAccount(accountId: string): Promise<AccountBackfillResult> {
+    const account = await this.getAccount(accountId);
+    if (!account) {
+      return {
+        accountId,
+        label: "(unknown)",
+        executionsInserted: 0,
+        pnlUpserted: 0,
+        fromDate: "",
+        toDate: "",
+        error: "Account not found",
+      };
+    }
+
+    const result: AccountBackfillResult = {
+      accountId,
+      label: account.label,
+      executionsInserted: 0,
+      pnlUpserted: 0,
+      fromDate: "",
+      toDate: "",
+      error: null,
+    };
+
+    if (!account.openedAt) {
+      result.error = "openedAt not set — set the account open date first";
+      return result;
+    }
+
+    const openedIso = account.openedAt;
+    const openedYmd = isoToYmd(openedIso);
+    const todayYmd = ymd(new Date());
+
+    result.fromDate = openedIso;
+    result.toDate = ymdToIso(todayYmd);
+
+    try {
+      const adapter = this.getAdapter(account);
+      const token = await this.getValidToken(account);
+
+      // Executions: walk from today back to openedAt in 3-month windows.
+      // The watermark tracks "what we've already covered" — if it's already
+      // at or before openedAt, this is a no-op (no API calls needed).
+      const execWatermarkYmd = account.executionsBackfilledFrom
+        ? isoToYmd(account.executionsBackfilledFrom)
+        : null;
+
+      let execInserted = 0;
+      if (!execWatermarkYmd || execWatermarkYmd > openedYmd) {
+        // Pull range [openedYmd, execWatermarkYmd ?? today]. If watermark
+        // exists we stop one day before it; the incremental syncExecutions
+        // already covers [watermark, today].
+        const execEnd = execWatermarkYmd ? addDaysYmdStr(execWatermarkYmd, -1) : todayYmd;
+        if (execEnd >= openedYmd) {
+          const executions = await adapter.inquireDailyCcldLongRange(
+            token,
+            account.cano,
+            account.acntPrdtCd,
+            openedYmd,
+            execEnd
+          );
+
+          if (executions.length > 0) {
+            const inserted = await this.db
+              .insert(brokerageExecutions)
+              .values(
+                executions.map((e) => ({
+                  accountId,
+                  odno: e.odno,
+                  ordDt: e.ordDt,
+                  ordTime: e.ordTime,
+                  side: e.side,
+                  ticker: e.ticker,
+                  name: e.name,
+                  orderQty: String(e.orderQty),
+                  filledQty: String(e.filledQty),
+                  filledAmount: String(e.filledAmount),
+                  avgPrice: String(e.avgPrice),
+                  cancelled: e.cancelled,
+                  rawData: JSON.stringify(e.raw),
+                }))
+              )
+              .onConflictDoNothing({
+                target: [
+                  brokerageExecutions.accountId,
+                  brokerageExecutions.odno,
+                  brokerageExecutions.ordDt,
+                ],
+              })
+              .returning({ id: brokerageExecutions.id });
+            execInserted = inserted.length;
+          }
+        }
+      }
+      result.executionsInserted = execInserted;
+
+      // Daily P&L: single call covers the full range (KIS doesn't truncate
+      // this TR). Same watermark logic.
+      const pnlWatermarkYmd = account.pnlBackfilledFrom
+        ? isoToYmd(account.pnlBackfilledFrom)
+        : null;
+
+      let pnlUpserted = 0;
+      if (!pnlWatermarkYmd || pnlWatermarkYmd > openedYmd) {
+        const pnlEnd = pnlWatermarkYmd ? addDaysYmdStr(pnlWatermarkYmd, -1) : todayYmd;
+        if (pnlEnd >= openedYmd) {
+          const rows = await adapter.inquirePeriodProfit(
+            token,
+            account.cano,
+            account.acntPrdtCd,
+            openedYmd,
+            pnlEnd
+          );
+
+          for (const r of rows) {
+            await this.db
+              .insert(brokerageDailyPnl)
+              .values({
+                accountId,
+                tradeDate: r.tradeDate,
+                buyAmount: String(r.buyAmount),
+                sellAmount: String(r.sellAmount),
+                realizedPnl: String(r.realizedPnl),
+                fee: String(r.fee),
+                tax: String(r.tax),
+              })
+              .onConflictDoUpdate({
+                target: [brokerageDailyPnl.accountId, brokerageDailyPnl.tradeDate],
+                set: {
+                  buyAmount: String(r.buyAmount),
+                  sellAmount: String(r.sellAmount),
+                  realizedPnl: String(r.realizedPnl),
+                  fee: String(r.fee),
+                  tax: String(r.tax),
+                },
+              });
+            pnlUpserted++;
+          }
+        }
+      }
+      result.pnlUpserted = pnlUpserted;
+
+      await this.db
+        .update(brokerageAccounts)
+        .set({
+          executionsBackfilledFrom: openedIso,
+          pnlBackfilledFrom: openedIso,
+          updatedAt: new Date(),
+        })
+        .where(eq(brokerageAccounts.id, accountId));
+
+      logger.info("[Portfolio] Account backfilled", { ...result });
+    } catch (err) {
+      const code = err instanceof KISAuthError ? err.code : "BACKFILL_ERROR";
+      const message = err instanceof Error ? err.message : String(err);
+      result.error = `${code}: ${message}`;
+      logger.error("[Portfolio] Account backfill failed", {
+        accountId,
+        label: account.label,
+        error: result.error,
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Find accounts owned by `userId` that have `openedAt` set but whose
+   * backfill watermark hasn't caught up (or has never been set), then run
+   * `backfillAccount` on each. Cron calls this after the regular sync so
+   * a freshly-added open date triggers historical fetch on the next tick
+   * without needing a manual button press.
+   */
+  async backfillPendingAccounts(userId: string): Promise<AccountBackfillResult[]> {
+    const candidates = await this.db
+      .select({
+        id: brokerageAccounts.id,
+        openedAt: brokerageAccounts.openedAt,
+        executionsBackfilledFrom: brokerageAccounts.executionsBackfilledFrom,
+        pnlBackfilledFrom: brokerageAccounts.pnlBackfilledFrom,
+      })
+      .from(brokerageAccounts)
+      .where(and(eq(brokerageAccounts.userId, userId), eq(brokerageAccounts.isActive, true)));
+
+    const pending = candidates.filter((a) => {
+      if (!a.openedAt) return false;
+      const execStale = !a.executionsBackfilledFrom || a.executionsBackfilledFrom > a.openedAt;
+      const pnlStale = !a.pnlBackfilledFrom || a.pnlBackfilledFrom > a.openedAt;
+      return execStale || pnlStale;
+    });
+
+    const results: AccountBackfillResult[] = [];
+    for (const acc of pending) {
+      results.push(await this.backfillAccount(acc.id));
+    }
+    return results;
   }
 
   async syncUserAccounts(userId: string): Promise<AccountSyncResult[]> {

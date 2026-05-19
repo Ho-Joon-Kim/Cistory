@@ -43,6 +43,31 @@ function toNumberOrNull(value: string | undefined | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function ymdToDate(ymd: string): Date {
+  // ymd = "YYYYMMDD"; build a UTC date so day arithmetic doesn't trip on DST.
+  const y = Number(ymd.slice(0, 4));
+  const m = Number(ymd.slice(4, 6));
+  const d = Number(ymd.slice(6, 8));
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function dateToYmd(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}${m}${day}`;
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  const d = ymdToDate(ymd);
+  d.setUTCDate(d.getUTCDate() + days);
+  return dateToYmd(d);
+}
+
+function maxYmd(a: string, b: string): string {
+  return a > b ? a : b;
+}
+
 interface KISRequestOptions {
   trId: string;
   path: string;
@@ -284,12 +309,96 @@ export class KISAdapter {
     return { positions, summary };
   }
 
-  async inquireDailyCcld(
+  /**
+   * Backfill executions across an arbitrary historical window. Combines two
+   * KIS TRs because KIS exposes the recent and long-range data through
+   * different tr_ids:
+   *   - `TTTC8001R` for the last ~3 months (silent truncation for older)
+   *   - `CTSC9215R` for older data, hard-capped at 1-year windows
+   *
+   * Verified against a live account (2026-05): CTSC9215R returns 1-year
+   * windows correctly and lets us recover all historical executions back
+   * to whichever date KIS still retains for that account. See
+   * `scripts/probe-kis-ctsc.ts` for the validation harness.
+   *
+   * Uses ~360-day windows (under the 1-year cap) and dedupes by `odno`
+   * across the boundary in case CTSC9215R and TTTC8001R overlap.
+   */
+  async inquireDailyCcldLongRange(
     token: string,
     cano: string,
     acntPrdtCd: string,
     startDt: string,
     endDt: string
+  ): Promise<ParsedExecution[]> {
+    const seen = new Set<string>();
+    const out: ParsedExecution[] = [];
+
+    const push = (rows: ParsedExecution[]) => {
+      for (const r of rows) {
+        const key = `${r.odno}:${r.ordDt}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(r);
+      }
+    };
+
+    // Recent: single TTTC8001R call covers up to ~3 months back from endDt.
+    // KIS will silently truncate to its retention cap.
+    const recentStart = maxYmd(startDt, addDaysYmd(endDt, -89));
+    const recentRows = await this.inquireDailyCcld(
+      token,
+      cano,
+      acntPrdtCd,
+      recentStart,
+      endDt,
+      KIS_TR.INQUIRE_DAILY_CCLD
+    );
+    push(recentRows);
+
+    // Older: walk backwards in 360-day windows with CTSC9215R until we
+    // pass startDt.
+    let windowEnd = addDaysYmd(recentStart, -1);
+    while (windowEnd >= startDt) {
+      const windowStart = maxYmd(startDt, addDaysYmd(windowEnd, -360));
+      const rows = await this.inquireDailyCcld(
+        token,
+        cano,
+        acntPrdtCd,
+        windowStart,
+        windowEnd,
+        KIS_TR.INQUIRE_DAILY_CCLD_OVER_3MO
+      );
+      push(rows);
+      if (windowStart === startDt) break;
+      windowEnd = addDaysYmd(windowStart, -1);
+    }
+
+    return out;
+  }
+
+  /**
+   * Deprecated: kept for any external caller relying on the original name.
+   * Equivalent to `inquireDailyCcldLongRange` since the new method already
+   * handles the recent + historical split internally.
+   */
+  async inquireDailyCcldRange(
+    token: string,
+    cano: string,
+    acntPrdtCd: string,
+    startDt: string,
+    endDt: string
+  ): Promise<ParsedExecution[]> {
+    return this.inquireDailyCcldLongRange(token, cano, acntPrdtCd, startDt, endDt);
+  }
+
+  async inquireDailyCcld(
+    token: string,
+    cano: string,
+    acntPrdtCd: string,
+    startDt: string,
+    endDt: string,
+    trId: string = KIS_TR.INQUIRE_DAILY_CCLD
   ): Promise<ParsedExecution[]> {
     const out: ParsedExecution[] = [];
     let fk = "";
@@ -297,7 +406,7 @@ export class KISAdapter {
 
     do {
       const data: KISCcldResponse = await this.fetchKIS<KISCcldResponse>({
-        trId: KIS_TR.INQUIRE_DAILY_CCLD,
+        trId,
         path: "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
         query: {
           CANO: cano,

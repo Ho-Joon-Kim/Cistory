@@ -231,6 +231,24 @@ async function syncAllUsers() {
               total: portfolioResults.length,
               failed,
             });
+
+            // After the regular incremental sync, pick up any historical
+            // gap implied by `openedAt`. Idempotent — does nothing if the
+            // backfill watermark already covers the opened-at date.
+            const backfillResults = await portfolio.backfillPendingAccounts(user.id);
+            if (backfillResults.length > 0) {
+              logger.info("[Cron] Portfolio backfill done", {
+                userId: user.id,
+                githubLogin: user.githubLogin,
+                accounts: backfillResults.length,
+                executionsInserted: backfillResults.reduce(
+                  (s, r) => s + r.executionsInserted,
+                  0
+                ),
+                pnlUpserted: backfillResults.reduce((s, r) => s + r.pnlUpserted, 0),
+                failed: backfillResults.filter((r) => r.error).length,
+              });
+            }
           }
         } catch (portfolioError) {
           logger.error("[Cron] Portfolio sync error", {

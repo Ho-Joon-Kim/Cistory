@@ -16,6 +16,10 @@ const CreateBody = z.object({
   accountType: z.enum(ACCOUNT_TYPES),
   appKey: z.string().min(20),
   appSecret: z.string().min(40),
+  openedAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "openedAt must be YYYY-MM-DD")
+    .optional(),
 });
 
 export const GET = withAuth(async ({ user }) => {
@@ -32,6 +36,9 @@ export const GET = withAuth(async ({ user }) => {
       isActive: brokerageAccounts.isActive,
       lastSyncedAt: brokerageAccounts.lastSyncedAt,
       lastSyncError: brokerageAccounts.lastSyncError,
+      openedAt: brokerageAccounts.openedAt,
+      executionsBackfilledFrom: brokerageAccounts.executionsBackfilledFrom,
+      pnlBackfilledFrom: brokerageAccounts.pnlBackfilledFrom,
       createdAt: brokerageAccounts.createdAt,
     })
     .from(brokerageAccounts)
@@ -50,6 +57,9 @@ export const GET = withAuth(async ({ user }) => {
       isActive: r.isActive,
       lastSyncedAt: r.lastSyncedAt,
       lastSyncError: r.lastSyncError,
+      openedAt: r.openedAt,
+      executionsBackfilledFrom: r.executionsBackfilledFrom,
+      pnlBackfilledFrom: r.pnlBackfilledFrom,
       createdAt: r.createdAt,
     })),
   });
@@ -140,6 +150,7 @@ export const POST = withValidation(CreateBody, async ({ user, body }) => {
       accessToken,
       accessTokenExpiresAt: expiresAt,
       isActive: true,
+      openedAt: body.openedAt ?? null,
     })
     .returning({ id: brokerageAccounts.id });
 

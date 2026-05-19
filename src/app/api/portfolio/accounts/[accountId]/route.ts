@@ -11,6 +11,11 @@ interface RouteParams {
 const PatchBody = z.object({
   label: z.string().min(1).max(60).optional(),
   isActive: z.boolean().optional(),
+  // ISO YYYY-MM-DD. Empty string clears the value.
+  openedAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$|^$/, "openedAt must be YYYY-MM-DD or empty")
+    .optional(),
 });
 
 export const PATCH = withValidation<typeof PatchBody, RouteParams>(
@@ -19,13 +24,24 @@ export const PATCH = withValidation<typeof PatchBody, RouteParams>(
     const { accountId } = await params;
     const db = getDb();
 
+    // If openedAt is being changed, reset the backfill watermarks so the
+    // next backfill run re-walks from the new (potentially earlier) date.
+    const updates: Partial<typeof brokerageAccounts.$inferInsert> = {
+      ...(body.label !== undefined ? { label: body.label } : {}),
+      ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+      ...(body.openedAt !== undefined
+        ? {
+            openedAt: body.openedAt === "" ? null : body.openedAt,
+            executionsBackfilledFrom: null,
+            pnlBackfilledFrom: null,
+          }
+        : {}),
+      updatedAt: new Date(),
+    };
+
     const result = await db
       .update(brokerageAccounts)
-      .set({
-        ...(body.label !== undefined ? { label: body.label } : {}),
-        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-        updatedAt: new Date(),
-      })
+      .set(updates)
       .where(and(eq(brokerageAccounts.id, accountId), eq(brokerageAccounts.userId, user.id)))
       .returning({ id: brokerageAccounts.id });
 

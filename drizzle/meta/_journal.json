@@ -169,6 +169,13 @@
       "when": 1778454533763,
       "tag": "0023_conscious_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1779169033441,
+      "tag": "0024_powerful_young_avengers",
+      "breakpoints": true
     }
   ]
 }

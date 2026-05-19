@@ -606,6 +606,15 @@ export const brokerageAccounts = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     lastSyncedAt: timestamp("last_synced_at"),
     lastSyncError: text("last_sync_error"),
+    // Account open date (YYYY-MM-DD). When set, the backfill job walks
+    // from `openedAt` forward to today filling any gap in executions /
+    // daily-pnl that hasn't been pulled yet.
+    openedAt: text("opened_at"),
+    // Earliest date we've already pulled executions for. Used as the
+    // backfill watermark so we only fetch the un-pulled prefix.
+    // Null = backfill never run.
+    executionsBackfilledFrom: text("executions_backfilled_from"),
+    pnlBackfilledFrom: text("pnl_backfilled_from"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
