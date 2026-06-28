@@ -24,6 +24,15 @@ pipeline {
             }
         }
 
+        stage('Test') {
+            steps {
+                // Build the tester target; its `RUN yarn test` fails the build
+                // (non-zero exit) if any Vitest test fails, stopping the
+                // pipeline before the image is built or deployed.
+                sh "docker build --target tester -t ${IMAGE_NAME}:tester ."
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 script {

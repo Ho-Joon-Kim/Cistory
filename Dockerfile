@@ -27,6 +27,17 @@ ENV BETTER_AUTH_SECRET=build-placeholder
 RUN mkdir -p public && yarn build && \
     node scripts/fix-standalone-instrumentation.mjs
 
+# Stage: Test runner — runs the Vitest smoke/assertion suite in CI.
+# Reuses the deps node_modules (devDependencies include vitest). `yarn test`
+# (vitest run) exits non-zero on any failure, so `docker build --target tester`
+# fails the Jenkins Test stage before the image is built or deployed. Dummy env
+# for the suite is injected by vitest.config.mts (test.env), so no real
+# DATABASE_URL is needed here.
+FROM base AS tester
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN yarn test
+
 # Stage: Lightweight migration runner (no build, no secrets needed)
 FROM base AS migrator
 COPY --from=deps /app/node_modules ./node_modules
