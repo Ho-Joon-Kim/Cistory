@@ -166,16 +166,14 @@ export async function* runBackfill(
       progress: 99,
     };
 
-    // Phase 5: trip detection
+    // Phase 5: trip detection. Idempotent — the overlap-skip prevents
+    // duplicating trips already detected for these dates by a prior backfill,
+    // a re-import of the same range, or the weekly cron.
     let totalTrips = 0;
     try {
-      const { detectTrips, persistTrips } = await import(
-        "@/modules/location/services/trip-detector"
-      );
-      const detected = await detectTrips(userId, dates[0], dates[dates.length - 1]);
-      if (detected.length > 0) {
-        totalTrips = await persistTrips(userId, detected);
-      }
+      const { detectAndPersistTrips } = await import("@/modules/location/services/trip-detector");
+      const result = await detectAndPersistTrips(userId, dates[0], dates[dates.length - 1]);
+      totalTrips = result.inserted;
       yield { phase: "trips", detail: `${totalTrips}개 여행 감지`, progress: 99 };
     } catch (tripError) {
       console.error("Trip detection error (non-fatal):", tripError);
