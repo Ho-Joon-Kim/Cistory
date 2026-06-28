@@ -23,8 +23,10 @@ let dailyReparseTask: cron.ScheduledTask | null = null;
 let locationProcessingTask: cron.ScheduledTask | null = null;
 let locationCatchUpTask: cron.ScheduledTask | null = null;
 let subwayRefreshTask: cron.ScheduledTask | null = null;
+let tripDetectionTask: cron.ScheduledTask | null = null;
 let isSubwayRefreshRunning = false;
 let isLocationProcessingRunning = false;
+let isTripDetectionRunning = false;
 
 /**
  * Wraps refreshAllSubwaySystems with a single-flight guard. Yearly cron + boot
@@ -77,7 +79,10 @@ async function maybeRunSubwayBootCatchUp(): Promise<void> {
   }
 }
 
-async function syncAllUsers() {
+// Exported (with the two job bodies below) so the cron smoke test can call the
+// job logic directly and assert call-shape — the cron.schedule registrations
+// themselves are out of test scope.
+export async function syncAllUsers() {
   const startTime = Date.now();
   const timestamp = new Date().toISOString();
 
@@ -361,7 +366,7 @@ async function syncAllUsers() {
  * daily 01:00 schedule + boot catch-up can all overlap if a previous run is
  * still in flight (subway discovery probes Overpass and can be slow).
  */
-async function processYesterdayLocations(reason: string) {
+export async function processYesterdayLocations(reason: string) {
   if (isLocationProcessingRunning) {
     logger.info("[Cron] Location processing already running, skipping", { reason });
     return;
@@ -508,10 +513,78 @@ async function processYesterdayLocations(reason: string) {
 }
 
 /**
+ * Detect multi-day trips from visits. Unlike the daily location pipeline (which
+ * processes one day at a time), trip detection is a range operation — it groups
+ * consecutive away-from-home days into trips — so it runs on its own weekly
+ * schedule rather than inside the per-day loop.
+ *
+ * Scans a rolling 120-day window so any recent trip falls fully inside it (a
+ * trip clipped by the window edge would get a truncated start/end). The
+ * overlap-skip in detectAndPersistTrips makes this idempotent: trips already
+ * persisted from a previous run (or the historical backfill) are not duplicated.
+ * A single-flight guard prevents overlap with a still-running pass.
+ */
+async function runTripDetection(reason: string) {
+  if (isTripDetectionRunning) {
+    logger.info("[Cron] Trip detection already running, skipping", { reason });
+    return;
+  }
+  isTripDetectionRunning = true;
+  const startTime = Date.now();
+  logger.info("[Cron] Starting trip detection", { reason });
+
+  try {
+    const db = getDb();
+    const allUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`${users.ownTracksApiKey} IS NOT NULL`);
+
+    if (allUsers.length === 0) {
+      logger.info("[Cron] No users with OwnTracks configured. Skipping trip detection.");
+      return;
+    }
+
+    const { detectAndPersistTrips } = await import("@/modules/location/services/trip-detector");
+
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 120);
+    const fromStr = toLocalDateString(from);
+    const toStr = toLocalDateString(to);
+
+    for (const user of allUsers) {
+      try {
+        const result = await detectAndPersistTrips(user.id, fromStr, toStr);
+        if (result.inserted > 0) {
+          logger.info(
+            `[Cron] Trip detection for ${user.id}: ${result.inserted} new trip(s) (${result.detected} detected, ${result.skipped} existing)`
+          );
+        }
+      } catch (err) {
+        logger.error(`[Cron] Trip detection failed for user ${user.id}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    logger.info(`[Cron] Trip detection completed in ${elapsed}s`, { reason });
+  } catch (error) {
+    logger.error("[Cron] Fatal error during trip detection", {
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    isTripDetectionRunning = false;
+  }
+}
+
+/**
  * Reparse today's Toss notifications for all users
  * Runs daily — picks up notifications that failed to parse with older parser versions
  */
-async function reparseTodayNotifications() {
+export async function reparseTodayNotifications() {
   const db = getDb();
 
   try {
@@ -665,6 +738,24 @@ export function initializeCron() {
     { timezone: TZ, name: "subway-refresh" }
   );
 
+  // Weekly trip detection — Sunday 02:00 KST, after the 01:00 location pipeline
+  // has persisted the latest visits. Trip detection is a date-range operation
+  // (it spans multiple days), so it can't live in the per-day location loop;
+  // a weekly cadence is enough since a new trip only needs to surface within a
+  // few days. The rolling-window + overlap-skip make every run idempotent.
+  const TRIP_DETECTION_SCHEDULE = "0 2 * * 0";
+  tripDetectionTask = cron.schedule(
+    TRIP_DETECTION_SCHEDULE,
+    () => {
+      runTripDetection("weekly-cron").catch((error) => {
+        logger.error("[Cron] Unhandled error in trip detection", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    { timezone: TZ, name: "trip-detection" }
+  );
+
   isInitialized = true;
 
   // Boot-time catch-up. Cron schedules only fire while the process is alive —
@@ -741,6 +832,10 @@ export async function stopCron() {
   if (subwayRefreshTask) {
     subwayRefreshTask.stop();
     subwayRefreshTask = null;
+  }
+  if (tripDetectionTask) {
+    tripDetectionTask.stop();
+    tripDetectionTask = null;
   }
   if (isInitialized) {
     await logger.flush();

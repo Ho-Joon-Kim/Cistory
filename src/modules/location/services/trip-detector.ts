@@ -242,6 +242,40 @@ export async function persistTrips(userId: string, detectedTrips: DetectedTrip[]
   return detectedTrips.length;
 }
 
+// ── Idempotent Detect + Persist ──────────────────────────────────────────────
+
+/**
+ * Detect trips over [from, to] and persist only those that don't overlap an
+ * existing trip. Idempotent — safe to re-run over a rolling window (e.g. from a
+ * weekly cron) or to backfill the full history more than once.
+ *
+ * Overlap is decided purely on date ranges; since dates are "YYYY-MM-DD" strings
+ * they compare lexicographically, so the standard interval-overlap test works
+ * directly without parsing.
+ */
+export async function detectAndPersistTrips(
+  userId: string,
+  from: string,
+  to: string
+): Promise<{ detected: number; inserted: number; skipped: number }> {
+  const detected = await detectTrips(userId, from, to);
+  if (detected.length === 0) return { detected: 0, inserted: 0, skipped: 0 };
+
+  const db = getDb();
+  const existing = await db
+    .select({ startDate: trips.startDate, endDate: trips.endDate })
+    .from(trips)
+    .where(eq(trips.userId, userId));
+
+  // A detected trip is new only if its date range overlaps no existing trip.
+  const fresh = detected.filter(
+    (t) => !existing.some((e) => t.startDate <= e.endDate && e.startDate <= t.endDate)
+  );
+
+  const inserted = await persistTrips(userId, fresh);
+  return { detected: detected.length, inserted, skipped: detected.length - inserted };
+}
+
 function parseLocalDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d);
