@@ -1,7 +1,7 @@
 ---
 title: "test: Add CI smoke/assertion test layer"
 type: test
-status: active
+status: completed
 date: 2026-06-28
 origin: docs/brainstorms/2026-06-27-ci-smoke-testing-requirements.md
 ---
