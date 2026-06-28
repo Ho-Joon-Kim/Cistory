@@ -79,7 +79,10 @@ async function maybeRunSubwayBootCatchUp(): Promise<void> {
   }
 }
 
-async function syncAllUsers() {
+// Exported (with the two job bodies below) so the cron smoke test can call the
+// job logic directly and assert call-shape — the cron.schedule registrations
+// themselves are out of test scope.
+export async function syncAllUsers() {
   const startTime = Date.now();
   const timestamp = new Date().toISOString();
 
@@ -363,7 +366,7 @@ async function syncAllUsers() {
  * daily 01:00 schedule + boot catch-up can all overlap if a previous run is
  * still in flight (subway discovery probes Overpass and can be slow).
  */
-async function processYesterdayLocations(reason: string) {
+export async function processYesterdayLocations(reason: string) {
   if (isLocationProcessingRunning) {
     logger.info("[Cron] Location processing already running, skipping", { reason });
     return;
@@ -581,7 +584,7 @@ async function runTripDetection(reason: string) {
  * Reparse today's Toss notifications for all users
  * Runs daily — picks up notifications that failed to parse with older parser versions
  */
-async function reparseTodayNotifications() {
+export async function reparseTodayNotifications() {
   const db = getDb();
 
   try {
