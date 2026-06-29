@@ -67,25 +67,37 @@ export async function GET(request: NextRequest) {
         repoSplit,
         dataUsage,
         discoveries,
-      ] = await Promise.all([
-        InsightsService.calculateStreaks(db, user.id, year),
-        InsightsService.calculateWorkPatterns(db, user.id, year),
-        InsightsService.calculateRoutinePatterns(db, user.id, year),
-        InsightsService.calculateMonthlyDigests(db, user.id, year),
-        InsightsService.getCommitHeatmapData(db, user.id, year),
-        getSubwayInsights(user.id, from, toExclusive),
-        InsightsService.getYearSwimlane(db, user.id, year),
-        InsightsService.getAIClock(db, user.id, year),
-        InsightsService.getCommuteReliability(db, user.id, year),
-        InsightsService.getPlaceProductivity(db, user.id, year),
-        InsightsService.getTrips(db, user.id, year),
-        InsightsService.getTransportModes(db, user.id, year),
-        InsightsService.getVisitsXCommits(db, user.id, year),
-        InsightsService.getNetSpend(db, user.id, year),
-        InsightsService.getRepoSplit(db, user.id, year),
-        InsightsService.getDataUsage(db, user.id),
-        InsightsService.getDiscoveries(db, user.id, year),
-      ]);
+      ] = await db.transaction(async (tx) => {
+        // Run the entire dashboard fan-out on ONE pooled connection instead of
+        // firing ~30-40 queries across the pool at once. The parallel fan-out
+        // stampeded the connection pool — saturating every slot so unrelated
+        // requests sharing the pool (notably Better Auth /get-session) timed out
+        // acquiring a connection ("Connection terminated due to connection
+        // timeout"). These queries are tiny (sub-10ms) and do no external I/O,
+        // so serializing them on a single connection costs little and mirrors
+        // the report service's single-transaction pattern. node-postgres queues
+        // the concurrent queries on the one connection, so Promise.all is safe.
+        const txDb = tx as unknown as typeof db;
+        return Promise.all([
+          InsightsService.calculateStreaks(txDb, user.id, year),
+          InsightsService.calculateWorkPatterns(txDb, user.id, year),
+          InsightsService.calculateRoutinePatterns(txDb, user.id, year),
+          InsightsService.calculateMonthlyDigests(txDb, user.id, year),
+          InsightsService.getCommitHeatmapData(txDb, user.id, year),
+          getSubwayInsights(user.id, from, toExclusive, txDb),
+          InsightsService.getYearSwimlane(txDb, user.id, year),
+          InsightsService.getAIClock(txDb, user.id, year),
+          InsightsService.getCommuteReliability(txDb, user.id, year),
+          InsightsService.getPlaceProductivity(txDb, user.id, year),
+          InsightsService.getTrips(txDb, user.id, year),
+          InsightsService.getTransportModes(txDb, user.id, year),
+          InsightsService.getVisitsXCommits(txDb, user.id, year),
+          InsightsService.getNetSpend(txDb, user.id, year),
+          InsightsService.getRepoSplit(txDb, user.id, year),
+          InsightsService.getDataUsage(txDb, user.id),
+          InsightsService.getDiscoveries(txDb, user.id, year),
+        ]);
+      });
       return NextResponse.json({
         streaks,
         patterns,

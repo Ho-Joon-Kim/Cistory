@@ -7,7 +7,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { getDb } from "@/db";
+import { type Database, getDb } from "@/db";
 import { resolveLineColor } from "@/lib/subway-color";
 
 export interface SubwayUsageTopLine {
@@ -120,9 +120,10 @@ interface InsightAggRow {
 export async function getSubwayInsights(
   userId: string,
   fromDate: Date,
-  toExclusiveDate: Date
+  toExclusiveDate: Date,
+  executor?: Database
 ): Promise<SubwayInsightsData> {
-  const db = getDb();
+  const db = executor ?? getDb();
 
   const aggRes = await db.execute(sql`
     SELECT
