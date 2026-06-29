@@ -27,42 +27,25 @@ export interface SectionState<T> {
   error: string | null;
 }
 
-function useSectionFetch<T>(url: string | null): SectionState<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!url) {
-      setData(null);
-      setError(null);
-      return;
-    }
-    let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-
-    fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch section");
-        return res.json();
-      })
-      .then((json: { data: T }) => {
-        if (!cancelled) setData(json.data);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Unknown error");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-
-  return { data, isLoading, error };
+// Shape returned by the batched (no-section) /api/insights endpoint.
+interface AllInsights {
+  streaks: StreaksResult;
+  patterns: WorkPatternsResult;
+  routines: RoutinePatternsResult;
+  digests: MonthlyDigestsResult;
+  commitHeatmap: CommitHeatmapResult;
+  subway: SubwayInsightsData;
+  swimlane: SwimlaneResult;
+  aiClock: AIClockResult;
+  commute: CommuteReliabilityResult;
+  placeProductivity: PlaceProductivityResult;
+  trips: TripsResult;
+  transport: TransportModesResult;
+  visitsXCommits: VisitsXCommitsResult;
+  netSpend: NetSpendResult;
+  repoSplit: RepoSplitResult;
+  dataUsage: DataUsageResult;
+  discoveries: DiscoveriesResult;
 }
 
 export interface UseInsightsReturn {
@@ -88,26 +71,70 @@ export interface UseInsightsReturn {
 }
 
 export function useInsights(year: number): UseInsightsReturn {
-  const baseUrl = `/api/insights?year=${year}`;
+  // Fetch ALL sections in ONE request to the batched (no-section) endpoint
+  // instead of firing 17 parallel per-section requests. Those 17 concurrent
+  // requests each demanded their own pooled DB connection on a cold pool,
+  // stampeding it — saturating every slot so unrelated requests (Better Auth
+  // /get-session) and even the cron's own queries timed out acquiring a
+  // connection. The batched endpoint runs the whole fan-out on a single
+  // transaction connection (see src/app/api/insights/route.ts).
+  const [state, setState] = useState<{
+    data: AllInsights | null;
+    isLoading: boolean;
+    error: string | null;
+  }>({ data: null, isLoading: true, error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ data: null, isLoading: true, error: null });
+
+    fetch(`/api/insights?year=${year}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch insights");
+        return res.json();
+      })
+      .then((json: AllInsights) => {
+        if (!cancelled) setState({ data: json, isLoading: false, error: null });
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setState({
+            data: null,
+            isLoading: false,
+            error: e instanceof Error ? e.message : "Unknown error",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [year]);
+
+  const { data, isLoading, error } = state;
+  const section = <T>(value: T | undefined): SectionState<T> => ({
+    data: value ?? null,
+    isLoading,
+    error,
+  });
+
   return {
-    streaks: useSectionFetch<StreaksResult>(`${baseUrl}&section=streaks`),
-    patterns: useSectionFetch<WorkPatternsResult>(`${baseUrl}&section=patterns`),
-    routines: useSectionFetch<RoutinePatternsResult>(`${baseUrl}&section=routines`),
-    digests: useSectionFetch<MonthlyDigestsResult>(`${baseUrl}&section=digests`),
-    commitHeatmap: useSectionFetch<CommitHeatmapResult>(`${baseUrl}&section=commit-heatmap`),
-    subway: useSectionFetch<SubwayInsightsData>(`${baseUrl}&section=subway`),
-    swimlane: useSectionFetch<SwimlaneResult>(`${baseUrl}&section=swimlane`),
-    aiClock: useSectionFetch<AIClockResult>(`${baseUrl}&section=ai-clock`),
-    commute: useSectionFetch<CommuteReliabilityResult>(`${baseUrl}&section=commute-reliability`),
-    placeProductivity: useSectionFetch<PlaceProductivityResult>(
-      `${baseUrl}&section=place-productivity`
-    ),
-    trips: useSectionFetch<TripsResult>(`${baseUrl}&section=trips`),
-    transport: useSectionFetch<TransportModesResult>(`${baseUrl}&section=transport-modes`),
-    visitsXCommits: useSectionFetch<VisitsXCommitsResult>(`${baseUrl}&section=visits-x-commits`),
-    netSpend: useSectionFetch<NetSpendResult>(`${baseUrl}&section=net-spend`),
-    repoSplit: useSectionFetch<RepoSplitResult>(`${baseUrl}&section=repo-split`),
-    dataUsage: useSectionFetch<DataUsageResult>(`${baseUrl}&section=data-usage`),
-    discoveries: useSectionFetch<DiscoveriesResult>(`${baseUrl}&section=discoveries`),
+    streaks: section(data?.streaks),
+    patterns: section(data?.patterns),
+    routines: section(data?.routines),
+    digests: section(data?.digests),
+    commitHeatmap: section(data?.commitHeatmap),
+    subway: section(data?.subway),
+    swimlane: section(data?.swimlane),
+    aiClock: section(data?.aiClock),
+    commute: section(data?.commute),
+    placeProductivity: section(data?.placeProductivity),
+    trips: section(data?.trips),
+    transport: section(data?.transport),
+    visitsXCommits: section(data?.visitsXCommits),
+    netSpend: section(data?.netSpend),
+    repoSplit: section(data?.repoSplit),
+    dataUsage: section(data?.dataUsage),
+    discoveries: section(data?.discoveries),
   };
 }
