@@ -34,6 +34,31 @@ services:
     environment:
       - NODE_ENV=production
       - TZ=Asia/Seoul
+      # Cron runs in the dedicated cistory-cron container below so its CPU-heavy
+      # background jobs never block this container's request-serving event loop.
+      - DISABLE_CRON=true
+      - DATABASE_URL=postgresql://cistory:cistory@postgres:5432/cistory
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Cron worker — same image, runs only the scheduler (DISABLE_CRON unset). No
+  # published port: it serves no web traffic, so its event loop is free to run
+  # AI summaries, location/subway processing, etc. without stalling the web app.
+  cistory-cron:
+    image: cistory:latest
+    container_name: cistory-cron
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - TZ=Asia/Seoul
       - DATABASE_URL=postgresql://cistory:cistory@postgres:5432/cistory
     depends_on:
       postgres:

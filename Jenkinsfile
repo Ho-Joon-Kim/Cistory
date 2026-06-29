@@ -91,12 +91,16 @@ pipeline {
                 sh """
                     docker stop ${CONTAINER_NAME} 2>/dev/null || true
                     docker rm ${CONTAINER_NAME} 2>/dev/null || true
+                    docker stop ${CONTAINER_NAME}-cron 2>/dev/null || true
+                    docker rm ${CONTAINER_NAME}-cron 2>/dev/null || true
 
                     # Ensure PostgreSQL is running
                     docker start cistory-db 2>/dev/null || docker compose up -d postgres
 
                     COMPOSE_NETWORK=\$(docker inspect cistory-db --format '{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}}{{end}}')
 
+                    # Web container — serves HTTP. Cron is DISABLED here so the
+                    # background jobs never block the request-serving event loop.
                     docker run -d \
                         --name ${CONTAINER_NAME} \
                         --restart unless-stopped \
@@ -104,8 +108,26 @@ pipeline {
                         --network \${COMPOSE_NETWORK} \
                         -e NODE_ENV=production \
                         -e TZ=Asia/Seoul \
+                        -e DISABLE_CRON=true \
                         -e DATABASE_URL=postgresql://cistory:cistory@cistory-db:5432/cistory \
                         -p ${APP_PORT}:3000 \
+                        --log-driver json-file \
+                        --log-opt max-size=50m \
+                        --log-opt max-file=5 \
+                        ${IMAGE_NAME}:${GIT_COMMIT_SHORT}
+
+                    # Cron container — same image, runs the scheduler only. No
+                    # published port (no web traffic), so its event loop is free
+                    # to run CPU-heavy background jobs without affecting the web
+                    # container.
+                    docker run -d \
+                        --name ${CONTAINER_NAME}-cron \
+                        --restart unless-stopped \
+                        --env-file ${ENV_FILE} \
+                        --network \${COMPOSE_NETWORK} \
+                        -e NODE_ENV=production \
+                        -e TZ=Asia/Seoul \
+                        -e DATABASE_URL=postgresql://cistory:cistory@cistory-db:5432/cistory \
                         --log-driver json-file \
                         --log-opt max-size=50m \
                         --log-opt max-file=5 \
