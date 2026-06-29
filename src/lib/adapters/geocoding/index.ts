@@ -14,7 +14,7 @@ export type { GeocodingAdapter, GeocodingResult } from "./interface";
 export { GooglePlacesAdapter, KakaoGeocodingAdapter, MapboxGeocodingAdapter };
 
 // 한국 bounding box (대략적)
-const KOREA_BOUNDS = {
+export const KOREA_BOUNDS = {
   minLat: 33.0,
   maxLat: 38.7,
   minLon: 124.5,

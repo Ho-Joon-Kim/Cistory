@@ -56,7 +56,7 @@ src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
 │   ├── (dashboard)/         # Dashboard route group (settings, repositories, spending)
-│   ├── api/                 # API routes (14 top-level groups, ~50+ endpoints)
+│   ├── api/                 # API routes (15 top-level groups, ~60+ endpoints)
 │   ├── dashboard/           # Main dashboard page
 │   ├── insights/            # Insights dashboard (places, transportation, residency, etc.)
 │   ├── portfolio/           # KIS brokerage portfolio page (top-level, not in (dashboard) group)
@@ -89,7 +89,7 @@ src/
 │   ├── auth/               # Auth hooks (useAuth, useUser)
 │   ├── insights/           # Insights dashboard (hooks, service, components)
 │   ├── location/           # Location tracking + processing (services/: anomaly-filter, visit-detector, visit-persister, track-builder, track-persister, trip-detector, transportation/, residency, first-visits, time-of-day, countries-cities, import)
-│   ├── portfolio/          # KIS brokerage portfolio sync (service, hooks, components, utils)
+│   ├── portfolio/          # KIS brokerage portfolio (service, hooks, components, utils; returns.ts for TWR/cashflow calc)
 │   ├── report/             # Monthly/yearly reports (service, hooks, AI narratives, 20+ chart components, comparison-service, travel)
 │   ├── settings/           # User settings (theme, sync interval, OwnTracks/WakaTime/Toss keys)
 │   ├── spending/           # Spending data hooks (Toss transactions, account roles)
@@ -149,7 +149,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (27 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (28 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 - `users` - Extended user data with GitHub tokens, `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `wakatimeApiKey`, `lastLat`/`lastLon`, `wakatimeLastSyncedAt` (UUID PK, references Better Auth `user.id`)
 - `commits` - GitHub commit data (sha, message, stats, repo info)
 - `commitSummaries` - AI summaries (status: pending/processing/completed/failed)
@@ -172,13 +172,14 @@ const db = getDb();
 - `subwayLines` - OSM relations per system with `geometry` (MultiLineString, 4326), name/ref/colour/operator. Unique on `(systemId, osmRelationId)`
 - `subwayStations` - OSM nodes per system with `location` (Point, 4326). Unique on `(systemId, osmNodeId)`
 - `subwayTripMatches` - Links a user's `transportationSegments` row to a matched subway line + start/end station, supporting transfer-aware session grouping
-- `brokerageAccounts` - Linked KIS accounts (`cano`, `acntPrdtCd`, `accountType`) with **encrypted** `appKeyEnc`/`appSecretEnc` and a cached `accessToken` + `accessTokenExpiresAt`. Unique on `(userId, cano, acntPrdtCd)`
+- `brokerageAccounts` - Linked KIS accounts (`cano`, `acntPrdtCd`, `accountType`) with **encrypted** `appKeyEnc`/`appSecretEnc` and a cached `accessToken` + `accessTokenExpiresAt`. Also tracks `openedAt` (account open date, drives historical backfill) and `executionsBackfilledFrom`/`pnlBackfilledFrom` backfill watermarks. Unique on `(userId, cano, acntPrdtCd)`
 - `holdingSnapshots` - Daily per-account portfolio snapshot (totals, P&L, deposit, raw KIS `output2` payload). Unique on `(accountId, asOfDate)` — re-syncing the same day upserts in place
 - `holdingPositions` - Individual ticker rows belonging to a `holdingSnapshot` (quantity, avg price, current price, eval amount, P&L, weight)
 - `brokerageExecutions` - Per-fill order history pulled from KIS (`odno` order number, `ordDt`, side, ticker, filled qty/amount). Unique on `(accountId, odno, ordDt)`
 - `brokerageDailyPnl` - Per-account per-trade-date realized P&L roll-up (buy/sell amounts, fee, tax). Unique on `(accountId, tradeDate)`
+- `brokerageTargetAllocations` - Per-account target portfolio weights (ticker, name, targetWeight) used by the rebalancing UI. Unique on `(accountId, ticker)`
 
-PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use `doublePrecision` lat/lon columns, while the `subway*` tables (added in migrations 0019/0020) use real PostGIS `geometry` columns and require the extension. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (see commit `a3df73a`), so don't reintroduce it. Migration 0021 added `account_roles` (Toss spending classification); migration 0022 added the brokerage tables.
+PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use `doublePrecision` lat/lon columns, while the `subway*` tables (added in migrations 0019/0020) use real PostGIS `geometry` columns and require the extension. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (see commit `a3df73a`), so don't reintroduce it. Migration 0021 added `account_roles` (Toss spending classification); migration 0022 added the brokerage tables; migration 0023 added `brokerage_target_allocations`; migration 0024 added the `opened_at`/`executions_backfilled_from`/`pnl_backfilled_from` columns on `brokerage_accounts`.
 
 **Better Auth Setup** (`src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/lib/auth-helpers.ts`):
 - Server: `betterAuth()` with `pg.Pool`, GitHub OAuth, cookie cache (5min), UUID ID generation
@@ -194,7 +195,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 - Both flows use shared `_executeSyncCommits()` private method
 - Deduplication via SHA batch lookup (batch size: 500)
 - Rate limiting: 100ms delay between commit saves
-- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, syncs KIS portfolio snapshots/executions for users with active brokerage accounts (24h interval, gated by `BrokerageAccount.lastSyncedAt`), refreshes data usage cache, and auto-deletes sync jobs older than 7 days
+- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, syncs KIS portfolio snapshots/executions for users with active brokerage accounts (24h interval, gated by `BrokerageAccount.lastSyncedAt`) then runs `backfillPendingAccounts()` to fill any historical gap implied by `openedAt` (idempotent via backfill watermarks), refreshes data usage cache, and auto-deletes sync jobs older than 7 days
 - Daily Toss reparse cron (`0 23 * * *` — 23:00 KST): reparses today's Toss notifications to pick up parser improvements
 - Daily location-processing cron (`0 1 * * *` — 01:00 KST): for each user with OwnTracks configured, runs anomaly detection, visit detection + persist, track building + persist, transportation-mode detection, then subway matching (`src/modules/location/services/subway-match/{matcher,session-grouper}`) and subway-system discovery (`src/modules/location/services/subway-discovery`, capped at 3 new cities/run) for the previous day
 - Yearly subway data refresh (`0 3 1 1 *` — Jan 1, 03:00 KST) plus a boot-time catch-up that re-fetches any `subway_systems` row never fetched or older than ~350 days. `seedSubwaySystemsIfEmpty()` from `src/modules/subway/service.ts` runs on every boot and is idempotent
@@ -229,6 +230,12 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 - Deduplication: unique constraint on `(userId, notificationLogId)` plus ±2 minute time-window duplicate check
 - Daily cron reparse at 23:00 picks up notifications that failed with older parser versions
 
+**KIS Brokerage Portfolio** (`src/modules/portfolio/`):
+- `service.ts` (`PortfolioSyncService`) drives KIS sync: daily `holdingSnapshots`/`holdingPositions`, `brokerageExecutions`, and `brokerageDailyPnl`. Access tokens are cached on `brokerageAccounts` and refreshed lazily (60s grace); app key/secret are AES-256-GCM encrypted via `src/lib/crypto.ts` (`KIS_ENCRYPTION_KEY`)
+- Historical backfill: `backfillPendingAccounts()` walks each account back to `openedAt`, advancing the `executionsBackfilledFrom`/`pnlBackfilledFrom` watermarks so it's idempotent and resumable across cron runs (also exposed as a manual `/api/portfolio/accounts/[id]/backfill` route)
+- `returns.ts` computes time-weighted return (TWR): it infers cashflows from snapshot/deposit/purchase deltas using a **T+2 settlement** model and anchors every account's series to the `RETURNS_EPOCH` of `2026-05-12` (earlier snapshots include pre-settlement receivables that inflate the baseline). Served via `/api/portfolio/returns`
+- Rebalancing: `brokerageTargetAllocations` holds per-ticker target weights; the UI (`TargetAllocationEditor`, `RebalanceCard`) compares them against current `holdingPositions` weights
+
 **Logging**: `src/lib/logger.ts` wraps Better Stack (Logtail) with `info`, `warn`, `error`, `flush` methods. Falls back to console when `BETTER_STACK_SOURCE_TOKEN` is not set.
 
 ### Authentication Flow
@@ -262,7 +269,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 - `/api/toss-notifications` - POST Toss notification ingestion (via MacroDroid)
 - `/api/health` - GET health check
 - `/api/spending` - GET spending analytics; `/api/spending/reparse` - POST reparse notifications; `/api/spending/transactions/[transactionId]` - DELETE transaction; `/api/spending/notifications` - GET raw notifications; `/api/spending/notifications/cleanup` - POST cleanup
-- `/api/portfolio/accounts` - GET/POST KIS brokerage accounts; `/api/portfolio/accounts/[accountId]` - PUT/DELETE individual account; `/api/portfolio/snapshots` - GET holding snapshots + positions; `/api/portfolio/executions` - GET execution history; `/api/portfolio/summary` - GET cross-account roll-up; `/api/portfolio/sync` - POST manual KIS sync
+- `/api/portfolio/accounts` - GET/POST KIS brokerage accounts; `/api/portfolio/accounts/[accountId]` - PUT/DELETE individual account; `/api/portfolio/accounts/[accountId]/sync` - POST per-account KIS sync; `/api/portfolio/accounts/[accountId]/backfill` - POST historical backfill (executions + daily P&L back to `openedAt`); `/api/portfolio/accounts/[accountId]/targets` - GET/PUT target allocations; `/api/portfolio/snapshots` - GET holding snapshots + positions; `/api/portfolio/executions` - GET execution history; `/api/portfolio/summary` - GET cross-account roll-up; `/api/portfolio/returns` - GET time-weighted return (TWR) series; `/api/portfolio/sync` - POST manual KIS sync (all accounts)
 
 ### Environment Setup
 

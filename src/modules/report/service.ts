@@ -20,6 +20,7 @@ import {
   trips,
 } from "@/db/schema";
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
+import { KOREA_BOUNDS } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
 import { safeJsonParse } from "@/lib/utils";
 import {
@@ -28,7 +29,7 @@ import {
 } from "@/modules/location/services/first-visits";
 import { detectCommitType } from "@/modules/summary/prompts";
 import { buildMonthlyNarrativePrompt, buildYearlyNarrativePrompt } from "./prompts";
-import { detectOverseasTrips, isOverseas } from "./travel";
+import { detectOverseasTrips, isOverseas, type OverseasTrip } from "./travel";
 import type {
   CodingSectionData,
   CommitsSectionData,
@@ -557,42 +558,13 @@ export class ReportService {
       .map((d) => ({ date: d.date, meters: d.distanceMeters }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const locations = await tx
-      .select({
-        lat: locationPoints.lat,
-        lon: locationPoints.lon,
-        timestamp: locationPoints.timestamp,
-      })
-      .from(locationPoints)
-      .where(
-        and(
-          eq(locationPoints.userId, userId),
-          gte(locationPoints.timestamp, startTs),
-          lt(locationPoints.timestamp, endTs)
-        )
-      );
-
-    const heatmapMap = new Map<string, { lat: number; lon: number; weight: number }>();
-    for (const loc of locations) {
-      const key = `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;
-      const existing = heatmapMap.get(key);
-      if (existing) {
-        existing.weight += 1;
-      } else {
-        heatmapMap.set(key, { lat: loc.lat, lon: loc.lon, weight: 1 });
-      }
-    }
-    const locationHeatmapPoints = [...heatmapMap.values()];
-
+    // Aggregate the heatmap and dwell-time top places in SQL instead of pulling
+    // every raw location point (~390K rows/month) over the wire and bucketing in
+    // JS. The old approach blew query_timeout and held the pool connection long
+    // enough to starve concurrent dashboard queries.
+    const locationHeatmapPoints = await this._getLocationHeatmap(tx, userId, startTs, endTs);
     const topPlaces = await this._getTopPlaces(tx, userId, startTs, endTs);
-
-    const locationsWithDates = locations.map((l) => ({
-      lat: l.lat,
-      lon: l.lon,
-      date: l.timestamp.toISOString().split("T")[0],
-    }));
-    const enriched = await this._enrichLocationsWithPlaceNames(tx, locationsWithDates);
-    const overseasTrips = detectOverseasTrips(enriched);
+    const overseasTrips = await this._detectOverseasTripsForRange(tx, userId, startTs, endTs);
 
     // Previous month distance data
     const prevYearMonth = this._prevMonth(yearMonth);
@@ -921,39 +893,11 @@ export class ReportService {
       .map((d) => ({ date: d.date, meters: d.distanceMeters }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const locations = await tx
-      .select({
-        lat: locationPoints.lat,
-        lon: locationPoints.lon,
-        timestamp: locationPoints.timestamp,
-      })
-      .from(locationPoints)
-      .where(
-        and(
-          eq(locationPoints.userId, userId),
-          gte(locationPoints.timestamp, startTs),
-          lt(locationPoints.timestamp, endTs)
-        )
-      );
-
-    const heatmapMap = new Map<string, { lat: number; lon: number; weight: number }>();
-    for (const loc of locations) {
-      const key = `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;
-      const existing = heatmapMap.get(key);
-      if (existing) existing.weight += 1;
-      else heatmapMap.set(key, { lat: loc.lat, lon: loc.lon, weight: 1 });
-    }
-    const locationHeatmapPoints = [...heatmapMap.values()];
-
+    // SQL-side aggregation (see _aggregateMonthlyLocation) — for a year this
+    // avoids transferring ~2M raw location points multiple times.
+    const locationHeatmapPoints = await this._getLocationHeatmap(tx, userId, startTs, endTs);
     const topPlaces = await this._getTopPlaces(tx, userId, startTs, endTs);
-
-    const locationsWithDates = locations.map((l) => ({
-      lat: l.lat,
-      lon: l.lon,
-      date: l.timestamp.toISOString().split("T")[0],
-    }));
-    const enriched = await this._enrichLocationsWithPlaceNames(tx, locationsWithDates);
-    const overseasTrips = detectOverseasTrips(enriched);
+    const overseasTrips = await this._detectOverseasTripsForRange(tx, userId, startTs, endTs);
 
     // Previous year distance data
     const prevYear = String(Number(year) - 1);
@@ -1184,57 +1128,49 @@ export class ReportService {
     startTs: Date,
     endTs: Date
   ): Promise<MonthlyReportData["topPlaces"]> {
-    const points = await tx
-      .select({
-        lat: locationPoints.lat,
-        lon: locationPoints.lon,
-        timestamp: locationPoints.timestamp,
-      })
-      .from(locationPoints)
-      .where(
-        and(
-          eq(locationPoints.userId, userId),
-          gte(locationPoints.timestamp, startTs),
-          lt(locationPoints.timestamp, endTs)
-        )
+    // Bucket every point to a ~110m grid and sum dwell time (gap to the next
+    // point, capped 60min; last point = 5min) entirely in SQL, returning only
+    // the top 10 buckets. Previously this pulled every raw point for the range
+    // and bucketed in JS — the dominant cost behind the report's query timeout.
+    const aggregated = await tx.execute(sql`
+      WITH pts AS (
+        SELECT
+          ${locationPoints.lat} AS lat,
+          ${locationPoints.lon} AS lon,
+          ${locationPoints.timestamp} AS ts,
+          LEAD(${locationPoints.timestamp}) OVER (ORDER BY ${locationPoints.timestamp}) AS next_ts
+        FROM ${locationPoints}
+        WHERE ${locationPoints.userId} = ${userId}
+          AND ${locationPoints.timestamp} >= ${startTs}
+          AND ${locationPoints.timestamp} < ${endTs}
       )
-      .orderBy(locationPoints.timestamp);
+      SELECT
+        round(lat::numeric, 3)::float8 AS lat,
+        round(lon::numeric, 3)::float8 AS lon,
+        count(*)::int AS count,
+        sum(
+          CASE WHEN next_ts IS NULL THEN 5
+               ELSE LEAST(EXTRACT(EPOCH FROM (next_ts - ts)) / 60.0, 60) END
+        )::float8 AS "totalMinutes"
+      FROM pts
+      GROUP BY round(lat::numeric, 3), round(lon::numeric, 3)
+      ORDER BY "totalMinutes" DESC
+      LIMIT 10
+    `);
 
-    if (points.length === 0) return [];
+    const places = (
+      aggregated as unknown as {
+        rows: { lat: number; lon: number; count: number; totalMinutes: number }[];
+      }
+    ).rows;
+
+    if (places.length === 0) return [];
 
     // 유저 저장 장소 조회 (우선 매칭용)
     const userSavedPlaces = await tx
       .select()
       .from(savedPlaces)
       .where(eq(savedPlaces.userId, userId));
-
-    const placeMap = new Map<
-      string,
-      { lat: number; lon: number; count: number; totalMinutes: number }
-    >();
-
-    for (let i = 0; i < points.length; i++) {
-      const p = points[i];
-      const key = `${p.lat.toFixed(3)},${p.lon.toFixed(3)}`;
-      const existing = placeMap.get(key);
-
-      let minutes = 5;
-      if (i + 1 < points.length) {
-        const diff = (points[i + 1].timestamp.getTime() - p.timestamp.getTime()) / 60000;
-        minutes = Math.min(diff, 60);
-      }
-
-      if (existing) {
-        existing.count++;
-        existing.totalMinutes += minutes;
-      } else {
-        placeMap.set(key, { lat: p.lat, lon: p.lon, count: 1, totalMinutes: minutes });
-      }
-    }
-
-    const places = [...placeMap.values()]
-      .sort((a, b) => b.totalMinutes - a.totalMinutes)
-      .slice(0, 10);
 
     const result: MonthlyReportData["topPlaces"] = [];
 
@@ -1287,6 +1223,72 @@ export class ReportService {
     }
 
     return result;
+  }
+
+  /**
+   * Location heatmap buckets (~110m grid) aggregated in SQL. Replaces pulling
+   * every raw point and bucketing in JS.
+   */
+  private async _getLocationHeatmap(
+    tx: QueryExecutor,
+    userId: string,
+    startTs: Date,
+    endTs: Date
+  ): Promise<{ lat: number; lon: number; weight: number }[]> {
+    const res = await tx.execute(sql`
+      SELECT
+        round(${locationPoints.lat}::numeric, 3)::float8 AS lat,
+        round(${locationPoints.lon}::numeric, 3)::float8 AS lon,
+        count(*)::int AS weight
+      FROM ${locationPoints}
+      WHERE ${locationPoints.userId} = ${userId}
+        AND ${locationPoints.timestamp} >= ${startTs}
+        AND ${locationPoints.timestamp} < ${endTs}
+      GROUP BY round(${locationPoints.lat}::numeric, 3), round(${locationPoints.lon}::numeric, 3)
+    `);
+    return (res as unknown as { rows: { lat: number; lon: number; weight: number }[] }).rows;
+  }
+
+  /**
+   * Overseas trip detection for a date range. Only points outside the Korea
+   * bounding box can contribute (detectCountry skips domestic points), so we
+   * fetch just those — usually zero rows — and run the existing JS date/country
+   * grouping unchanged, preserving the original toISOString()-based date logic.
+   */
+  private async _detectOverseasTripsForRange(
+    tx: QueryExecutor,
+    userId: string,
+    startTs: Date,
+    endTs: Date
+  ): Promise<OverseasTrip[]> {
+    const overseasPoints = await tx
+      .select({
+        lat: locationPoints.lat,
+        lon: locationPoints.lon,
+        timestamp: locationPoints.timestamp,
+      })
+      .from(locationPoints)
+      .where(
+        and(
+          eq(locationPoints.userId, userId),
+          gte(locationPoints.timestamp, startTs),
+          lt(locationPoints.timestamp, endTs),
+          sql`NOT (
+            ${locationPoints.lat} >= ${KOREA_BOUNDS.minLat} AND ${locationPoints.lat} <= ${KOREA_BOUNDS.maxLat} AND
+            ${locationPoints.lon} >= ${KOREA_BOUNDS.minLon} AND ${locationPoints.lon} <= ${KOREA_BOUNDS.maxLon}
+          )`
+        )
+      );
+
+    if (overseasPoints.length === 0) return [];
+
+    const locationsWithDates = overseasPoints.map((l) => ({
+      lat: l.lat,
+      lon: l.lon,
+      date: l.timestamp.toISOString().split("T")[0],
+    }));
+    const enriched = await this._enrichLocationsWithPlaceNames(tx, locationsWithDates);
+    return detectOverseasTrips(enriched);
   }
 
   private async _enrichLocationsWithPlaceNames(
