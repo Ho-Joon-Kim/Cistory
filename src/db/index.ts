@@ -21,7 +21,12 @@ export function getPool() {
     // other code paths (recently-active connections) stayed healthy.
     poolInstance = new Pool({
       connectionString: DATABASE_URL,
-      max: 20,
+      // Headroom so foreground requests — notably Better Auth session reads,
+      // which share this pool (see src/lib/auth.ts) — aren't starved when the
+      // cron's boot/daily catch-up fires a burst of heavy queries. DB
+      // max_connections is 100 and baseline usage is ~2, so 40 is safe for the
+      // single app instance.
+      max: 40,
       idleTimeoutMillis: 30000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,

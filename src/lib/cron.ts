@@ -786,22 +786,29 @@ export function initializeCron() {
     // Short delay so the HTTP listener binds first (health checks shouldn't
     // compete with DB-heavy startup work).
     setTimeout(() => {
-      logger.info("[Cron] Running boot-time catch-up");
-      syncAllUsers().catch((error) => {
-        logger.error("[Cron] Boot-time sync failed", {
-          error: error instanceof Error ? error.message : String(error),
+      // Run the three catch-up jobs SEQUENTIALLY, not concurrently. Firing them
+      // all at once saturated the shared DB pool for ~25s on every boot (= every
+      // deploy), stalling foreground requests like Better Auth session reads
+      // ("get-session" infinite loading). Sequencing spreads the burst out; each
+      // job's failure stays non-fatal so the chain still continues.
+      void (async () => {
+        logger.info("[Cron] Running boot-time catch-up");
+        await syncAllUsers().catch((error) => {
+          logger.error("[Cron] Boot-time sync failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
-      });
-      processYesterdayLocations("boot-catchup").catch((error) => {
-        logger.error("[Cron] Boot-time location processing failed", {
-          error: error instanceof Error ? error.message : String(error),
+        await processYesterdayLocations("boot-catchup").catch((error) => {
+          logger.error("[Cron] Boot-time location processing failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
-      });
-      maybeRunSubwayBootCatchUp().catch((error) => {
-        logger.error("[Cron] Boot-time subway catch-up failed", {
-          error: error instanceof Error ? error.message : String(error),
+        await maybeRunSubwayBootCatchUp().catch((error) => {
+          logger.error("[Cron] Boot-time subway catch-up failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
-      });
+      })();
     }, 10_000);
   }
 
