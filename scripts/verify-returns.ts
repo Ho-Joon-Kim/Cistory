@@ -92,8 +92,8 @@ async function verifyAccount(accountId: string, label: string) {
   console.log(`Snapshots: ${snapshots.length}, Executions: ${executions.length}`);
   for (const s of snapshots) {
     console.log(
-      `  ${s.asOfDate}  eval=${fmtKrw(s.totalEvalAmount)}  deposit=${fmtKrw(s.deposit)}` +
-        `  purchase=${fmtKrw(s.totalPurchaseAmount)}  total=${fmtKrw(s.totalEvalAmount + s.deposit)}`
+      `  ${s.asOfDate}  total=${fmtKrw(s.totalEvalAmount)}  deposit=${fmtKrw(s.deposit)}` +
+        `  purchase=${fmtKrw(s.totalPurchaseAmount)}`
     );
   }
 

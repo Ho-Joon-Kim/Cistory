@@ -24,7 +24,7 @@ function snap(
 }
 
 describe("computeTWR", () => {
-  it("chains period returns over full account value (eval + deposit)", () => {
+  it("chains period returns over account value (tot_evlu_amt)", () => {
     // V0=1000 -> V1=1100 (r=1.10) -> V2=1045 (r=0.95); cumulative 1.045.
     const result = computeTWR(
       [snap("2026-06-01", 1000, 0), snap("2026-06-02", 1100, 0), snap("2026-06-03", 1045, 0)],
@@ -37,8 +37,11 @@ describe("computeTWR", () => {
     expect(result.periods[1].cumulativeReturn).toBeCloseTo(0.045, 6);
   });
 
-  it("subtracts an end-of-period cashflow so external deposits are not counted as gain", () => {
-    // V0=1000 -> V1=1500 but +500 of that is an external deposit -> 0% market return.
+  it("does not double-count deposit: tot_evlu_amt already includes the cash balance", () => {
+    // KIS semantics (verified against live output2): tot_evlu_amt = scts_evlu_amt + deposit.
+    // User deposits 500 externally: tot 1000 -> 1500, dnca 0 -> 500, no market movement.
+    // Account value must be tot alone; counting tot + deposit would report a fake
+    // 50% gain ((1500+500-500)/1000) instead of the correct 0%.
     const cashflows: CashflowEntry[] = [
       {
         date: "2026-06-02",
@@ -52,9 +55,14 @@ describe("computeTWR", () => {
         },
       },
     ];
-    const result = computeTWR([snap("2026-06-01", 1000, 0), snap("2026-06-02", 1000, 500)], cashflows);
+    const result = computeTWR(
+      [snap("2026-06-01", 1000, 0), snap("2026-06-02", 1500, 500)],
+      cashflows
+    );
     expect(result.totalReturn).toBeCloseTo(0, 6);
     expect(result.periods[0].periodReturn).toBeCloseTo(0, 6);
+    expect(result.periods[0].startValue).toBe(1000);
+    expect(result.periods[0].endValue).toBe(1500);
   });
 
   it("skips periods whose start value is <= 0", () => {
@@ -69,9 +77,10 @@ describe("computeTWR", () => {
 });
 
 describe("inferCashflows", () => {
+  // Fixtures model real KIS semantics: tot_evlu_amt = scts_evlu_amt + deposit.
   it("flags an external deposit not explained by trading", () => {
     const flows = inferCashflows(
-      [snap("2026-06-01", 1000, 0), snap("2026-06-02", 1000, 10000)],
+      [snap("2026-06-01", 1000, 0), snap("2026-06-02", 11000, 10000)],
       []
     );
     expect(flows).toHaveLength(1);
@@ -85,21 +94,51 @@ describe("inferCashflows", () => {
       { ordDt: "20260601", side: "buy", filledAmount: 10000, cancelled: false },
     ];
     const flows = inferCashflows(
-      [snap("2026-06-01", 0, 20000), snap("2026-06-03", 10000, 10000, 10000)],
+      [snap("2026-06-01", 20000, 20000), snap("2026-06-03", 20000, 10000, 10000)],
       executions
     );
     expect(flows).toHaveLength(0);
   });
 
   it("flags a withdrawal as a negative cashflow", () => {
-    const flows = inferCashflows([snap("2026-06-01", 0, 10000), snap("2026-06-02", 0, 5000)], []);
+    const flows = inferCashflows(
+      [snap("2026-06-01", 10000, 10000), snap("2026-06-02", 5000, 5000)],
+      []
+    );
     expect(flows).toHaveLength(1);
     expect(flows[0].amount).toBe(-5000);
   });
 
   it("ignores sub-threshold deposit noise (< 1000)", () => {
-    const flows = inferCashflows([snap("2026-06-01", 0, 10000), snap("2026-06-02", 0, 10500)], []);
+    const flows = inferCashflows(
+      [snap("2026-06-01", 10000, 10000), snap("2026-06-02", 10500, 10500)],
+      []
+    );
     expect(flows).toHaveLength(0);
+  });
+
+  it("does not misread a Friday buy as a cashflow before it settles (weekend-aware T+2)", () => {
+    // Buy 10000 on Fri 2026-06-05. T+2 business days = Tue 2026-06-09 (skips
+    // Sat/Sun). Over the weekend the deposit is untouched. If settlement were
+    // computed as +2 *calendar* days (Sun 06-07), the Fri->Mon window would
+    // expect a -10000 deposit change that never happened and emit a phantom
+    // +10000 external deposit.
+    const executions: ReturnExecution[] = [
+      { ordDt: "20260605", side: "buy", filledAmount: 10000, cancelled: false },
+    ];
+    const fridayToMonday = inferCashflows(
+      [snap("2026-06-05", 20000, 20000), snap("2026-06-08", 20000, 20000, 10000)],
+      executions
+    );
+    expect(fridayToMonday).toHaveLength(0);
+
+    // ...and the Mon->Tue window, where settlement actually lands, explains the
+    // -10000 deposit drop exactly (no external cashflow).
+    const mondayToTuesday = inferCashflows(
+      [snap("2026-06-08", 20000, 20000, 10000), snap("2026-06-09", 20000, 10000, 10000)],
+      executions
+    );
+    expect(mondayToTuesday).toHaveLength(0);
   });
 });
 

@@ -149,8 +149,7 @@ export function inferCashflows(
     const prev = sorted[i - 1];
     const curr = sorted[i];
 
-    const totalAssetDelta =
-      curr.totalEvalAmount + curr.deposit - (prev.totalEvalAmount + prev.deposit);
+    const totalAssetDelta = curr.totalEvalAmount - prev.totalEvalAmount;
     const purchaseDelta = curr.totalPurchaseAmount - prev.totalPurchaseAmount;
     const depositDelta = curr.deposit - prev.deposit;
 
@@ -194,12 +193,15 @@ export function inferCashflows(
 }
 
 /**
- * Daily TWR over total account value (eval + deposit).
+ * Daily TWR over total account value (tot_evlu_amt).
  *
- * Each period spans [snapshot_{i-1}, snapshot_i]. We measure the FULL account
- * (eval + deposit), not just eval, because money sitting in deposit before a
- * monthly buy is still your money — we want the return on it to be zero, not
- * to dilute the calc.
+ * Each period spans [snapshot_{i-1}, snapshot_i]. KIS `tot_evlu_amt` is already
+ * the FULL account value — verified against live output2 payloads it equals
+ * scts_evlu_amt + deposit (using the D+2 settled deposit when a fill is
+ * pending). So cash sitting in deposit is included with zero return, exactly
+ * what we want. Adding `deposit` on top double-counts the cash balance: every
+ * external deposit shows up twice in V_end but only once in the cashflow
+ * adjustment, fabricating gains.
  *
  * Cashflow detected at snapshot_i is treated as arriving at the end of the
  * period, so we subtract it from V_end to isolate market return:
@@ -227,8 +229,8 @@ export function computeTWR(snapshots: ReturnSnapshot[], cashflows: CashflowEntry
     const start = sorted[i - 1];
     const end = sorted[i];
     const cf = cfByDate.get(end.asOfDate) ?? 0;
-    const startValue = start.totalEvalAmount + start.deposit;
-    const endValue = end.totalEvalAmount + end.deposit;
+    const startValue = start.totalEvalAmount;
+    const endValue = end.totalEvalAmount;
 
     if (startValue <= 0) {
       continue;
@@ -402,8 +404,8 @@ export function computeReturns(input: ComputeReturnsInput): ComputeReturnsResult
 
   const startDate = sorted[0].asOfDate;
   const endDate = sorted[sorted.length - 1].asOfDate;
-  const startValue = sorted[0].totalEvalAmount + sorted[0].deposit;
-  const endValue = sorted[sorted.length - 1].totalEvalAmount + sorted[sorted.length - 1].deposit;
+  const startValue = sorted[0].totalEvalAmount;
+  const endValue = sorted[sorted.length - 1].totalEvalAmount;
 
   // Synthesize a day-0 deposit equal to starting total asset so XIRR has an initial outflow.
   const xirrCashflows: CashflowEntry[] = [
