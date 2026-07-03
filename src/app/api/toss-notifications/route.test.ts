@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Records every db.insert(...).values(...) so we can assert what was persisted.
 // vi.hoisted is required: vi.mock factories are hoisted above imports, so the
 // closure can't reference a plain `const` (TDZ).
-const { insertCalls } = vi.hoisted(() => ({
+const { insertCalls, selectState } = vi.hoisted(() => ({
   insertCalls: [] as Array<{ table: unknown; values: unknown }>,
+  // Rows returned by db.select() chains (the ±2min duplicate lookup).
+  selectState: { rows: [] as unknown[] },
 }));
 
 vi.mock("@/db", async (importOriginal) => {
@@ -19,6 +21,11 @@ vi.mock("@/db", async (importOriginal) => {
           const rows = [{ id: 1 }];
           return Object.assign(Promise.resolve(rows), { returning: () => Promise.resolve(rows) });
         },
+      }),
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: () => Promise.resolve(selectState.rows) }),
+        }),
       }),
     }),
   };
@@ -48,6 +55,7 @@ function postRequest(body: string): NextRequest {
 describe("POST /api/toss-notifications", () => {
   beforeEach(() => {
     insertCalls.length = 0;
+    selectState.rows = [];
   });
 
   it("persists a parsed transaction from a recognized notification", async () => {
@@ -67,6 +75,18 @@ describe("POST /api/toss-notifications", () => {
       merchant: "쿠팡",
       accountName: "내 토스뱅크 통장",
     });
+  });
+
+  it("skips the transaction insert when an identical one exists within ±2min (MacroDroid retry)", async () => {
+    selectState.rows = [{ id: "existing-tx" }];
+
+    const res = await POST(
+      postRequest(JSON.stringify({ title: "6,900원 출금", text: "내 토스뱅크 통장 → 쿠팡" }))
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ success: true, transactionParsed: false });
+    expect(insertCalls.some((c) => c.table === transactions)).toBe(false);
   });
 
   it("logs but skips parsing for an unrecognized notification (no 500, no tx insert)", async () => {
