@@ -98,7 +98,7 @@ src/
 │   ├── portfolio/          # KIS brokerage portfolio (service, hooks, components, utils; returns.ts for TWR/cashflow calc)
 │   ├── report/             # Monthly/yearly reports (service, hooks, AI narratives, 20+ chart components, comparison-service, travel)
 │   ├── settings/           # User settings (theme, sync interval, OwnTracks/WakaTime/Toss keys)
-│   ├── spending/           # Spending data hooks (Toss transactions, account roles)
+│   ├── spending/           # Spending dashboard (hooks, shared types, forecast/trend, account roles)
 │   ├── subway/             # Subway system seeding + OSM data refresh (service.ts)
 │   ├── summary/            # AI commit summary service
 │   ├── sync/               # Commit sync service (SyncService class)
@@ -211,7 +211,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 - GitHub access token is stored **only** in Better Auth's `account` table. Migration 0017 dropped the duplicate `users.github_access_token` column; `getGitHubToken(userId)` is now the single accessor.
 - The cron worker filters users via `EXISTS (SELECT 1 FROM account WHERE providerId = 'github' AND accessToken IS NOT NULL)` rather than reading a column on `users`.
 
-**Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`, and is **skipped entirely when `DISABLE_CRON=true`**. In production the web and cron workloads are separate containers built from the same image: the web container sets `DISABLE_CRON=true`, and a dedicated cron container (no published port) leaves it unset. This split exists because cron jobs (AI summaries, location/subway processing) do multi-second synchronous CPU work that blocks the Node event loop — running them in the web process stalled all HTTP requests. Don't move background jobs back into the web container. Also initializes Sentry and registers graceful shutdown handlers (SIGINT/SIGTERM). Set `RUN_ON_START=true` to trigger an immediate sync on boot.
+**Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`, and is **skipped entirely when `DISABLE_CRON=true`**. In production the web and cron workloads are separate containers built from the same image: the web container sets `DISABLE_CRON=true`, and a dedicated cron container (no published port) leaves it unset. This split exists because cron jobs (AI summaries, location/subway processing) do multi-second synchronous CPU work that blocks the Node event loop — running them in the web process stalled all HTTP requests. Don't move background jobs back into the web container. Note: the ingestion rate limiter (`src/lib/api-auth.ts`) and cron single-flight guards are in-memory, single-process state — scaling the web or cron container beyond one replica multiplies the effective rate-limit quota and breaks the guards; use a shared store (or pg advisory locks, as KIS sync already does) before adding replicas. Also initializes Sentry and registers graceful shutdown handlers (SIGINT/SIGTERM). Set `RUN_ON_START=true` to trigger an immediate sync on boot.
 
 **Location Tracking & Processing** (`src/modules/location/services/`):
 - OwnTracks app sends GPS data to `/api/owntracks?apikey={key}` (returns `[]` per OwnTracks protocol)
@@ -256,7 +256,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 ### API Routes
 
 - `/api/auth/[...all]` - Better Auth catch-all (login, callback, session, signout); `/api/auth/disconnect` - DELETE account
-- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key; `/api/settings/wakatime-key` - POST/DELETE WakaTime key; `/api/settings/toss-key` - POST/DELETE Toss key; `/api/settings/wakatime-sync` - POST manual WakaTime sync; `/api/settings/data-usage` - GET data usage stats; `/api/settings/db-benchmark` - GET DB benchmark; `/api/settings/location-backfill` - POST re-run location processing pipeline
+- `/api/settings` - GET/PUT user settings; `/api/settings/owntracks-key` - POST/DELETE OwnTracks key; `/api/settings/wakatime-key` - POST/DELETE WakaTime key; `/api/settings/toss-key` - POST/DELETE Toss key; `/api/settings/wakatime-sync` - POST manual WakaTime sync; `/api/settings/data-usage` - GET data usage stats; `/api/settings/db-benchmark` - GET DB benchmark; `/api/settings/location-backfill` - GET dry-run estimate / POST re-run location processing pipeline (SSE); `/api/settings/subway-match-backfill` - POST re-run subway matching for a date range; `/api/settings/account-roles` - GET/PUT Toss account role classification
 - `/api/sync` - POST manual sync; `/api/sync/status` - GET status; `/api/sync/jobs` - GET history
 - `/api/timeline` - GET paginated commits with filters
 - `/api/timeline/repos` - GET user repos; `/api/timeline/stats` - GET commit stats
@@ -265,7 +265,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 - `/api/timeline/coding-sessions` - GET WakaTime coding sessions
 - `/api/timeline/coding-stats` - GET WakaTime coding statistics
 - `/api/trips` - GET/POST trips; `/api/trips/[id]` - PUT/DELETE trip; `/api/trips/detect` - POST auto-detect trips from visits
-- `/api/insights` - GET insights dashboard data. With no `section` param returns all five groups in one batched response; `?section=streaks|patterns|routines|digests|commit-heatmap` fetches a single group
+- `/api/insights` - GET insights dashboard data. With no `section` param returns all 17 sections in one batched single-transaction response; `?section=` fetches one of streaks|patterns|routines|digests|commit-heatmap|subway|swimlane|ai-clock|commute-reliability|place-productivity|trips|transport-modes|visits-x-commits|net-spend|repo-split|data-usage|discoveries
 - `/api/reports/monthly` - GET monthly report data (supports `?section=` for commits/coding/location); POST AI narrative
 - `/api/reports/yearly` - GET yearly report data (supports `?section=`); POST AI narrative
 - `/api/summaries/process` - POST batch summary generation
