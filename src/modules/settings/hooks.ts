@@ -3,17 +3,11 @@
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export interface UserSettings {
-  theme: "light" | "dark" | "system";
-  syncIntervalHours: number;
-  lastSyncedAt: string | null;
-  hasOwnTracksKey: boolean;
-  hasTossKey: boolean;
-  tossMyName: string | null;
-  hasWakaTimeKey: boolean;
-  lastLat: number | null;
-  lastLon: number | null;
-}
+import type { UserSettings } from "./types";
+
+// Shared with the API route (single response contract) — re-exported so
+// existing `import { UserSettings } from ".../hooks"` consumers keep working.
+export type { UserSettings } from "./types";
 
 export function useSettings() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
