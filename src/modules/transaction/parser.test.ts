@@ -63,4 +63,34 @@ describe("parseTossNotification", () => {
   it("returns null when a payment body has no account|merchant split", () => {
     expect(parseTossNotification("13,900원 결제", "구분자 없는 본문")).toBeNull();
   });
+
+  // Characterization: parser.ts:62 requires exactly one '→' (parts.length !== 2).
+  // A body with two or more arrows — e.g. a merchant name containing '→' — is
+  // silently dropped as null rather than parsed or reported.
+  it("silently returns null when a withdrawal body contains two or more '→'", () => {
+    expect(parseTossNotification("6,900원 출금", "내 토스뱅크 통장 → 상점A → 지점B")).toBeNull();
+  });
+
+  // Same shape for Pattern 3: a merchant name containing '|' splits into 3 parts.
+  it("silently returns null when a payment body contains two or more '|'", () => {
+    expect(parseTossNotification("13,900원 결제", "토스페이머니 | 회사 | 지점")).toBeNull();
+  });
+
+  it("returns null for an empty title", () => {
+    expect(parseTossNotification("", "내 토스뱅크 통장 → 쿠팡")).toBeNull();
+  });
+
+  it("parses a million-scale amount with multiple comma groups", () => {
+    expect(parseTossNotification("1,234,567원 출금", "내 토스뱅크 통장 → 자동차딜러")).toEqual({
+      type: "withdrawal",
+      amount: 1234567,
+      merchant: "자동차딜러",
+      accountName: "내 토스뱅크 통장",
+      isSelfTransfer: false,
+    });
+  });
+
+  it("returns null when the arrow destination is empty", () => {
+    expect(parseTossNotification("6,900원 출금", "내 토스뱅크 통장 → ")).toBeNull();
+  });
 });
