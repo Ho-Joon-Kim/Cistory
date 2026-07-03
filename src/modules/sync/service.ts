@@ -22,6 +22,22 @@ export interface SyncProgress {
 export type SyncType = "events" | "search" | "initial";
 export type TriggerType = "manual" | "scheduled" | "login";
 
+/**
+ * Lookback overlap for incremental sync. GitHub's commit-list `since` filters
+ * by commit (author) date and the API offers no push-time filter, so a commit
+ * authored days ago but pushed after the last sync would be missed if we
+ * queried from lastSyncedAt exactly. Pulling the window back 72h re-fetches
+ * recent commits as overlap; SHA-based dedup (getExistingCommitShas) makes the
+ * duplicate fetches safe.
+ */
+const INCREMENTAL_SYNC_LOOKBACK_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * Bounded concurrency for per-commit stats fetches. GitHub's secondary rate
+ * limits are sensitive to high concurrency, so keep this conservative.
+ */
+const STATS_FETCH_CONCURRENCY = 3;
+
 export class SyncService {
   private db: Database;
   private accessToken: string;
@@ -79,7 +95,12 @@ export class SyncService {
     let sinceDate: string;
     const lastSyncedAt = userResult[0]?.lastSyncedAt;
     if (lastSyncedAt) {
-      sinceDate = lastSyncedAt instanceof Date ? lastSyncedAt.toISOString() : String(lastSyncedAt);
+      // Pull `since` back by the lookback overlap so commits authored before
+      // the last sync but pushed after it are still picked up (see
+      // INCREMENTAL_SYNC_LOOKBACK_MS).
+      const lastSyncTime =
+        lastSyncedAt instanceof Date ? lastSyncedAt : new Date(String(lastSyncedAt));
+      sinceDate = new Date(lastSyncTime.getTime() - INCREMENTAL_SYNC_LOOKBACK_MS).toISOString();
     } else {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -197,9 +218,15 @@ export class SyncService {
         .set({ totalCommits: newSearchCommits.length })
         .where(eq(syncJobs.id, syncJobId));
 
-      // Save commits with stats
+      // Save commits with stats. Each save fetches per-commit stats from the
+      // GitHub API, so run small batches concurrently (STATS_FETCH_CONCURRENCY)
+      // instead of one-by-one, while keeping the 100ms pause between batches to
+      // stay clear of GitHub's secondary rate limits. Repo/branch traversal in
+      // getAllRepoCommits stays fully sequential for the same reason.
       let processed = 0;
-      for (const searchCommit of newSearchCommits) {
+      for (let i = 0; i < newSearchCommits.length; i += STATS_FETCH_CONCURRENCY) {
+        const batch = newSearchCommits.slice(i, i + STATS_FETCH_CONCURRENCY);
+
         onProgress?.({
           status: "fetching",
           message: `커밋 저장 및 통계 수집 중... (${processed + 1}/${newSearchCommits.length})`,
@@ -207,10 +234,12 @@ export class SyncService {
           processedCommits: processed,
         });
 
-        await this.saveSearchCommit(userId, searchCommit, true);
-        processed++;
+        await Promise.all(
+          batch.map((searchCommit) => this.saveSearchCommit(userId, searchCommit, true))
+        );
+        processed += batch.length;
 
-        // Small delay to avoid rate limiting
+        // Small delay between batches to avoid rate limiting
         if (processed < newSearchCommits.length) {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }

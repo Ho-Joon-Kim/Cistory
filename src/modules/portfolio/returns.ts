@@ -323,7 +323,10 @@ export function computeXIRR(
   if (!hasPos || !hasNeg) return null;
   if (flows.length < 2) return null;
 
-  const baseMs = parseKstDate(flows[0].date).getTime();
+  // Anchor NPV discounting at the earliest flow — flows arrive in caller
+  // order (synthetic day-0 seed first today, but nothing guarantees that),
+  // and a later base date flips exponent signs and skews the solved rate.
+  const baseMs = Math.min(...flows.map((f) => parseKstDate(f.date).getTime()));
 
   // Newton-Raphson
   let rate = 0.1;

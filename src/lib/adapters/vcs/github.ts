@@ -465,6 +465,11 @@ export class GitHubAdapter {
               page: String(commitsPage),
               sha: branch,
             });
+            // Note: GitHub's `since` filters by commit (author) date — there is
+            // no push-time filter — so commits authored earlier but pushed late
+            // would be missed by an exact cutoff. Callers compensate with a
+            // lookback overlap (see INCREMENTAL_SYNC_LOOKBACK_MS in
+            // src/modules/sync/service.ts); SHA dedup absorbs the re-fetches.
             if (since) commitParams.set("since", since);
             if (until) commitParams.set("until", until);
 
