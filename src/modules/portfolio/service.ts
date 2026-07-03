@@ -9,10 +9,26 @@ import {
   holdingSnapshots,
 } from "@/db/schema";
 import { createKISAdapter, KISAuthError, type ParsedBalance } from "@/lib/adapters/kis/interface";
-import { decryptSecret } from "@/lib/crypto";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { logger } from "@/lib/logger";
 
 const TOKEN_REFRESH_GRACE_MS = 60_000;
+
+/**
+ * Cached KIS access tokens are stored AES-GCM encrypted like the app
+ * key/secret — a DB dump must not yield a live trading-API credential, even
+ * a 24h one. Legacy plaintext rows (or rows written under a rotated
+ * KIS_ENCRYPTION_KEY) fail decryption and are treated as absent, which just
+ * triggers one re-issuance under the advisory lock below.
+ */
+function decryptTokenOrNull(stored: string | null): string | null {
+  if (!stored) return null;
+  try {
+    return decryptSecret(stored);
+  } catch {
+    return null;
+  }
+}
 
 function todayKstDateString(): string {
   const fmt = new Intl.DateTimeFormat("en-CA", {
@@ -95,12 +111,13 @@ export class PortfolioSyncService {
 
   async getValidToken(account: BrokerageAccount): Promise<string> {
     const now = Date.now();
+    const cachedToken = decryptTokenOrNull(account.accessToken);
     if (
-      account.accessToken &&
+      cachedToken &&
       account.accessTokenExpiresAt &&
       account.accessTokenExpiresAt.getTime() > now + TOKEN_REFRESH_GRACE_MS
     ) {
-      return account.accessToken;
+      return cachedToken;
     }
 
     // KIS enforces a "1 token per day" policy and rate-limits frequent
@@ -131,12 +148,13 @@ export class PortfolioSyncService {
       }
 
       const tNow = Date.now();
+      const freshToken = decryptTokenOrNull(fresh.accessToken);
       if (
-        fresh.accessToken &&
+        freshToken &&
         fresh.accessTokenExpiresAt &&
         fresh.accessTokenExpiresAt.getTime() > tNow + TOKEN_REFRESH_GRACE_MS
       ) {
-        return fresh.accessToken;
+        return freshToken;
       }
 
       const appKey = decryptSecret(fresh.appKeyEnc);
@@ -157,7 +175,7 @@ export class PortfolioSyncService {
       await tx
         .update(brokerageAccounts)
         .set({
-          accessToken,
+          accessToken: encryptSecret(accessToken),
           accessTokenExpiresAt: expiresAt,
           updatedAt: new Date(),
         })
@@ -369,11 +387,12 @@ export class PortfolioSyncService {
 
     if (rows.length === 0) return { upserted: 0 };
 
-    let count = 0;
-    for (const r of rows) {
-      await this.db
-        .insert(brokerageDailyPnl)
-        .values({
+    // Single multi-row upsert instead of one round-trip per trade date
+    // (a 90-day window meant up to ~90 sequential queries).
+    const upserted = await this.db
+      .insert(brokerageDailyPnl)
+      .values(
+        rows.map((r) => ({
           accountId,
           tradeDate: r.tradeDate,
           buyAmount: String(r.buyAmount),
@@ -381,21 +400,21 @@ export class PortfolioSyncService {
           realizedPnl: String(r.realizedPnl),
           fee: String(r.fee),
           tax: String(r.tax),
-        })
-        .onConflictDoUpdate({
-          target: [brokerageDailyPnl.accountId, brokerageDailyPnl.tradeDate],
-          set: {
-            buyAmount: String(r.buyAmount),
-            sellAmount: String(r.sellAmount),
-            realizedPnl: String(r.realizedPnl),
-            fee: String(r.fee),
-            tax: String(r.tax),
-          },
-        });
-      count++;
-    }
+        }))
+      )
+      .onConflictDoUpdate({
+        target: [brokerageDailyPnl.accountId, brokerageDailyPnl.tradeDate],
+        set: {
+          buyAmount: sql`excluded.buy_amount`,
+          sellAmount: sql`excluded.sell_amount`,
+          realizedPnl: sql`excluded.realized_pnl`,
+          fee: sql`excluded.fee`,
+          tax: sql`excluded.tax`,
+        },
+      })
+      .returning({ id: brokerageDailyPnl.id });
 
-    return { upserted: count };
+    return { upserted: upserted.length };
   }
 
   async syncAccount(accountId: string): Promise<AccountSyncResult> {

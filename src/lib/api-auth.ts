@@ -7,7 +7,7 @@
  * protection against: key-guessing via timing, replay spam, oversized payloads.
  */
 
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb, users } from "@/db";
@@ -58,9 +58,11 @@ export async function verifyApiKey(
 
   if (result.length === 0 || !result[0].storedKey) return null;
 
-  const a = Buffer.from(key, "utf8");
-  const b = Buffer.from(result[0].storedKey, "utf8");
-  if (a.length !== b.length) return null;
+  // Compare SHA-256 digests instead of raw bytes: timingSafeEqual requires
+  // equal lengths, and a bare length pre-check would leak the stored key's
+  // length through response timing. Digests are constant-length by nature.
+  const a = createHash("sha256").update(key, "utf8").digest();
+  const b = createHash("sha256").update(result[0].storedKey, "utf8").digest();
   if (!timingSafeEqual(a, b)) return null;
 
   return { id: result[0].id, tossMyName: result[0].tossMyName };
@@ -75,19 +77,39 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
+/** Purge expired buckets when the map grows past this size. */
+const BUCKET_SWEEP_THRESHOLD = 10_000;
+
 function clientIp(request: NextRequest): string {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown"
-  );
+  // X-Forwarded-For is client-appendable: the *first* entry is whatever the
+  // caller claims, so keying the rate limit on it lets an attacker rotate
+  // fake IPs and mint a fresh bucket per request. The trusted reverse proxy
+  // appends the real peer address *last* — use that, or x-real-ip which only
+  // the proxy sets.
+  const xff = request.headers.get("x-forwarded-for");
+  if (xff) {
+    const parts = xff.split(",");
+    const last = parts[parts.length - 1].trim();
+    if (last) return last;
+  }
+  return request.headers.get("x-real-ip") || "unknown";
+}
+
+function sweepExpiredBuckets(now: number): void {
+  if (buckets.size < BUCKET_SWEEP_THRESHOLD) return;
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt <= now) buckets.delete(key);
+  }
 }
 
 /**
  * Token-bucket style limiter: 60 requests / 60s per (key-prefix, IP).
  *
  * Single-process deployment assumption (production runs one standalone
- * Next.js server). Across restarts the bucket resets, which is acceptable.
+ * Next.js web container — see CLAUDE.md; adding replicas multiplies the
+ * effective quota). Across restarts the bucket resets, which is acceptable.
+ * Expired buckets are swept once the map grows large, so a rotating-IP
+ * attacker can't grow it without bound.
  */
 export function enforceRateLimit(
   request: NextRequest,
@@ -96,6 +118,8 @@ export function enforceRateLimit(
   const ip = clientIp(request);
   const key = `${bucketKey}:${ip}`;
   const now = Date.now();
+
+  sweepExpiredBuckets(now);
 
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
@@ -125,6 +149,15 @@ export function checkBodySize(request: NextRequest): {
   const size = raw ? Number.parseInt(raw, 10) : -1;
   const ok = !Number.isFinite(size) || size < 0 || size <= MAX_INGESTION_BODY_BYTES;
   return { ok, size, max: MAX_INGESTION_BODY_BYTES };
+}
+
+/**
+ * Post-read enforcement of the body cap. Content-Length can be omitted or
+ * understated, so `checkBodySize` alone is advisory — ingestion routes must
+ * call this on the actual text after `request.text()`.
+ */
+export function bodyExceedsLimit(body: string): boolean {
+  return Buffer.byteLength(body, "utf8") > MAX_INGESTION_BODY_BYTES;
 }
 
 /**
