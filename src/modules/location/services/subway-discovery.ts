@@ -19,6 +19,16 @@ const PROBE_BBOX_DELTA_DEG = 0.1; // ~11 km half-width
 const MIN_VISITS_PER_CITY = 2;
 const MAX_NEW_CITIES_PER_RUN = 3;
 
+/**
+ * Negative-result cache: cities probed and found to have no subway. Without
+ * it, every daily run re-asks Overpass about the same subway-less cities the
+ * user keeps visiting. In-memory is fine here — the cron container is
+ * long-lived, a restart just means one extra probe per city, and cities
+ * rarely *gain* a subway inside the TTL anyway.
+ */
+const NEGATIVE_PROBE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const probedEmptyUntil = new Map<string, number>();
+
 interface CandidateCity {
   city: string;
   countryName: string | null;
@@ -80,6 +90,10 @@ export async function discoverMissingSubwayCities(userId: string): Promise<void>
     `);
     if (coverage.rows.length > 0) continue;
 
+    const negativeKey = slugifyCityKey(row.city, row.countryName);
+    const emptyUntil = probedEmptyUntil.get(negativeKey);
+    if (emptyUntil && emptyUntil > Date.now()) continue;
+
     const probeBbox: [number, number, number, number] = [
       row.lon - PROBE_BBOX_DELTA_DEG,
       row.lat - PROBE_BBOX_DELTA_DEG,
@@ -97,7 +111,10 @@ export async function discoverMissingSubwayCities(userId: string): Promise<void>
       });
       continue;
     }
-    if (lineCount === 0) continue;
+    if (lineCount === 0) {
+      probedEmptyUntil.set(negativeKey, Date.now() + NEGATIVE_PROBE_TTL_MS);
+      continue;
+    }
 
     const cityKey = slugifyCityKey(row.city, row.countryName);
     const cityName = row.city;

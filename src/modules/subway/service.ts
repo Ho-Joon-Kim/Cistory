@@ -5,6 +5,7 @@ import { getOverpassAdapter } from "@/lib/adapters/overpass";
 import type { SubwayFetchResult } from "@/lib/adapters/overpass/interface";
 import { SEED_CITIES } from "@/lib/adapters/overpass/seed-cities";
 import { logger } from "@/lib/logger";
+import { resolveLineColor } from "@/lib/subway-color";
 
 /**
  * Idempotent seed — inserts any SEED_CITIES entry not already present, matched
@@ -155,4 +156,119 @@ export async function refreshAllSubwaySystems(): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, 5000));
   }
+}
+
+// ── Map overlay (public reference data) ──────────────────────────────────────
+
+interface OverlayLineRow {
+  id: string;
+  name: string | null;
+  name_en: string | null;
+  ref: string | null;
+  colour: string | null;
+  network: string | null;
+  fallback_idx: number | string;
+  geom: GeoJSON.MultiLineString;
+}
+
+interface OverlayStationRow {
+  id: string;
+  name: string | null;
+  name_en: string | null;
+  line_refs: unknown;
+  lat: number | string;
+  lon: number | string;
+}
+
+export interface SubwayOverlay {
+  lines: GeoJSON.FeatureCollection;
+  stations: GeoJSON.FeatureCollection;
+}
+
+/**
+ * Subway lines/stations intersecting a viewport bbox, as GeoJSON.
+ *
+ * Line geometry is simplified with a tolerance proportional to the bbox
+ * width (~1px at a 2048px viewport): a country-wide bbox previously shipped
+ * every vertex of every line — megabytes of coordinates the client can't
+ * even render at that zoom — while a city-level bbox gets an imperceptible
+ * tolerance and stays visually exact.
+ */
+export async function getSubwayOverlay(
+  bbox: [number, number, number, number]
+): Promise<SubwayOverlay> {
+  const [w, s, e, n] = bbox;
+  const db = getDb();
+  const simplifyTolerance = (e - w) / 2048;
+
+  // Lines: assign a fallback_idx to colour-less lines within the same system so
+  // the hash fallback can spread them via golden-angle. Lines with an OSM
+  // `colour` tag get fallback_idx=0 (unused).
+  const linesRes = await db.execute(sql`
+    WITH numbered AS (
+      SELECT id, system_id, name, name_en, ref, colour, network,
+             CASE WHEN colour IS NULL
+                  THEN (ROW_NUMBER() OVER (PARTITION BY system_id, (colour IS NULL)
+                                            ORDER BY ref, name, id) - 1)
+                  ELSE 0 END AS fallback_idx,
+             ST_AsGeoJSON(ST_SimplifyPreserveTopology(geometry, ${simplifyTolerance}))::json AS geom
+      FROM subway_lines
+      WHERE ST_Intersects(
+        geometry,
+        ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
+      )
+    )
+    SELECT id, name, name_en, ref, colour, network, fallback_idx, geom FROM numbered
+  `);
+
+  const lineFeatures: GeoJSON.Feature[] = (linesRes.rows as unknown as OverlayLineRow[]).map(
+    (row) => ({
+      type: "Feature",
+      geometry: row.geom,
+      properties: {
+        id: row.id,
+        name: row.name,
+        nameEn: row.name_en,
+        ref: row.ref,
+        color: resolveLineColor({
+          colour: row.colour,
+          network: row.network,
+          ref: row.ref,
+          name: row.name,
+          fallbackIndex: Number(row.fallback_idx) || 0,
+        }),
+      },
+    })
+  );
+
+  const stationsRes = await db.execute(sql`
+    SELECT id, name, name_en, line_refs,
+           ST_X(location) AS lon, ST_Y(location) AS lat
+    FROM subway_stations
+    WHERE ST_Intersects(
+      location,
+      ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
+    )
+  `);
+
+  const stationFeatures: GeoJSON.Feature[] = (
+    stationsRes.rows as unknown as OverlayStationRow[]
+  ).map((row) => ({
+    type: "Feature" as const,
+    geometry: {
+      type: "Point" as const,
+      coordinates: [Number(row.lon), Number(row.lat)],
+    },
+    properties: {
+      id: row.id,
+      name: row.name,
+      nameEn: row.name_en,
+      lineRefs: row.line_refs ?? [],
+    },
+  }));
+
+  return {
+    lines: { type: "FeatureCollection", features: lineFeatures },
+    stations: { type: "FeatureCollection", features: stationFeatures },
+  };
 }

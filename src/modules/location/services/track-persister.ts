@@ -5,7 +5,7 @@
  * resolves place names, and persists to the tracks + transportation_segments tables.
  */
 
-import { and, asc, eq, gte, isNull, lt, lte, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, lte, or } from "drizzle-orm";
 import { getDb, locationPoints, placeCache, tracks, transportationSegments, visits } from "@/db";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { buildTracks, type TrackPoint } from "./track-builder";
@@ -20,38 +20,77 @@ interface PersistResult {
 
 // ── Place Name Resolution ────────────────────────────────────────────────────
 
+interface PlaceQuery {
+  lat: number;
+  lon: number;
+  time: Date;
+}
+
 /**
- * Try to resolve a place name for a lat/lon at a given time.
- * 1. Check visits overlapping that time
- * 2. Fallback to placeCache by rounded coordinates
+ * Resolve place names for many lat/lon/time queries in two batched reads
+ * (previously 2 queries per call, called twice per track):
+ * 1. Check visits overlapping each time (one query for the whole day window)
+ * 2. Fallback to placeCache by rounded coordinates (one inArray batch query)
+ * Returns names aligned to the input query order.
  */
-async function resolvePlaceName(
+async function resolvePlaceNames(
   db: ReturnType<typeof getDb>,
   userId: string,
-  lat: number,
-  lon: number,
-  time: Date
-): Promise<string | null> {
-  // Check visits at this time
-  const [visit] = await db
-    .select({ placeName: visits.placeName })
+  queries: PlaceQuery[],
+  windowStart: Date,
+  windowEnd: Date
+): Promise<(string | null)[]> {
+  if (queries.length === 0) return [];
+
+  // Batch 1: all visits overlapping the day window
+  const dayVisits = await db
+    .select({ startTime: visits.startTime, endTime: visits.endTime, placeName: visits.placeName })
     .from(visits)
-    .where(and(eq(visits.userId, userId), lte(visits.startTime, time), gte(visits.endTime, time)))
-    .limit(1);
+    .where(
+      and(
+        eq(visits.userId, userId),
+        lte(visits.startTime, windowEnd),
+        gte(visits.endTime, windowStart)
+      )
+    )
+    .orderBy(asc(visits.startTime));
 
-  if (visit?.placeName) return visit.placeName;
+  const results: (string | null)[] = new Array(queries.length).fill(null);
+  const cacheLookups: { idx: number; latKey: number; lonKey: number }[] = [];
 
-  // Fallback: placeCache lookup
-  const latKey = Math.round(lat * 1000) / 1000;
-  const lonKey = Math.round(lon * 1000) / 1000;
+  queries.forEach((q, idx) => {
+    const visit = dayVisits.find((v) => v.startTime <= q.time && v.endTime >= q.time);
+    if (visit?.placeName) {
+      results[idx] = visit.placeName;
+    } else {
+      cacheLookups.push({
+        idx,
+        latKey: Math.round(q.lat * 1000) / 1000,
+        lonKey: Math.round(q.lon * 1000) / 1000,
+      });
+    }
+  });
 
-  const [cached] = await db
-    .select({ placeName: placeCache.placeName })
-    .from(placeCache)
-    .where(and(eq(placeCache.latKey, latKey), eq(placeCache.lonKey, lonKey)))
-    .limit(1);
+  // Batch 2: placeCache fallback for the remaining coordinates
+  if (cacheLookups.length > 0) {
+    const latKeys = Array.from(new Set(cacheLookups.map((c) => c.latKey)));
+    const lonKeys = Array.from(new Set(cacheLookups.map((c) => c.lonKey)));
+    const cachedRows = await db
+      .select({
+        latKey: placeCache.latKey,
+        lonKey: placeCache.lonKey,
+        placeName: placeCache.placeName,
+      })
+      .from(placeCache)
+      .where(and(inArray(placeCache.latKey, latKeys), inArray(placeCache.lonKey, lonKeys)));
+    const cacheByKey = new Map(cachedRows.map((r) => [`${r.latKey}:${r.lonKey}`, r.placeName]));
 
-  return cached?.placeName ?? null;
+    for (const c of cacheLookups) {
+      results[c.idx] = cacheByKey.get(`${c.latKey}:${c.lonKey}`) ?? null;
+    }
+  }
+
+  return results;
 }
 
 // ── Main Persister ───────────────────────────────────────────────────────────
@@ -120,11 +159,9 @@ export async function detectAndPersistTracks(
 
       if (dayTracks.length > 0) {
         const trackIds = dayTracks.map((t) => t.id);
-        for (const trackId of trackIds) {
-          await tx
-            .delete(transportationSegments)
-            .where(eq(transportationSegments.trackId, trackId));
-        }
+        await tx
+          .delete(transportationSegments)
+          .where(inArray(transportationSegments.trackId, trackIds));
         await tx
           .delete(tracks)
           .where(
@@ -146,8 +183,41 @@ export async function detectAndPersistTracks(
     return { trackCount: 0, segmentCount: 0 };
   }
 
-  // Detect transport modes per track and resolve place names
+  // Detect transport modes per track (pure computation, no DB)
   const now = new Date();
+  const analyzedTracks = builtTracks.map((track) => {
+    const segments = detectTransportModes(track.points);
+
+    // Determine dominant mode (mode with longest total duration)
+    let dominantMode: string | null = null;
+    if (segments.length > 0) {
+      const modeDurations = new Map<string, number>();
+      for (const s of segments) {
+        modeDurations.set(s.mode, (modeDurations.get(s.mode) ?? 0) + s.durationSeconds);
+      }
+      let maxDuration = 0;
+      for (const [mode, dur] of modeDurations) {
+        if (dur > maxDuration) {
+          maxDuration = dur;
+          dominantMode = mode;
+        }
+      }
+    }
+
+    return { track, segments, dominantMode };
+  });
+
+  // Batch-resolve start/end place names for all tracks (2 queries total)
+  const placeQueries: PlaceQuery[] = builtTracks.flatMap((track) => {
+    const first = track.points[0];
+    const last = track.points[track.points.length - 1];
+    return [
+      { lat: first.lat, lon: first.lon, time: track.startTime },
+      { lat: last.lat, lon: last.lon, time: track.endTime },
+    ];
+  });
+  const placeNames = await resolvePlaceNames(db, userId, placeQueries, dayStart, dayEnd);
+
   let totalSegments = 0;
 
   await db.transaction(async (tx) => {
@@ -164,9 +234,12 @@ export async function detectAndPersistTracks(
       );
 
     if (existingTracks.length > 0) {
-      for (const et of existingTracks) {
-        await tx.delete(transportationSegments).where(eq(transportationSegments.trackId, et.id));
-      }
+      await tx.delete(transportationSegments).where(
+        inArray(
+          transportationSegments.trackId,
+          existingTracks.map((et) => et.id)
+        )
+      );
       await tx
         .delete(tracks)
         .where(
@@ -185,84 +258,49 @@ export async function detectAndPersistTracks(
         and(eq(transportationSegments.userId, userId), eq(transportationSegments.date, dateStr))
       );
 
-    // Process each track
-    for (const track of builtTracks) {
-      // Detect transport segments within this track
-      const segments = detectTransportModes(track.points);
-
-      // Determine dominant mode (mode with longest total duration)
-      let dominantMode: string | null = null;
-      if (segments.length > 0) {
-        const modeDurations = new Map<string, number>();
-        for (const s of segments) {
-          modeDurations.set(s.mode, (modeDurations.get(s.mode) ?? 0) + s.durationSeconds);
-        }
-        let maxDuration = 0;
-        for (const [mode, dur] of modeDurations) {
-          if (dur > maxDuration) {
-            maxDuration = dur;
-            dominantMode = mode;
-          }
-        }
-      }
-
-      // Resolve start/end place names
-      const startPlaceName = await resolvePlaceName(
-        db,
-        userId,
-        track.points[0].lat,
-        track.points[0].lon,
-        track.startTime
-      );
-      const endPlaceName = await resolvePlaceName(
-        db,
-        userId,
-        track.points[track.points.length - 1].lat,
-        track.points[track.points.length - 1].lon,
-        track.endTime
-      );
-
-      // Insert track
-      const [inserted] = await tx
-        .insert(tracks)
-        .values({
+    // Insert all tracks in one statement; RETURNING preserves values order
+    const insertedTracks = await tx
+      .insert(tracks)
+      .values(
+        analyzedTracks.map(({ track, dominantMode }, i) => ({
           userId,
           startTime: track.startTime,
           endTime: track.endTime,
           distanceMeters: track.distanceMeters,
           durationSeconds: track.durationSeconds,
           pointCount: track.pointCount,
-          startPlaceName,
-          endPlaceName,
+          startPlaceName: placeNames[i * 2],
+          endPlaceName: placeNames[i * 2 + 1],
           dominantMode,
           elevationGain: track.elevationGain,
           elevationLoss: track.elevationLoss,
           calculatedAt: now,
-        })
-        .returning({ id: tracks.id });
+        }))
+      )
+      .returning({ id: tracks.id });
 
-      // Insert transport segments linked to this track
-      if (segments.length > 0) {
-        await tx.insert(transportationSegments).values(
-          segments.map((s) => ({
-            userId,
-            trackId: inserted.id,
-            date: dateStr,
-            mode: s.mode,
-            confidence: s.confidence,
-            startTime: s.startTime,
-            endTime: s.endTime,
-            distanceMeters: s.distanceMeters,
-            durationSeconds: s.durationSeconds,
-            avgSpeedKmh: s.avgSpeedKmh,
-            maxSpeedKmh: s.maxSpeedKmh,
-            avgAcceleration: s.avgAcceleration,
-            calculatedAt: now,
-          }))
-        );
-        totalSegments += segments.length;
-      }
+    // Insert all transport segments in one statement, linked to their tracks
+    const segmentRows = analyzedTracks.flatMap(({ segments }, i) =>
+      segments.map((s) => ({
+        userId,
+        trackId: insertedTracks[i].id,
+        date: dateStr,
+        mode: s.mode,
+        confidence: s.confidence,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        distanceMeters: s.distanceMeters,
+        durationSeconds: s.durationSeconds,
+        avgSpeedKmh: s.avgSpeedKmh,
+        maxSpeedKmh: s.maxSpeedKmh,
+        avgAcceleration: s.avgAcceleration,
+        calculatedAt: now,
+      }))
+    );
+    if (segmentRows.length > 0) {
+      await tx.insert(transportationSegments).values(segmentRows);
     }
+    totalSegments = segmentRows.length;
   });
 
   return { trackCount: builtTracks.length, segmentCount: totalSegments };
