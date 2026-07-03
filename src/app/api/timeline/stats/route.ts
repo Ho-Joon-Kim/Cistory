@@ -5,6 +5,7 @@ import { commits } from "@/db/schema";
 import { localDaySql } from "@/db/sql";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { toLocalDateString } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,7 +52,9 @@ export async function GET(request: NextRequest) {
       maxCount,
     });
   } catch (error) {
-    console.error("Get daily stats error:", error);
-    return NextResponse.json({ error: "Failed to fetch stats" }, { status: 500 });
+    logger.error("Get daily stats error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "통계 조회에 실패했습니다" }, { status: 500 });
   }
 }

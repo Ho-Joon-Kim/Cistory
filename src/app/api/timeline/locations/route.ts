@@ -13,6 +13,7 @@ import { locationPoints } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { distanceM } from "@/lib/geo";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 
 const MAX_POINTS = 500;
 const MIN_DISTANCE_M = 100;
@@ -108,7 +109,9 @@ export async function GET(request: NextRequest) {
       count: locations.length,
     });
   } catch (error) {
-    console.error("Get locations error:", error);
+    logger.error("Get locations error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "위치 데이터 조회에 실패했습니다" }, { status: 500 });
   }
 }

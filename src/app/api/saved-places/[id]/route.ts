@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, savedPlaces } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -45,7 +46,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     return NextResponse.json({ place });
   } catch (error) {
-    console.error("Saved places PUT error:", error);
+    logger.error("Saved places PUT error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "장소 수정에 실패했습니다" }, { status: 500 });
   }
 }
@@ -72,7 +75,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Saved places DELETE error:", error);
+    logger.error("Saved places DELETE error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "장소 삭제에 실패했습니다" }, { status: 500 });
   }
 }

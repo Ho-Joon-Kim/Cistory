@@ -16,6 +16,7 @@ import {
   detectAndPersistVisits,
   type EnrichedVisit,
 } from "@/modules/location/services/visit-persister";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -90,7 +91,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ stayPoints });
   } catch (error) {
-    console.error("Stay points error:", error);
+    logger.error("Stay points error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "Stay point 조회에 실패했습니다" }, { status: 500 });
   }
 }

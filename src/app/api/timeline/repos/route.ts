@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commits } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 /**
  * GET /api/timeline/repos - Get unique repositories from user's commits
@@ -37,7 +38,9 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error("Get repos error:", error);
-    return NextResponse.json({ error: "Failed to fetch repositories" }, { status: 500 });
+    logger.error("Get repos error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "저장소 목록 조회에 실패했습니다" }, { status: 500 });
   }
 }

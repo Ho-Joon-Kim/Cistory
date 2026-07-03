@@ -31,14 +31,20 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (!userResult[0]) {
-      return NextResponse.json({ error: "User not found. Please re-login." }, { status: 404 });
+      return NextResponse.json(
+        { error: "사용자를 찾을 수 없습니다. 다시 로그인해주세요" },
+        { status: 404 }
+      );
     }
 
     const { githubLogin, initialSyncCompleted } = userResult[0];
 
     const accessToken = await getGitHubToken(user.id);
     if (!accessToken) {
-      return NextResponse.json({ error: "GitHub access token not found" }, { status: 400 });
+      return NextResponse.json(
+        { error: "GitHub 액세스 토큰이 없습니다. 다시 로그인해주세요" },
+        { status: 400 }
+      );
     }
 
     const syncService = createSyncService(db, accessToken);
@@ -97,6 +103,6 @@ export async function POST(request: NextRequest) {
     logger.error("Sync trigger error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "Failed to trigger sync" }, { status: 500 });
+    return NextResponse.json({ error: "동기화 실행에 실패했습니다" }, { status: 500 });
   }
 }

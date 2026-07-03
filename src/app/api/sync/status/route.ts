@@ -9,6 +9,7 @@ import type { NextRequest } from "next/server";
 import { type Database, getDb } from "@/db";
 import { syncJobs } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -65,7 +66,9 @@ export async function GET(request: NextRequest) {
             pollMs = hasActive ? 5000 : lastHadActive ? 5000 : 30000;
             lastHadActive = hasActive;
           } catch (error) {
-            console.error("Failed to get status:", error);
+            logger.error("Failed to get status", {
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
           if (!isClosed) timer = setTimeout(tick, pollMs);
         };
@@ -96,8 +99,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("SSE error:", error);
-    return new Response(JSON.stringify({ error: "SSE connection failed" }), {
+    logger.error("SSE error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return new Response(JSON.stringify({ error: "SSE 연결에 실패했습니다" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });

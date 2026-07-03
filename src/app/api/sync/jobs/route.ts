@@ -9,6 +9,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { syncJobs } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -127,7 +128,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Get sync jobs error:", error);
-    return NextResponse.json({ error: "Failed to get sync jobs" }, { status: 500 });
+    logger.error("Get sync jobs error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "동기화 기록 조회에 실패했습니다" }, { status: 500 });
   }
 }

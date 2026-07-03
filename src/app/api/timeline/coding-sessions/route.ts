@@ -11,6 +11,7 @@ import { getDb } from "@/db";
 import { codingSessions } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -71,7 +72,9 @@ export async function GET(request: NextRequest) {
       count: sessions.length,
     });
   } catch (error) {
-    console.error("Get coding sessions error:", error);
+    logger.error("Get coding sessions error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "코딩 세션 조회에 실패했습니다" }, { status: 500 });
   }
 }

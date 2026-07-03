@@ -11,6 +11,7 @@ import { getDb } from "@/db";
 import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { createWakaTimeSyncService } from "@/modules/wakatime/service";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -59,7 +60,9 @@ export async function GET(request: NextRequest) {
       unsyncedDays: Number(unsyncedCount.rows[0]?.count ?? 0),
     });
   } catch (error) {
-    console.error("WakaTime sync stats error:", error);
+    logger.error("WakaTime sync stats error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "동기화 현황 조회에 실패했습니다" }, { status: 500 });
   }
 }
@@ -103,7 +106,9 @@ export async function POST(request: NextRequest) {
       ...result,
     });
   } catch (error) {
-    console.error("WakaTime sync error:", error);
+    logger.error("WakaTime sync error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "WakaTime 동기화에 실패했습니다" }, { status: 500 });
   }
 }

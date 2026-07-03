@@ -10,6 +10,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 interface SearchResult {
   name: string;
@@ -88,7 +89,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ results });
   } catch (error) {
-    console.error("Address search error:", error);
+    logger.error("Address search error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "주소 검색에 실패했습니다" }, { status: 500 });
   }
 }

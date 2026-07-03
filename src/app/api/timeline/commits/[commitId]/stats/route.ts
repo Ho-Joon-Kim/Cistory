@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { commits } from "@/db/schema";
 import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
 import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 export async function POST(
   request: NextRequest,
@@ -29,7 +30,7 @@ export async function POST(
       .where(and(eq(commits.id, commitId), eq(commits.userId, user.id)));
 
     if (commitResult.length === 0) {
-      return NextResponse.json({ error: "Commit not found" }, { status: 404 });
+      return NextResponse.json({ error: "커밋을 찾을 수 없습니다" }, { status: 404 });
     }
 
     const commit = commitResult[0];
@@ -50,7 +51,10 @@ export async function POST(
     // GitHub 토큰 가져오기
     const accessToken = await getGitHubToken(user.id);
     if (!accessToken) {
-      return NextResponse.json({ error: "GitHub token not found" }, { status: 400 });
+      return NextResponse.json(
+        { error: "GitHub 액세스 토큰이 없습니다. 다시 로그인해주세요" },
+        { status: 400 }
+      );
     }
 
     // GitHub API로 커밋 상세 정보 가져오기
@@ -75,7 +79,9 @@ export async function POST(
       changedFilesCount: commitDetail.changedFilesCount,
     });
   } catch (error) {
-    console.error("Get commit stats error:", error);
-    return NextResponse.json({ error: "Failed to fetch commit stats" }, { status: 500 });
+    logger.error("Get commit stats error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "커밋 통계 조회에 실패했습니다" }, { status: 500 });
   }
 }

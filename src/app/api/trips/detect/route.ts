@@ -12,6 +12,7 @@ import {
   detectTrips,
   persistTrips,
 } from "@/modules/location/services/trip-detector";
+import { logger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,7 +46,9 @@ export async function POST(request: NextRequest) {
       total: detected.length,
     });
   } catch (error) {
-    console.error("Trip detect error:", error);
+    logger.error("Trip detect error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "여행 감지에 실패했습니다" }, { status: 500 });
   }
 }

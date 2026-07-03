@@ -39,6 +39,6 @@ export async function DELETE(request: NextRequest) {
     logger.error("Disconnect error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "Failed to disconnect" }, { status: 500 });
+    return NextResponse.json({ error: "계정 연결 해제에 실패했습니다" }, { status: 500 });
   }
 }

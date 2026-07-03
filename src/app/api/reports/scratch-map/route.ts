@@ -10,6 +10,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getDb, locationPoints, placeCache } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -131,7 +132,9 @@ export async function GET(request: NextRequest) {
       totalRegions: regions.length,
     });
   } catch (err) {
-    console.error("Scratch map error:", err);
+    logger.error("Scratch map error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json({ error: "서버 오류가 발생했습니다" }, { status: 500 });
   }
 }
