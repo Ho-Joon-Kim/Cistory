@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { useSnapshots } from "../hooks";
 import { formatKRW, parseKstDate } from "../utils";
+import { toLocalDateString } from "@/lib/utils";
 
 const RANGES = [
   { key: "30", label: "30일", days: 30 },
@@ -31,7 +32,7 @@ const INFLATION_OPTIONS = [
 function ymdAgo(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateString(d);
 }
 
 interface AggregatedPoint {

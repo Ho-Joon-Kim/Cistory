@@ -16,8 +16,8 @@ import { dailyDistances } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
 
-function todayUTC(): string {
-  return new Date().toISOString().slice(0, 10);
+function todayLocal(): string {
+  return toLocalDateString(new Date());
 }
 
 /**
@@ -37,16 +37,16 @@ async function calculateDistancesPostGIS(
   }>(sql`
     WITH points_with_distances AS (
       SELECT
-        to_char(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS day_date,
+        to_char(timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS day_date,
         CASE
           WHEN LAG(lonlat) OVER (
-            PARTITION BY to_char(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD')
+            PARTITION BY to_char(timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD')
             ORDER BY timestamp
           ) IS NOT NULL THEN
             ST_Distance(
               lonlat,
               LAG(lonlat) OVER (
-                PARTITION BY to_char(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD')
+                PARTITION BY to_char(timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD')
                 ORDER BY timestamp
               )
             )
@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
     }
 
     const db = getDb();
-    const today = todayUTC();
+    const today = todayLocal();
     const distances: Record<string, number> = {};
 
     // 1. Build list of all dates in range (local-day iteration)
@@ -127,14 +127,35 @@ export async function GET(request: NextRequest) {
       uncachedPastDates = pastDates.filter((d) => !cachedSet.has(d));
     }
 
-    // 4. Calculate uncached past dates + today via PostGIS
-    const datesToCalculate = [...uncachedPastDates, ...(includesToday ? [today] : [])];
+    // 4. Calculate uncached past dates + today via PostGIS.
+    // Compute per contiguous run of dates — a single min..max window would
+    // re-scan every already-cached day sitting between two scattered cache
+    // misses (e.g. missing 2026-01-03 and 2026-06-28 → 6 months of points).
+    const datesToCalculate = [...uncachedPastDates, ...(includesToday ? [today] : [])].sort();
 
     if (datesToCalculate.length > 0) {
-      const calcStart = startOfLocalDay(datesToCalculate[0]);
-      const calcEnd = endOfLocalDay(datesToCalculate[datesToCalculate.length - 1]);
+      const runs: string[][] = [];
+      for (const d of datesToCalculate) {
+        const lastRun = runs[runs.length - 1];
+        const next = lastRun && startOfLocalDay(lastRun[lastRun.length - 1]);
+        if (next) next.setDate(next.getDate() + 1);
+        if (next && toLocalDateString(next) === d) {
+          lastRun.push(d);
+        } else {
+          runs.push([d]);
+        }
+      }
 
-      const calculated = await calculateDistancesPostGIS(db, user.id, calcStart, calcEnd);
+      const calculated: Record<string, number> = {};
+      for (const run of runs) {
+        const runResult = await calculateDistancesPostGIS(
+          db,
+          user.id,
+          startOfLocalDay(run[0]),
+          endOfLocalDay(run[run.length - 1])
+        );
+        Object.assign(calculated, runResult);
+      }
 
       // Merge results and prepare cache entries
       const toCache: {

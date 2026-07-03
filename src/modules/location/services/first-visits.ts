@@ -11,6 +11,7 @@
 
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { getDb, visits } from "@/db";
+import { toLocalDateString } from "@/lib/utils";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ export async function getFirstVisitsByYear(
       newCities.push({
         city: row.city!,
         countryName: row.countryName!,
-        firstVisitDate: fv.toISOString().slice(0, 10),
+        firstVisitDate: toLocalDateString(fv),
       });
     }
   }
@@ -82,7 +83,7 @@ export async function getFirstVisitsByYear(
     if (fv >= yearStart && fv < yearEnd) {
       newCountries.push({
         countryName: row.countryName!,
-        firstVisitDate: fv.toISOString().slice(0, 10),
+        firstVisitDate: toLocalDateString(fv),
       });
     }
   }
@@ -125,7 +126,7 @@ export async function getFirstVisitsByMonth(
       newCities.push({
         city: row.city!,
         countryName: row.countryName!,
-        firstVisitDate: fv.toISOString().slice(0, 10),
+        firstVisitDate: toLocalDateString(fv),
       });
     }
   }
@@ -146,7 +147,7 @@ export async function getFirstVisitsByMonth(
     if (fv >= monthStart && fv < monthEnd) {
       newCountries.push({
         countryName: row.countryName!,
-        firstVisitDate: fv.toISOString().slice(0, 10),
+        firstVisitDate: toLocalDateString(fv),
       });
     }
   }

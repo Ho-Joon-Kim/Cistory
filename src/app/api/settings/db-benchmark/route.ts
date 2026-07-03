@@ -155,15 +155,19 @@ export async function POST(request: NextRequest) {
         const ms = await measure(async () => {
           await db
             .select({
-              date: sql<string>`DATE(${commits.committedAt})`,
+              date: sql<string>`(${commits.committedAt} at time zone 'UTC' at time zone 'Asia/Seoul')::date`,
               count: count(),
               additions: sql<number>`COALESCE(SUM(${commits.additions}), 0)`,
               deletions: sql<number>`COALESCE(SUM(${commits.deletions}), 0)`,
             })
             .from(commits)
             .where(eq(commits.userId, userId))
-            .groupBy(sql`DATE(${commits.committedAt})`)
-            .orderBy(desc(sql`DATE(${commits.committedAt})`))
+            .groupBy(
+              sql`(${commits.committedAt} at time zone 'UTC' at time zone 'Asia/Seoul')::date`
+            )
+            .orderBy(
+              desc(sql`(${commits.committedAt} at time zone 'UTC' at time zone 'Asia/Seoul')::date`)
+            )
             .limit(30);
         });
         allRuns.push(ms);

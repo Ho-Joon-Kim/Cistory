@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, parseDateLocal, toLocalDateString } from "@/lib/utils";
 
 interface ActivityHeatmapProps {
   dailyCommits: { date: string; count: number }[];
@@ -96,8 +96,8 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
       commitMap.set(dc.date, dc.count);
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = parseDateLocal(startDate) ?? new Date(startDate);
+    const end = parseDateLocal(endDate) ?? new Date(endDate);
     const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     const yearly = diffDays > 60;
 
@@ -106,7 +106,7 @@ export function ActivityHeatmap({ dailyCommits, startDate, endDate }: ActivityHe
     let weekIdx = 0;
 
     while (current <= end) {
-      const dateStr = current.toISOString().slice(0, 10);
+      const dateStr = toLocalDateString(current);
       const dayOfWeek = current.getDay();
       if (dayOfWeek === 0 && result.length > 0) weekIdx++;
 

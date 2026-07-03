@@ -104,7 +104,9 @@ export function sleep(ms: number): Promise<void> {
  * Returns today for null, empty, invalid, or future dates.
  */
 export function parseDateParam(param: string | null): string {
-  const today = new Date().toISOString().split("T")[0];
+  // Local (KST in production) calendar day — toISOString would report the UTC
+  // day, which is *yesterday* for the first 9 hours of every KST day.
+  const today = toLocalDateString(new Date());
   if (!param) return today;
 
   const trimmed = param.trim();
@@ -183,6 +185,17 @@ export function toLocalDateString(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+/** Format seconds as compact coding time ("1분 미만", "45m", "2h", "2h 30m"). */
+export function formatCodingTime(seconds: number): string {
+  if (seconds < 60) return "1분 미만";
+  const minutes = Math.floor(seconds / 60);
+  if (seconds < 3600) return `${minutes}m`;
+  const hours = Math.floor(seconds / 3600);
+  const remainMinutes = Math.floor((seconds % 3600) / 60);
+  if (remainMinutes === 0) return `${hours}h`;
+  return `${hours}h ${remainMinutes}m`;
 }
 
 /**

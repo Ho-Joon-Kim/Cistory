@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
+import { toLocalDateString } from "@/lib/utils";
 
 export interface LocationData {
   lat: number;
@@ -21,7 +22,7 @@ interface LocationsResponse {
 const POLL_INTERVAL_MS = 60_000;
 
 function isToday(date: string): boolean {
-  return date === new Date().toISOString().slice(0, 10);
+  return date === toLocalDateString(new Date());
 }
 
 export interface StayPointData {
@@ -166,7 +167,7 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
     fetchDistances(dateFrom, dateTo, controller.signal);
 
     // Poll if today is in range
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toLocalDateString(new Date());
     if (visible && today >= dateFrom && today <= dateTo) {
       const interval = setInterval(() => {
         // Invalidate cache for polling
