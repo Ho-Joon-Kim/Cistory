@@ -50,8 +50,8 @@ export async function planBackfill(
   const db = getDb();
   const [dateRange] = await db
     .select({
-      earliest: sql<string>`min(timestamp at time zone 'Asia/Seoul')::date::text`,
-      latest: sql<string>`max(timestamp at time zone 'Asia/Seoul')::date::text`,
+      earliest: sql<string>`min(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date::text`,
+      latest: sql<string>`max(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date::text`,
     })
     .from(locationPoints)
     .where(eq(locationPoints.userId, userId));
@@ -67,10 +67,10 @@ export async function planBackfill(
 
   const unprocessed = await db.execute<{ d: string; [key: string]: unknown }>(sql`
     SELECT to_char(d, 'YYYY-MM-DD') as d FROM (
-      SELECT (timestamp at time zone 'Asia/Seoul')::date as d
+      SELECT (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date as d
       FROM location_points
       WHERE user_id = ${userId}
-      GROUP BY (timestamp at time zone 'Asia/Seoul')::date
+      GROUP BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date
       HAVING count(*) filter (where anomaly IS NULL) > 0
     ) unprocessed
     WHERE 1=1 ${scopeFilter}

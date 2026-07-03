@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatBytes, formatDate } from "@/lib/utils";
+import { formatBytes, formatDate, toLocalDateString } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { MonthlySpendingBar } from "@/modules/spending/components/MonthlySpendingBar";
 import { SpendingTrendChart } from "@/modules/spending/components/SpendingTrendChart";
@@ -60,7 +60,7 @@ type Tab = "transactions" | "notifications";
 function getDefaultDateRange() {
   const now = new Date();
   const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const to = now.toISOString().split("T")[0];
+  const to = toLocalDateString(now);
   return { from, to };
 }
 
@@ -69,7 +69,7 @@ function formatAmount(amount: number): string {
 }
 
 function toDateStr(d: Date): string {
-  return d.toISOString().split("T")[0];
+  return toLocalDateString(d);
 }
 
 interface DatePreset {

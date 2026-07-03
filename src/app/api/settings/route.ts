@@ -11,18 +11,7 @@ import { z } from "zod";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { withAuth, withValidation } from "@/lib/api-handler";
-
-interface UserSettings {
-  theme: "light" | "dark" | "system";
-  syncIntervalHours: number;
-  lastSyncedAt: string | null;
-}
-
-const DEFAULT_SETTINGS: UserSettings = {
-  theme: "system",
-  syncIntervalHours: 1,
-  lastSyncedAt: null,
-};
+import { DEFAULT_USER_SETTINGS, type UserSettings } from "@/modules/settings/types";
 
 const SettingsUpdateBody = z
   .object({
@@ -32,48 +21,49 @@ const SettingsUpdateBody = z
   })
   .strict();
 
+/**
+ * Read the user's full settings payload. Both GET and PUT respond with this
+ * complete shape — the client hook replaces its entire state with the
+ * response, so a partial payload would wipe whatever fields it omits.
+ */
+async function readUserSettings(userId: string): Promise<UserSettings> {
+  const db = getDb();
+  const userResult = await db
+    .select({
+      theme: users.theme,
+      syncIntervalHours: users.syncIntervalHours,
+      lastSyncedAt: users.lastSyncedAt,
+      ownTracksApiKey: users.ownTracksApiKey,
+      tossNotificationApiKey: users.tossNotificationApiKey,
+      tossMyName: users.tossMyName,
+      wakatimeApiKey: users.wakatimeApiKey,
+      lastLat: users.lastLat,
+      lastLon: users.lastLon,
+    })
+    .from(users)
+    .where(eq(users.id, userId));
+
+  if (userResult.length === 0) {
+    return DEFAULT_USER_SETTINGS;
+  }
+
+  const row = userResult[0];
+  return {
+    theme: (row.theme as UserSettings["theme"]) || DEFAULT_USER_SETTINGS.theme,
+    syncIntervalHours: row.syncIntervalHours ?? DEFAULT_USER_SETTINGS.syncIntervalHours,
+    lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
+    hasOwnTracksKey: !!row.ownTracksApiKey,
+    hasTossKey: !!row.tossNotificationApiKey,
+    tossMyName: row.tossMyName ?? null,
+    hasWakaTimeKey: !!row.wakatimeApiKey,
+    lastLat: row.lastLat ?? null,
+    lastLon: row.lastLon ?? null,
+  };
+}
+
 export const GET = withAuth(
   async ({ user }) => {
-    const db = getDb();
-    const userResult = await db
-      .select({
-        theme: users.theme,
-        syncIntervalHours: users.syncIntervalHours,
-        lastSyncedAt: users.lastSyncedAt,
-        ownTracksApiKey: users.ownTracksApiKey,
-        tossNotificationApiKey: users.tossNotificationApiKey,
-        tossMyName: users.tossMyName,
-        wakatimeApiKey: users.wakatimeApiKey,
-        lastLat: users.lastLat,
-        lastLon: users.lastLon,
-      })
-      .from(users)
-      .where(eq(users.id, user.id));
-
-    if (userResult.length === 0) {
-      return NextResponse.json({
-        ...DEFAULT_SETTINGS,
-        hasOwnTracksKey: false,
-        hasTossKey: false,
-        tossMyName: null,
-        hasWakaTimeKey: false,
-        lastLat: null,
-        lastLon: null,
-      });
-    }
-
-    const userSettings = userResult[0];
-    return NextResponse.json({
-      theme: (userSettings.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
-      syncIntervalHours: userSettings.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
-      lastSyncedAt: userSettings.lastSyncedAt?.toISOString() ?? null,
-      hasOwnTracksKey: !!userSettings.ownTracksApiKey,
-      hasTossKey: !!userSettings.tossNotificationApiKey,
-      tossMyName: userSettings.tossMyName ?? null,
-      hasWakaTimeKey: !!userSettings.wakatimeApiKey,
-      lastLat: userSettings.lastLat ?? null,
-      lastLon: userSettings.lastLon ?? null,
-    });
+    return NextResponse.json(await readUserSettings(user.id));
   },
   { errorMessage: "Failed to get settings" }
 );
@@ -100,21 +90,7 @@ export const PUT = withValidation(
 
     await db.update(users).set(updates).where(eq(users.id, user.id));
 
-    const updatedUserResult = await db
-      .select({
-        theme: users.theme,
-        syncIntervalHours: users.syncIntervalHours,
-        lastSyncedAt: users.lastSyncedAt,
-      })
-      .from(users)
-      .where(eq(users.id, user.id));
-
-    const updatedSettings = updatedUserResult[0];
-    return NextResponse.json({
-      theme: (updatedSettings?.theme as UserSettings["theme"]) || DEFAULT_SETTINGS.theme,
-      syncIntervalHours: updatedSettings?.syncIntervalHours ?? DEFAULT_SETTINGS.syncIntervalHours,
-      lastSyncedAt: updatedSettings?.lastSyncedAt?.toISOString() ?? null,
-    });
+    return NextResponse.json(await readUserSettings(user.id));
   },
   { errorMessage: "Failed to update settings" }
 );

@@ -9,7 +9,7 @@ import type { Database } from "@/db";
 import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
 import { createWakaTimeAdapter, type WakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
 import { logger } from "@/lib/logger";
-import { sleep } from "@/lib/utils";
+import { sleep, toLocalDateString } from "@/lib/utils";
 
 export class WakaTimeSyncService {
   private db: Database;
@@ -116,7 +116,7 @@ export class WakaTimeSyncService {
     const dates: string[] = [];
     const cursor = new Date(startDate);
     while (cursor <= today) {
-      dates.push(cursor.toISOString().slice(0, 10));
+      dates.push(toLocalDateString(cursor));
       cursor.setDate(cursor.getDate() + 1);
     }
 

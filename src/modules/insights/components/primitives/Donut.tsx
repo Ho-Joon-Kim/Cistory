@@ -44,7 +44,7 @@ export function Donut({
   let offset = 0;
   return (
     <div className="relative" style={{ width: size, height: size }}>
-      <svg viewBox={`0 0 ${size} ${size}`} className="block">
+      <svg viewBox={`0 0 ${size} ${size}`} className="block" role="img" aria-label="도넛 차트">
         {/* Track */}
         <circle
           cx={cx}

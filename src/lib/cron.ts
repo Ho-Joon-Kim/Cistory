@@ -27,6 +27,7 @@ let tripDetectionTask: cron.ScheduledTask | null = null;
 let isSubwayRefreshRunning = false;
 let isLocationProcessingRunning = false;
 let isTripDetectionRunning = false;
+let isSyncAllRunning = false;
 
 /**
  * Wraps refreshAllSubwaySystems with a single-flight guard. Yearly cron + boot
@@ -83,6 +84,23 @@ async function maybeRunSubwayBootCatchUp(): Promise<void> {
 // job logic directly and assert call-shape — the cron.schedule registrations
 // themselves are out of test scope.
 export async function syncAllUsers() {
+  // Single-flight, like the other cron jobs. Overlapping runs (boot-time
+  // catch-up + scheduled tick, or a slow initial sync outliving the 10-min
+  // interval) would double-charge the Claude API for the same pending
+  // summaries and race the commit dedup window.
+  if (isSyncAllRunning) {
+    logger.info("[Cron] syncAllUsers already running. Skipping this tick.");
+    return;
+  }
+  isSyncAllRunning = true;
+  try {
+    await _syncAllUsersInner();
+  } finally {
+    isSyncAllRunning = false;
+  }
+}
+
+async function _syncAllUsersInner() {
   const startTime = Date.now();
   const timestamp = new Date().toISOString();
 
@@ -224,18 +242,22 @@ export async function syncAllUsers() {
           }
         }
 
-        // KIS Portfolio sync (24h interval)
+        // KIS Portfolio sync (24h interval, gated per-account by lastSyncedAt)
         try {
           const portfolio = createPortfolioSyncService(db);
           if (await portfolio.hasActiveAccounts(user.id)) {
-            const portfolioResults = await portfolio.syncUserAccounts(user.id);
-            const failed = portfolioResults.filter((r) => r.error).length;
-            logger.info("[Cron] Portfolio sync done", {
-              userId: user.id,
-              githubLogin: user.githubLogin,
-              total: portfolioResults.length,
-              failed,
+            const portfolioResults = await portfolio.syncUserAccounts(user.id, {
+              skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
             });
+            const failed = portfolioResults.filter((r) => r.error).length;
+            if (portfolioResults.length > 0) {
+              logger.info("[Cron] Portfolio sync done", {
+                userId: user.id,
+                githubLogin: user.githubLogin,
+                total: portfolioResults.length,
+                failed,
+              });
+            }
 
             // After the regular incremental sync, pick up any historical
             // gap implied by `openedAt`. Idempotent — does nothing if the
@@ -246,10 +268,7 @@ export async function syncAllUsers() {
                 userId: user.id,
                 githubLogin: user.githubLogin,
                 accounts: backfillResults.length,
-                executionsInserted: backfillResults.reduce(
-                  (s, r) => s + r.executionsInserted,
-                  0
-                ),
+                executionsInserted: backfillResults.reduce((s, r) => s + r.executionsInserted, 0),
                 pnlUpserted: backfillResults.reduce((s, r) => s + r.pnlUpserted, 0),
                 failed: backfillResults.filter((r) => r.error).length,
               });
@@ -404,15 +423,22 @@ export async function processYesterdayLocations(reason: string) {
     for (const user of allUsers) {
       try {
         // Find unprocessed dates (at most 14, oldest first).
+        // KST day of the UTC-wall timestamp — a bare date(timestamp) is the
+        // UTC day, which misses days whose only points fall in 00:00–09:00 KST
+        // and disagrees with the KST processing window used downstream.
+        // The 45-day timestamp bound keeps this hourly query on the
+        // (user_id, timestamp) index instead of GROUP BY-scanning the user's
+        // entire point history; anything older is the manual backfill's job.
         const unprocessedResult = await db.execute<{ d: string; [key: string]: unknown }>(sql`
           SELECT to_char(d, 'YYYY-MM-DD') AS d FROM (
-            SELECT date(timestamp) AS d
+            SELECT (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d
             FROM location_points
             WHERE user_id = ${user.id}
-              AND date(timestamp) < ${todayStr}::date
-            GROUP BY date(timestamp)
+              AND timestamp >= (now() at time zone 'UTC') - interval '45 days'
+              AND (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date < ${todayStr}::date
+            GROUP BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date
             HAVING count(*) FILTER (WHERE anomaly IS NULL) > 0
-            ORDER BY date(timestamp) DESC
+            ORDER BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date DESC
             LIMIT 30
           ) recent
           ORDER BY d

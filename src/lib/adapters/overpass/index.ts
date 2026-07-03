@@ -1,6 +1,7 @@
 import { Agent, fetch as undiciFetch } from "undici";
 import { logger } from "@/lib/logger";
 import { normalizeOsmColour } from "./colour";
+import { distanceM } from "@/lib/geo";
 import type {
   OverpassAdapter,
   SubwayFetchResult,
@@ -272,7 +273,7 @@ function collectStations(
     const maxLat = Math.max(...lats);
     const minLon = Math.min(...lons);
     const maxLon = Math.max(...lons);
-    const spanM = haversineMeters(minLat, minLon, maxLat, maxLon);
+    const spanM = distanceM(minLat, minLon, maxLat, maxLon);
     if (spanM > 1000) continue;
 
     // Pick a representative osm_node_id that hasn't been used yet (deterministic
@@ -467,7 +468,7 @@ function computeMinAdjacentStopDistance(
       if (a.name && b.name && normalizeStationName(a.name) === normalizeStationName(b.name)) {
         continue;
       }
-      const d = haversineMeters(a.lat, a.lon, b.lat, b.lon);
+      const d = distanceM(a.lat, a.lon, b.lat, b.lon);
       // 80m floor: below this is certainly same-platform duplicates even when
       // names diverge (renamed/romanized variants). Above 80m treat as real.
       if (d >= 80) distances.push(d);
@@ -524,7 +525,7 @@ function dedupeStationsByProximity(
       for (const j of bucket) {
         if (used[j] || j === i) continue;
         const other = stations[j];
-        const dist = haversineMeters(anchor.lat, anchor.lon, other.lat, other.lon);
+        const dist = distanceM(anchor.lat, anchor.lon, other.lat, other.lon);
         if (dist <= mergeRadiusM) {
           cluster.push(other);
           used[j] = true;
@@ -597,17 +598,6 @@ function mergeStationCluster(cluster: SubwayStationData[]): SubwayStationData {
     lon: lonSum / cluster.length,
     lineRefs: Array.from(allRefs).sort(),
   };
-}
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
 }
 
 function parseResponse(data: OverpassResponse): SubwayFetchResult {

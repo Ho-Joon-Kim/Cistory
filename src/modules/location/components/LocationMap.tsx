@@ -23,6 +23,7 @@ import { RouteReplayController } from "./RouteReplayController";
 import { SegmentedRouteAnimator } from "./SegmentedRouteAnimator";
 import { TimelineSegmentBar } from "./TimelineSegmentBar";
 import "mapbox-gl/dist/mapbox-gl.css";
+import { toLocalDateString } from "@/lib/utils";
 
 const DEFAULT_LAYER_VISIBILITY: LayerVisibility = {
   routes: true,
@@ -242,7 +243,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
   // Auto-select the last staying segment on today's date
   const autoSelectedRef = useRef<string | null>(null);
   useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toLocalDateString(new Date());
     if (date !== today) return;
     if (segments.length === 0) return;
     // Only auto-select once per date

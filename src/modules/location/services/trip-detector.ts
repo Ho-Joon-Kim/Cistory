@@ -16,6 +16,7 @@ import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { getDb, savedPlaces, trips, visits } from "@/db";
 import { isInKorea } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
+import { toLocalDateString } from "@/lib/utils";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ export async function detectTrips(
   >();
 
   for (const v of allVisits) {
-    const dateStr = v.startTime.toISOString().slice(0, 10);
+    const dateStr = toLocalDateString(v.startTime);
 
     if (!dateVisits.has(dateStr)) {
       dateVisits.set(dateStr, {

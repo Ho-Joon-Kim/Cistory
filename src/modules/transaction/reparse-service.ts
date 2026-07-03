@@ -16,6 +16,7 @@ import { and, desc, eq, gte, lte } from "drizzle-orm";
 import type { Database } from "@/db";
 import { notificationLogs, transactions } from "@/db/schema";
 import { parseTossNotification } from "@/modules/transaction/parser";
+import { toLocalDateString } from "@/lib/utils";
 
 export type ReparseAction = "create" | "update" | "skip";
 
@@ -76,7 +77,9 @@ function dateToYmd(d: Date): string {
   // exact ±2min check is still done on the row itself after Map lookup
   // via transactedAt comparison when needed. For now, ymd keys group
   // same-day entries and let us do O(1) candidate lookup.
-  return d.toISOString().slice(0, 10);
+  // Local (KST) day, NOT the UTC day: two rows minutes apart straddling
+  // 09:00 KST would otherwise land in different buckets and dodge the check.
+  return toLocalDateString(d);
 }
 
 /**
@@ -196,7 +199,10 @@ export async function reparseNotifications(
       continue;
     }
 
-    if (!title || !text) {
+    // Title-only patterns (e.g. "OOO님이 N원을 보냈어요") are valid — the
+    // ingestion route accepts them, so gating on text here would mean those
+    // transactions could be created live but never recovered by a reparse.
+    if (!title) {
       totals.skipped++;
       onItem?.({
         logId: log.id,
@@ -204,7 +210,7 @@ export async function reparseNotifications(
         text,
         receivedAt: log.receivedAt.toISOString(),
         action: "skip",
-        reason: "title 또는 text 누락",
+        reason: "title 누락",
       });
       onProgress?.({ ...totals, processed: i + 1 });
       continue;
@@ -225,17 +231,21 @@ export async function reparseNotifications(
       continue;
     }
 
-    // Duplicate check: same-day same-amount same-merchant same-type,
-    // received within ±2min, and linked to a *different* log.
-    const candidates =
-      txByWindowKey.get(
-        txWindowKey({
-          ymd: dateToYmd(log.receivedAt),
-          amount: parsed.amount,
-          merchant: parsed.merchant,
-          type: parsed.type,
-        })
-      ) ?? [];
+    // Duplicate check: same-amount same-merchant same-type, received within
+    // ±2min, and linked to a *different* log. Day buckets are a lookup
+    // optimization only, so a window straddling local midnight must consult
+    // both adjacent day buckets or 23:59/00:01 pairs dodge the check.
+    const bucketDays = new Set<string>([
+      dateToYmd(new Date(log.receivedAt.getTime() - DUP_WINDOW_MS)),
+      dateToYmd(log.receivedAt),
+      dateToYmd(new Date(log.receivedAt.getTime() + DUP_WINDOW_MS)),
+    ]);
+    const candidates = Array.from(bucketDays).flatMap(
+      (ymd) =>
+        txByWindowKey.get(
+          txWindowKey({ ymd, amount: parsed.amount, merchant: parsed.merchant, type: parsed.type })
+        ) ?? []
+    );
     const dup = candidates.find(
       (c) =>
         c.notificationLogId !== log.id &&
@@ -289,6 +299,21 @@ export async function reparseNotifications(
 
     if (action === "create") totals.created++;
     else totals.updated++;
+
+    // Register the (about-to-be-)written transaction in the dup index so a
+    // second log for the same real event later in THIS run is caught too —
+    // without this, retried notifications ingested as separate logs would
+    // each pass the check and both create a transaction.
+    const selfKey = txWindowKey({
+      ymd: dateToYmd(log.receivedAt),
+      amount: parsed.amount,
+      merchant: parsed.merchant,
+      type: parsed.type,
+    });
+    const selfArr = txByWindowKey.get(selfKey);
+    const selfEntry = { notificationLogId: log.id, transactedAt: log.receivedAt };
+    if (selfArr) selfArr.push(selfEntry);
+    else txByWindowKey.set(selfKey, [selfEntry]);
 
     onItem?.({
       logId: log.id,

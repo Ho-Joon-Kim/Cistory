@@ -824,22 +824,23 @@ export class InsightsService {
       WITH visit_days AS (
         SELECT
           place_name,
-          DATE(start_time) AS day,
+          (start_time at time zone 'UTC' at time zone 'Asia/Seoul')::date AS day,
           SUM(duration_seconds)::int AS total_seconds
         FROM visits
         WHERE user_id = ${userId}
           AND start_time >= ${start}
           AND start_time <= ${end}
           AND place_name IS NOT NULL
-        GROUP BY place_name, DATE(start_time)
+        GROUP BY place_name, (start_time at time zone 'UTC' at time zone 'Asia/Seoul')::date
       ),
       commit_days AS (
-        SELECT DATE(committed_at) AS day, COUNT(*)::int AS commit_count
+        SELECT (committed_at at time zone 'UTC' at time zone 'Asia/Seoul')::date AS day,
+          COUNT(*)::int AS commit_count
         FROM commits
         WHERE user_id = ${userId}
           AND committed_at >= ${start}
           AND committed_at <= ${end}
-        GROUP BY DATE(committed_at)
+        GROUP BY (committed_at at time zone 'UTC' at time zone 'Asia/Seoul')::date
       )
       SELECT
         v.place_name,

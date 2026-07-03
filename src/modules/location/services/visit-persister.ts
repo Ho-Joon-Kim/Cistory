@@ -91,11 +91,21 @@ export async function detectAndPersistVisits(
     )
     .orderBy(asc(locationPoints.timestamp));
 
-  if (rows.length === 0) return [];
+  // Reprocessing can legitimately yield nothing (e.g. points re-marked as
+  // anomalies since the last run). Stale visits from the previous run must
+  // still be cleared, or they survive forever and pollute residency/travel
+  // stats — so the empty cases delete-and-return instead of just returning.
+  if (rows.length === 0) {
+    await deleteVisitsInWindow(userId, dayStart, dayEnd);
+    return [];
+  }
 
   // 2. Detect visits
   const detectedVisits = detectAndMergeVisits(rows);
-  if (detectedVisits.length === 0) return [];
+  if (detectedVisits.length === 0) {
+    await deleteVisitsInWindow(userId, dayStart, dayEnd);
+    return [];
+  }
 
   // 3. Load saved places
   const userSavedPlaces: SavedPlace[] = await db
@@ -284,4 +294,13 @@ export async function detectAndPersistVisits(
   });
 
   return enrichedVisits;
+}
+
+async function deleteVisitsInWindow(userId: string, dayStart: Date, dayEnd: Date): Promise<void> {
+  const db = getDb();
+  await db
+    .delete(visits)
+    .where(
+      and(eq(visits.userId, userId), gte(visits.startTime, dayStart), lt(visits.startTime, dayEnd))
+    );
 }

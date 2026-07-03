@@ -79,7 +79,12 @@ export function RadialClock({ hours, size = 280 }: RadialClockProps) {
   });
 
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} className="block w-full" aria-hidden>
+    <svg
+      viewBox={`0 0 ${size} ${size}`}
+      className="block w-full"
+      role="img"
+      aria-label="시간대별 활동 시계"
+    >
       {/* Hour ticks (every 6) */}
       {[0, 6, 12, 18].map((tick) => {
         const ang = ((tick * 15 - 90) * Math.PI) / 180;

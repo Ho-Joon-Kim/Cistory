@@ -21,6 +21,7 @@ import { logger } from "@/lib/logger";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { subwayMatchConfig as cfg, ELIGIBLE_MODES_FOR_MATCHING } from "./config";
 import { type ScorerPoint, scoreGpsGaps, scoreSpeedProfile } from "./scorers";
+import { distanceM } from "@/lib/geo";
 
 interface SegmentRow {
   id: string;
@@ -49,17 +50,6 @@ export interface ScoredCandidate extends CandidateLine {
   startStationId: string | null;
   endStationId: string | null;
 }
-
-const haversineMeters = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-};
 
 export function pointsToWkt(points: ScorerPoint[]): string {
   return `LINESTRING(${points.map((p) => `${p.lon} ${p.lat}`).join(",")})`;
@@ -250,7 +240,7 @@ function nearestDistanceToPolyline(lat: number, lon: number, coords: number[][])
   // on subway lines), so vertex distance ≈ segment distance for our purpose.
   let best = Infinity;
   for (const [vlon, vlat] of coords) {
-    const d = haversineMeters(lat, lon, vlat, vlon);
+    const d = distanceM(lat, lon, vlat, vlon);
     if (d < best) best = d;
   }
   return best;

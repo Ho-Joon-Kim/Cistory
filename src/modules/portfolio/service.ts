@@ -192,33 +192,22 @@ export class PortfolioSyncService {
     const now = new Date();
     const summaryRaw = JSON.stringify(parsed.summary.raw);
 
-    const snapshotRow = await this.db
-      .insert(holdingSnapshots)
-      .values({
-        accountId,
-        takenAt: now,
-        asOfDate,
-        totalEvalAmount: String(parsed.summary.totalEvalAmount),
-        securitiesEvalAmount: String(parsed.summary.securitiesEvalAmount),
-        deposit: String(parsed.summary.deposit),
-        totalPurchaseAmount: String(parsed.summary.totalPurchaseAmount),
-        totalPnl: String(parsed.summary.totalPnl),
-        totalPnlRate:
-          parsed.summary.totalPnlRate !== null ? String(parsed.summary.totalPnlRate) : null,
-        realizedPnl:
-          parsed.summary.realizedPnl !== null ? String(parsed.summary.realizedPnl) : null,
-        prevDayTotalAsset:
-          parsed.summary.prevDayTotalAsset !== null
-            ? String(parsed.summary.prevDayTotalAsset)
-            : null,
-        assetIcdcAmt:
-          parsed.summary.assetIcdcAmt !== null ? String(parsed.summary.assetIcdcAmt) : null,
-        rawOutput2: summaryRaw,
-      })
-      .onConflictDoUpdate({
-        target: [holdingSnapshots.accountId, holdingSnapshots.asOfDate],
-        set: {
+    // Snapshot upsert + position replace must be atomic, and concurrent
+    // writers (cron + manual sync) must be serialized per account — otherwise
+    // an interleaved delete/insert can leave duplicated or missing position
+    // rows under the same snapshot, skewing rebalancing weights. Same advisory
+    // lock idiom as token issuance above.
+    const snapshotId = await this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`kis-snapshot:${accountId}`}, 0))`
+      );
+
+      const snapshotRow = await tx
+        .insert(holdingSnapshots)
+        .values({
+          accountId,
           takenAt: now,
+          asOfDate,
           totalEvalAmount: String(parsed.summary.totalEvalAmount),
           securitiesEvalAmount: String(parsed.summary.securitiesEvalAmount),
           deposit: String(parsed.summary.deposit),
@@ -235,33 +224,57 @@ export class PortfolioSyncService {
           assetIcdcAmt:
             parsed.summary.assetIcdcAmt !== null ? String(parsed.summary.assetIcdcAmt) : null,
           rawOutput2: summaryRaw,
-        },
-      })
-      .returning({ id: holdingSnapshots.id });
+        })
+        .onConflictDoUpdate({
+          target: [holdingSnapshots.accountId, holdingSnapshots.asOfDate],
+          set: {
+            takenAt: now,
+            totalEvalAmount: String(parsed.summary.totalEvalAmount),
+            securitiesEvalAmount: String(parsed.summary.securitiesEvalAmount),
+            deposit: String(parsed.summary.deposit),
+            totalPurchaseAmount: String(parsed.summary.totalPurchaseAmount),
+            totalPnl: String(parsed.summary.totalPnl),
+            totalPnlRate:
+              parsed.summary.totalPnlRate !== null ? String(parsed.summary.totalPnlRate) : null,
+            realizedPnl:
+              parsed.summary.realizedPnl !== null ? String(parsed.summary.realizedPnl) : null,
+            prevDayTotalAsset:
+              parsed.summary.prevDayTotalAsset !== null
+                ? String(parsed.summary.prevDayTotalAsset)
+                : null,
+            assetIcdcAmt:
+              parsed.summary.assetIcdcAmt !== null ? String(parsed.summary.assetIcdcAmt) : null,
+            rawOutput2: summaryRaw,
+          },
+        })
+        .returning({ id: holdingSnapshots.id });
 
-    const snapshotId = snapshotRow[0].id;
+      const id = snapshotRow[0].id;
 
-    // Replace positions for this snapshot (cascade delete via FK)
-    await this.db.delete(holdingPositions).where(eq(holdingPositions.snapshotId, snapshotId));
+      // Replace positions for this snapshot (cascade delete via FK)
+      await tx.delete(holdingPositions).where(eq(holdingPositions.snapshotId, id));
 
-    if (parsed.positions.length > 0) {
-      await this.db.insert(holdingPositions).values(
-        parsed.positions.map((p) => ({
-          snapshotId,
-          ticker: p.ticker,
-          name: p.name,
-          quantity: String(p.quantity),
-          avgPrice: String(p.avgPrice),
-          currentPrice: String(p.currentPrice),
-          evalAmount: String(p.evalAmount),
-          pnl: String(p.pnl),
-          pnlRate: p.pnlRate !== null ? String(p.pnlRate) : null,
-          weight: String(p.weight),
-          market: p.raw.trad_dvsn_name ?? null,
-          rawData: JSON.stringify(p.raw),
-        }))
-      );
-    }
+      if (parsed.positions.length > 0) {
+        await tx.insert(holdingPositions).values(
+          parsed.positions.map((p) => ({
+            snapshotId: id,
+            ticker: p.ticker,
+            name: p.name,
+            quantity: String(p.quantity),
+            avgPrice: String(p.avgPrice),
+            currentPrice: String(p.currentPrice),
+            evalAmount: String(p.evalAmount),
+            pnl: String(p.pnl),
+            pnlRate: p.pnlRate !== null ? String(p.pnlRate) : null,
+            weight: String(p.weight),
+            market: p.raw.trad_dvsn_name ?? null,
+            rawData: JSON.stringify(p.raw),
+          }))
+        );
+      }
+
+      return id;
+    });
 
     return { snapshotId, positionCount: parsed.positions.length };
   }
@@ -659,14 +672,32 @@ export class PortfolioSyncService {
     return results;
   }
 
-  async syncUserAccounts(userId: string): Promise<AccountSyncResult[]> {
+  /**
+   * Sync all active accounts for a user.
+   *
+   * `skipIfSyncedWithinMs` implements the documented daily cadence for the
+   * cron path: accounts synced more recently than the window are skipped, so
+   * the 10-minute cron doesn't hammer KIS with ~144 sync rounds per day.
+   * Manual sync routes omit it and always run.
+   */
+  async syncUserAccounts(
+    userId: string,
+    opts: { skipIfSyncedWithinMs?: number } = {}
+  ): Promise<AccountSyncResult[]> {
     const accounts = await this.db
       .select()
       .from(brokerageAccounts)
       .where(and(eq(brokerageAccounts.userId, userId), eq(brokerageAccounts.isActive, true)));
 
+    const cutoff = opts.skipIfSyncedWithinMs;
+    const due = cutoff
+      ? accounts.filter(
+          (acc) => !acc.lastSyncedAt || Date.now() - acc.lastSyncedAt.getTime() >= cutoff
+        )
+      : accounts;
+
     const results: AccountSyncResult[] = [];
-    for (const acc of accounts) {
+    for (const acc of due) {
       results.push(await this.syncAccount(acc.id));
     }
     return results;

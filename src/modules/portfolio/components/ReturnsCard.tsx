@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import type { SummaryAccount } from "../hooks";
 import { useReturns } from "../hooks";
 import { formatKRW, pnlColorClass } from "../utils";
+import { toLocalDateString } from "@/lib/utils";
 
 interface Props {
   accounts: SummaryAccount[];
@@ -31,7 +32,7 @@ const RANGES = [
 function ymdAgo(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateString(d);
 }
 
 function fmtPct(value: number | null, fractionDigits = 2): string {

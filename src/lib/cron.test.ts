@@ -54,7 +54,10 @@ vi.mock("@/modules/summary/service", () => ({
   SummaryService: { reviveStaleProcessing: m.reviveStaleProcessing },
 }));
 vi.mock("@/modules/sync/service", () => ({
-  createSyncService: vi.fn(() => ({ initialSync: m.initialSync, syncUserCommits: m.syncUserCommits })),
+  createSyncService: vi.fn(() => ({
+    initialSync: m.initialSync,
+    syncUserCommits: m.syncUserCommits,
+  })),
 }));
 vi.mock("@/modules/wakatime/service", () => ({
   createWakaTimeSyncService: vi.fn(() => ({ syncUser: m.syncUser })),
@@ -161,7 +164,9 @@ describe("syncAllUsers", () => {
     m.dbUsers = [syncUser()];
     await syncAllUsers();
 
-    expect(m.syncUserAccounts).toHaveBeenCalledWith("u1");
+    expect(m.syncUserAccounts).toHaveBeenCalledWith("u1", {
+      skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
+    });
     expect(m.backfillPendingAccounts).toHaveBeenCalledWith("u1");
   });
 

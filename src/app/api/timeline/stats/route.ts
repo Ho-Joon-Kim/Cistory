@@ -2,7 +2,9 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commits } from "@/db/schema";
+import { localDaySql } from "@/db/sql";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { toLocalDateString } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,15 +17,16 @@ export async function GET(request: NextRequest) {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     thirtyDaysAgo.setHours(0, 0, 0, 0);
 
+    const localDay = localDaySql(commits.committedAt);
     const dailyStats = await db
       .select({
-        date: sql<string>`DATE(${commits.committedAt})`.as("date"),
+        date: sql<string>`to_char(${localDay}, 'YYYY-MM-DD')`.as("date"),
         count: sql<number>`COUNT(*)`.as("count"),
       })
       .from(commits)
       .where(and(eq(commits.userId, user.id), gte(commits.committedAt, thirtyDaysAgo)))
-      .groupBy(sql`DATE(${commits.committedAt})`)
-      .orderBy(sql`DATE(${commits.committedAt})`);
+      .groupBy(localDay)
+      .orderBy(localDay);
 
     // Fill in missing dates with 0 commits
     const result: { date: string; count: number }[] = [];
@@ -32,7 +35,7 @@ export async function GET(request: NextRequest) {
     for (let i = 29; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split("T")[0];
+      const dateStr = toLocalDateString(date);
       result.push({
         date: dateStr,
         count: statsMap.get(dateStr) ?? 0,

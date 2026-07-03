@@ -9,7 +9,7 @@
  * Returns stored notification logs for inspection.
  */
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { notificationLogs, transactions } from "@/db/schema";
@@ -29,17 +29,17 @@ import { parseTossNotification } from "@/modules/transaction/parser";
 function sanitizeMacrodroidJson(raw: string): string {
   let out = "";
   let inString = false;
-  let escape = false;
+  let inEscape = false;
   for (let i = 0; i < raw.length; i++) {
     const c = raw[i];
-    if (escape) {
+    if (inEscape) {
       out += c;
-      escape = false;
+      inEscape = false;
       continue;
     }
     if (c === "\\") {
       out += c;
-      escape = true;
+      inEscape = true;
       continue;
     }
     if (c === '"') {
@@ -141,19 +141,45 @@ export async function POST(request: NextRequest) {
         if (!parsed) {
           parseSkipReason = "no_pattern_match";
         } else {
-          await db.insert(transactions).values({
-            userId,
-            notificationLogId: inserted.id,
-            type: parsed.type,
-            amount: parsed.amount,
-            merchant: parsed.merchant,
-            accountName: parsed.accountName,
-            isSelfTransfer: parsed.isSelfTransfer,
-            rawTitle: title,
-            rawText: text,
-            transactedAt: now,
-            createdAt: now,
-          });
+          // ±2min duplicate guard (same rule as the reparse pipeline).
+          // MacroDroid retries re-deliver the same notification as a *new*
+          // log row, so the (userId, notificationLogId) unique constraint
+          // can't catch them — without this, every retry double-counts the
+          // spend.
+          const DUP_WINDOW_MS = 2 * 60 * 1000;
+          const dup = await db
+            .select({ id: transactions.id })
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.userId, userId),
+                eq(transactions.type, parsed.type),
+                eq(transactions.amount, parsed.amount),
+                eq(transactions.merchant, parsed.merchant),
+                gte(transactions.transactedAt, new Date(now.getTime() - DUP_WINDOW_MS)),
+                lte(transactions.transactedAt, new Date(now.getTime() + DUP_WINDOW_MS))
+              )
+            )
+            .limit(1);
+
+          if (dup.length > 0) {
+            parseSkipReason = "duplicate_within_2min";
+            parsed = null;
+          } else {
+            await db.insert(transactions).values({
+              userId,
+              notificationLogId: inserted.id,
+              type: parsed.type,
+              amount: parsed.amount,
+              merchant: parsed.merchant,
+              accountName: parsed.accountName,
+              isSelfTransfer: parsed.isSelfTransfer,
+              rawTitle: title,
+              rawText: text,
+              transactedAt: now,
+              createdAt: now,
+            });
+          }
         }
       }
     } catch (err) {

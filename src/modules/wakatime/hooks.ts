@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
+import { toLocalDateString } from "@/lib/utils";
 
 const POLL_INTERVAL_MS = 60_000;
 
 function isToday(date: string): boolean {
-  return date === new Date().toISOString().slice(0, 10);
+  return date === toLocalDateString(new Date());
 }
 
 export interface CodingSessionData {
@@ -157,7 +158,7 @@ export function useCodingStats(dateFrom: string, dateTo: string) {
     const controller = new AbortController();
     fetchStats(dateFrom, dateTo, controller.signal);
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toLocalDateString(new Date());
     if (visible && today >= dateFrom && today <= dateTo) {
       const interval = setInterval(() => {
         cache.current.delete(`${dateFrom}:${dateTo}`);

@@ -8,6 +8,7 @@
 
 import { getDb, locationPoints } from "@/db";
 import { roundCoord } from "@/lib/geo";
+import { toLocalDateString } from "@/lib/utils";
 import type { ParsedPoint } from "./types";
 
 /** Wrap a sync array of points as an AsyncIterable so callers always get the same shape. */
@@ -127,8 +128,8 @@ export async function importPoints(
     duplicates: scanned - imported,
     totalParsed: scanned,
     dateRange: {
-      from: (minTs as Date).toISOString().slice(0, 10),
-      to: (maxTs as Date).toISOString().slice(0, 10),
+      from: toLocalDateString(minTs as Date),
+      to: toLocalDateString(maxTs as Date),
     },
   };
 }

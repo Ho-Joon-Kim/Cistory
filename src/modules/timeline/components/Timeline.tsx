@@ -19,18 +19,13 @@ import type { TimelineCommit } from "../hooks";
 import { useTransactionsForDate } from "../hooks";
 import type { TimelineEvent } from "../types";
 import type { DateEntry } from "../utils";
-import {
-  fillDateRange,
-  formatCodingTime,
-  formatDistance,
-  getRepoColor,
-  groupEventsByTimeOfDay,
-} from "../utils";
+import { fillDateRange, formatDistance, getRepoColor, groupEventsByTimeOfDay } from "../utils";
 import { CommitCard } from "./CommitCard";
 import { CompactCommitCard } from "./CompactCommitCard";
 import { StayPointCard } from "./StayPointCard";
 import { TimelineSkeleton } from "./TimelineSkeleton";
 import { TransactionCard } from "./TransactionCard";
+import { formatCodingTime, toLocalDateString } from "@/lib/utils";
 
 interface TimelineProps {
   commits: TimelineCommit[];
@@ -504,7 +499,7 @@ export function Timeline({
     }
 
     if (el) {
-      const today = new Date().toISOString().split("T")[0];
+      const today = toLocalDateString(new Date());
       if (isInitialScroll.current) {
         isInitialScroll.current = false;
         // Skip scroll only if initial date is today (already at top)

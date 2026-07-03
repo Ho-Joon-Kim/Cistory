@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks (with visit/track/transport-mode/trip/subway detection), monitors coding activity via WakaTime, logs Toss financial transactions via MacroDroid push notifications, and syncs brokerage portfolio data via the Korea Investment & Securities (KIS) API. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. Includes comprehensive monthly/yearly reports and an "insights" dashboard with AI narratives, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and automatic background sync via an integrated Cron worker, with Sentry error tracking and Better Stack structured logging.
+Cistory is a personal life-logging application that syncs GitHub commits with AI-powered summaries, tracks location via OwnTracks (with visit/track/transport-mode/trip/subway detection), monitors coding activity via WakaTime, logs Toss financial transactions via MacroDroid push notifications, and syncs brokerage portfolio data via the Korea Investment & Securities (KIS) API. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. Includes comprehensive monthly/yearly reports and an "insights" dashboard with AI narratives, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and automatic background sync via a node-cron worker (dedicated container in production, in-process during dev), with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -26,11 +26,16 @@ yarn db:generate       # Generate migrations from schema
 yarn db:migrate        # Run migrations
 yarn db:studio         # Open Drizzle Studio
 
+# Testing (Vitest, node environment)
+yarn test              # Run all tests once (vitest run)
+yarn test:watch        # Watch mode
+yarn test src/lib/geo.test.ts   # Run a single test file
+
 # Production
-yarn start             # Start production server (binds to 0.0.0.0, includes Cron)
+yarn start             # Start production server (binds to 0.0.0.0, includes Cron unless DISABLE_CRON=true)
 ```
 
-No test infrastructure is currently configured.
+Tests are colocated `*.test.ts` files (e.g. `src/lib/cron.test.ts`, `src/modules/transaction/parser.test.ts`). `vitest.config.mts` injects fake `DATABASE_URL`/auth/API-key env vars before test modules load — `src/lib/auth.ts` constructs a `pg.Pool` at module scope and most route modules transitively import it, but pool construction opens no connection, so no real DB is needed.
 
 Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `yarn` for all package operations.
 
@@ -44,7 +49,8 @@ Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `y
 - **Anthropic SDK** - Claude AI for commit summaries (`claude-sonnet-4-5`, set in `src/lib/adapters/ai/claude.ts`)
 - **shadcn/ui** + **Tailwind CSS v4** - UI components and styling
 - **Biome** - Linter and formatter (replaces ESLint + Prettier)
-- **node-cron** - Background sync within Next.js process
+- **Vitest** - Test runner (colocated `*.test.ts` files, node environment)
+- **node-cron** - Background sync scheduler. Runs in a **dedicated cron container** in production (the web container sets `DISABLE_CRON=true`); runs in-process during `yarn dev`
 - **Mapbox GL** + **react-map-gl** - Map visualization for location tracking
 - **Sentry** (`@sentry/nextjs`) - Error tracking (server, client, edge configs)
 - **Better Stack** (`@logtail/node`) - Structured logging via `src/lib/logger.ts`
@@ -64,16 +70,16 @@ src/
 ├── components/              # Shared components (Layout/, ui/ with 19 shadcn components)
 ├── hooks/                   # Top-level shared hooks (useCountUp)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (16 app tables)
+│   ├── schema.ts            # Drizzle schema (28 app tables)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
 │   ├── adapters/            # Adapter pattern interfaces + implementations
-│   │   ├── ai/             # AI adapter (interface.ts + claude.ts)
+│   │   ├── ai/             # AI adapter (claude.ts; adapter types live in the impl file)
 │   │   ├── geocoding/      # Geocoding adapter (kakao.ts, mapbox.ts, google.ts, index.ts)
-│   │   ├── kis/            # Korea Investment & Securities adapter (interface.ts, kis.ts, tr-ids.ts, types.ts)
+│   │   ├── kis/            # Korea Investment & Securities adapter (kis.ts, tr-ids.ts, types.ts; interface.ts is a re-export barrel)
 │   │   ├── overpass/       # OSM Overpass adapter for subway lines/stations (interface.ts, index.ts, colour.ts, seed-cities.ts)
-│   │   ├── vcs/            # VCS adapter (interface.ts + github.ts)
-│   │   └── wakatime/       # WakaTime adapter (interface.ts + wakatime.ts)
+│   │   ├── vcs/            # VCS adapter (github.ts; adapter types live in the impl file)
+│   │   └── wakatime/       # WakaTime adapter (wakatime.ts; adapter types live in the impl file)
 │   ├── auth.ts              # Better Auth server config (GitHub OAuth, session, DB hooks)
 │   ├── auth-client.ts       # Better Auth client (signIn, signOut, useSession)
 │   ├── auth-helpers.ts      # getAuthenticatedUser() and getGitHubToken() for API routes
@@ -105,7 +111,7 @@ sentry.client.config.ts      # Sentry client config
 sentry.edge.config.ts        # Sentry edge config
 prompts/                     # External prompt assets (e.g. commit-system-prompt.txt for AI summaries)
 docs/                        # In-repo docs (currently `docs/portfolio` for KIS integration notes)
-scripts/                     # Operational scripts: `migrate.ts` (CI-safe Drizzle migrate), `refresh-subway.ts`, `calibrate-subway-matcher.ts`, `fix-standalone-instrumentation.mjs` (post-build patch for Next standalone output)
+scripts/                     # Operational scripts: `migrate.ts` (CI-safe Drizzle migrate), `refresh-subway.ts`, `calibrate-subway-matcher.ts`, `detect-trips.ts` (manual/backfill trip detection per user, idempotent), `verify-returns.ts` (TWR/XIRR sanity check against live DB), `fix-standalone-instrumentation.mjs` (post-build patch for Next standalone output)
 ```
 
 ### Key Patterns
@@ -130,13 +136,13 @@ export const POST = withValidation(Body, async ({ user, body }) => { ... });
 const accessToken = await getGitHubToken(user.id);
 ```
 
-**Adapter Pattern**: Extensible interfaces in `lib/adapters/`:
-- `ai/interface.ts` - AI/LLM abstraction (implemented: `claude.ts`)
-- `vcs/interface.ts` - VCS abstraction (implemented: `github.ts`)
+**Adapter Pattern**: `lib/adapters/` groups external-service clients. Only geocoding and overpass keep a real `interface.ts` with multiple/planned implementations; ai, vcs, and wakatime intentionally merged their types into the impl file (`claude.ts`, `github.ts`, `wakatime.ts`) and are imported as concrete factories. Follow the geocoding style only if a second implementation is actually planned:
+- `ai/claude.ts` - Claude client (`createClaudeAdapter`); adapter types colocated
+- `vcs/github.ts` - GitHub client (`createGitHubAdapter`); adapter types colocated
 - `geocoding/interface.ts` - Geocoding abstraction (implemented: `kakao.ts` for Korea, `google.ts` for Google Places, `mapbox.ts` for international; auto-selected by coordinates in `index.ts`)
-- `wakatime/interface.ts` - WakaTime coding activity abstraction (implemented: `wakatime.ts`)
+- `wakatime/wakatime.ts` - WakaTime client; adapter types colocated
 - `overpass/interface.ts` - OSM Overpass abstraction for fetching subway lines/stations per city (`SEED_CITIES` lists bbox-defined seed systems; `colour.ts` normalizes line colors)
-- `kis/interface.ts` - Korea Investment & Securities (KIS) brokerage abstraction (implemented: `kis.ts`). `tr-ids.ts` enumerates KIS transaction IDs; `types.ts` covers raw API payload shapes. App key + secret stored encrypted via `src/lib/crypto.ts`; OAuth-style access tokens are cached on `brokerageAccounts` and refreshed lazily with a 60s grace window
+- `kis/kis.ts` - Korea Investment & Securities (KIS) client (`kis/interface.ts` is just a re-export barrel). `tr-ids.ts` enumerates KIS transaction IDs; `types.ts` covers raw API payload shapes. App key + secret stored encrypted via `src/lib/crypto.ts`; OAuth-style access tokens are cached on `brokerageAccounts` and refreshed lazily with a 60s grace window
 
 **Module Organization**: Features in `src/modules/` follow:
 - `hooks.ts` - React hooks for client-side data fetching
@@ -195,7 +201,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 - Both flows use shared `_executeSyncCommits()` private method
 - Deduplication via SHA batch lookup (batch size: 500)
 - Rate limiting: 100ms delay between commit saves
-- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 5/user, 1s delay between), syncs WakaTime data, syncs KIS portfolio snapshots/executions for users with active brokerage accounts (24h interval, gated by `BrokerageAccount.lastSyncedAt`) then runs `backfillPendingAccounts()` to fill any historical gap implied by `openedAt` (idempotent via backfill watermarks), refreshes data usage cache, and auto-deletes sync jobs older than 7 days
+- Main cron (`*/10 * * * *` — every 10 min): syncs commits per-user `syncIntervalHours`, processes pending summaries (limit 20/user via `processPendingSummaries`), syncs WakaTime data, syncs KIS portfolio snapshots/executions for users with active brokerage accounts (24h interval, gated by `BrokerageAccount.lastSyncedAt`) then runs `backfillPendingAccounts()` to fill any historical gap implied by `openedAt` (idempotent via backfill watermarks), refreshes data usage cache, and auto-deletes sync jobs older than 7 days
 - Daily Toss reparse cron (`0 23 * * *` — 23:00 KST): reparses today's Toss notifications to pick up parser improvements
 - Daily location-processing cron (`0 1 * * *` — 01:00 KST): for each user with OwnTracks configured, runs anomaly detection, visit detection + persist, track building + persist, transportation-mode detection, then subway matching (`src/modules/location/services/subway-match/{matcher,session-grouper}`) and subway-system discovery (`src/modules/location/services/subway-discovery`, capped at 3 new cities/run) for the previous day
 - Yearly subway data refresh (`0 3 1 1 *` — Jan 1, 03:00 KST) plus a boot-time catch-up that re-fetches any `subway_systems` row never fetched or older than ~350 days. `seedSubwaySystemsIfEmpty()` from `src/modules/subway/service.ts` runs on every boot and is idempotent
@@ -205,7 +211,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 - GitHub access token is stored **only** in Better Auth's `account` table. Migration 0017 dropped the duplicate `users.github_access_token` column; `getGitHubToken(userId)` is now the single accessor.
 - The cron worker filters users via `EXISTS (SELECT 1 FROM account WHERE providerId = 'github' AND accessToken IS NOT NULL)` rather than reading a column on `users`.
 
-**Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`. Also initializes Sentry and registers graceful shutdown handlers (SIGINT/SIGTERM). Set `RUN_ON_START=true` to trigger an immediate sync on boot.
+**Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`, and is **skipped entirely when `DISABLE_CRON=true`**. In production the web and cron workloads are separate containers built from the same image: the web container sets `DISABLE_CRON=true`, and a dedicated cron container (no published port) leaves it unset. This split exists because cron jobs (AI summaries, location/subway processing) do multi-second synchronous CPU work that blocks the Node event loop — running them in the web process stalled all HTTP requests. Don't move background jobs back into the web container. Also initializes Sentry and registers graceful shutdown handlers (SIGINT/SIGTERM). Set `RUN_ON_START=true` to trigger an immediate sync on boot.
 
 **Location Tracking & Processing** (`src/modules/location/services/`):
 - OwnTracks app sends GPS data to `/api/owntracks?apikey={key}` (returns `[]` per OwnTracks protocol)
@@ -233,7 +239,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; the location tables use
 **KIS Brokerage Portfolio** (`src/modules/portfolio/`):
 - `service.ts` (`PortfolioSyncService`) drives KIS sync: daily `holdingSnapshots`/`holdingPositions`, `brokerageExecutions`, and `brokerageDailyPnl`. Access tokens are cached on `brokerageAccounts` and refreshed lazily (60s grace); app key/secret are AES-256-GCM encrypted via `src/lib/crypto.ts` (`KIS_ENCRYPTION_KEY`)
 - Historical backfill: `backfillPendingAccounts()` walks each account back to `openedAt`, advancing the `executionsBackfilledFrom`/`pnlBackfilledFrom` watermarks so it's idempotent and resumable across cron runs (also exposed as a manual `/api/portfolio/accounts/[id]/backfill` route)
-- `returns.ts` computes time-weighted return (TWR): it infers cashflows from snapshot/deposit/purchase deltas using a **T+2 settlement** model and anchors every account's series to the `RETURNS_EPOCH` of `2026-05-12` (earlier snapshots include pre-settlement receivables that inflate the baseline). Served via `/api/portfolio/returns`
+- `returns.ts` computes time-weighted return (TWR) over `tot_evlu_amt` alone — KIS `tot_evlu_amt` already includes the cash deposit (verified against live output2), so adding `deposit` on top double-counts every external deposit as fake gain. It infers cashflows from deposit deltas reconciled against a **T+2 business-day settlement** model and anchors every account's series to the `RETURNS_EPOCH` of `2026-05-12` (earlier snapshots include pre-settlement receivables that inflate the baseline). Served via `/api/portfolio/returns`
 - Rebalancing: `brokerageTargetAllocations` holds per-ticker target weights; the UI (`TargetAllocationEditor`, `RebalanceCard`) compares them against current `holdingPositions` weights
 
 **Logging**: `src/lib/logger.ts` wraps Better Stack (Logtail) with `info`, `warn`, `error`, `flush` methods. Falls back to console when `BETTER_STACK_SOURCE_TOKEN` is not set.
@@ -294,6 +300,8 @@ NEXT_PUBLIC_SENTRY_DSN=...           # Sentry error tracking
 ENABLE_DB_BENCHMARK=true             # Gate /api/settings/db-benchmark (admin-only DB perf test)
 NEXT_PUBLIC_ENABLE_DB_BENCHMARK=true # Show the matching UI card
 KIS_ENCRYPTION_KEY=...               # Required if using portfolio sync; ≥32 chars. Master key for AES-256-GCM encryption of stored KIS app key/secret in `brokerageAccounts`. Rotating it invalidates all previously stored credentials
+DISABLE_CRON=true                    # Skip cron initialization (set on the production web container; leave unset for the cron container and local dev)
+RUN_ON_START=true                    # Trigger an immediate sync on boot (cron-enabled processes only)
 ```
 
 ### Database Operations
@@ -308,9 +316,10 @@ CI/production uses `scripts/migrate.ts` (invoked via `npx tsx scripts/migrate.ts
 
 ### CI/CD & Deployment
 
-- **Jenkins pipeline** (`Jenkinsfile`): GitHub webhook trigger → Docker build → Drizzle migrations (separate builder-stage container) → deploy → health check (15 attempts, 5s interval) → Telegram notification (success/failure)
+- **Jenkins pipeline** (`Jenkinsfile`): GitHub webhook trigger → Docker build → Drizzle migrations (separate builder-stage container) → deploy web + cron containers → health check (15 attempts, 5s interval) → Telegram notification (success/failure)
 - **Docker** (`Dockerfile`): 4-stage build (base → deps → builder → runner) on Node 22 Alpine. `.env` mounted as build secret; only `NEXT_PUBLIC_*` vars extracted for the build. Runs as non-root `nextjs` user (UID 1001). Production uses `output: "standalone"` from `next.config.ts`
-- **Docker Compose** (`docker-compose.yml`): App + `postgis/postgis:17-3.5-alpine` database with external volume `cistory_postgres_data`
+- **Web/cron container split**: the same image runs twice — the web container (`cistory`, port 3000, `DISABLE_CRON=true`) and the cron container (`cistory-cron`, no published port, cron enabled). Jenkins stops/removes both on each deploy
+- **Docker Compose** (`docker-compose.yml`): `cistory` (web) + `cistory-cron` + `postgis/postgis:17-3.5-alpine` database with external volume `cistory_postgres_data`
 - **Timezone**: Production container runs with `TZ=Asia/Seoul` (KST, UTC+9) — relevant to date parsing and cron scheduling
 - Jenkins cleanup keeps only the last 3 Docker image tags
 
@@ -323,4 +332,5 @@ CI/production uses `scripts/migrate.ts` (invoked via `npx tsx scripts/migrate.ts
 - Prefer Drizzle ORM query builder (avoid raw SQL)
 - Follow Next.js App Router conventions (Server Components by default)
 - Korean language used for user-facing strings in API responses and UI
-- **Date parsing**: Never use `new Date("YYYY-MM-DD")` for date-only strings — ECMAScript spec parses this as UTC midnight, causing timezone offset issues (e.g., KST is UTC+9, so "2026-03-04" becomes March 3rd 15:00 KST). Instead use `new Date(year, month - 1, day)` which creates local timezone midnight. Established helpers: `parseDateLocal()` in `src/app/api/timeline/route.ts`, `_toLocalDate()` in `src/modules/report/service.ts`
+- **Date parsing**: Never use `new Date("YYYY-MM-DD")` for date-only strings — ECMAScript parses this as UTC midnight, causing timezone offset issues (KST is UTC+9, so "2026-03-04" becomes March 3rd 15:00 KST). Canonical helpers live in `src/lib/utils.ts`: `parseDateLocal()`, `toLocalDateString()`, `startOfLocalDay()`/`endOfLocalDay()`, `parseDateParam()`. Never derive a date key with `date.toISOString().split("T")[0]` — that is the UTC day, which shifts 00:00–09:00 KST activity onto the previous day; use `toLocalDateString()`.
+- **Timestamps in SQL**: `timestamp` (without time zone) columns store **UTC wall time** (Drizzle serializes via toISOString on write). Deriving a KST calendar day in SQL therefore requires `(col AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date` — helpers in `src/db/sql.ts` (`localDaySql`). Both `DATE(col)` and `col AT TIME ZONE 'Asia/Seoul'` are wrong (they yield the UTC day).

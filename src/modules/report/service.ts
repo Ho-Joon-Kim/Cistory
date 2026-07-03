@@ -22,7 +22,7 @@ import {
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { KOREA_BOUNDS } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
-import { safeJsonParse } from "@/lib/utils";
+import { safeJsonParse, toLocalDateString } from "@/lib/utils";
 import {
   getFirstVisitsByMonth,
   getFirstVisitsByYear,
@@ -209,23 +209,11 @@ export class ReportService {
       const startTs = this._toLocalDate(startDate);
       const endTs = this._toLocalDate(endDate);
 
-      const monthCommits = await txq
-        .select()
-        .from(commits)
-        .where(
-          and(
-            eq(commits.userId, userId),
-            gte(commits.committedAt, startTs),
-            lt(commits.committedAt, endTs)
-          )
-        );
-
       const topPlacesEnriched = await this._calculatePlaceProductivity(
         txq,
         userId,
         startTs,
         endTs,
-        monthCommits,
         base.topPlaces
       );
       const sparklines = await this._get6MonthSparklines(txq, userId, yearMonth);
@@ -250,24 +238,12 @@ export class ReportService {
       const startTs = this._toLocalDate(startDate);
       const endTs = this._toLocalDate(endDate);
 
-      const monthCommits = await txq
-        .select()
-        .from(commits)
-        .where(
-          and(
-            eq(commits.userId, userId),
-            gte(commits.committedAt, startTs),
-            lt(commits.committedAt, endTs)
-          )
-        );
-
       const topPlaces = await this._getTopPlaces(txq, userId, startTs, endTs);
       const placeProductivity = await this._calculatePlaceProductivity(
         txq,
         userId,
         startTs,
         endTs,
-        monthCommits,
         topPlaces
       );
 
@@ -384,7 +360,7 @@ export class ReportService {
 
     for (const c of monthCommits) {
       const d = c.committedAt;
-      const dateStr = d.toISOString().split("T")[0];
+      const dateStr = toLocalDateString(d);
       dailyMap.set(dateStr, (dailyMap.get(dateStr) ?? 0) + 1);
       commitsByDayOfWeek[d.getDay()]++;
       commitsByHour[d.getHours()]++;
@@ -640,7 +616,7 @@ export class ReportService {
 
     for (const c of allCommits) {
       const d = c.committedAt;
-      const dateStr = d.toISOString().split("T")[0];
+      const dateStr = toLocalDateString(d);
       dailyMap.set(dateStr, (dailyMap.get(dateStr) ?? 0) + 1);
       commitsByDayOfWeek[d.getDay()]++;
       commitsByHour[d.getHours()]++;
@@ -677,7 +653,7 @@ export class ReportService {
     >();
     for (const c of allCommits) {
       const name = c.repoFullName.split("/").pop() ?? c.repoFullName;
-      const dateStr = c.committedAt.toISOString().split("T")[0];
+      const dateStr = toLocalDateString(c.committedAt);
       const p = projectMap.get(name) ?? {
         commits: 0,
         additions: 0,
@@ -1285,7 +1261,7 @@ export class ReportService {
     const locationsWithDates = overseasPoints.map((l) => ({
       lat: l.lat,
       lon: l.lon,
-      date: l.timestamp.toISOString().split("T")[0],
+      date: toLocalDateString(l.timestamp),
     }));
     const enriched = await this._enrichLocationsWithPlaceNames(tx, locationsWithDates);
     return detectOverseasTrips(enriched);
@@ -1395,7 +1371,7 @@ export class ReportService {
       .orderBy(desc(codingSessions.startedAt));
 
     const sessions: DeepWorkSession[] = allSessions.map((s) => ({
-      date: s.startedAt.toISOString().split("T")[0],
+      date: toLocalDateString(s.startedAt),
       project: s.project,
       durationSeconds: s.durationSeconds,
       startedAt: s.startedAt.toISOString(),
@@ -1528,106 +1504,101 @@ export class ReportService {
     return patterns.sort((a, b) => a.dayOfWeek - b.dayOfWeek);
   }
 
+  /**
+   * 각 장소별 근처(±0.005° ≈ 500m 박스)에서 커밋 시각/세션 시작 ±1시간 내
+   * 위치 기록이 존재하는 커밋 수와 코딩 시간을 집계.
+   *
+   * 전부 SQL로 계산한다 — 이전 구현은 기간 내 원시 location_points 전량을
+   * JS로 로드한 뒤 장소×커밋×포인트 삼중 루프를 돌고, 루프 안에서 동일한
+   * codingSessions 쿼리를 5회 반복했다. 월 수만~수십만 포인트 규모에서 웹
+   * 요청 트랜잭션(커넥션 점유)을 초 단위로 블로킹하는 패턴이라, 과거 동일
+   * 패턴이 실제 타임아웃 장애를 냈다(위치 집계의 SQL 이전과 같은 계열).
+   */
   private async _calculatePlaceProductivity(
     tx: QueryExecutor,
     userId: string,
     startTs: Date,
     endTs: Date,
-    monthCommits: { committedAt: Date; lat?: number | null; lon?: number | null }[],
     topPlaces: { placeName: string; address: string; lat: number; lon: number }[]
   ): Promise<PlaceProductivity[]> {
-    if (topPlaces.length === 0) return [];
+    const places = topPlaces.slice(0, 5);
+    if (places.length === 0) return [];
 
-    // 각 장소별로 근처에서 발생한 커밋 수 + 코딩 세션 시간을 계산
-    const result: PlaceProductivity[] = [];
+    const placeValues = sql.join(
+      places.map((p, i) => sql`(${i}::int, ${p.lat}::float8, ${p.lon}::float8)`),
+      sql`, `
+    );
 
-    // 커밋의 시간대에 가장 가까운 위치 포인트를 찾기
-    const locPoints = await tx
-      .select({
-        lat: locationPoints.lat,
-        lon: locationPoints.lon,
-        timestamp: locationPoints.timestamp,
-      })
-      .from(locationPoints)
-      .where(
-        and(
-          eq(locationPoints.userId, userId),
-          gte(locationPoints.timestamp, startTs),
-          lt(locationPoints.timestamp, endTs)
+    const agg = await tx.execute<{
+      idx: number;
+      commit_count: number;
+      coding_seconds: number;
+      [key: string]: unknown;
+    }>(sql`
+      WITH places(idx, plat, plon) AS (VALUES ${placeValues}),
+      commit_counts AS (
+        SELECT p.idx, COUNT(*)::int AS commit_count
+        FROM places p
+        JOIN commits c
+          ON c.user_id = ${userId}
+         AND c.committed_at >= ${startTs}
+         AND c.committed_at < ${endTs}
+        WHERE EXISTS (
+          SELECT 1 FROM location_points lp
+          WHERE lp.user_id = ${userId}
+            AND lp.timestamp >= ${startTs} AND lp.timestamp < ${endTs}
+            AND lp.timestamp BETWEEN c.committed_at - interval '1 hour'
+                                 AND c.committed_at + interval '1 hour'
+            AND lp.lat > p.plat - 0.005 AND lp.lat < p.plat + 0.005
+            AND lp.lon > p.plon - 0.005 AND lp.lon < p.plon + 0.005
         )
+        GROUP BY p.idx
+      ),
+      coding AS (
+        SELECT p.idx, COALESCE(SUM(cs.duration_seconds), 0)::int AS coding_seconds
+        FROM places p
+        JOIN coding_sessions cs
+          ON cs.user_id = ${userId}
+         AND cs.started_at >= ${startTs}
+         AND cs.started_at < ${endTs}
+        WHERE EXISTS (
+          SELECT 1 FROM location_points lp
+          WHERE lp.user_id = ${userId}
+            AND lp.timestamp >= ${startTs} AND lp.timestamp < ${endTs}
+            AND lp.timestamp BETWEEN cs.started_at - interval '1 hour'
+                                 AND cs.started_at + interval '1 hour'
+            AND lp.lat > p.plat - 0.005 AND lp.lat < p.plat + 0.005
+            AND lp.lon > p.plon - 0.005 AND lp.lon < p.plon + 0.005
+        )
+        GROUP BY p.idx
       )
-      .orderBy(locationPoints.timestamp);
+      SELECT
+        p.idx,
+        COALESCE(cc.commit_count, 0) AS commit_count,
+        COALESCE(cd.coding_seconds, 0) AS coding_seconds
+      FROM places p
+      LEFT JOIN commit_counts cc ON cc.idx = p.idx
+      LEFT JOIN coding cd ON cd.idx = p.idx
+    `);
 
-    for (const place of topPlaces.slice(0, 5)) {
-      const threshold = 0.005; // ~500m
+    const byIdx = new Map(agg.rows.map((r) => [Number(r.idx), r]));
 
-      // 이 장소 근처에 있었던 시간대 찾기
-      const nearbyTimestamps: Date[] = [];
-      for (const lp of locPoints) {
-        if (Math.abs(lp.lat - place.lat) < threshold && Math.abs(lp.lon - place.lon) < threshold) {
-          nearbyTimestamps.push(lp.timestamp);
-        }
-      }
-
-      if (nearbyTimestamps.length === 0) {
-        result.push({
-          placeName: place.placeName,
-          address: place.address,
-          lat: place.lat,
-          lon: place.lon,
-          commitCount: 0,
-          codingSeconds: 0,
-          productivityScore: 0,
-        });
-        continue;
-      }
-
-      // 장소 근처에 있었던 시간 범위에서 커밋 수 계산
-      let commitCount = 0;
-      for (const c of monthCommits) {
-        // 커밋 시각 ± 1시간 내에 이 장소 근처에 위치 기록이 있으면 매칭
-        const commitTime = c.committedAt.getTime();
-        const isNearby = nearbyTimestamps.some(
-          (ts) => Math.abs(ts.getTime() - commitTime) < 3600000
-        );
-        if (isNearby) commitCount++;
-      }
-
-      // 장소 근처 코딩 세션 시간 계산
-      const nearbySessions = await tx
-        .select()
-        .from(codingSessions)
-        .where(
-          and(
-            eq(codingSessions.userId, userId),
-            gte(codingSessions.startedAt, startTs),
-            lt(codingSessions.startedAt, endTs)
-          )
-        );
-
-      let codingSeconds = 0;
-      for (const session of nearbySessions) {
-        const sessionTime = session.startedAt.getTime();
-        const isNearby = nearbyTimestamps.some(
-          (ts) => Math.abs(ts.getTime() - sessionTime) < 3600000
-        );
-        if (isNearby) codingSeconds += session.durationSeconds;
-      }
-
+    const result: PlaceProductivity[] = places.map((place, i) => {
+      const row = byIdx.get(i);
+      const commitCount = Number(row?.commit_count ?? 0);
+      const codingSeconds = Number(row?.coding_seconds ?? 0);
       // 생산성 점수: 커밋 수 * 10 + 코딩 시간(시간) * 5, 100점 만점으로 정규화
       const rawScore = commitCount * 10 + (codingSeconds / 3600) * 5;
-      const productivityScore = Math.min(100, Math.round(rawScore));
-
-      result.push({
+      return {
         placeName: place.placeName,
         address: place.address,
         lat: place.lat,
         lon: place.lon,
         commitCount,
         codingSeconds,
-        productivityScore,
-      });
-    }
+        productivityScore: Math.min(100, Math.round(rawScore)),
+      };
+    });
 
     return result.sort((a, b) => b.productivityScore - a.productivityScore);
   }

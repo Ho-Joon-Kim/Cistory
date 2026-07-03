@@ -33,9 +33,7 @@ describe("parseTossNotification", () => {
   });
 
   it("parses a payment (토스페이머니 | 가맹점)", () => {
-    expect(
-      parseTossNotification("13,900원 결제", "토스페이머니 | 주식회사 우아한형제들")
-    ).toEqual({
+    expect(parseTossNotification("13,900원 결제", "토스페이머니 | 주식회사 우아한형제들")).toEqual({
       type: "withdrawal",
       amount: 13900,
       merchant: "주식회사 우아한형제들",

@@ -1,6 +1,9 @@
 import { logger } from "@/lib/logger";
+import { parseDateLocal, toLocalDateString } from "@/lib/utils";
 import { matchSubwayTrips } from "./matcher";
 import { groupMatchesIntoSessions } from "./session-grouper";
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Iterate days [from..to] inclusive (YYYY-MM-DD) and re-run matcher + grouper
@@ -15,8 +18,8 @@ export async function backfillSubwayMatches(
   totalLegs: number;
   totalSessions: number;
 }> {
-  const start = parseDateLocal(fromDate);
-  const end = parseDateLocal(toDate);
+  const start = DATE_ONLY.test(fromDate) ? parseDateLocal(fromDate) : null;
+  const end = DATE_ONLY.test(toDate) ? parseDateLocal(toDate) : null;
   if (!start || !end) {
     throw new Error("Invalid date range");
   }
@@ -33,7 +36,7 @@ export async function backfillSubwayMatches(
     cursor.getTime() <= end.getTime();
     cursor.setDate(cursor.getDate() + 1)
   ) {
-    const dateStr = formatLocalDate(cursor);
+    const dateStr = toLocalDateString(cursor);
     try {
       const matchResult = await matchSubwayTrips(userId, dateStr);
       const groupResult = await groupMatchesIntoSessions(userId, dateStr);
@@ -50,17 +53,4 @@ export async function backfillSubwayMatches(
   }
 
   return { daysProcessed, totalLegs, totalSessions };
-}
-
-function parseDateLocal(s: string): Date | null {
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const year = Number(m[1]);
-  const month = Number(m[2]);
-  const day = Number(m[3]);
-  return new Date(year, month - 1, day);
-}
-
-function formatLocalDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

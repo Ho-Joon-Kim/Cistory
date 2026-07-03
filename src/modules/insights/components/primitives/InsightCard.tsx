@@ -70,10 +70,10 @@ export function InsightCardEmpty({ message }: { message: string }) {
  */
 export function InsightCardLoading({ height = 120 }: { height?: number }) {
   return (
-    <div
-      className="animate-shimmer rounded-md"
+    <output
+      className="animate-shimmer block rounded-md"
       style={{ height: `${height}px` }}
-      aria-label="loading"
+      aria-label="로딩 중"
     />
   );
 }

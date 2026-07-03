@@ -30,9 +30,9 @@ export async function GET(request: NextRequest) {
     // All date arithmetic uses KST so "today" lines up with the daily 01:00 cron window.
     const [dateRange] = await db
       .select({
-        earliest: sql<string>`min(timestamp at time zone 'Asia/Seoul')::date::text`,
-        latest: sql<string>`max(timestamp at time zone 'Asia/Seoul')::date::text`,
-        totalDays: sql<number>`((max(timestamp at time zone 'Asia/Seoul')::date - min(timestamp at time zone 'Asia/Seoul')::date) + 1)::int`,
+        earliest: sql<string>`min(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date::text`,
+        latest: sql<string>`max(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date::text`,
+        totalDays: sql<number>`((max(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date - min(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date) + 1)::int`,
         totalPoints: sql<number>`count(*)::int`,
         today: sql<string>`(now() at time zone 'Asia/Seoul')::date::text`,
       })
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
         scanned: sql<number>`count(*) filter (where anomaly is not null)::int`,
         unscanned: sql<number>`count(*) filter (where anomaly is null)::int`,
         anomalies: sql<number>`count(*) filter (where anomaly = true)::int`,
-        todayUnscanned: sql<number>`count(*) filter (where anomaly is null and (timestamp at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date)::int`,
+        todayUnscanned: sql<number>`count(*) filter (where anomaly is null and (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date)::int`,
       })
       .from(locationPoints)
       .where(eq(locationPoints.userId, user.id));
@@ -65,11 +65,11 @@ export async function GET(request: NextRequest) {
     }>(sql`
       WITH per_day AS (
         SELECT
-          (timestamp at time zone 'Asia/Seoul')::date AS d,
+          (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d,
           count(*) FILTER (WHERE anomaly IS NULL) AS unscanned
         FROM location_points
         WHERE user_id = ${user.id}
-        GROUP BY (timestamp at time zone 'Asia/Seoul')::date
+        GROUP BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date
       )
       SELECT
         count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date)::int AS past_total_days,
@@ -83,7 +83,9 @@ export async function GET(request: NextRequest) {
     const todayHasUnscanned = (anomalyStats.todayUnscanned ?? 0) > 0;
 
     const [_visitStats] = await db
-      .select({ daysWithVisits: sql<number>`count(distinct start_time::date)::int` })
+      .select({
+        daysWithVisits: sql<number>`count(distinct (start_time at time zone 'UTC' at time zone 'Asia/Seoul')::date)::int`,
+      })
       .from(visits)
       .where(eq(visits.userId, user.id));
 

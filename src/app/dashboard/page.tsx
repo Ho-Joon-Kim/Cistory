@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { parseDateParam } from "@/lib/utils";
+import { parseDateParam, toLocalDateString } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { MapSkeleton } from "@/modules/location/components/MapSkeleton";
 import { useSettings } from "@/modules/settings/hooks";
@@ -27,7 +27,7 @@ function DashboardContent() {
   const { settings } = useSettings();
 
   // Selected date for timeline + map (initialized from URL ?date= param)
-  const today = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const today = useMemo(() => toLocalDateString(new Date()), []);
   const [selectedDate, setSelectedDateRaw] = useState<string>(() =>
     parseDateParam(searchParams.get("date"))
   );
