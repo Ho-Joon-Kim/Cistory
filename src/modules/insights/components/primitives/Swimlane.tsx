@@ -72,12 +72,18 @@ export function Swimlane({ streams, year, height = 200 }: SwimlaneProps) {
   const dayW = trackW / days;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="block w-full" preserveAspectRatio="none">
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="block w-full"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="기간별 활동 스윔레인"
+    >
       {/* Month ticks */}
       {monthBoundaries.map((dayIdx, m) => {
         const x = labelW + dayIdx * dayW;
         return (
-          <g key={`month-${m}`}>
+          <g key={`month-${dayIdx}`}>
             <line
               x1={x}
               x2={x}

@@ -3,7 +3,7 @@
 import { Bot, ChevronDown, ChevronUp, Code, User } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatCodingTime } from "@/modules/timeline/utils";
+import { formatCodingTime } from "@/lib/utils";
 import type { CodingSessionData, CodingStatData } from "../hooks";
 
 interface CodingSessionCardProps {

@@ -102,7 +102,13 @@ export function Histogram({
   const xOf = (v: number) => ((v - lo) / span) * width;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="block w-full" preserveAspectRatio="none">
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="block w-full"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="히스토그램"
+    >
       {/* Bars */}
       {binCounts.map((c, i) => {
         const h = (c / maxCount) * (height - 24);
