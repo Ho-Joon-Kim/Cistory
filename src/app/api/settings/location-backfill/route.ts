@@ -9,6 +9,7 @@ import { eq, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, locationPoints, transportationSegments, visits } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 // Rate limits per provider
 const RATE_LIMITS = {
@@ -177,7 +178,9 @@ export async function GET(request: NextRequest) {
       totalSteps,
     });
   } catch (error) {
-    console.error("Backfill dry run error:", error);
+    logger.error("Backfill dry run error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "백필 분석에 실패했습니다" }, { status: 500 });
   }
 }

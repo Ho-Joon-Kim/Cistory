@@ -42,141 +42,51 @@ const CATEGORY_LABELS: Record<string, string> = {
   system: "시스템",
 };
 
-// Per-row fixed overhead estimates (bytes)
-// uuid=36, integer=8, double=8, timestamp=26, boolean=1, text(id)~36
 interface TableDef {
   category: string;
   table: string;
-  textColumns: string[];
-  fixedBytesPerRow: number;
 }
 
 const TABLE_DEFS: TableDef[] = [
-  // commits category
-  {
-    category: "commits",
-    table: "commits",
-    textColumns: [
-      "message",
-      "parent_shas",
-      "repo_full_name",
-      "author_name",
-      "author_email",
-      "author_avatar_url",
-    ],
-    // id(text~36) + user_id(36) + sha(40) + committed_at(26) + additions(8) + deletions(8) + changed_files_count(8) + is_merge_commit(1) + repo_id(8) + repo_is_private(1) + created_at(26)
-    fixedBytesPerRow: 198,
-  },
-  {
-    category: "commits",
-    table: "commit_summaries",
-    textColumns: ["summary", "error_message"],
-    // id(36) + commit_id(36) + status(~10) + retry_count(8) + created_at(26) + updated_at(26)
-    fixedBytesPerRow: 142,
-  },
-  // location category
-  {
-    category: "location",
-    table: "location_points",
-    textColumns: ["tracker_id", "city", "country_name"],
-    // uuid(36) + user_id(36) + lat(8) + lon(8) + accuracy(8) + altitude(8) + velocity(8) + battery(8) + timestamp(26) + created_at(26) + anomaly(1) + lonlat geography(~32)
-    fixedBytesPerRow: 205,
-  },
-  {
-    category: "location",
-    table: "daily_distances",
-    textColumns: ["date"],
-    // uuid(36) + user_id(36) + distance_meters(8) + calculated_at(26)
-    fixedBytesPerRow: 106,
-  },
-  {
-    category: "location",
-    table: "saved_places",
-    textColumns: ["name", "address", "category"],
-    // uuid(36) + user_id(36) + lat(8) + lon(8) + radius_m(8) + created_at(26) + updated_at(26)
-    fixedBytesPerRow: 148,
-  },
-  {
-    category: "location",
-    table: "visits",
-    textColumns: ["place_name", "address", "category", "city", "country_name"],
-    // uuid(36) + user_id(36) + center_lat(8) + center_lon(8) + radius_m(8) + start_time(26) + end_time(26) + duration_seconds(8) + saved_place_id(36) + calculated_at(26)
-    fixedBytesPerRow: 218,
-  },
-  {
-    category: "location",
-    table: "tracks",
-    textColumns: ["start_place_name", "end_place_name", "dominant_mode"],
-    // uuid(36) + user_id(36) + start_time(26) + end_time(26) + distance_meters(8) + duration_seconds(8) + point_count(8) + elevation_gain(8) + elevation_loss(8) + calculated_at(26)
-    fixedBytesPerRow: 190,
-  },
-  {
-    category: "location",
-    table: "transportation_segments",
-    textColumns: ["date", "mode", "confidence"],
-    // uuid(36) + user_id(36) + track_id(36) + start_time(26) + end_time(26) + distance_meters(8) + duration_seconds(8) + avg_speed_kmh(8) + max_speed_kmh(8) + avg_acceleration(8) + calculated_at(26)
-    fixedBytesPerRow: 226,
-  },
-  {
-    category: "location",
-    table: "trips",
-    textColumns: ["name", "start_date", "end_date", "visited_cities", "visited_countries", "notes"],
-    // uuid(36) + user_id(36) + total_distance_meters(8) + is_overseas(1) + created_at(26) + updated_at(26)
-    fixedBytesPerRow: 133,
-  },
-  // coding category
-  {
-    category: "coding",
-    table: "coding_sessions",
-    textColumns: ["project"],
-    // uuid(36) + user_id(36) + started_at(26) + duration_seconds(8) + human_additions(8) + human_deletions(8) + ai_additions(8) + ai_deletions(8) + created_at(26)
-    fixedBytesPerRow: 164,
-  },
-  {
-    category: "coding",
-    table: "coding_daily_stats",
-    textColumns: ["projects", "languages", "editors", "categories"],
-    // uuid(36) + user_id(36) + date(10) + total_seconds(8) + calculated_at(26)
-    fixedBytesPerRow: 116,
-  },
-  // spending category
-  {
-    category: "spending",
-    table: "notification_logs",
-    textColumns: ["raw_payload", "headers"],
-    // uuid(36) + user_id(36) + source(~10) + received_at(26)
-    fixedBytesPerRow: 108,
-  },
-  {
-    category: "spending",
-    table: "transactions",
-    textColumns: ["merchant", "account_name", "raw_title", "raw_text"],
-    // uuid(36) + user_id(36) + notification_log_id(36) + type(~10) + amount(8) + transacted_at(26) + created_at(26)
-    fixedBytesPerRow: 178,
-  },
-  // system category
-  {
-    category: "system",
-    table: "sync_jobs",
-    textColumns: ["error_message"],
-    // id(36) + user_id(36) + sync_type(~10) + status(~12) + trigger_type(~10) + total_commits(8) + processed_commits(8) + started_at(26) + completed_at(26) + created_at(26)
-    fixedBytesPerRow: 198,
-  },
+  { category: "commits", table: "commits" },
+  { category: "commits", table: "commit_summaries" },
+  { category: "location", table: "location_points" },
+  { category: "location", table: "daily_distances" },
+  { category: "location", table: "saved_places" },
+  { category: "location", table: "visits" },
+  { category: "location", table: "tracks" },
+  { category: "location", table: "transportation_segments" },
+  { category: "location", table: "trips" },
+  { category: "coding", table: "coding_sessions" },
+  { category: "coding", table: "coding_daily_stats" },
+  { category: "spending", table: "notification_logs" },
+  { category: "spending", table: "transactions" },
+  { category: "system", table: "sync_jobs" },
 ];
 
+/**
+ * Per-table usage estimate.
+ *
+ * Bytes come from pg_total_relation_size (heap + indexes + toast) attributed
+ * proportionally to the user's row share — replacing the old per-user
+ * SUM(LENGTH(text)) scans over every text column of 13 tables plus
+ * hand-maintained fixed-bytes-per-row constants. reltuples is the planner's
+ * row estimate (refreshed by autovacuum), which is plenty for a usage display
+ * and costs nothing.
+ *
+ * Table names come from the static TABLE_DEFS literal above (trusted
+ * identifiers, safe to inline); userId is a bound parameter — never
+ * string-interpolate it.
+ */
 function buildEstimateQuery(tableDef: TableDef, userId: string) {
-  const textLenExpr =
-    tableDef.textColumns.length > 0
-      ? tableDef.textColumns.map((col) => `COALESCE(LENGTH("${col}"), 0)`).join(" + ")
-      : "0";
-
-  return sql.raw(`
+  const table = sql.raw(`"${tableDef.table}"`);
+  const regclass = sql.raw(`to_regclass('"${tableDef.table}"')`);
+  return sql`
     SELECT
-      COUNT(*)::int AS row_count,
-      (COALESCE(SUM(${textLenExpr}), 0) + COUNT(*) * ${tableDef.fixedBytesPerRow})::int AS estimated_bytes
-    FROM "${tableDef.table}"
-    WHERE "user_id" = '${userId}'
-  `);
+      (SELECT COUNT(*) FROM ${table} WHERE "user_id" = ${userId})::bigint AS user_rows,
+      GREATEST(COALESCE((SELECT reltuples FROM pg_class WHERE oid = ${regclass}), 0), 0)::bigint AS total_rows_est,
+      COALESCE(pg_total_relation_size(${regclass}), 0)::bigint AS total_bytes
+  `;
 }
 
 /**
@@ -189,13 +99,26 @@ export async function calculateDataUsage(db: Database, userId: string): Promise<
   for (const def of TABLE_DEFS) {
     try {
       const rows = await db.execute(buildEstimateQuery(def, userId));
-      const row = rows.rows[0] as { row_count: number; estimated_bytes: number } | undefined;
+      const row = rows.rows[0] as
+        | {
+            user_rows: string | number;
+            total_rows_est: string | number;
+            total_bytes: string | number;
+          }
+        | undefined;
+
+      const userRows = Number(row?.user_rows ?? 0);
+      const totalRowsEst = Number(row?.total_rows_est ?? 0);
+      const totalBytes = Number(row?.total_bytes ?? 0);
+      // Attribute table size by row share; reltuples can lag behind reality,
+      // so never divide by less than the rows we just counted.
+      const share = userRows === 0 ? 0 : userRows / Math.max(totalRowsEst, userRows);
 
       const usageRow: UsageRow = {
         category: def.category,
         tableName: def.table,
-        rowCount: row?.row_count ?? 0,
-        estimatedBytes: row?.estimated_bytes ?? 0,
+        rowCount: userRows,
+        estimatedBytes: Math.round(totalBytes * share),
         calculatedAt,
       };
 

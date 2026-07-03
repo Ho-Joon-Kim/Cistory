@@ -10,6 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, trips } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -40,7 +41,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
-    console.error("Trip GET error:", error);
+    logger.error("Trip GET error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "여행 조회에 실패했습니다" }, { status: 500 });
   }
 }
@@ -72,7 +75,9 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ trip: updated });
   } catch (error) {
-    console.error("Trip PUT error:", error);
+    logger.error("Trip PUT error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "여행 수정에 실패했습니다" }, { status: 500 });
   }
 }
@@ -93,7 +98,9 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ message: "여행이 삭제되었습니다" });
   } catch (error) {
-    console.error("Trip DELETE error:", error);
+    logger.error("Trip DELETE error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "여행 삭제에 실패했습니다" }, { status: 500 });
   }
 }

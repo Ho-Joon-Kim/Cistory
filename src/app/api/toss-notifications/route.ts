@@ -13,7 +13,13 @@ import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { notificationLogs, transactions } from "@/db/schema";
-import { checkBodySize, enforceRateLimit, logIngestionFailure, verifyApiKey } from "@/lib/api-auth";
+import {
+  bodyExceedsLimit,
+  checkBodySize,
+  enforceRateLimit,
+  logIngestionFailure,
+  verifyApiKey,
+} from "@/lib/api-auth";
 import { logger } from "@/lib/logger";
 import { parseTossNotification } from "@/modules/transaction/parser";
 
@@ -78,7 +84,7 @@ export async function POST(request: NextRequest) {
     if (!rate.allowed) {
       logIngestionFailure("toss-notifications", "rate_limited", request);
       return NextResponse.json(
-        { error: "Too many requests" },
+        { error: "요청이 너무 많습니다" },
         { status: 429, headers: { "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)) } }
       );
     }
@@ -95,6 +101,12 @@ export async function POST(request: NextRequest) {
     // Always read as text first — MacroDroid may send malformed JSON
     // with control characters (newlines, tabs in notification text)
     const rawPayload = await request.text();
+
+    // Content-Length can be omitted or understated — re-check the actual body.
+    if (bodyExceedsLimit(rawPayload)) {
+      logIngestionFailure("toss-notifications", "body_too_large", request);
+      return NextResponse.json({ error: "요청이 너무 큽니다" }, { status: 413 });
+    }
 
     // Capture useful headers for debugging
     const headerEntries: Record<string, string> = {};
@@ -217,7 +229,7 @@ export async function GET(request: NextRequest) {
     if (!rate.allowed) {
       logIngestionFailure("toss-notifications", "rate_limited", request);
       return NextResponse.json(
-        { error: "Too many requests" },
+        { error: "요청이 너무 많습니다" },
         { status: 429, headers: { "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)) } }
       );
     }

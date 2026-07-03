@@ -33,6 +33,7 @@ vi.mock("@/db", async (importOriginal) => {
 
 vi.mock("@/lib/api-auth", () => ({
   checkBodySize: () => ({ ok: true }),
+  bodyExceedsLimit: () => false,
   enforceRateLimit: () => ({ allowed: true, retryAfterMs: 0 }),
   verifyApiKey: vi.fn().mockResolvedValue({ id: "u1", tossMyName: "홍길동" }),
   logIngestionFailure: () => {},

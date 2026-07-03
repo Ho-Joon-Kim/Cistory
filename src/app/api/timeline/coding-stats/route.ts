@@ -10,6 +10,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { codingDailyStats } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 interface SummaryItem {
   name: string;
@@ -73,7 +74,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ stats });
   } catch (error) {
-    console.error("Get coding stats error:", error);
+    logger.error("Get coding stats error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "코딩 통계 조회에 실패했습니다" }, { status: 500 });
   }
 }

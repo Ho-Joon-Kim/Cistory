@@ -11,7 +11,13 @@ import { eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { locationPoints, users } from "@/db/schema";
-import { checkBodySize, enforceRateLimit, logIngestionFailure, verifyApiKey } from "@/lib/api-auth";
+import {
+  bodyExceedsLimit,
+  checkBodySize,
+  enforceRateLimit,
+  logIngestionFailure,
+  verifyApiKey,
+} from "@/lib/api-auth";
 import { roundCoord } from "@/lib/geo";
 import { logger } from "@/lib/logger";
 
@@ -58,7 +64,14 @@ export async function POST(request: NextRequest) {
 
     const userId = authed.id;
     const db = getDb();
-    const payload = (await request.json()) as OwnTracksPayload | OwnTracksPayload[];
+
+    // Content-Length can be omitted or understated — re-check the actual body.
+    const rawBody = await request.text();
+    if (bodyExceedsLimit(rawBody)) {
+      logIngestionFailure("owntracks", "body_too_large", request);
+      return emptyResponse();
+    }
+    const payload = JSON.parse(rawBody) as OwnTracksPayload | OwnTracksPayload[];
 
     const payloads = Array.isArray(payload) ? payload : [payload];
     const locationPayloads = payloads.filter((p) => p._type === "location");

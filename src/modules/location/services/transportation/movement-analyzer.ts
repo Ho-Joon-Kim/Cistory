@@ -149,8 +149,17 @@ function buildSegments(
   const rawSegments: TransportSegment[] = [];
 
   for (let b = 0; b < boundaries.length; b++) {
-    const startIdx = boundaries[b];
+    let startIdx = boundaries[b];
     const endIdx = b + 1 < boundaries.length ? boundaries[b + 1] - 1 : metrics.length - 1;
+
+    // Skip leading time-gap metrics (GPS dropouts). detectBoundaries starts a
+    // new segment at every gap metric, so gaps only ever appear as a segment's
+    // first metric (including metrics[0], which boundary detection never
+    // checks). Their timeDiffSec/distance describe the dropout, not movement —
+    // including them dilutes the segment's average speed.
+    while (startIdx <= endIdx && metrics[startIdx].timeDiffSec > TIME_GAP_THRESHOLD_SEC) {
+      startIdx++;
+    }
 
     if (startIdx > endIdx) continue;
 

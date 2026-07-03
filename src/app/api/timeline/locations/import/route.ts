@@ -35,6 +35,7 @@ import { parseGpx } from "@/modules/location/services/import/gpx-parser";
 import { type ImportProgress, importPoints } from "@/modules/location/services/import/importer";
 import { createJob, getJob, updateJob } from "@/modules/location/services/import/job-store";
 import type { ParsedPoint } from "@/modules/location/services/import/types";
+import { logger } from "@/lib/logger";
 
 // Hard cap as defense-in-depth. Bounds disk usage of the spooled temp file
 // and the bandwidth a single client can push.
@@ -317,13 +318,17 @@ async function processImport({ reqId, jobId, userId, upload }: ProcessArgs): Pro
     });
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[import:${reqId}:${jobId.slice(0, 8)}] processing threw:`, error);
+    logger.error(`[import:${reqId}:${jobId.slice(0, 8)}] processing threw`, {
+      error: errMsg,
+    });
     updateJob(jobId, { phase: "error", error: `임포트 실패: ${errMsg}` } satisfies ImportProgress);
   } finally {
     try {
       await unlink(upload.tmpPath);
     } catch (e) {
-      console.warn(`[import:${reqId}:${jobId.slice(0, 8)}] temp cleanup failed`, e);
+      logger.warn(`[import:${reqId}:${jobId.slice(0, 8)}] temp cleanup failed`, {
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 }
@@ -338,10 +343,16 @@ function openDecoded(tmpPath: string, isGzipped: boolean): Readable {
   const benign = (e: NodeJS.ErrnoException) =>
     e.code === "ABORT_ERR" || e.code === "ERR_STREAM_PREMATURE_CLOSE";
   raw.on("error", (e: NodeJS.ErrnoException) => {
-    if (!benign(e)) console.error("[import] read stream error:", e);
+    if (!benign(e))
+      logger.error("[import] read stream error", {
+        error: e instanceof Error ? e.message : String(e),
+      });
   });
   gunzip.on("error", (e: NodeJS.ErrnoException) => {
-    if (!benign(e)) console.error("[import] gunzip error:", e);
+    if (!benign(e))
+      logger.error("[import] gunzip error", {
+        error: e instanceof Error ? e.message : String(e),
+      });
   });
   return raw.pipe(gunzip);
 }

@@ -12,6 +12,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { createReportService } from "@/modules/report/service";
+import { logger } from "@/lib/logger";
 
 const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross"]);
 
@@ -67,7 +68,9 @@ export async function GET(request: NextRequest) {
     const data = await service.aggregateMonthlyData(user.id, yearMonth);
     return NextResponse.json({ data });
   } catch (error) {
-    console.error("Get monthly report error:", error);
+    logger.error("Get monthly report error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "보고서 조회에 실패했습니다" }, { status: 500 });
   }
 }
@@ -115,7 +118,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ narrative });
   } catch (error) {
-    console.error("Generate monthly narrative error:", error);
+    logger.error("Generate monthly narrative error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "내러티브 생성에 실패했습니다" }, { status: 500 });
   }
 }

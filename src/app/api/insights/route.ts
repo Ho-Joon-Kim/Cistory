@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { InsightsService } from "@/modules/insights/service";
 import { getSubwayInsights } from "@/modules/location/services/subway-match/usage";
+import { logger } from "@/lib/logger";
 
 const VALID_SECTIONS = new Set([
   "streaks",
@@ -66,7 +67,6 @@ export async function GET(request: NextRequest) {
         netSpend,
         repoSplit,
         dataUsage,
-        discoveries,
       ] = await db.transaction(async (tx) => {
         // Run the entire dashboard fan-out on ONE pooled connection instead of
         // firing ~30-40 queries across the pool at once. The parallel fan-out
@@ -95,9 +95,11 @@ export async function GET(request: NextRequest) {
           InsightsService.getNetSpend(txDb, user.id, year),
           InsightsService.getRepoSplit(txDb, user.id, year),
           InsightsService.getDataUsage(txDb, user.id),
-          InsightsService.getDiscoveries(txDb, user.id, year),
         ]);
       });
+      // Discoveries only synthesizes over four sections fetched above —
+      // compose from those results instead of re-running their queries.
+      const discoveries = InsightsService.composeDiscoveries(patterns, aiClock, commute, repoSplit);
       return NextResponse.json({
         streaks,
         patterns,
@@ -184,7 +186,9 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "유효하지 않은 section" }, { status: 400 });
     }
   } catch (error) {
-    console.error("Get insights error:", error);
+    logger.error("Get insights error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "인사이트 조회에 실패했습니다" }, { status: 500 });
   }
 }

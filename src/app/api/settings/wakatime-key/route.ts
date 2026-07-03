@@ -58,7 +58,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Save WakaTime key error:", error);
+    logger.error("Save WakaTime key error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "WakaTime API 키 저장에 실패했습니다" }, { status: 500 });
   }
 }
@@ -80,7 +82,9 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Remove WakaTime key error:", error);
+    logger.error("Remove WakaTime key error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "WakaTime API 키 삭제에 실패했습니다" }, { status: 500 });
   }
 }

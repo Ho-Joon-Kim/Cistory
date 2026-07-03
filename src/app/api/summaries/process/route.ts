@@ -10,6 +10,7 @@ import { getDb } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
 import { createSummaryService } from "@/modules/summary/service";
+import { logger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,7 +25,10 @@ export async function POST(request: NextRequest) {
     // Get user's GitHub token
     const accessToken = await getGitHubToken(user.id);
     if (!accessToken) {
-      return NextResponse.json({ error: "GitHub access token not found" }, { status: 400 });
+      return NextResponse.json(
+        { error: "GitHub 액세스 토큰이 없습니다. 다시 로그인해주세요" },
+        { status: 400 }
+      );
     }
 
     const summaryService = createSummaryService(db, process.env.ANTHROPIC_API_KEY!, accessToken);
@@ -33,9 +37,11 @@ export async function POST(request: NextRequest) {
     (async () => {
       try {
         const processed = await summaryService.processPendingSummaries(limit);
-        console.log(`[Summaries] Processed ${processed} pending summaries for user ${user.id}`);
+        logger.info(`[Summaries] Processed ${processed} pending summaries`, { userId: user.id });
       } catch (error) {
-        console.error("[Summaries] Processing failed:", error);
+        logger.error("[Summaries] Processing failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     })();
 
@@ -47,8 +53,10 @@ export async function POST(request: NextRequest) {
       { status: 202 }
     );
   } catch (error) {
-    console.error("Process summaries error:", error);
-    return NextResponse.json({ error: "Failed to process summaries" }, { status: 500 });
+    logger.error("Process summaries error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "요약 생성에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -106,7 +114,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Get summary stats error:", error);
-    return NextResponse.json({ error: "Failed to get summary stats" }, { status: 500 });
+    logger.error("Get summary stats error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "요약 통계 조회에 실패했습니다" }, { status: 500 });
   }
 }

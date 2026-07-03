@@ -9,6 +9,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { calculateDataUsage, formatDataUsageResponse, getDataUsage } from "@/lib/data-usage";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,8 +20,10 @@ export async function GET(request: NextRequest) {
     const rows = await getDataUsage(db, user.id);
     return NextResponse.json(formatDataUsageResponse(rows));
   } catch (error) {
-    console.error("Get data usage error:", error);
-    return NextResponse.json({ error: "Failed to get data usage" }, { status: 500 });
+    logger.error("Get data usage error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "데이터 사용량 조회에 실패했습니다" }, { status: 500 });
   }
 }
 
@@ -33,7 +36,9 @@ export async function POST(request: NextRequest) {
     const rows = await calculateDataUsage(db, user.id);
     return NextResponse.json(formatDataUsageResponse(rows));
   } catch (error) {
-    console.error("Calculate data usage error:", error);
-    return NextResponse.json({ error: "Failed to calculate data usage" }, { status: 500 });
+    logger.error("Calculate data usage error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "데이터 사용량 계산에 실패했습니다" }, { status: 500 });
   }
 }

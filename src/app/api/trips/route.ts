@@ -9,6 +9,7 @@ import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, trips } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,7 +42,9 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error("Trips GET error:", error);
+    logger.error("Trips GET error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "여행 목록 조회에 실패했습니다" }, { status: 500 });
   }
 }
@@ -77,7 +80,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ trip: created }, { status: 201 });
   } catch (error) {
-    console.error("Trips POST error:", error);
+    logger.error("Trips POST error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "여행 생성에 실패했습니다" }, { status: 500 });
   }
 }

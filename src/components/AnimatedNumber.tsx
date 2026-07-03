@@ -1,6 +1,6 @@
 "use client";
 
-import { useAnimatedNumber } from "@/hooks/useCountUp";
+import { useAnimatedNumber } from "@/lib/hooks/useCountUp";
 
 interface AnimatedNumberProps {
   value: number;

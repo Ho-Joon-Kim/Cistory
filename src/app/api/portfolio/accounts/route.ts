@@ -147,7 +147,9 @@ export const POST = withValidation(CreateBody, async ({ user, body }) => {
       accountType: body.accountType,
       appKeyEnc: encryptSecret(body.appKey),
       appSecretEnc: encryptSecret(body.appSecret),
-      accessToken,
+      // Cached token is encrypted like the app key/secret (see
+      // PortfolioSyncService.decryptTokenOrNull for the read side).
+      accessToken: encryptSecret(accessToken),
       accessTokenExpiresAt: expiresAt,
       isActive: true,
       openedAt: body.openedAt ?? null,

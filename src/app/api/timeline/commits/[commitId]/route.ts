@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 export async function GET(
   request: NextRequest,
@@ -42,7 +43,7 @@ export async function GET(
       .where(and(eq(commits.id, commitId), eq(commits.userId, user.id)));
 
     if (result.length === 0) {
-      return NextResponse.json({ error: "Commit not found" }, { status: 404 });
+      return NextResponse.json({ error: "커밋을 찾을 수 없습니다" }, { status: 404 });
     }
 
     const commit = result[0];
@@ -74,7 +75,9 @@ export async function GET(
         : null,
     });
   } catch (error) {
-    console.error("Get commit detail error:", error);
-    return NextResponse.json({ error: "Failed to fetch commit detail" }, { status: 500 });
+    logger.error("Get commit detail error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "커밋 상세 조회에 실패했습니다" }, { status: 500 });
   }
 }

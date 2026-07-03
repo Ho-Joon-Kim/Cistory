@@ -8,6 +8,7 @@ import { count, desc, eq, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { commitSummaries, commits, getDb, syncJobs } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 
 interface BenchmarkStats {
   mean: number;
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     // user. Gate behind an explicit env var so production deployments stay safe
     // while local/admin envs can still run it on demand.
     if (process.env.ENABLE_DB_BENCHMARK !== "true") {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ error: "찾을 수 없습니다" }, { status: 404 });
     }
 
     const { user, error: authError } = await getAuthenticatedUser(request);
@@ -211,7 +212,9 @@ export async function POST(request: NextRequest) {
       benchmarks,
     });
   } catch (error) {
-    console.error("DB benchmark error:", error);
+    logger.error("DB benchmark error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "벤치마크 실행에 실패했습니다" }, { status: 500 });
   }
 }

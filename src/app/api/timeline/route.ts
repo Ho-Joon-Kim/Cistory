@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { parseDateLocal } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,7 +34,10 @@ export async function GET(request: NextRequest) {
     if (afterDate) {
       const parsed = parseDateLocal(afterDate);
       if (!parsed) {
-        return NextResponse.json({ error: "Invalid 'after' date format" }, { status: 400 });
+        return NextResponse.json(
+          { error: "'after' 날짜 형식이 유효하지 않습니다" },
+          { status: 400 }
+        );
       }
       conditions.push(gt(commits.committedAt, parsed));
     }
@@ -41,7 +45,10 @@ export async function GET(request: NextRequest) {
     if (fromDate) {
       const parsed = parseDateLocal(fromDate);
       if (!parsed) {
-        return NextResponse.json({ error: "Invalid 'from' date format" }, { status: 400 });
+        return NextResponse.json(
+          { error: "'from' 날짜 형식이 유효하지 않습니다" },
+          { status: 400 }
+        );
       }
       conditions.push(gte(commits.committedAt, parsed));
     }
@@ -49,7 +56,7 @@ export async function GET(request: NextRequest) {
     if (toDate) {
       const parsed = parseDateLocal(toDate);
       if (!parsed) {
-        return NextResponse.json({ error: "Invalid 'to' date format" }, { status: 400 });
+        return NextResponse.json({ error: "'to' 날짜 형식이 유효하지 않습니다" }, { status: 400 });
       }
       // Include the entire "to" day
       conditions.push(lte(commits.committedAt, parsed));
@@ -129,7 +136,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Get timeline error:", error);
-    return NextResponse.json({ error: "Failed to fetch timeline" }, { status: 500 });
+    logger.error("Get timeline error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: "타임라인 조회에 실패했습니다" }, { status: 500 });
   }
 }

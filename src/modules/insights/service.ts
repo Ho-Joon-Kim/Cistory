@@ -994,8 +994,12 @@ export class InsightsService {
   }
 
   /**
-   * Discoveries — narrative bullets composed from other section data. Pulls
-   * everything in parallel and synthesizes 4 short surprises.
+   * Discoveries — narrative bullets composed from other section data.
+   *
+   * Standalone (?section=digests-style) callers use this method, which pulls
+   * its four inputs itself. The batched dashboard route already fetched all
+   * four sections in the same transaction, so it calls composeDiscoveries
+   * directly instead of re-running the queries.
    */
   static async getDiscoveries(
     db: Database,
@@ -1008,7 +1012,16 @@ export class InsightsService {
       InsightsService.getCommuteReliability(db, userId, year),
       InsightsService.getRepoSplit(db, userId, year),
     ]);
+    return InsightsService.composeDiscoveries(patterns, ai, commute, repos);
+  }
 
+  /** Pure synthesis over already-fetched section results — no queries. */
+  static composeDiscoveries(
+    patterns: WorkPatternsResult,
+    ai: AIClockResult,
+    commute: CommuteReliabilityResult,
+    repos: RepoSplitResult
+  ): DiscoveriesResult {
     const bullets: { kind: string; title: string; detail: string }[] = [];
 
     if (patterns.mostProductiveHour !== null) {
