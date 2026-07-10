@@ -19,6 +19,20 @@ function fail(request: NextRequest, reason: FailReason): NextResponse {
   return settingsRedirect(request, `withings=error&reason=${reason}`);
 }
 
+/**
+ * A network-level fetch failure surfaces as a bare "TypeError: fetch failed"; the
+ * actionable reason (ETIMEDOUT, ENOTFOUND, ...) lives on `error.cause`, which
+ * String(e) drops. Pull it out so ops sees the real cause, not just "fetch failed".
+ */
+function describeError(e: unknown): { error: string; cause?: string } {
+  if (!(e instanceof Error)) return { error: String(e) };
+  const cause = e.cause;
+  if (cause instanceof Error) {
+    return { error: e.message, cause: (cause as { code?: string }).code ?? cause.message };
+  }
+  return { error: e.message };
+}
+
 /** Withings redirects the user back here with `code` + `state` after consent. */
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -87,7 +101,7 @@ export async function GET(request: NextRequest) {
 
     return settingsRedirect(request, "withings=connected");
   } catch (e) {
-    logger.error("[Withings] OAuth callback failed", { userId: user.id, error: String(e) });
+    logger.error("[Withings] OAuth callback failed", { userId: user.id, ...describeError(e) });
     return fail(request, "exchange_failed");
   }
 }
