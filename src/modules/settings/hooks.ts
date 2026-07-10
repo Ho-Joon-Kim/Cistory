@@ -297,6 +297,35 @@ export function useWithings(hasConnection: boolean) {
   return { hasWithingsConnection, isDisconnecting, disconnect };
 }
 
+export function useHealth(hasConnection: boolean) {
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [hasHealthConnection, setHasHealthConnection] = useState(hasConnection);
+  const prevHasConnection = useRef(hasConnection);
+
+  useEffect(() => {
+    if (prevHasConnection.current !== hasConnection) {
+      setHasHealthConnection(hasConnection);
+      prevHasConnection.current = hasConnection;
+    }
+  }, [hasConnection]);
+
+  const disconnect = useCallback(async () => {
+    setIsDisconnecting(true);
+    try {
+      const response = await fetch("/api/fitbit", { method: "DELETE" });
+      if (!response.ok) throw new Error("Failed to disconnect");
+      setHasHealthConnection(false);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsDisconnecting(false);
+    }
+  }, []);
+
+  return { hasHealthConnection, isDisconnecting, disconnect };
+}
+
 interface WakaTimeUser {
   displayName: string;
   email: string;

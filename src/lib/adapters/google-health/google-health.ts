@@ -308,7 +308,7 @@ export class GoogleHealthAdapter {
   }
 
   private async tokenRequest(params: Record<string, string>): Promise<GoogleTokenResponse> {
-    return this.withRetry("token", async () => {
+    return this.withRetry<GoogleTokenResponse>("token", async () => {
       const res = await undiciFetch(GOOGLE_TOKEN_URL, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -344,7 +344,7 @@ export class GoogleHealthAdapter {
     label: string,
     body?: unknown
   ): Promise<T> {
-    return this.withRetry(label, async () => {
+    return this.withRetry<T>(label, async () => {
       const headers: Record<string, string> = { authorization: `Bearer ${accessToken}` };
       if (body !== undefined) headers["content-type"] = "application/json";
       const res = await undiciFetch(url, {

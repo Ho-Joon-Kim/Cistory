@@ -22,6 +22,7 @@ import { useSettings } from "../hooks";
 import { AccountRolesCard } from "./AccountRolesCard";
 import { DataUsageCard } from "./DataUsageCard";
 import { DbBenchmarkCard } from "./DbBenchmarkCard";
+import { HealthSettings } from "./HealthSettings";
 import { LocationBackfillCard } from "./LocationBackfillCard";
 import { OwnTracksSettings } from "./OwnTracksSettings";
 import { SummaryStats } from "./SummaryStats";
@@ -37,29 +38,67 @@ const WITHINGS_ERROR_MESSAGES: Record<string, string> = {
   exchange_failed: "Withings 연동에 실패했습니다. 다시 시도해주세요",
 };
 
+const HEALTH_ERROR_MESSAGES: Record<string, string> = {
+  denied: "Fitbit 연동이 취소되었습니다",
+  state_invalid: "Fitbit 연동 요청이 만료되었거나 유효하지 않습니다. 다시 시도해주세요",
+  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
+  exchange_failed: "Fitbit 연동에 실패했습니다. 다시 시도해주세요",
+};
+
+const OAUTH_PROVIDERS: {
+  param: string;
+  connectedMsg: string;
+  errors: Record<string, string>;
+  fallback: string;
+}[] = [
+  {
+    param: "withings",
+    connectedMsg: "Withings가 연결되었습니다",
+    errors: WITHINGS_ERROR_MESSAGES,
+    fallback: "Withings 연동에 실패했습니다",
+  },
+  {
+    param: "health",
+    connectedMsg: "Fitbit이 연결되었습니다",
+    errors: HEALTH_ERROR_MESSAGES,
+    fallback: "Fitbit 연동에 실패했습니다",
+  },
+];
+
+/**
+ * Surface the Withings/Fitbit OAuth callback outcome (?withings= | ?health=,
+ * connected | error&reason=...), then strip the params so a refresh doesn't
+ * re-fire the toast. Module-level so it doesn't inflate SettingsForm's complexity.
+ * Returns true if a connection succeeded (caller refreshes settings).
+ */
+function surfaceOAuthCallbackToast(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  let connected = false;
+
+  for (const provider of OAUTH_PROVIDERS) {
+    const outcome = params.get(provider.param);
+    if (outcome === "connected") {
+      toast.success(provider.connectedMsg);
+      connected = true;
+    } else if (outcome === "error") {
+      const reason = params.get("reason") ?? "";
+      toast.error(provider.errors[reason] ?? provider.fallback);
+    }
+    params.delete(provider.param);
+  }
+  params.delete("reason");
+
+  const query = params.toString();
+  window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  return connected;
+}
+
 export function SettingsForm() {
   const { settings, isLoading, isSaving, updateSettings, refresh } = useSettings();
   const { user } = useAuth();
 
-  // Surface the Withings OAuth callback outcome (?withings=connected | error&reason=...),
-  // then strip the params so a refresh doesn't re-fire the toast.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const withings = params.get("withings");
-    if (!withings) return;
-
-    if (withings === "connected") {
-      toast.success("Withings가 연결되었습니다");
-      refresh();
-    } else if (withings === "error") {
-      const reason = params.get("reason") ?? "";
-      toast.error(WITHINGS_ERROR_MESSAGES[reason] ?? "Withings 연동에 실패했습니다");
-    }
-
-    params.delete("withings");
-    params.delete("reason");
-    const query = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    if (surfaceOAuthCallbackToast()) refresh();
   }, [refresh]);
 
   if (isLoading || !settings) {
@@ -227,6 +266,13 @@ export function SettingsForm() {
         withingsUserId={settings.withingsUserId}
         lastSyncedAt={settings.withingsLastSyncedAt}
         needsReauth={settings.withingsNeedsReauth}
+      />
+
+      {/* 건강 (Fitbit / Google Health) */}
+      <HealthSettings
+        hasConnection={settings.hasHealthConnection}
+        lastSyncedAt={settings.healthLastSyncedAt}
+        needsReauth={settings.healthNeedsReauth}
       />
 
       {/* AI 요약 */}
