@@ -11,6 +11,7 @@ import { getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
+import { createHealthSyncService } from "@/modules/health/service";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
 import { createExpenseCategoryService } from "@/modules/spending/category-classifier";
 import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/subway/service";
@@ -334,6 +335,38 @@ async function _syncAllUsersInner() {
             userId: user.id,
             githubLogin: user.githubLogin,
             error: withingsError instanceof Error ? withingsError.message : String(withingsError),
+          });
+        }
+
+        // Google Health (Fitbit) sync (24h interval, gated by lastSyncedAt).
+        // syncUser self-selects: no-ops when there's no active connection or the
+        // 24h gate hasn't elapsed. After the incremental forward sync, walk any
+        // historical gap toward the backfill floor (idempotent, resumable).
+        try {
+          const health = createHealthSyncService(db);
+          const result = await health.syncUser(user.id, {
+            skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
+          });
+          if (!result.skipped) {
+            logger.info("[Cron] Health sync done", {
+              userId: user.id,
+              githubLogin: user.githubLogin,
+              samples: result.samplesUpserted,
+            });
+            const backfill = await health.backfillPendingConnections(user.id);
+            if (!backfill.skipped) {
+              logger.info("[Cron] Health backfill done", {
+                userId: user.id,
+                githubLogin: user.githubLogin,
+                samples: backfill.samplesUpserted,
+              });
+            }
+          }
+        } catch (healthError) {
+          logger.error("[Cron] Health sync error", {
+            userId: user.id,
+            githubLogin: user.githubLogin,
+            error: healthError instanceof Error ? healthError.message : String(healthError),
           });
         }
 

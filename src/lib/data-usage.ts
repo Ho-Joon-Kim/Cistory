@@ -39,6 +39,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   location: "위치",
   coding: "코딩",
   spending: "소비",
+  health: "건강",
   system: "시스템",
 };
 
@@ -61,6 +62,10 @@ const TABLE_DEFS: TableDef[] = [
   { category: "coding", table: "coding_daily_stats" },
   { category: "spending", table: "notification_logs" },
   { category: "spending", table: "transactions" },
+  { category: "health", table: "health_samples" },
+  { category: "health", table: "health_daily_summaries" },
+  { category: "health", table: "health_raw_pages" },
+  { category: "health", table: "health_connections" },
   { category: "system", table: "sync_jobs" },
 ];
 
