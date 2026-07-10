@@ -129,7 +129,6 @@ function makeSpeedGeoJSON(
       const from = line[i];
       const to = line[i + 1];
       const loc = locMap.get(`${to[0]},${to[1]}`);
-      // velocity from OwnTracks is in km/h (or null)
       const speed = loc?.velocity != null ? Math.abs(loc.velocity) : 0;
 
       features.push({
@@ -230,8 +229,6 @@ export function SegmentedRouteAnimator({
   // Update paint properties when selection/hover/replay changes (after animation completes)
   useEffect(() => {
     if (!map || !animationCompletedRef.current) return;
-    // Skip selection-based opacity when replay is active (replay effect handles it)
-    if (replayProgress != null) return;
     const gl = map.getMap();
     if (!gl.getLayer("route-line")) return;
 
@@ -245,8 +242,8 @@ export function SegmentedRouteAnimator({
         0.8,
         0.15,
       ]);
-      if (gl.getLayer("route-speed-line")) {
-        gl.setPaintProperty("route-speed-line", "line-opacity", [
+      if (gl.getLayer("route-line-speed")) {
+        gl.setPaintProperty("route-line-speed", "line-opacity", [
           "case",
           ["<=", ["get", "segmentIndex"], progressSegment],
           0.85,
@@ -264,8 +261,8 @@ export function SegmentedRouteAnimator({
       ]);
     } else {
       gl.setPaintProperty("route-line", "line-opacity", 0.8);
-      if (gl.getLayer("route-speed-line")) {
-        gl.setPaintProperty("route-speed-line", "line-opacity", 0.85);
+      if (gl.getLayer("route-line-speed")) {
+        gl.setPaintProperty("route-line-speed", "line-opacity", 0.85);
       }
     }
 

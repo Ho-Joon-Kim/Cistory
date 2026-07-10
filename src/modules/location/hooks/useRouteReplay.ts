@@ -95,6 +95,7 @@ export function useRouteReplay({
   const lastFrameTimeRef = useRef<number>(0);
   const stayPauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStayPausedRef = useRef(false);
+  const activeStayRangeIndexRef = useRef(-1);
 
   // Keep refs in sync
   stateRef.current = state;
@@ -121,14 +122,15 @@ export function useRouteReplay({
     }));
   }, [locations, stayPoints]);
 
-  /** Check if a given simulated time falls within any stay point range */
-  const isInStayPoint = useCallback((simulatedTime: number): boolean => {
-    for (const range of stayRanges.current) {
+  /** Find the stay point range containing a given simulated time. */
+  const getStayRangeIndex = useCallback((simulatedTime: number): number => {
+    for (let index = 0; index < stayRanges.current.length; index++) {
+      const range = stayRanges.current[index];
       if (simulatedTime >= range.start && simulatedTime <= range.end) {
-        return true;
+        return index;
       }
     }
-    return false;
+    return -1;
   }, []);
 
   const updatePosition = useCallback((prog: number) => {
@@ -137,6 +139,7 @@ export function useRouteReplay({
       setCurrentCoord(result.coord);
       setCurrentTimestamp(result.timestamp);
     }
+    progressRef.current = prog;
     setProgress(prog);
   }, []);
 
@@ -164,13 +167,21 @@ export function useRouteReplay({
       updatePosition(newProgress);
 
       if (newProgress >= 1) {
+        stateRef.current = "idle";
         setState("idle");
         return;
       }
 
       // Check if we just entered a stay point
       const currentSimTime = points[0].time + newProgress * totalDuration;
-      if (isInStayPoint(currentSimTime)) {
+      const stayRangeIndex = getStayRangeIndex(currentSimTime);
+      if (stayRangeIndex === -1) {
+        activeStayRangeIndexRef.current = -1;
+      } else if (stayRangeIndex !== activeStayRangeIndexRef.current) {
+        // Pause only once when entering a stay range. Without remembering the
+        // active range, playback pauses again on every resumed frame and
+        // appears to be stuck for the full duration of the stay point.
+        activeStayRangeIndexRef.current = stayRangeIndex;
         isStayPausedRef.current = true;
         const pauseDuration = 1500 / speedRef.current;
         stayPauseTimeoutRef.current = setTimeout(() => {
@@ -185,7 +196,7 @@ export function useRouteReplay({
 
       rafRef.current = requestAnimationFrame(animationLoop);
     },
-    [updatePosition, isInStayPoint]
+    [updatePosition, getStayRangeIndex]
   );
 
   const play = useCallback(() => {
@@ -193,9 +204,11 @@ export function useRouteReplay({
 
     // If we were idle, start from 0
     if (stateRef.current === "idle") {
+      activeStayRangeIndexRef.current = -1;
       updatePosition(0);
     }
 
+    stateRef.current = "playing";
     setState("playing");
     isStayPausedRef.current = false;
     lastFrameTimeRef.current = performance.now();
@@ -203,6 +216,7 @@ export function useRouteReplay({
   }, [animationLoop, updatePosition]);
 
   const pause = useCallback(() => {
+    stateRef.current = "paused";
     setState("paused");
     cancelAnimationFrame(rafRef.current);
     if (stayPauseTimeoutRef.current) {
@@ -213,6 +227,7 @@ export function useRouteReplay({
   }, []);
 
   const stop = useCallback(() => {
+    stateRef.current = "idle";
     setState("idle");
     cancelAnimationFrame(rafRef.current);
     if (stayPauseTimeoutRef.current) {
@@ -220,6 +235,8 @@ export function useRouteReplay({
       stayPauseTimeoutRef.current = null;
     }
     isStayPausedRef.current = false;
+    activeStayRangeIndexRef.current = -1;
+    progressRef.current = 0;
     setProgress(0);
     setCurrentCoord(null);
     setCurrentTimestamp(null);
@@ -239,6 +256,7 @@ export function useRouteReplay({
           stayPauseTimeoutRef.current = null;
         }
         isStayPausedRef.current = false;
+        activeStayRangeIndexRef.current = -1;
         cancelAnimationFrame(rafRef.current);
         rafRef.current = requestAnimationFrame(animationLoop);
       }
@@ -247,6 +265,7 @@ export function useRouteReplay({
   );
 
   const setSpeed = useCallback((newSpeed: number) => {
+    speedRef.current = newSpeed;
     setSpeedState(newSpeed);
   }, []);
 
@@ -261,9 +280,10 @@ export function useRouteReplay({
   }, []);
 
   // Reset when locations change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: replay must reset when fresh location data arrives
   useEffect(() => {
     stop();
-  }, [stop]);
+  }, [locations, stop]);
 
   return {
     state,
