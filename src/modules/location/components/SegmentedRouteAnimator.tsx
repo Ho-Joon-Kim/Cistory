@@ -5,9 +5,14 @@ import type { GeoJSONSource, MapMouseEvent } from "mapbox-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayerProps } from "react-map-gl/mapbox";
 import { Layer, Marker, Source, useMap } from "react-map-gl/mapbox";
-import type { LocationData, StayPointData } from "../hooks";
+import type { LocationData, SavedPlaceData, StayPointData } from "../hooks";
 import type { ReplayFrame } from "../replay-timeline";
-import { clipMovingSegmentsAtTime, segmentLocations } from "../utils";
+import {
+  clipMovingSegmentsAtTime,
+  createStayPointConnectors,
+  findSegmentIndexByStayPoint,
+  segmentLocations,
+} from "../utils";
 
 const ANIMATION_DURATION = 1500;
 
@@ -34,6 +39,20 @@ const LINE_HIT_LAYER: LayerProps = {
 
 const LINE_LAYER: LayerProps = {
   id: "route-line",
+  type: "line" as const,
+  paint: {
+    "line-color": "hsl(153, 60%, 38%)",
+    "line-width": 3,
+    "line-opacity": 0.8,
+  },
+  layout: {
+    "line-cap": "round" as const,
+    "line-join": "round" as const,
+  },
+};
+
+const PLACE_CONNECTOR_LAYER: LayerProps = {
+  id: "route-place-connectors",
   type: "line" as const,
   paint: {
     "line-color": "hsl(153, 60%, 38%)",
@@ -149,6 +168,7 @@ function makeSpeedGeoJSON(
 interface SegmentedRouteAnimatorProps {
   locations: LocationData[];
   stayPoints: StayPointData[];
+  savedPlaces: SavedPlaceData[];
   date: string;
   selectedSegmentIndex?: number | null;
   hoveredSegmentIndex?: number | null;
@@ -160,6 +180,7 @@ interface SegmentedRouteAnimatorProps {
 export function SegmentedRouteAnimator({
   locations,
   stayPoints,
+  savedPlaces,
   date,
   selectedSegmentIndex = null,
   hoveredSegmentIndex = null,
@@ -180,6 +201,20 @@ export function SegmentedRouteAnimator({
   const allCoords = useMemo<Position[]>(() => locations.map((l) => [l.lon, l.lat]), [locations]);
 
   const segments = useMemo(() => segmentLocations(locations, stayPoints), [locations, stayPoints]);
+
+  const placeConnectorGeoJSON = useMemo<GeoJSON.FeatureCollection>(() => {
+    const connectors = createStayPointConnectors(locations, stayPoints, savedPlaces);
+    return {
+      type: "FeatureCollection",
+      features: connectors.map((connector) => ({
+        type: "Feature",
+        properties: {
+          segmentIndex: findSegmentIndexByStayPoint(segments, connector.stayPoint),
+        },
+        geometry: { type: "LineString", coordinates: connector.coords },
+      })),
+    };
+  }, [locations, stayPoints, savedPlaces, segments]);
 
   // Extract moving segment line arrays, per-segment indices, and all moving coords
   const { movingLines, movingSegmentIndices, movingCoordsFlat, transitions } = useMemo(() => {
@@ -320,6 +355,25 @@ export function SegmentedRouteAnimator({
       gl.setPaintProperty("route-line", "line-width", 3);
     }
   }, [map, selectedSegmentIndex, hoveredSegmentIndex, replayActive]);
+
+  const placeConnectorCount = placeConnectorGeoJSON.features.length;
+  useEffect(() => {
+    if (!map || replayActive || placeConnectorCount === 0) return;
+    const gl = map.getMap();
+    if (!gl.getLayer("route-place-connectors")) return;
+
+    if (selectedSegmentIndex == null) {
+      gl.setPaintProperty("route-place-connectors", "line-opacity", 0.8);
+    } else {
+      gl.setPaintProperty("route-place-connectors", "line-opacity", [
+        "match",
+        ["get", "segmentIndex"],
+        selectedSegmentIndex,
+        1.0,
+        0.15,
+      ]);
+    }
+  }, [map, replayActive, selectedSegmentIndex, placeConnectorCount]);
 
   // Toggle visibility between normal and speed-colored route layers
   useEffect(() => {
@@ -507,6 +561,11 @@ export function SegmentedRouteAnimator({
           <Source id="route" type="geojson" data={EMPTY_FC_GEOJSON}>
             <Layer {...LINE_LAYER} />
           </Source>
+          {!replayActive && placeConnectorGeoJSON.features.length > 0 && (
+            <Source id="route-place-connectors-source" type="geojson" data={placeConnectorGeoJSON}>
+              <Layer {...PLACE_CONNECTOR_LAYER} />
+            </Source>
+          )}
           {/* Speed-colored route layer */}
           <Source id="route-speed" type="geojson" data={EMPTY_FC_GEOJSON}>
             <Layer {...SPEED_LINE_LAYER} />

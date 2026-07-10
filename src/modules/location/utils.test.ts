@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LocationData, StayPointData } from "./hooks";
-import { clipMovingSegmentsAtTime, segmentLocations } from "./utils";
+import { clipMovingSegmentsAtTime, createStayPointConnectors, segmentLocations } from "./utils";
 
 function location(minute: number, lon: number): LocationData {
   return {
@@ -96,6 +96,38 @@ describe("segmentLocations", () => {
         [127.003, 37.5],
       ],
     });
+  });
+});
+
+describe("createStayPointConnectors", () => {
+  it("connects saved-place arrival and departure key points to the canonical coordinate", () => {
+    const savedStay = { ...stay(10, 20), savedPlaceId: "home" };
+    const connectors = createStayPointConnectors(
+      [location(10, 127.001), location(15, 127.002), location(20, 127.003)],
+      [savedStay],
+      [{ id: "home", lat: 37.5, lon: 127 }]
+    );
+
+    expect(connectors.map((connector) => connector.coords)).toEqual([
+      [
+        [127.001, 37.5],
+        [127, 37.5],
+      ],
+      [
+        [127, 37.5],
+        [127.003, 37.5],
+      ],
+    ]);
+  });
+
+  it("does not connect an unmatched stay point", () => {
+    expect(
+      createStayPointConnectors(
+        [location(10, 127.001)],
+        [stay(10, 20)],
+        [{ id: "home", lat: 37.5, lon: 127 }]
+      )
+    ).toEqual([]);
   });
 });
 

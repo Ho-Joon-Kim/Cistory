@@ -39,6 +39,67 @@ export interface StayingSegment {
 
 export type TimelineSegment = MovingSegment | StayingSegment;
 
+export interface SavedPlaceCoordinate {
+  id: string;
+  lat: number;
+  lon: number;
+}
+
+export interface StayPointConnector {
+  coords: [number, number][];
+  stayPoint: StayPointData;
+}
+
+function coordinatesDiffer(
+  first: { lat: number; lon: number },
+  second: { lat: number; lon: number }
+): boolean {
+  return first.lat !== second.lat || first.lon !== second.lon;
+}
+
+/**
+ * Connect the raw arrival/departure key points of a saved-place visit to the
+ * saved place's canonical coordinate. The raw points remain untouched so the
+ * route still represents the recorded GPS data accurately.
+ */
+export function createStayPointConnectors(
+  locations: LocationData[],
+  stayPoints: StayPointData[],
+  savedPlaces: SavedPlaceCoordinate[]
+): StayPointConnector[] {
+  const placeById = new Map(savedPlaces.map((place) => [place.id, place]));
+  const connectors: StayPointConnector[] = [];
+
+  for (const stayPoint of stayPoints) {
+    if (!stayPoint.savedPlaceId) continue;
+    const place = placeById.get(stayPoint.savedPlaceId);
+    if (!place) continue;
+
+    const startTime = new Date(stayPoint.startTime).getTime();
+    const endTime = new Date(stayPoint.endTime).getTime();
+    const keyPoints = locations.filter((location) => {
+      const timestamp = new Date(location.timestamp).getTime();
+      return timestamp >= startTime && timestamp <= endTime;
+    });
+    if (keyPoints.length === 0) continue;
+
+    const placeCoord: [number, number] = [place.lon, place.lat];
+    const arrival = keyPoints[0];
+    const departure = keyPoints.at(-1) ?? arrival;
+    const arrivalCoord: [number, number] = [arrival.lon, arrival.lat];
+    const departureCoord: [number, number] = [departure.lon, departure.lat];
+
+    if (coordinatesDiffer(arrival, place)) {
+      connectors.push({ coords: [arrivalCoord, placeCoord], stayPoint });
+    }
+    if (coordinatesDiffer(departure, arrival) && coordinatesDiffer(departure, place)) {
+      connectors.push({ coords: [placeCoord, departureCoord], stayPoint });
+    }
+  }
+
+  return connectors;
+}
+
 function takeLocationsBefore(
   locations: LocationData[],
   startIndex: number,

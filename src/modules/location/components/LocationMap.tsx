@@ -473,6 +473,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
             <SegmentedRouteAnimator
               locations={locations}
               stayPoints={stayPoints}
+              savedPlaces={savedPlaces}
               date={date}
               selectedSegmentIndex={selectedSegmentIndex}
               hoveredSegmentIndex={hoveredSegmentIndex}
