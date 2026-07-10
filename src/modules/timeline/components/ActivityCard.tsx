@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-export type ActivityAccent = "location" | "movement" | "expense" | "income";
+export type ActivityAccent = "location" | "movement" | "expense" | "income" | "coding";
 
 interface ActivityCardProps {
   accent: ActivityAccent;

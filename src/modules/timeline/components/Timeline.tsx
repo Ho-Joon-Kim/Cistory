@@ -130,8 +130,9 @@ const DateGroupSection = memo(function DateGroupSection({
   transactions,
 }: DateGroupSectionProps) {
   const { date, commits: dateCommits, isEmpty } = entry;
-  const { label } = formatDateHeader(date);
+  const { label, isToday } = formatDateHeader(date);
   const isCommitDay = !isEmpty;
+  const hasFeedHeader = isCommitDay || isSelected;
   const [expandedCommitId, setExpandedCommitId] = useState<string | null>(null);
 
   // Build unified timeline events for the selected date
@@ -209,44 +210,44 @@ const DateGroupSection = memo(function DateGroupSection({
         <button
           type="button"
           className={`flex min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-left ${
-            isCommitDay ? "commit-day-header" : "items-center gap-2"
+            hasFeedHeader ? "commit-day-header" : "items-center gap-2"
           }`}
           onClick={() => onSelectDate(date)}
           aria-label={`${label} 선택`}
         >
-          {isCommitDay && <span className="commit-day-dot" />}
+          {hasFeedHeader && <span className={`commit-day-dot ${isToday ? "is-today" : ""}`} />}
           <h3
-            className={`${isCommitDay ? "commit-day-label" : "text-sm font-medium text-muted-foreground/50"}`}
+            className={`${hasFeedHeader ? "commit-day-label" : "text-sm font-medium text-muted-foreground/50"}`}
           >
             {label}
           </h3>
           <span
             className={
-              isCommitDay
+              hasFeedHeader
                 ? "commit-count-badge"
                 : "inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"
             }
           >
             <AnimatedNumber value={dateCommits.length} />
-            {isCommitDay && " 커밋"}
+            {hasFeedHeader && " 커밋"}
           </span>
           {distanceMeters != null && distanceMeters > 0 && (
             <span
               className={
-                isCommitDay
+                hasFeedHeader
                   ? "commit-day-stat ml-auto"
                   : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"
               }
             >
-              <MapPin className={isCommitDay ? "size-2.5" : "size-3"} />
+              <MapPin className={hasFeedHeader ? "size-2.5" : "size-3"} />
               {formatDistance(distanceMeters)}
             </span>
           )}
           {codingSeconds != null && codingSeconds > 0 && (
             <span
-              className={`${isCommitDay ? "commit-day-stat" : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"} ${distanceMeters == null || distanceMeters <= 0 ? "ml-auto" : ""}`}
+              className={`${hasFeedHeader ? "commit-day-stat" : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"} ${distanceMeters == null || distanceMeters <= 0 ? "ml-auto" : ""}`}
             >
-              <Code className={isCommitDay ? "size-2.5" : "size-3"} />
+              <Code className={hasFeedHeader ? "size-2.5" : "size-3"} />
               {formatCodingTime(codingSeconds)}
             </span>
           )}
