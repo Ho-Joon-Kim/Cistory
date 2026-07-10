@@ -7,18 +7,16 @@ export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 export const HEALTH_API_BASE = "https://health.googleapis.com/v4";
 
-// Best-known candidate readonly scopes for the Google Health API. All are
-// Restricted. The exact strings are confirmed by the U1 spike (probe script's
-// SCOPES + the findings doc); `openid` is included so the token response carries
-// an id_token we can read `sub` from. Callers may override via buildAuthorizeUrl.
+// Google Health API readonly scopes (verified against developers.google.com/health/scopes).
+// The API uses broad CATEGORY scopes, not per-metric; these three cover the metrics
+// we sync (activity/steps/vo2max, sleep, and the health-metrics bucket = heart rate,
+// resting HR, HRV, SpO2, body temp). All are Restricted. `openid` yields an id_token
+// we read `sub` from. U1 confirms the final set; callers may override via buildAuthorizeUrl.
 export const GOOGLE_HEALTH_DEFAULT_SCOPE = [
   "openid",
-  "https://www.googleapis.com/auth/health.heart_rate.read",
-  "https://www.googleapis.com/auth/health.sleep.read",
-  "https://www.googleapis.com/auth/health.activity.read",
-  "https://www.googleapis.com/auth/health.oxygen_saturation.read",
-  "https://www.googleapis.com/auth/health.respiratory_rate.read",
-  "https://www.googleapis.com/auth/health.body_temperature.read",
+  "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
+  "https://www.googleapis.com/auth/googlehealth.sleep.readonly",
+  "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
 ].join(" ");
 
 const REQUEST_TIMEOUT_MS = 15_000;

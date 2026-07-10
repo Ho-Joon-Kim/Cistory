@@ -25,15 +25,22 @@ For each metric: does it return data, is the value **scalar** (→ `health_sampl
 | dataType | returns data? | value shape (scalar/struct) | total-shaped? | multi-source? | notes |
 |---|---|---|---|---|---|
 | `steps` | | | | | |
+| `distance` | | | | | |
+| `active-zone-minutes` | | | | | |
+| `active-energy-burned` | | | | | |
+| `total-calories` | | | | | |
+| `exercise` | | | | | |
+| `vo2-max` | | | | | |
+| `run-vo2-max` | | | | | |
 | `heart-rate` | | | | | |
-| `oxygen-saturation` | | | | | |
-| `sleep` | | | | | |
 | `daily-resting-heart-rate` | | | | | |
 | `heart-rate-variability` | | | | | |
-| `daily-respiratory-rate` | | | | | |
-| `vo2-max` | | | | | |
+| `daily-heart-rate-variability` | | | | | |
+| `oxygen-saturation` | | | | | |
+| `daily-oxygen-saturation` | | | | | |
+| `core-body-temperature` | | | | | |
+| `sleep` | | | | | |
 | `daily-sleep-temperature-derivations` | | | | | |
-| `readiness` | | | | | |
 
 ### 3. API mechanics
 - `list` (intraday): pageSize cap observed, `nextPageToken` present?, exact time-filter param names that worked: _____

@@ -52,30 +52,42 @@ const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const HEALTH_BASE = "https://health.googleapis.com/v4";
 
-// Best-known candidate readonly scopes. CONFIRM against the console "Data access"
-// list — the whole point of U1 is to nail these down. All are Restricted.
+// Google Health API readonly scopes (verified against developers.google.com/health/scopes).
+// The API groups data into broad CATEGORY scopes (not per-metric). These three cover
+// every dataType below; all Google Health scopes are Restricted. If a dataType 403s,
+// it needs a scope not requested here (e.g. ecg / irn) — the probe records that.
 const SCOPES = [
-  "https://www.googleapis.com/auth/health.heart_rate.read",
-  "https://www.googleapis.com/auth/health.sleep.read",
-  "https://www.googleapis.com/auth/health.activity.read",
-  "https://www.googleapis.com/auth/health.oxygen_saturation.read",
-  "https://www.googleapis.com/auth/health.respiratory_rate.read",
-  "https://www.googleapis.com/auth/health.body_temperature.read",
+  "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
+  "https://www.googleapis.com/auth/googlehealth.sleep.readonly",
+  "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
 ];
 
-// dataType path segments to probe (users/me/dataTypes/{dataType}/dataPoints).
-// Confirmed-present-elsewhere are marked; `readiness` is a pure probe.
+// dataType path segments (users/me/dataTypes/{dataType}/dataPoints) — verified
+// against the API dataType list. Which ones actually return data for a Fitbit Air
+// is exactly what this probe discovers (404/empty = not produced by this device).
+// Note: there is no respiratory-rate dataType, and `readiness` is not a Google
+// Health dataType (both dropped from the earlier guess).
 const DATA_TYPES = [
+  // activity_and_fitness
   "steps",
+  "distance",
+  "active-zone-minutes",
+  "active-energy-burned",
+  "total-calories",
+  "exercise",
+  "vo2-max",
+  "run-vo2-max",
+  // health_metrics_and_measurements
   "heart-rate",
-  "oxygen-saturation",
-  "sleep",
   "daily-resting-heart-rate",
   "heart-rate-variability",
-  "daily-respiratory-rate",
-  "vo2-max",
+  "daily-heart-rate-variability",
+  "oxygen-saturation",
+  "daily-oxygen-saturation",
+  "core-body-temperature",
+  // sleep
+  "sleep",
   "daily-sleep-temperature-derivations",
-  "readiness",
 ];
 
 // Force IPv4 — dev host has a dead-IPv6 black hole to dual-stack googleapis hosts
