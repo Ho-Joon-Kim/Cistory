@@ -355,9 +355,11 @@ export class GoogleHealthAdapter {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       // 401 = access token invalid → caller refreshes and retries (terminal here).
+      // Do NOT echo the response body — a data-read response can carry health
+      // values, and this message travels into logs/Sentry (R13). Status only.
       if (res.status === 401) {
-        const t = await res.text();
-        throw new GoogleHealthAuthError(`${label} unauthorized: ${t.slice(0, 200)}`, 401);
+        await res.text().catch(() => undefined); // drain the body, discard it
+        throw new GoogleHealthAuthError(`${label} unauthorized`, 401);
       }
       if (res.status === 429 || res.status >= 500) {
         logger.warn("[GoogleHealth] api retryable", { label, status: res.status });
@@ -365,10 +367,8 @@ export class GoogleHealthAdapter {
       }
       const text = await res.text();
       if (!res.ok) {
-        throw new GoogleHealthApiError(
-          `${label} HTTP ${res.status}: ${text.slice(0, 200)}`,
-          res.status
-        );
+        // Same R13 concern — never put the response body in the error message.
+        throw new GoogleHealthApiError(`${label} HTTP ${res.status}`, res.status);
       }
       return { body: (text ? JSON.parse(text) : {}) as T };
     });
