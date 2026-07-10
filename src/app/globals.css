@@ -1118,6 +1118,75 @@ body {
 
 /* ===== Saved Place Label (on map) ===== */
 
+/* ===== Speed Progress Timeline ===== */
+
+.speed-progress {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px;
+  background: hsl(var(--card));
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.speed-progress-track {
+  position: relative;
+  width: 100%;
+  height: 5px;
+  overflow: visible;
+  background-color: hsl(var(--muted-foreground) / 0.14);
+  background-repeat: no-repeat;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.04);
+}
+
+.speed-progress-hit-area {
+  position: absolute;
+  top: -6px;
+  height: 17px;
+  min-width: 6px;
+  padding: 0;
+  appearance: none;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+}
+
+.speed-progress-hit-area::after {
+  position: absolute;
+  right: 0;
+  bottom: 4px;
+  left: 0;
+  height: 1px;
+  content: "";
+  background: hsl(var(--foreground) / 0);
+  border-radius: 999px;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.speed-progress-hit-area:hover::after,
+.speed-progress-hit-area-active::after {
+  background: hsl(var(--foreground) / 0.75);
+  box-shadow: 0 0 5px hsl(var(--background) / 0.9);
+}
+
+.speed-progress-hit-area:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  .speed-progress {
+    padding: 7px 8px;
+  }
+
+  .speed-progress-track {
+    height: 4px;
+  }
+}
+
 .saved-place-label {
   font-size: 11px;
   font-weight: 600;

@@ -498,6 +498,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
       {segments.length > 0 && (
         <TimelineSegmentBar
           segments={segments}
+          locations={locations}
           selectedIndex={selectedSegmentIndex}
           hoveredIndex={hoveredSegmentIndex}
           onSegmentClick={handleSegmentClick}
