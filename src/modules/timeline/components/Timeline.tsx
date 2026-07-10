@@ -1,6 +1,7 @@
 "use client";
 
 import { Code, Loader2, MapPin } from "lucide-react";
+import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { formatCodingTime, toLocalDateString } from "@/lib/utils";
@@ -34,6 +35,21 @@ interface TimelineProps {
   onLoadMore: () => void;
   selectedDate: string;
   onSelectedDateChange: (date: string) => void;
+}
+
+function ActivityTimelineItem({
+  type,
+  children,
+}: {
+  type: "coding" | "stay" | "track" | "transaction";
+  children: ReactNode;
+}) {
+  return (
+    <div className="activity-timeline-row">
+      <span className={`activity-timeline-node is-${type}`} aria-hidden="true" />
+      <div className="activity-timeline-body">{children}</div>
+    </div>
+  );
 }
 
 // --- Viewport visibility hook for each date group ---
@@ -115,6 +131,7 @@ const DateGroupSection = memo(function DateGroupSection({
 }: DateGroupSectionProps) {
   const { date, commits: dateCommits, isEmpty } = entry;
   const { label } = formatDateHeader(date);
+  const isCommitDay = !isEmpty;
   const [expandedCommitId, setExpandedCommitId] = useState<string | null>(null);
 
   // Build unified timeline events for the selected date
@@ -188,60 +205,48 @@ const DateGroupSection = memo(function DateGroupSection({
       className={`date-group-section relative ${isVisible ? "is-visible" : ""}`}
     >
       {/* Date header */}
-      <div className={`relative flex items-center ${isSelected ? "mb-2" : "mb-2"}`}>
-        {/* Stepper dot as button */}
-        {!isSelected && (
-          <button
-            type="button"
-            className="stepper-dot absolute left-1 flex size-6 items-center justify-center sm:left-2 md:left-3"
-            onClick={() => onSelectDate(date)}
-            aria-label={`${label} 선택`}
-          >
-            <span className="block size-2.5 rounded-full bg-muted-foreground transition-all duration-200 hover:bg-muted-foreground" />
-          </button>
-        )}
-
+      <div className="relative mb-2 flex items-center">
         <button
           type="button"
-          className={`ml-10 sm:ml-12 md:ml-14 flex min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-left ${
-            isSelected ? "commit-day-header" : "items-center gap-2"
+          className={`flex min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-left ${
+            isCommitDay ? "commit-day-header" : "items-center gap-2"
           }`}
           onClick={() => onSelectDate(date)}
           aria-label={`${label} 선택`}
         >
-          {isSelected && <span className="commit-day-dot" />}
+          {isCommitDay && <span className="commit-day-dot" />}
           <h3
-            className={`${isSelected ? "commit-day-label" : "text-sm font-medium text-muted-foreground/50"}`}
+            className={`${isCommitDay ? "commit-day-label" : "text-sm font-medium text-muted-foreground/50"}`}
           >
             {label}
           </h3>
           <span
             className={
-              isSelected
+              isCommitDay
                 ? "commit-count-badge"
                 : "inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"
             }
           >
             <AnimatedNumber value={dateCommits.length} />
-            {isSelected && " 커밋"}
+            {isCommitDay && " 커밋"}
           </span>
           {distanceMeters != null && distanceMeters > 0 && (
             <span
               className={
-                isSelected
+                isCommitDay
                   ? "commit-day-stat ml-auto"
                   : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"
               }
             >
-              <MapPin className={isSelected ? "size-2.5" : "size-3"} />
+              <MapPin className={isCommitDay ? "size-2.5" : "size-3"} />
               {formatDistance(distanceMeters)}
             </span>
           )}
           {codingSeconds != null && codingSeconds > 0 && (
             <span
-              className={`${isSelected ? "commit-day-stat" : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"} ${distanceMeters == null || distanceMeters <= 0 ? "ml-auto" : ""}`}
+              className={`${isCommitDay ? "commit-day-stat" : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"} ${distanceMeters == null || distanceMeters <= 0 ? "ml-auto" : ""}`}
             >
-              <Code className={isSelected ? "size-2.5" : "size-3"} />
+              <Code className={isCommitDay ? "size-2.5" : "size-3"} />
               {formatCodingTime(codingSeconds)}
             </span>
           )}
@@ -249,15 +254,15 @@ const DateGroupSection = memo(function DateGroupSection({
       </div>
 
       {/* Content */}
-      <div className="ml-10 sm:ml-12 md:ml-14">
+      <div>
         {/* Selected date: unified timeline */}
         {isSelected && unifiedEventGroups && (
-          <div className="space-y-1">
+          <div className="unified-activity-feed space-y-1">
             {unifiedEventGroups.map((subGroup, sgIndex) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: subGroups are fixed time-of-day buckets; order is stable
               <div key={sgIndex}>
                 {subGroup.label && (
-                  <div className="flex items-center gap-2 py-2">
+                  <div className="ml-[38px] flex items-center gap-2 py-2">
                     <span className="text-[11px] text-muted-foreground/50 font-medium tracking-wide">
                       {subGroup.label}
                     </span>
@@ -287,24 +292,33 @@ const DateGroupSection = memo(function DateGroupSection({
                         );
                       case "coding":
                         return (
-                          <CodingSessionCard
-                            key="coding-summary"
-                            sessions={event.data.sessions}
-                            stats={event.data.stats}
-                          />
+                          <ActivityTimelineItem key="coding-summary" type="coding">
+                            <CodingSessionCard
+                              sessions={event.data.sessions}
+                              stats={event.data.stats}
+                            />
+                          </ActivityTimelineItem>
                         );
                       case "stay":
                         return (
-                          <StayPointCard
+                          <ActivityTimelineItem
                             key={`stay-${event.data.lat}-${event.data.lon}-${event.data.startTime}`}
-                            stayPoint={event.data}
-                          />
+                            type="stay"
+                          >
+                            <StayPointCard stayPoint={event.data} />
+                          </ActivityTimelineItem>
                         );
                       case "track":
-                        return <TrackCard key={`track-${event.data.id}`} track={event.data} />;
+                        return (
+                          <ActivityTimelineItem key={`track-${event.data.id}`} type="track">
+                            <TrackCard track={event.data} />
+                          </ActivityTimelineItem>
+                        );
                       case "transaction":
                         return (
-                          <TransactionCard key={`tx-${event.data.id}`} transaction={event.data} />
+                          <ActivityTimelineItem key={`tx-${event.data.id}`} type="transaction">
+                            <TransactionCard transaction={event.data} />
+                          </ActivityTimelineItem>
                         );
                       default:
                         return null;
@@ -324,11 +338,13 @@ const DateGroupSection = memo(function DateGroupSection({
         {/* Non-selected: compact commits */}
         {!isSelected && !isEmpty && (
           <div>
-            {dateCommits.map((commit) => (
+            {dateCommits.map((commit, index) => (
               <CompactCommitCard
                 key={commit.id}
                 commit={commit}
                 onSelectDate={() => onSelectDate(date)}
+                repoColor={repoColorMap.get(commit.repository.fullName)}
+                isLast={index === dateCommits.length - 1}
               />
             ))}
           </div>
@@ -476,9 +492,7 @@ export function Timeline({
     return codingSessions.reduce((sum, s) => sum + s.durationSeconds, 0);
   }, [codingSessions]);
 
-  // Stepper line gradient position
   const containerRef = useRef<HTMLDivElement>(null);
-  const [glowY, setGlowY] = useState<number | null>(null);
 
   // Resolve the scroll container once on mount
   useEffect(() => {
@@ -488,16 +502,10 @@ export function Timeline({
     }
   }, []);
 
-  // Compute glow position + scroll on selection
+  // Scroll to the selected date
   const isInitialScroll = useRef(true);
   useEffect(() => {
     const el = refs.current.get(selectedDate);
-    if (el) {
-      // Use offsetTop for stable position relative to containerRef (position:relative parent)
-      const dotY = el.offsetTop + 12;
-      setGlowY(dotY);
-    }
-
     if (el) {
       const today = toLocalDateString(new Date());
       if (isInitialScroll.current) {
@@ -530,12 +538,6 @@ export function Timeline({
 
   return (
     <div ref={containerRef} className="relative">
-      {/* Continuous stepper line with gradient glow from selected date */}
-      <div
-        className="stepper-line absolute left-[15px] md:left-[23px] top-0 bottom-0 w-0.5 rounded-full"
-        style={glowY !== null ? ({ "--glow-y": `${glowY}px` } as React.CSSProperties) : undefined}
-      />
-
       <div className="space-y-4">
         {filledDates.map((entry) => (
           <DateGroupSection

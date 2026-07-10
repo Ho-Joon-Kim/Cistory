@@ -847,6 +847,253 @@ body {
 .dark .commit-additions { color: hsl(142 71% 56%); }
 .dark .commit-deletions { color: hsl(0 84% 65%); }
 
+/* One shared rail for the selected day's unified activity feed */
+.unified-activity-feed {
+  position: relative;
+}
+
+.unified-activity-feed::before {
+  position: absolute;
+  top: 0;
+  bottom: 9px;
+  left: 12px;
+  width: 2px;
+  border-radius: 9999px;
+  background: hsl(var(--primary) / 0.4);
+  content: "";
+}
+
+.unified-activity-feed .commit-graph-line {
+  display: none;
+}
+
+.activity-timeline-row {
+  position: relative;
+}
+
+.activity-timeline-node {
+  position: absolute;
+  z-index: 2;
+  top: 13px;
+  left: 8px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid hsl(var(--primary));
+  border-radius: 9999px;
+  background: hsl(var(--card));
+}
+
+.activity-timeline-node.is-stay { border-color: hsl(var(--primary)); }
+.activity-timeline-node.is-track { border-color: hsl(199 89% 58%); }
+.activity-timeline-node.is-coding { border-color: hsl(263 70% 58%); }
+.activity-timeline-node.is-transaction { border-color: hsl(0 84% 60%); }
+
+.dark .activity-timeline-node.is-stay { box-shadow: 0 0 6px hsl(var(--primary) / 0.55); }
+.dark .activity-timeline-node.is-track { box-shadow: 0 0 6px hsl(199 89% 58% / 0.55); }
+.dark .activity-timeline-node.is-coding { box-shadow: 0 0 6px hsl(263 70% 58% / 0.55); }
+.dark .activity-timeline-node.is-transaction { box-shadow: 0 0 6px hsl(0 84% 60% / 0.55); }
+
+.activity-timeline-body {
+  min-width: 0;
+  margin-left: 38px;
+}
+
+/* Location and movement cards share the compact commit-card density. */
+.activity-feed-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 9px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9px;
+  background: hsl(var(--card));
+  padding: 8px 13px;
+  color: hsl(var(--card-foreground));
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+}
+
+.activity-feed-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px hsl(var(--foreground) / 0.12);
+}
+
+.dark .activity-feed-card:hover {
+  box-shadow: 0 0 18px hsl(var(--primary) / 0.1), 0 6px 18px rgb(0 0 0 / 0.5);
+}
+
+.activity-track-card.is-expanded {
+  gap: 6px;
+  border-color: hsl(199 89% 58% / 0.3);
+  padding: 9px 13px;
+}
+
+.dark .activity-track-card.is-expanded {
+  background: linear-gradient(hsl(0 0% 9%), hsl(0 0% 6%));
+  box-shadow: 0 0 14px hsl(199 89% 58% / 0.1);
+}
+
+.activity-card-toggle {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  cursor: pointer;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+
+.activity-feed-card > div,
+.activity-feed-card > p {
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.activity-meta-row,
+.activity-kind,
+.activity-message-row,
+.activity-stats-row,
+.activity-category-chip,
+.activity-mode-sequence {
+  display: flex;
+  align-items: center;
+}
+
+.activity-meta-row {
+  justify-content: space-between;
+  gap: 8px;
+  color: hsl(var(--muted-foreground) / 0.76);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
+.activity-meta-row time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-kind {
+  min-width: 0;
+  gap: 6px;
+}
+
+.activity-kind-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+}
+
+.activity-track-card .activity-kind-dot {
+  background: hsl(199 89% 58%);
+}
+
+.dark .activity-location-card .activity-kind-dot {
+  box-shadow: 0 0 5px hsl(var(--primary) / 0.6);
+}
+
+.dark .activity-track-card .activity-kind-dot {
+  box-shadow: 0 0 5px hsl(199 89% 58% / 0.6);
+}
+
+.activity-category-chip,
+.activity-icon-chip {
+  flex: none;
+  border-radius: 4px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.activity-category-chip {
+  gap: 4px;
+  padding: 1px 5px;
+}
+
+.activity-icon-chip {
+  display: inline-flex;
+  width: 23px;
+  height: 19px;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--primary));
+}
+
+.activity-message-row {
+  min-width: 0;
+  gap: 7px;
+  font-size: 12.5px;
+}
+
+.activity-message-row strong {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-geist-mono), monospace;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-mode-sequence {
+  margin-left: auto;
+  flex: none;
+  gap: 3px;
+  color: hsl(var(--muted-foreground));
+}
+
+.activity-detail {
+  margin: 0;
+  overflow: hidden;
+  color: hsl(var(--muted-foreground) / 0.8);
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-stats-row {
+  gap: 12px;
+  color: hsl(var(--muted-foreground) / 0.8);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-stat-emphasis {
+  color: hsl(var(--primary));
+  font-weight: 600;
+}
+
+.activity-track-card .activity-stat-emphasis {
+  color: hsl(199 75% 48%);
+}
+
+.dark .activity-track-card .activity-stat-emphasis {
+  color: hsl(199 89% 68%);
+}
+
+.activity-expanded-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 7px;
+}
+
+.activity-segment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
 /* Large commit pulsing glow */
 @keyframes large-commit-glow {
   0%, 100% {
