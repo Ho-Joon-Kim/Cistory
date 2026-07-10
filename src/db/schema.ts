@@ -887,8 +887,15 @@ export const healthSyncState = pgTable(
 // FK) so data-usage can filter per-user. Scalar metrics populate `value`;
 // structured metrics that don't reduce to one float (sleep-stage segments, HRV
 // interval payloads, SpO2-with-confidence) populate `valueJson` — the U1 spike's
-// per-metric shape enumeration decides which. The unique index doubles as the
-// (userId, metric, time-range) read path.
+// per-metric shape enumeration decides which.
+//
+// `source` is the Health Connect writing app's package name (e.g.
+// "com.sec.android.app.shealth", "android", or a Fitbit package). The U1 spike
+// confirmed real multi-source data: the same metric (steps, heart rate) can be
+// written by several apps at once, so `source` is part of the unique key —
+// overlapping sources coexist row-by-row instead of colliding under
+// ON CONFLICT DO NOTHING (which would silently drop one source's value). The
+// index doubles as the (userId, metric, time-range) read path.
 export const healthSamples = pgTable(
   "health_samples",
   {
@@ -898,11 +905,13 @@ export const healthSamples = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     metric: text("metric").notNull(),
     sampleAt: timestamp("sample_at").notNull(),
+    // Health Connect source app package; "unknown" when the payload omits it.
+    source: text("source").notNull().default("unknown"),
     value: doublePrecision("value"),
     valueJson: jsonb("value_json"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("idx_health_sample_unique").on(t.userId, t.metric, t.sampleAt)]
+  (t) => [uniqueIndex("idx_health_sample_unique").on(t.userId, t.metric, t.sampleAt, t.source)]
 );
 
 // Per-KST-day rollup. `day` is a 'YYYY-MM-DD' KST local day derived by bucketing

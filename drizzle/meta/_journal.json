@@ -197,6 +197,13 @@
       "when": 1783692747525,
       "tag": "0027_shiny_clea",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783703214805,
+      "tag": "0028_empty_colonel_america",
+      "breakpoints": true
     }
   ]
 }

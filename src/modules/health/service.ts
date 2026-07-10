@@ -1,17 +1,204 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { Database } from "@/db";
-import { type HealthConnection, healthConnections } from "@/db/schema";
+import {
+  type HealthConnection,
+  healthConnections,
+  healthDailySummaries,
+  healthRawPages,
+  healthSamples,
+  healthSyncState,
+  type NewHealthSample,
+} from "@/db/schema";
+import { localDaySql } from "@/db/sql";
 import {
   createGoogleHealthAdapter,
   type GoogleHealthAdapter,
+  GoogleHealthApiError,
+  GoogleHealthAuthError,
+  type GoogleHealthDataPoint,
+  type ListResult,
 } from "@/lib/adapters/google-health/interface";
-import { decryptSecret } from "@/lib/crypto";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { logger } from "@/lib/logger";
 
-// NOTE: This is the U4 slice of HealthSyncService — connection lookup + disconnect,
-// which are independent of the U1 live-spike findings. U5 extends this same class
-// with getValidToken / syncUser / backfillPendingConnections once U1 confirms the
-// metric set and value shapes.
+// ── Tuning constants ─────────────────────────────────────────────────────────
+const TOKEN_REFRESH_GRACE_MS = 60_000;
+const FORWARD_FALLBACK_MS = 7 * 24 * 3600_000; // first forward sync reaches back 7d
+const LIST_PAGE_SIZE = 1000;
+const MAX_PAGES_PER_WINDOW = 200; // backstop against a malformed never-empty pageToken
+// Historical backfill: how far back to reach, and how it is chunked per run so
+// one cron tick never pages an unbounded history in a single event-loop stretch.
+const BACKFILL_HORIZON_MS = 90 * 24 * 3600_000;
+const BACKFILL_CHUNK_MS = 14 * 24 * 3600_000;
+const BACKFILL_CHUNKS_PER_RUN = 4;
+
+// ── Metric config (ground-truthed by the U1 live spike) ──────────────────────
+// The Google Health `list` payload wraps each point under a camelCase key
+// (`heart-rate` → `heartRate`), carries its timestamp under `interval.startTime`
+// (accumulating metrics) or `sampleTime.physicalTime` (instantaneous metrics),
+// and the `list` `filter` param addresses those fields in snake_case
+// (`heart_rate.sample_time.physical_time`). Values arrive as strings OR numbers.
+// Only metrics whose exact shape the spike verified are enabled; sleep / resting
+// HR / HRV are valid dataTypes that return empty today (they populate once Fitbit
+// writes to Health Connect) and are added when their value shape is ground-truthed.
+export type MetricAgg = "sum" | "avg";
+type MetricTimeShape = "interval" | "sampleTime";
+
+export interface MetricConfig {
+  /** internal key stored in health_samples.metric */
+  key: string;
+  /** Google Health API dataType path segment */
+  dataType: string;
+  /** camelCase wrapper key inside each dataPoint */
+  wrapper: string;
+  /** where the point's timestamp lives */
+  timeShape: MetricTimeShape;
+  /** snake_case field the `list` filter param compares against */
+  filterField: string;
+  /** scalar value key inside the wrapper; null = structured (→ valueJson) */
+  valueKey: string | null;
+  /** daily-summary aggregation: sum (accumulating) → valueSum; avg (instant) → null */
+  agg: MetricAgg;
+}
+
+export const HEALTH_METRICS: MetricConfig[] = [
+  {
+    key: "steps",
+    dataType: "steps",
+    wrapper: "steps",
+    timeShape: "interval",
+    filterField: "steps.interval.start_time",
+    valueKey: "count",
+    agg: "sum",
+  },
+  {
+    key: "distance",
+    dataType: "distance",
+    wrapper: "distance",
+    timeShape: "interval",
+    filterField: "distance.interval.start_time",
+    valueKey: "millimeters",
+    agg: "sum",
+  },
+  {
+    key: "heart_rate",
+    dataType: "heart-rate",
+    wrapper: "heartRate",
+    timeShape: "sampleTime",
+    filterField: "heart_rate.sample_time.physical_time",
+    valueKey: "beatsPerMinute",
+    agg: "avg",
+  },
+  {
+    key: "spo2",
+    dataType: "oxygen-saturation",
+    wrapper: "oxygenSaturation",
+    timeShape: "sampleTime",
+    filterField: "oxygen_saturation.sample_time.physical_time",
+    valueKey: "percentage",
+    agg: "avg",
+  },
+  {
+    key: "vo2_max",
+    dataType: "vo2-max",
+    wrapper: "vo2Max",
+    timeShape: "sampleTime",
+    filterField: "vo2_max.sample_time.physical_time",
+    valueKey: "vo2Max",
+    agg: "avg",
+  },
+  {
+    key: "exercise",
+    dataType: "exercise",
+    wrapper: "exercise",
+    timeShape: "interval",
+    filterField: "exercise.interval.start_time",
+    valueKey: null, // structured workout session → valueJson
+    agg: "sum",
+  },
+];
+
+// ── Pure helpers (exported for unit tests) ───────────────────────────────────
+
+/** Cached access token is usable if present and not within the refresh grace window. */
+export function isHealthTokenFresh(
+  expiresAt: Date | null,
+  now: number,
+  graceMs = TOKEN_REFRESH_GRACE_MS
+): boolean {
+  return !!expiresAt && expiresAt.getTime() > now + graceMs;
+}
+
+function decryptOrNull(stored: string | null): string | null {
+  if (!stored) return null;
+  try {
+    return decryptSecret(stored);
+  } catch {
+    return null;
+  }
+}
+
+export interface ParsedSample {
+  sampleAt: Date;
+  source: string;
+  value: number | null;
+  valueJson: unknown | null;
+}
+
+/**
+ * Normalize one raw Google Health data point into a health_samples row shape, or
+ * null when the point is unusable (missing wrapper/timestamp, or a scalar metric
+ * whose value is absent/non-numeric). `source` is the writing app's package name
+ * — "unknown" when the payload omits it — and is part of the sample identity so
+ * multiple Health Connect sources for one metric coexist rather than collide.
+ */
+export function parseSample(
+  config: MetricConfig,
+  point: GoogleHealthDataPoint
+): ParsedSample | null {
+  const wrapper = point[config.wrapper] as Record<string, unknown> | undefined;
+  if (!wrapper || typeof wrapper !== "object") return null;
+
+  const iso =
+    config.timeShape === "interval"
+      ? (wrapper.interval as { startTime?: string } | undefined)?.startTime
+      : (wrapper.sampleTime as { physicalTime?: string } | undefined)?.physicalTime;
+  if (!iso) return null;
+  const sampleAt = new Date(iso);
+  if (Number.isNaN(sampleAt.getTime())) return null;
+
+  const dataSource = point.dataSource as { application?: { packageName?: string } } | undefined;
+  const source = dataSource?.application?.packageName ?? "unknown";
+
+  // Structured metric: keep the whole wrapper, no scalar.
+  if (config.valueKey == null) {
+    return { sampleAt, source, value: null, valueJson: wrapper };
+  }
+
+  const raw = wrapper[config.valueKey];
+  const num = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : Number.NaN;
+  if (Number.isNaN(num)) return null; // scalar metric with no usable value → drop
+  return { sampleAt, source, value: num, valueJson: null };
+}
+
+/**
+ * Build the AIP-160 `filter` for a `list` call. `since` is a required lower bound;
+ * `until` (backfill windows) adds a closed-open upper bound. Field names are the
+ * spike-verified snake_case form — camelCase / hyphenated variants are rejected.
+ */
+export function buildTimeFilter(config: MetricConfig, since: Date, until?: Date): string {
+  const lower = `${config.filterField} >= "${since.toISOString()}"`;
+  if (!until) return lower;
+  return `${lower} AND ${config.filterField} < "${until.toISOString()}"`;
+}
+
+// ── Service ──────────────────────────────────────────────────────────────────
+
+export interface HealthSyncResult {
+  userId: string;
+  samplesUpserted: number;
+  skipped: boolean;
+}
 
 interface ServiceOptions {
   clientId?: string;
@@ -73,6 +260,443 @@ export class HealthSyncService {
       }
     }
     await this.db.delete(healthConnections).where(eq(healthConnections.userId, userId));
+  }
+
+  private async markNeedsReauth(userId: string, message: string): Promise<void> {
+    await this.db
+      .update(healthConnections)
+      .set({ status: "needs_reauth", lastSyncError: message, updatedAt: new Date() })
+      .where(eq(healthConnections.userId, userId));
+  }
+
+  /**
+   * Return a valid access token, refreshing under a per-user advisory lock when
+   * needed. Unlike Withings, Google refresh tokens do NOT rotate — the adapter
+   * preserves the stored refresh token when a refresh response omits one, so we
+   * re-persist whatever it returns. Pass `forceIfEquals` (a token that just
+   * 401'd) to force a refresh unless another writer already rotated it.
+   */
+  async getValidToken(connection: HealthConnection, forceIfEquals?: string): Promise<string> {
+    const cached = decryptOrNull(connection.accessTokenEnc);
+    if (
+      cached &&
+      cached !== forceIfEquals &&
+      isHealthTokenFresh(connection.accessTokenExpiresAt, Date.now())
+    ) {
+      return cached;
+    }
+
+    try {
+      return await this.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${`health-token:${connection.userId}`}, 0))`
+        );
+
+        const fresh = (
+          await tx
+            .select()
+            .from(healthConnections)
+            .where(eq(healthConnections.userId, connection.userId))
+            .limit(1)
+        )[0];
+        if (!fresh) {
+          throw new Error(`Health connection for ${connection.userId} disappeared during refresh`);
+        }
+
+        const freshToken = decryptOrNull(fresh.accessTokenEnc);
+        if (
+          freshToken &&
+          freshToken !== forceIfEquals &&
+          isHealthTokenFresh(fresh.accessTokenExpiresAt, Date.now())
+        ) {
+          return freshToken;
+        }
+
+        const refreshToken = decryptSecret(fresh.refreshTokenEnc);
+        const tokens = await this.getAdapter().refreshToken(refreshToken);
+
+        await tx
+          .update(healthConnections)
+          .set({
+            accessTokenEnc: encryptSecret(tokens.accessToken),
+            // Non-rotation: adapter returns the preserved token when Google omits one.
+            refreshTokenEnc: encryptSecret(tokens.refreshToken),
+            accessTokenExpiresAt: tokens.expiresAt,
+            scope: tokens.scope || fresh.scope,
+            googleSub: tokens.googleSub || fresh.googleSub,
+            status: "active",
+            updatedAt: new Date(),
+          })
+          .where(eq(healthConnections.userId, connection.userId));
+
+        return tokens.accessToken;
+      });
+    } catch (err) {
+      // Only a CONFIRMED auth failure (invalid_grant on the refresh call itself)
+      // flips needs_reauth. Transient network/5xx never does.
+      if (err instanceof GoogleHealthAuthError) {
+        await this.markNeedsReauth(connection.userId, err.message);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Incremental forward sync: for each configured metric, pull points newer than
+   * its `syncedThrough` watermark (fallback 7d) up to now, upsert samples + raw
+   * pages, recompute the touched KST days' summaries, then advance the watermark.
+   * Per-metric try/catch isolates a failing metric (AE4) — others still persist.
+   */
+  async syncUser(
+    userId: string,
+    opts: { skipIfSyncedWithinMs?: number } = {}
+  ): Promise<HealthSyncResult> {
+    const connection = await this.getConnection(userId);
+    if (!connection || connection.status !== "active") {
+      return { userId, samplesUpserted: 0, skipped: true };
+    }
+    if (
+      opts.skipIfSyncedWithinMs &&
+      connection.lastSyncedAt &&
+      Date.now() - connection.lastSyncedAt.getTime() < opts.skipIfSyncedWithinMs
+    ) {
+      return { userId, samplesUpserted: 0, skipped: true };
+    }
+
+    const now = new Date();
+    let total = 0;
+    const errors: string[] = [];
+    for (const config of HEALTH_METRICS) {
+      try {
+        total += await this.syncMetricForward(connection, config, now);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        errors.push(`${config.key}: ${message}`);
+        logger.warn("[Health] metric sync failed (skipping)", {
+          userId,
+          metric: config.key,
+          status: err instanceof GoogleHealthApiError ? err.status : undefined,
+        });
+      }
+    }
+
+    await this.db
+      .update(healthConnections)
+      .set({
+        lastSyncedAt: now,
+        lastSyncError: errors.length ? errors.join("; ").slice(0, 500) : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(healthConnections.userId, userId))
+      .catch(() => undefined);
+
+    logger.info("[Health] Sync complete", { userId, samples: total, metricErrors: errors.length });
+    return { userId, samplesUpserted: total, skipped: false };
+  }
+
+  private async syncMetricForward(
+    connection: HealthConnection,
+    config: MetricConfig,
+    now: Date
+  ): Promise<number> {
+    const state = await this.getSyncState(connection.userId, config.key);
+    const since = state?.syncedThrough ?? new Date(now.getTime() - FORWARD_FALLBACK_MS);
+    const upserted = await this.fetchWindowAndPersist(
+      connection,
+      config,
+      buildTimeFilter(config, since),
+      since,
+      now
+    );
+    await this.setSyncState(connection.userId, config.key, { syncedThrough: now });
+    return upserted;
+  }
+
+  /**
+   * Historical backfill: walk each metric's `backfilledFrom` watermark backward
+   * toward `health_connections.backfillFloor` (seeded lazily to now − 90d), a
+   * bounded number of 14-day chunks per run so a single tick never pages an
+   * unbounded history. Resumable + idempotent (samples upsert DO NOTHING). Once
+   * every metric reaches the floor, stamp `backfillCompletedAt` so the UI can
+   * leave the "동기화 중" state (R12).
+   */
+  async backfillPendingConnections(userId: string): Promise<HealthSyncResult> {
+    const connection = await this.getConnection(userId);
+    if (!connection || connection.status !== "active" || connection.backfillCompletedAt) {
+      return { userId, samplesUpserted: 0, skipped: true };
+    }
+
+    const floor = connection.backfillFloor ?? (await this.seedBackfillFloor(connection));
+    let total = 0;
+    let allComplete = true;
+    for (const config of HEALTH_METRICS) {
+      try {
+        const done = await this.backfillMetric(connection, config, floor);
+        total += done.upserted;
+        if (!done.reachedFloor) allComplete = false;
+      } catch (err) {
+        allComplete = false;
+        logger.warn("[Health] metric backfill failed (will resume)", {
+          userId,
+          metric: config.key,
+          status: err instanceof GoogleHealthApiError ? err.status : undefined,
+        });
+      }
+    }
+
+    if (allComplete) {
+      await this.db
+        .update(healthConnections)
+        .set({ backfillCompletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(healthConnections.userId, userId));
+      logger.info("[Health] Backfill complete", { userId });
+    }
+    return { userId, samplesUpserted: total, skipped: false };
+  }
+
+  private async backfillMetric(
+    connection: HealthConnection,
+    config: MetricConfig,
+    floor: Date
+  ): Promise<{ upserted: number; reachedFloor: boolean }> {
+    const state = await this.getSyncState(connection.userId, config.key);
+    // Anchor the backward walk at where forward sync first started (7d ago) when
+    // no backfill has run yet, so the two directions meet without a gap.
+    let cursor = state?.backfilledFrom ?? new Date(Date.now() - FORWARD_FALLBACK_MS);
+    let upserted = 0;
+
+    for (let chunk = 0; chunk < BACKFILL_CHUNKS_PER_RUN; chunk++) {
+      if (cursor.getTime() <= floor.getTime()) break;
+      const chunkEnd = cursor;
+      const chunkStart = new Date(
+        Math.max(floor.getTime(), chunkEnd.getTime() - BACKFILL_CHUNK_MS)
+      );
+      upserted += await this.fetchWindowAndPersist(
+        connection,
+        config,
+        buildTimeFilter(config, chunkStart, chunkEnd),
+        chunkStart,
+        chunkEnd
+      );
+      cursor = chunkStart;
+      await this.setSyncState(connection.userId, config.key, { backfilledFrom: cursor });
+    }
+
+    return { upserted, reachedFloor: cursor.getTime() <= floor.getTime() };
+  }
+
+  private async seedBackfillFloor(connection: HealthConnection): Promise<Date> {
+    const floor = new Date(Date.now() - BACKFILL_HORIZON_MS);
+    await this.db
+      .update(healthConnections)
+      .set({ backfillFloor: floor, updatedAt: new Date() })
+      .where(eq(healthConnections.userId, connection.userId));
+    return floor;
+  }
+
+  /**
+   * Page a `list` window, upsert its samples + raw pages, and recompute the KST
+   * days it touched. Yields to the event loop between pages so multi-second
+   * backfills never stall the (single-process) cron. Shared by forward + backfill.
+   */
+  private async fetchWindowAndPersist(
+    connection: HealthConnection,
+    config: MetricConfig,
+    filter: string,
+    windowStart: Date,
+    windowEnd: Date
+  ): Promise<number> {
+    let pageToken: string | undefined;
+    let pages = 0;
+    let upserted = 0;
+    let touchedAny = false;
+
+    do {
+      const page = await this.listPageWithAuth(connection, config, filter, pageToken);
+      const rows = await this.persistPage(connection.userId, config, page, windowStart, windowEnd);
+      if (rows > 0) {
+        upserted += rows;
+        touchedAny = true;
+      }
+      pageToken = page.nextPageToken;
+      pages++;
+      await new Promise((resolve) => setImmediate(resolve)); // event-loop yield
+    } while (pageToken && pages < MAX_PAGES_PER_WINDOW);
+
+    if (touchedAny && config.valueKey != null) {
+      await this.recomputeDailySummaries(connection.userId, config, windowStart, windowEnd);
+    }
+    return upserted;
+  }
+
+  /** Store one raw page verbatim and upsert its parsed samples. Returns the row count. */
+  private async persistPage(
+    userId: string,
+    config: MetricConfig,
+    page: ListResult,
+    windowStart: Date,
+    windowEnd: Date
+  ): Promise<number> {
+    if (page.dataPoints.length === 0) return 0;
+
+    await this.db.insert(healthRawPages).values({
+      userId,
+      dataType: config.dataType,
+      method: "list",
+      windowStart,
+      windowEnd,
+      rawJson: page.dataPoints,
+    });
+
+    const rows: NewHealthSample[] = [];
+    for (const point of page.dataPoints) {
+      const parsed = parseSample(config, point);
+      if (!parsed) continue;
+      rows.push({
+        userId,
+        metric: config.key,
+        sampleAt: parsed.sampleAt,
+        source: parsed.source,
+        value: parsed.value,
+        valueJson: parsed.valueJson,
+      });
+    }
+    if (rows.length === 0) return 0;
+    await this.db.insert(healthSamples).values(rows).onConflictDoNothing();
+    return rows.length;
+  }
+
+  private async listPageWithAuth(
+    connection: HealthConnection,
+    config: MetricConfig,
+    filter: string,
+    pageToken?: string
+  ): Promise<ListResult> {
+    const adapter = this.getAdapter();
+    const req = (accessToken: string) =>
+      adapter.listDataPoints({
+        accessToken,
+        dataType: config.dataType,
+        filter,
+        pageSize: LIST_PAGE_SIZE,
+        pageToken,
+      });
+
+    let token = await this.getValidToken(connection);
+    try {
+      return await req(token);
+    } catch (err) {
+      // A 401 despite an un-expired stored token → force one refresh and retry.
+      if (err instanceof GoogleHealthAuthError) {
+        token = await this.getValidToken(connection, token);
+        try {
+          return await req(token);
+        } catch (retryErr) {
+          // A brand-new token still failing auth is a confirmed re-link situation.
+          if (retryErr instanceof GoogleHealthAuthError) {
+            await this.markNeedsReauth(connection.userId, "list auth failed after refresh");
+          }
+          throw retryErr;
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Recompute health_daily_summaries for every KST day this window touched.
+   * The day boundary is derived in SQL via localDaySql (KST, not the UTC day),
+   * and each touched day is aggregated FULLY (over all its samples, not just the
+   * window's) so summaries stay correct when a day straddles two sync windows.
+   * NOTE: while multiple sources for one metric exist (Fitbit not yet connected =
+   * single source), sum/avg over all rows is correct; source-aware dedup is
+   * deferred until real multi-source data lands (rows are preserved to recompute).
+   */
+  private async recomputeDailySummaries(
+    userId: string,
+    config: MetricConfig,
+    windowStart: Date,
+    windowEnd: Date
+  ): Promise<void> {
+    const localDay = localDaySql(healthSamples.sampleAt);
+    const touched = await this.db
+      .selectDistinct({ day: sql<string>`${localDay}::text` })
+      .from(healthSamples)
+      .where(
+        and(
+          eq(healthSamples.userId, userId),
+          eq(healthSamples.metric, config.key),
+          gte(healthSamples.sampleAt, windowStart),
+          lt(healthSamples.sampleAt, windowEnd)
+        )
+      );
+    const days = touched.map((t) => t.day);
+    if (days.length === 0) return;
+
+    const agg = await this.db
+      .select({
+        day: sql<string>`${localDay}::text`,
+        avg: sql<number>`avg(${healthSamples.value})`,
+        min: sql<number>`min(${healthSamples.value})`,
+        max: sql<number>`max(${healthSamples.value})`,
+        sum: sql<number>`sum(${healthSamples.value})`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(healthSamples)
+      .where(
+        and(
+          eq(healthSamples.userId, userId),
+          eq(healthSamples.metric, config.key),
+          sql`${localDay}::text = ANY(${days})`
+        )
+      )
+      .groupBy(localDay);
+
+    const isSum = config.agg === "sum";
+    for (const r of agg) {
+      const set = {
+        valueAvg: r.avg,
+        valueMin: r.min,
+        valueMax: r.max,
+        valueSum: isSum ? r.sum : null,
+        count: r.count,
+        updatedAt: new Date(),
+      };
+      await this.db
+        .insert(healthDailySummaries)
+        .values({ userId, metric: config.key, day: r.day, ...set })
+        .onConflictDoUpdate({
+          target: [
+            healthDailySummaries.userId,
+            healthDailySummaries.metric,
+            healthDailySummaries.day,
+          ],
+          set,
+        });
+    }
+  }
+
+  private async getSyncState(userId: string, metric: string) {
+    const rows = await this.db
+      .select()
+      .from(healthSyncState)
+      .where(and(eq(healthSyncState.userId, userId), eq(healthSyncState.metric, metric)))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  private async setSyncState(
+    userId: string,
+    metric: string,
+    patch: { syncedThrough?: Date; backfilledFrom?: Date }
+  ): Promise<void> {
+    await this.db
+      .insert(healthSyncState)
+      .values({ userId, metric, ...patch, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [healthSyncState.userId, healthSyncState.metric],
+        set: { ...patch, updatedAt: new Date() },
+      });
   }
 }
 
