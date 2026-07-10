@@ -1,6 +1,7 @@
 "use client";
 
 import { Bookmark, Clock, Loader2, MapPin, Navigation, Play } from "lucide-react";
+import type { GeoJSONSource, Map as MapboxMap } from "mapbox-gl";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayerProps, MapRef } from "react-map-gl/mapbox";
@@ -15,6 +16,7 @@ import {
   useStayPoints,
 } from "../hooks";
 import { useRouteReplay } from "../hooks/useRouteReplay";
+import type { ReplayFrame } from "../replay-timeline";
 import { createGeoCircle, findSegmentIndexByStayPoint, segmentLocations } from "../utils";
 import { MapSidePanel } from "./MapSidePanel";
 import { MapSkeleton } from "./MapSkeleton";
@@ -59,6 +61,68 @@ const DARK_STYLE = "mapbox://styles/mapbox/dark-v11";
 
 const SEOUL_CENTER = { longitude: 126.978, latitude: 37.5665 };
 const DEFAULT_ZOOM = 11;
+
+const REPLAY_HALO_LAYER: LayerProps = {
+  id: "route-replay-halo",
+  type: "circle",
+  paint: {
+    "circle-radius": 13,
+    "circle-color": "hsl(153, 60%, 38%)",
+    "circle-opacity": 0.18,
+  },
+};
+
+const REPLAY_POINT_LAYER: LayerProps = {
+  id: "route-replay-point",
+  type: "circle",
+  paint: {
+    "circle-radius": 6,
+    "circle-color": "hsl(153, 60%, 38%)",
+    "circle-stroke-width": 2,
+    "circle-stroke-color": "#ffffff",
+  },
+};
+
+const INITIAL_REPLAY_POINT: GeoJSON.Feature<GeoJSON.Point> = {
+  type: "Feature",
+  properties: {},
+  geometry: { type: "Point", coordinates: [0, 0] },
+};
+
+function renderReplayFrame(
+  map: MapboxMap,
+  frame: ReplayFrame,
+  follow: boolean,
+  lastCameraMove: number
+): number {
+  const source = map.getSource("route-replay-position") as GeoJSONSource | undefined;
+  source?.setData({
+    type: "Feature",
+    properties: { phase: frame.phase },
+    geometry: { type: "Point", coordinates: [frame.coord.lon, frame.coord.lat] },
+  });
+
+  if (!follow) return lastCameraMove;
+  const now = performance.now();
+  if (now - lastCameraMove < 350) return lastCameraMove;
+  const canvas = map.getCanvas();
+  const projected = map.project([frame.coord.lon, frame.coord.lat]);
+  const isFirstFrame = lastCameraMove === 0;
+  const outsideSafeArea =
+    projected.x < canvas.clientWidth * 0.25 ||
+    projected.x > canvas.clientWidth * 0.75 ||
+    projected.y < canvas.clientHeight * 0.2 ||
+    projected.y > canvas.clientHeight * 0.72;
+  if (!isFirstFrame && !outsideSafeArea) return lastCameraMove;
+
+  map.easeTo({
+    center: [frame.coord.lon, frame.coord.lat],
+    zoom: Math.max(map.getZoom(), 14),
+    duration: isFirstFrame ? 700 : 450,
+    essential: true,
+  });
+  return now;
+}
 
 interface LocationMapProps {
   date: string;
@@ -236,7 +300,33 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
 
   // Route replay state
   const [replayMode, setReplayMode] = useState(false);
+  const [followReplay, setFollowReplay] = useState(true);
+  const followReplayRef = useRef(true);
+  const lastCameraMoveRef = useRef(0);
   const replay = useRouteReplay({ locations, stayPoints });
+
+  followReplayRef.current = followReplay;
+
+  useEffect(() => {
+    if (!replayMode) return;
+    setFollowReplay(true);
+    followReplayRef.current = true;
+    lastCameraMoveRef.current = 0;
+  }, [replayMode]);
+
+  useEffect(() => {
+    if (!replayMode) return;
+    return replay.subscribe((frame) => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      lastCameraMoveRef.current = renderReplayFrame(
+        map,
+        frame,
+        followReplayRef.current,
+        lastCameraMoveRef.current
+      );
+    });
+  }, [replayMode, replay.subscribe]);
 
   const segments = useMemo(() => segmentLocations(locations, stayPoints), [locations, stayPoints]);
 
@@ -367,6 +457,9 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
           style={{ width: "100%", height: "100%" }}
           onLoad={() => setMapLoaded(true)}
           onClick={handleMapClick}
+          onDragStart={() => {
+            if (replayMode) setFollowReplay(false);
+          }}
           reuseMaps
         >
           {/* Keep reference transit data below the user's own movement route. */}
@@ -384,22 +477,15 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
               selectedSegmentIndex={selectedSegmentIndex}
               hoveredSegmentIndex={hoveredSegmentIndex}
               speedColorMode={layerVisibility.speedColors}
-              replayProgress={replayMode ? replay.progress : undefined}
-              replayTimestamp={replayMode ? replay.currentTimestamp : undefined}
+              replayActive={replayMode}
+              subscribeReplay={replay.subscribe}
             />
           )}
-          {/* Route replay animated marker */}
-          {replayMode && replay.currentCoord && (
-            <Marker
-              longitude={replay.currentCoord.lon}
-              latitude={replay.currentCoord.lat}
-              anchor="center"
-            >
-              <div className="replay-marker-container">
-                <div className="replay-marker-pulse" />
-                <div className="replay-marker-dot" />
-              </div>
-            </Marker>
+          {replayMode && (
+            <Source id="route-replay-position" type="geojson" data={INITIAL_REPLAY_POINT}>
+              <Layer {...REPLAY_HALO_LAYER} />
+              <Layer {...REPLAY_POINT_LAYER} />
+            </Source>
           )}
           {mapLoaded && layerVisibility.stayPoints && stayPoints.length > 0 && (
             <StayPointMarkers
@@ -496,6 +582,19 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
             }}
             onSeek={replay.seek}
             onSpeedChange={replay.setSpeed}
+            isFollowing={followReplay}
+            onRecenter={() => {
+              setFollowReplay(true);
+              followReplayRef.current = true;
+              lastCameraMoveRef.current = 0;
+              if (replay.currentCoord) {
+                mapRef.current?.easeTo({
+                  center: [replay.currentCoord.lon, replay.currentCoord.lat],
+                  zoom: Math.max(mapRef.current.getZoom(), 14),
+                  duration: 450,
+                });
+              }
+            }}
           />
         )}
       </div>

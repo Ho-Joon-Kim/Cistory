@@ -1,6 +1,6 @@
 "use client";
 
-import { Gauge, Pause, Play, Square } from "lucide-react";
+import { Gauge, LocateFixed, Pause, Play, Square } from "lucide-react";
 import { useCallback } from "react";
 import { Slider } from "@/components/ui/slider";
 
@@ -14,6 +14,8 @@ interface RouteReplayControllerProps {
   onStop: () => void;
   onSeek: (progress: number) => void;
   onSpeedChange: (speed: number) => void;
+  isFollowing: boolean;
+  onRecenter: () => void;
 }
 
 const SPEED_STEPS = [1, 2, 4];
@@ -38,6 +40,8 @@ export function RouteReplayController({
   onStop,
   onSeek,
   onSpeedChange,
+  isFollowing,
+  onRecenter,
 }: RouteReplayControllerProps) {
   const handlePlayPause = useCallback(() => {
     if (state === "playing") {
@@ -92,6 +96,18 @@ export function RouteReplayController({
         >
           <Gauge className="h-3 w-3" />
           {speed}x
+        </button>
+
+        <button
+          type="button"
+          onClick={onRecenter}
+          className={`flex items-center justify-center h-7 w-7 rounded-md transition-colors ${
+            isFollowing ? "bg-primary/10 text-primary" : "hover:bg-accent text-muted-foreground"
+          }`}
+          aria-label={isFollowing ? "경로 따라가기 사용 중" : "경로 다시 따라가기"}
+          title={isFollowing ? "경로 따라가기 사용 중" : "경로 다시 따라가기"}
+        >
+          <LocateFixed className="h-3.5 w-3.5" />
         </button>
 
         {/* Progress slider */}
