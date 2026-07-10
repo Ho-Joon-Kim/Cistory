@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useNdjsonStream } from "@/lib/hooks/useNdjsonStream";
+import type { ExpenseCategory } from "./categories";
 
 export type Bucket = "spending" | "income" | "ignore";
 
@@ -17,6 +18,15 @@ export interface TransactionItem {
   bucket: Bucket;
   spendingOverride: "include" | "exclude" | null;
   overrideNote: string | null;
+  category: ExpenseCategory | null;
+  categorySource: "ai" | "manual" | null;
+  categoryConfidence: number | null;
+}
+
+export interface CategoryBreakdownItem {
+  category: ExpenseCategory | null;
+  total: number;
+  count: number;
 }
 
 export interface TransactionSummary {
@@ -30,6 +40,7 @@ export interface TransactionSummary {
   totalDeposit: number;
   withdrawalCount: number;
   depositCount: number;
+  categoryBreakdown: CategoryBreakdownItem[];
 }
 
 export interface SpendingFilters {
@@ -65,7 +76,32 @@ const emptySummary: TransactionSummary = {
   totalDeposit: 0,
   withdrawalCount: 0,
   depositCount: 0,
+  categoryBreakdown: [],
 };
+
+export function useUpdateTransactionCategory() {
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const updateCategory = useCallback(async (transactionId: string, category: ExpenseCategory) => {
+    setIsUpdating(true);
+    try {
+      const response = await fetch(`/api/spending/transactions/${transactionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category }),
+      });
+      if (!response.ok) throw new Error("Failed to update transaction category");
+      return true;
+    } catch (err) {
+      console.error("Failed to update transaction category:", err);
+      return false;
+    } finally {
+      setIsUpdating(false);
+    }
+  }, []);
+
+  return { updateCategory, isUpdating };
+}
 
 export function useUpdateTransactionOverride() {
   const [isUpdating, setIsUpdating] = useState(false);

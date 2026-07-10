@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "@/lib/logger";
 
-const MODEL_ID = "claude-sonnet-4-5";
+export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 
 export interface AIGenerateOptions {
   /** System prompt to set context */
@@ -27,11 +27,13 @@ export interface AIGenerateResult {
 
 export class ClaudeAdapter {
   private client: Anthropic;
+  private model: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, model: string = DEFAULT_CLAUDE_MODEL) {
     // 60s per-request ceiling so a slow Anthropic response can't outrun the
     // 10-min cron tick; SDK retries idempotent failures (5xx, 429, network).
     this.client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 });
+    this.model = model;
   }
 
   async generateText(options: AIGenerateOptions): Promise<AIGenerateResult> {
@@ -39,7 +41,7 @@ export class ClaudeAdapter {
 
     try {
       const response = await this.client.messages.create({
-        model: MODEL_ID,
+        model: this.model,
         max_tokens: maxTokens,
         temperature,
         system: system ?? undefined,
@@ -59,7 +61,7 @@ export class ClaudeAdapter {
       };
     } catch (error) {
       logger.error("Claude API error", {
-        model: MODEL_ID,
+        model: this.model,
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -80,6 +82,6 @@ function mapStopReason(reason: string | null): "end_turn" | "max_tokens" | "stop
   }
 }
 
-export function createClaudeAdapter(apiKey: string): ClaudeAdapter {
-  return new ClaudeAdapter(apiKey);
+export function createClaudeAdapter(apiKey: string, model?: string): ClaudeAdapter {
+  return new ClaudeAdapter(apiKey, model);
 }

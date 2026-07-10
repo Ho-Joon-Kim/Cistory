@@ -14,7 +14,7 @@ import {
   TrainFront,
 } from "lucide-react";
 import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { ActivityCard } from "@/modules/timeline/components/ActivityCard";
 import type { SubwayLegData, TrackData, TrackSegmentData } from "../hooks";
 
 const MODE_ICONS: Record<string, React.ReactNode> = {
@@ -168,105 +168,99 @@ export function TrackCard({ track }: TrackCardProps) {
   const startName = track.startPlaceName ?? formatTime(track.startTime);
   const endName = track.endPlaceName ?? formatTime(track.endTime);
   const chunks = groupIntoChunks(track.segments);
+  const primaryMode = track.segments[0]?.mode ?? "unknown";
+  const subwayDetail = chunks.some((chunk) => chunk.kind === "subway-session") ? (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {chunks
+        .filter((chunk) => chunk.kind === "subway-session")
+        .map((chunk) => (
+          <span
+            key={chunk.legs.map((leg) => leg.lineId).join(":") || chunk.segments[0]?.startTime}
+            className="flex flex-wrap items-center gap-1"
+          >
+            {chunk.legs.map((leg, index) => (
+              <span key={`${leg.lineId}-${index}`} className="flex items-center gap-1">
+                {index > 0 && <ArrowLeftRight className="size-3 text-muted-foreground" />}
+                <SubwayLegBadge leg={leg} />
+              </span>
+            ))}
+          </span>
+        ))}
+    </div>
+  ) : undefined;
 
   return (
-    <Card className="!py-3 !gap-2">
-      <CardContent className="!pt-0">
-        {/* Header: Start → End */}
-        <button
-          type="button"
-          className="w-full flex items-center justify-between gap-2"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-medium truncate">{startName}</span>
-            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="text-sm font-medium truncate">{endName}</span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Mode icons sequence */}
-            <div className="flex items-center gap-0.5">
-              {track.segments.map((seg, i) => (
-                <span key={`${seg.mode}-${i}`} title={MODE_LABELS[seg.mode] ?? seg.mode}>
-                  {MODE_ICONS[seg.mode] ?? <span className="text-xs">{seg.mode}</span>}
-                </span>
-              ))}
-            </div>
-            {expanded ? (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            )}
-          </div>
-        </button>
-
-        {/* Subway badges (always visible — these are the headline labels) */}
-        {chunks.some((c) => c.kind === "subway-session") && (
-          <div className="flex flex-wrap items-center gap-1.5 mt-2">
-            {chunks
-              .filter((c) => c.kind === "subway-session")
-              .map((chunk) => (
-                <span
-                  key={chunk.legs.map((l) => l.lineId).join(":") || chunk.segments[0]?.startTime}
-                  className="flex flex-wrap items-center gap-1"
-                >
-                  {chunk.legs.map((leg, li) => (
-                    <span key={`${leg.lineId}-${li}`} className="flex items-center gap-1">
-                      {li > 0 && <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />}
-                      <SubwayLegBadge leg={leg} />
-                    </span>
-                  ))}
-                </span>
-              ))}
-          </div>
-        )}
-
-        {/* Summary badges */}
-        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+    <ActivityCard
+      accent="movement"
+      kind="이동"
+      chip={
+        <>
+          {MODE_ICONS[primaryMode]}
+          {MODE_LABELS[primaryMode] ?? primaryMode}
+        </>
+      }
+      icon={<ArrowRight size={12} />}
+      title={
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{startName}</span>
+          <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
+          <span className="truncate">{endName}</span>
+        </span>
+      }
+      trailing={
+        <span className="flex items-center gap-1.5">
+          <time dateTime={track.startTime}>{formatTime(track.startTime)}</time>
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </span>
+      }
+      detail={subwayDetail}
+      stats={
+        <>
           <span>
-            {formatTime(track.startTime)} ~ {formatTime(track.endTime)}
+            {formatTime(track.startTime)}–{formatTime(track.endTime)}
           </span>
-          <span>{formatDistance(track.distanceMeters)}</span>
+          <strong>{formatDistance(track.distanceMeters)}</strong>
           <span>{formatDuration(track.durationSeconds)}</span>
           {track.elevationGain != null && track.elevationGain > 0 && (
             <span className="flex items-center gap-0.5">
-              <Mountain className="h-3 w-3" />↑{track.elevationGain}m
+              <Mountain className="size-3" />↑{track.elevationGain}m
               {track.elevationLoss != null && track.elevationLoss > 0 && (
                 <> ↓{track.elevationLoss}m</>
               )}
             </span>
           )}
-        </div>
-
-        {/* Expanded: segment details */}
-        {expanded && track.segments.length > 0 && (
-          <div className="mt-3 space-y-1.5 border-t pt-2">
-            {track.segments.map((seg, i) => (
-              <div
-                key={`${seg.startTime}-${i}`}
-                className="flex items-center justify-between text-xs"
-              >
-                <div className="flex items-center gap-1.5">
-                  {MODE_ICONS[seg.mode] ?? null}
-                  <span className="font-medium">{MODE_LABELS[seg.mode] ?? seg.mode}</span>
-                  {seg.subwayLegs.length > 0 && (
-                    <span className="ml-1 flex items-center gap-1">
-                      {seg.subwayLegs.map((leg, li) => (
-                        <SubwayLegBadge key={`${leg.lineId}-${li}`} leg={leg} />
-                      ))}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <span>{formatDuration(seg.durationSeconds)}</span>
-                  <span>{formatDistance(seg.distanceMeters)}</span>
-                  {seg.avgSpeedKmh != null && <span>평균 {Math.round(seg.avgSpeedKmh)}km/h</span>}
-                </div>
+        </>
+      }
+      expanded={expanded}
+      onToggle={() => setExpanded(!expanded)}
+      toggleLabel={`이동 기록 ${expanded ? "접기" : "펼치기"}`}
+    >
+      {expanded && track.segments.length > 0 && (
+        <div className="activity-expanded-details">
+          {track.segments.map((segment, index) => (
+            <div key={`${segment.startTime}-${index}`} className="activity-segment-row">
+              <div className="flex min-w-0 items-center gap-1.5">
+                {MODE_ICONS[segment.mode] ?? null}
+                <span className="font-medium">{MODE_LABELS[segment.mode] ?? segment.mode}</span>
+                {segment.subwayLegs.length > 0 && (
+                  <span className="ml-1 flex min-w-0 items-center gap-1">
+                    {segment.subwayLegs.map((leg, legIndex) => (
+                      <SubwayLegBadge key={`${leg.lineId}-${legIndex}`} leg={leg} />
+                    ))}
+                  </span>
+                )}
               </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
+                <span>{formatDuration(segment.durationSeconds)}</span>
+                <span>{formatDistance(segment.distanceMeters)}</span>
+                {segment.avgSpeedKmh != null && (
+                  <span>평균 {Math.round(segment.avgSpeedKmh)}km/h</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </ActivityCard>
   );
 }

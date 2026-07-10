@@ -9,7 +9,7 @@ export interface LocationData {
   lon: number;
   accuracy: number | null;
   altitude: number | null;
-  velocity: number | null;
+  velocity: number | null; // km/h
   battery: number | null;
   timestamp: string;
 }

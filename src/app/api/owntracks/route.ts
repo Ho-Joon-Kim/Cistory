@@ -27,7 +27,7 @@ interface OwnTracksPayload {
   lon: number;
   acc?: number;
   alt?: number;
-  vel?: number;
+  vel?: number; // km/h per the OwnTracks protocol
   batt?: number;
   tid?: string;
   t?: string;

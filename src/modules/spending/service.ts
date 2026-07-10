@@ -1,6 +1,7 @@
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { accountRoles, transactions, users } from "@/db/schema";
+import type { CategoryTotals, SpendingCategoryKey } from "./categories";
 import { accountRolesJoinOn, bucketSql } from "./classify";
 import { forecastMonthEnd } from "./forecast";
 import type {
@@ -64,6 +65,7 @@ export class SpendingTrendService {
       month: m.month.slice(5), // "MM"
       total: m.total,
       isCurrent: m.month === currentMonthKey,
+      categories: m.categories ?? {},
       ...(m.month === currentMonthKey ? { predicted: forecastResult.predictedTotal } : {}),
     }));
 
@@ -73,6 +75,7 @@ export class SpendingTrendService {
         month: currentMonthKey.slice(5),
         total: currentMonthTotal,
         isCurrent: true,
+        categories: {},
         predicted: forecastResult.predictedTotal,
       });
     }
@@ -105,6 +108,7 @@ export class SpendingTrendService {
     const rows = await this.db
       .select({
         month: sql<string>`to_char(${transactions.transactedAt}, 'YYYY-MM')`.as("month"),
+        category: transactions.category,
         total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
       })
       .from(transactions)
@@ -116,10 +120,19 @@ export class SpendingTrendService {
           sql`${bucket} = 'spending'`
         )
       )
-      .groupBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM')`)
+      .groupBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM')`, transactions.category)
       .orderBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM')`);
 
-    return rows.map((r) => ({ month: r.month, total: Number(r.total) }));
+    const byMonth = new Map<string, MonthlyTotal>();
+    for (const row of rows) {
+      const current = byMonth.get(row.month) ?? { month: row.month, total: 0, categories: {} };
+      const total = Number(row.total);
+      const category = (row.category ?? "uncategorized") as SpendingCategoryKey;
+      current.total += total;
+      current.categories = { ...current.categories, [category]: total };
+      byMonth.set(row.month, current);
+    }
+    return Array.from(byMonth.values());
   }
 
   private async _getCurrentMonthDaily(
@@ -135,6 +148,7 @@ export class SpendingTrendService {
       .select({
         date: sql<string>`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`.as("date"),
         dayOfWeek: sql<number>`extract(dow from ${transactions.transactedAt})`.as("dow"),
+        category: transactions.category,
         total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
       })
       .from(transactions)
@@ -149,15 +163,26 @@ export class SpendingTrendService {
       )
       .groupBy(
         sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`,
-        sql`extract(dow from ${transactions.transactedAt})`
+        sql`extract(dow from ${transactions.transactedAt})`,
+        transactions.category
       )
       .orderBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`);
 
-    return rows.map((r) => ({
-      date: r.date,
-      dayOfWeek: Number(r.dayOfWeek),
-      total: Number(r.total),
-    }));
+    const byDate = new Map<string, DailySpending>();
+    for (const row of rows) {
+      const current = byDate.get(row.date) ?? {
+        date: row.date,
+        dayOfWeek: Number(row.dayOfWeek),
+        total: 0,
+        categories: {},
+      };
+      const total = Number(row.total);
+      const category = (row.category ?? "uncategorized") as SpendingCategoryKey;
+      current.total += total;
+      current.categories = { ...current.categories, [category]: total };
+      byDate.set(row.date, current);
+    }
+    return Array.from(byDate.values());
   }
 
   private _buildCumulativeCurve(
@@ -181,10 +206,16 @@ export class SpendingTrendService {
 
     const curve: CumulativeDataPoint[] = [];
     let cumulative = 0;
+    const categoryCumulative: CategoryTotals = {};
 
     for (let d = 1; d <= daysInMonth; d++) {
       if (d <= todayDay) {
+        const daily = dailySpending.find((item) => Number(item.date.split("-")[2]) === d);
         cumulative += dailyMap.get(d) || 0;
+        for (const [category, total] of Object.entries(daily?.categories ?? {})) {
+          const key = category as SpendingCategoryKey;
+          categoryCumulative[key] = (categoryCumulative[key] ?? 0) + (total ?? 0);
+        }
         const _pred = predMap.get(d);
         curve.push({
           day: d,
@@ -192,6 +223,7 @@ export class SpendingTrendService {
           mid: d === todayDay ? cumulative : null,
           upper: d === todayDay ? cumulative : null,
           lower: d === todayDay ? cumulative : null,
+          categories: { ...categoryCumulative },
         });
       } else {
         const pred = predMap.get(d);
@@ -201,6 +233,7 @@ export class SpendingTrendService {
           mid: pred?.mid ?? null,
           upper: pred?.upper ?? null,
           lower: pred?.lower ?? null,
+          categories: {},
         });
       }
     }

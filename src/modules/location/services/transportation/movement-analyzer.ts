@@ -61,7 +61,7 @@ function calculateMetrics(points: PointInput[]): MovementMetric[] {
     // Prefer GPS velocity if available, otherwise compute from distance/time
     let speedMps: number;
     if (curr.velocity != null && curr.velocity > 0) {
-      speedMps = curr.velocity;
+      speedMps = curr.velocity / 3.6;
     } else if (timeDiffSec > 0) {
       speedMps = dist / timeDiffSec;
     } else {

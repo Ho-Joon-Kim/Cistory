@@ -52,13 +52,14 @@ export async function GET(request: NextRequest) {
     if (type === "withdrawal" || type === "deposit") {
       conditions.push(eq(transactions.type, type));
     }
+    const categoryConditions = [...conditions, sql`${bucket} = 'spending'`];
     if (bucketFilter === "spending" || bucketFilter === "income" || bucketFilter === "ignore") {
       conditions.push(sql`${bucket} = ${bucketFilter}`);
     }
 
     const where = and(...conditions);
 
-    const [rows, summaryRows] = await Promise.all([
+    const [rows, summaryRows, categoryRows] = await Promise.all([
       db
         .select({
           id: transactions.id,
@@ -71,6 +72,9 @@ export async function GET(request: NextRequest) {
           transactedAt: transactions.transactedAt,
           spendingOverride: transactions.spendingOverride,
           overrideNote: transactions.overrideNote,
+          category: transactions.category,
+          categorySource: transactions.categorySource,
+          categoryConfidence: transactions.categoryConfidence,
           bucket: bucket.as("bucket"),
         })
         .from(transactions)
@@ -89,6 +93,17 @@ export async function GET(request: NextRequest) {
         .leftJoin(accountRoles, accountRolesJoinOn)
         .where(where)
         .groupBy(sql`"bucket"`),
+      db
+        .select({
+          category: transactions.category,
+          total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
+          count: sql<number>`count(*)`.as("count"),
+        })
+        .from(transactions)
+        .leftJoin(accountRoles, accountRolesJoinOn)
+        .where(and(...categoryConditions))
+        .groupBy(transactions.category)
+        .orderBy(sql`sum(${transactions.amount}) desc`),
     ]);
 
     const hasMore = rows.length > limit;
@@ -107,6 +122,11 @@ export async function GET(request: NextRequest) {
       totalDeposit: 0,
       withdrawalCount: 0,
       depositCount: 0,
+      categoryBreakdown: categoryRows.map((row) => ({
+        category: row.category,
+        total: Number(row.total),
+        count: Number(row.count),
+      })),
     };
 
     for (const row of summaryRows) {

@@ -1,9 +1,12 @@
+import type { CategoryTotals } from "./categories";
+
 // ============ Forecast Input/Output Types ============
 
 export interface MonthlyTotal {
   /** "YYYY-MM" */
   month: string;
   total: number;
+  categories?: CategoryTotals;
 }
 
 export interface DailySpending {
@@ -12,6 +15,7 @@ export interface DailySpending {
   /** 0=Sunday, 1=Monday, ..., 6=Saturday */
   dayOfWeek: number;
   total: number;
+  categories?: CategoryTotals;
 }
 
 export interface ForecastInput {
@@ -43,6 +47,7 @@ export interface CumulativeDataPoint {
   mid: number | null;
   upper: number | null;
   lower: number | null;
+  categories: CategoryTotals;
 }
 
 export interface MonthlyBarDataPoint {
@@ -50,6 +55,7 @@ export interface MonthlyBarDataPoint {
   total: number;
   isCurrent: boolean;
   predicted?: number;
+  categories: CategoryTotals;
 }
 
 export interface SpendingTrendResponse {

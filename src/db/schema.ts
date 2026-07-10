@@ -132,7 +132,7 @@ export const locationPoints = pgTable(
     lon: doublePrecision("lon").notNull(),
     accuracy: integer("accuracy"),
     altitude: integer("altitude"),
-    velocity: integer("velocity"),
+    velocity: integer("velocity"), // km/h
     battery: integer("battery"),
     trackerId: text("tracker_id"),
     anomaly: boolean("anomaly"),
@@ -378,6 +378,13 @@ export const transactions = pgTable(
     isSelfTransfer: boolean("is_self_transfer").notNull().default(false),
     spendingOverride: text("spending_override"), // 'include' | 'exclude' | null
     overrideNote: text("override_note"),
+    category: text("category"),
+    categorySource: text("category_source"), // 'ai' | 'manual' | null
+    categoryConfidence: integer("category_confidence"), // 0..100
+    categoryModel: text("category_model"),
+    categoryAttempts: integer("category_attempts").notNull().default(0),
+    categoryError: text("category_error"),
+    categorizedAt: timestamp("categorized_at"),
     rawTitle: text("raw_title").notNull(),
     rawText: text("raw_text").notNull(),
     transactedAt: timestamp("transacted_at").notNull(),

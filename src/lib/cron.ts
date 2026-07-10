@@ -12,6 +12,7 @@ import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
+import { createExpenseCategoryService } from "@/modules/spending/category-classifier";
 import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/subway/service";
 import { createSummaryService, SummaryService } from "@/modules/summary/service";
 import { createSyncService } from "@/modules/sync/service";
@@ -21,6 +22,7 @@ import { createWithingsSyncService } from "@/modules/withings/service";
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
 let dailyReparseTask: cron.ScheduledTask | null = null;
+let spendingCategoryTask: cron.ScheduledTask | null = null;
 let locationProcessingTask: cron.ScheduledTask | null = null;
 let locationCatchUpTask: cron.ScheduledTask | null = null;
 let subwayRefreshTask: cron.ScheduledTask | null = null;
@@ -29,6 +31,32 @@ let isSubwayRefreshRunning = false;
 let isLocationProcessingRunning = false;
 let isTripDetectionRunning = false;
 let isSyncAllRunning = false;
+let isSpendingCategoryRunning = false;
+
+export async function categorizePendingSpending(): Promise<void> {
+  if (isSpendingCategoryRunning || !process.env.ANTHROPIC_API_KEY) return;
+  isSpendingCategoryRunning = true;
+  try {
+    const db = getDb();
+    const allUsers = await db.select({ id: users.id }).from(users);
+    const service = createExpenseCategoryService(db, process.env.ANTHROPIC_API_KEY);
+    for (const user of allUsers) {
+      try {
+        const processed = await service.processPendingForUser(user.id, 100);
+        if (processed > 0) {
+          logger.info("[Cron] Categorized pending spending", { userId: user.id, processed });
+        }
+      } catch (error) {
+        logger.error("[Cron] Spending categorization failed", {
+          userId: user.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  } finally {
+    isSpendingCategoryRunning = false;
+  }
+}
 
 /**
  * Wraps refreshAllSubwaySystems with a single-flight guard. Yearly cron + boot
@@ -729,6 +757,18 @@ export function initializeCron() {
     { timezone: TZ, name: "sync-users" }
   );
 
+  spendingCategoryTask = cron.schedule(
+    CRON_SCHEDULE,
+    () => {
+      categorizePendingSpending().catch((error) => {
+        logger.error("[Cron] Unhandled error in spending categorization", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    { timezone: TZ, name: "spending-categorization" }
+  );
+
   dailyReparseTask = cron.schedule(
     DAILY_REPARSE_SCHEDULE,
     () => {
@@ -824,6 +864,11 @@ export function initializeCron() {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+    categorizePendingSpending().catch((error) => {
+      logger.error("[Cron] Initial spending categorization failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     processYesterdayLocations("run-on-start").catch((error) => {
       logger.error("[Cron] RUN_ON_START location processing failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -847,6 +892,11 @@ export function initializeCron() {
         logger.info("[Cron] Running boot-time catch-up");
         await syncAllUsers().catch((error) => {
           logger.error("[Cron] Boot-time sync failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+        await categorizePendingSpending().catch((error) => {
+          logger.error("[Cron] Boot-time spending categorization failed", {
             error: error instanceof Error ? error.message : String(error),
           });
         });
@@ -879,6 +929,10 @@ export async function stopCron() {
   if (dailyReparseTask) {
     dailyReparseTask.stop();
     dailyReparseTask = null;
+  }
+  if (spendingCategoryTask) {
+    spendingCategoryTask.stop();
+    spendingCategoryTask = null;
   }
   if (locationProcessingTask) {
     locationProcessingTask.stop();

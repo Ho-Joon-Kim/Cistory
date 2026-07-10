@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "spending:backfill-categories": "node scripts/backfill-spending-categories.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

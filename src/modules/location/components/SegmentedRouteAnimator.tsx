@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayerProps } from "react-map-gl/mapbox";
 import { Layer, Marker, Source, useMap } from "react-map-gl/mapbox";
 import type { LocationData, StayPointData } from "../hooks";
-import { segmentLocations } from "../utils";
+import { clipMovingSegmentsAtTime, segmentLocations } from "../utils";
 
 const ANIMATION_DURATION = 1500;
 
@@ -129,7 +129,6 @@ function makeSpeedGeoJSON(
       const from = line[i];
       const to = line[i + 1];
       const loc = locMap.get(`${to[0]},${to[1]}`);
-      // velocity from OwnTracks is in km/h (or null)
       const speed = loc?.velocity != null ? Math.abs(loc.velocity) : 0;
 
       features.push({
@@ -154,6 +153,7 @@ interface SegmentedRouteAnimatorProps {
   hoveredSegmentIndex?: number | null;
   speedColorMode?: boolean;
   replayProgress?: number;
+  replayTimestamp?: string | null;
 }
 
 export function SegmentedRouteAnimator({
@@ -164,6 +164,7 @@ export function SegmentedRouteAnimator({
   hoveredSegmentIndex = null,
   speedColorMode = false,
   replayProgress,
+  replayTimestamp,
 }: SegmentedRouteAnimatorProps) {
   const { current: map } = useMap();
   const [markerState, setMarkerState] = useState<{
@@ -227,31 +228,59 @@ export function SegmentedRouteAnimator({
     [map, locations]
   );
 
+  // During replay the route source itself is clipped to the current marker
+  // time. This makes the line grow with the marker instead of revealing a
+  // pre-drawn route by changing opacity.
+  useEffect(() => {
+    if (replayProgress == null) {
+      if (animationCompletedRef.current) {
+        updateLine(movingLines, movingSegmentIndices);
+        setMarkerState({
+          lastPoint: allCoords.at(-1) ?? null,
+          transitionPoints: transitions,
+        });
+      }
+      return;
+    }
+
+    cancelAnimationFrame(animationRef.current);
+    animationCompletedRef.current = true;
+    setMarkerState((previous) =>
+      previous.lastPoint || previous.transitionPoints.length > 0
+        ? { lastPoint: null, transitionPoints: [] }
+        : previous
+    );
+
+    if (!replayTimestamp) {
+      updateLine([], []);
+      return;
+    }
+
+    const clipped = clipMovingSegmentsAtTime(segments, new Date(replayTimestamp).getTime());
+    updateLine(clipped.lines, clipped.segmentIndices);
+  }, [
+    replayProgress,
+    replayTimestamp,
+    segments,
+    movingLines,
+    movingSegmentIndices,
+    allCoords,
+    transitions,
+    updateLine,
+  ]);
+
   // Update paint properties when selection/hover/replay changes (after animation completes)
   useEffect(() => {
     if (!map || !animationCompletedRef.current) return;
-    // Skip selection-based opacity when replay is active (replay effect handles it)
-    if (replayProgress != null) return;
     const gl = map.getMap();
     if (!gl.getLayer("route-line")) return;
 
-    // Replay mode: progressive opacity based on progress
+    // Replay mode: future geometry is absent from the source, so the visible
+    // partial route can use its normal opacity.
     if (replayProgress != null) {
-      const totalSegments = segments.length;
-      const progressSegment = Math.floor(replayProgress * totalSegments);
-      gl.setPaintProperty("route-line", "line-opacity", [
-        "case",
-        ["<=", ["get", "segmentIndex"], progressSegment],
-        0.8,
-        0.15,
-      ]);
-      if (gl.getLayer("route-speed-line")) {
-        gl.setPaintProperty("route-speed-line", "line-opacity", [
-          "case",
-          ["<=", ["get", "segmentIndex"], progressSegment],
-          0.85,
-          0.1,
-        ]);
+      gl.setPaintProperty("route-line", "line-opacity", 0.8);
+      if (gl.getLayer("route-line-speed")) {
+        gl.setPaintProperty("route-line-speed", "line-opacity", 0.85);
       }
     } else if (selectedSegmentIndex != null) {
       // Line opacity: selected segment full, others dimmed
@@ -264,8 +293,8 @@ export function SegmentedRouteAnimator({
       ]);
     } else {
       gl.setPaintProperty("route-line", "line-opacity", 0.8);
-      if (gl.getLayer("route-speed-line")) {
-        gl.setPaintProperty("route-speed-line", "line-opacity", 0.85);
+      if (gl.getLayer("route-line-speed")) {
+        gl.setPaintProperty("route-line-speed", "line-opacity", 0.85);
       }
     }
 
@@ -281,7 +310,7 @@ export function SegmentedRouteAnimator({
     } else {
       gl.setPaintProperty("route-line", "line-width", 3);
     }
-  }, [map, selectedSegmentIndex, hoveredSegmentIndex, replayProgress, segments.length]);
+  }, [map, selectedSegmentIndex, hoveredSegmentIndex, replayProgress]);
 
   // Toggle visibility between normal and speed-colored route layers
   useEffect(() => {
@@ -475,17 +504,18 @@ export function SegmentedRouteAnimator({
         </>
       )}
       {/* Transition markers (moving↔staying boundaries) */}
-      {markerState.transitionPoints.map((p, i) => (
-        <Marker
-          key={`transition-${p[0]}-${p[1]}-${i}`}
-          longitude={p[0]}
-          latitude={p[1]}
-          anchor="center"
-        >
-          <div className="transition-marker animate-bounce-in" />
-        </Marker>
-      ))}
-      {markerState.lastPoint && (
+      {replayProgress == null &&
+        markerState.transitionPoints.map((p, i) => (
+          <Marker
+            key={`transition-${p[0]}-${p[1]}-${i}`}
+            longitude={p[0]}
+            latitude={p[1]}
+            anchor="center"
+          >
+            <div className="transition-marker animate-bounce-in" />
+          </Marker>
+        ))}
+      {replayProgress == null && markerState.lastPoint && (
         <Marker
           longitude={markerState.lastPoint[0]}
           latitude={markerState.lastPoint[1]}

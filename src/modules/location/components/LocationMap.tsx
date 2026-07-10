@@ -30,7 +30,7 @@ const DEFAULT_LAYER_VISIBILITY: LayerVisibility = {
   stayPoints: true,
   savedPlaces: true,
   speedColors: false,
-  subway: false,
+  subway: true,
 };
 
 function loadLayerVisibility(): LayerVisibility {
@@ -369,6 +369,13 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
           onClick={handleMapClick}
           reuseMaps
         >
+          {/* Keep reference transit data below the user's own movement route. */}
+          {mapLoaded && (
+            <SubwayLayer
+              visible={layerVisibility.subway}
+              theme={resolvedTheme === "dark" ? "dark" : "light"}
+            />
+          )}
           {mapLoaded && layerVisibility.routes && (
             <SegmentedRouteAnimator
               locations={locations}
@@ -378,6 +385,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
               hoveredSegmentIndex={hoveredSegmentIndex}
               speedColorMode={layerVisibility.speedColors}
               replayProgress={replayMode ? replay.progress : undefined}
+              replayTimestamp={replayMode ? replay.currentTimestamp : undefined}
             />
           )}
           {/* Route replay animated marker */}
@@ -405,8 +413,6 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
           {mapLoaded && layerVisibility.savedPlaces && savedPlaces.length > 0 && (
             <SavedPlacesOverlay places={savedPlaces} />
           )}
-          {/* OSM-sourced subway lines + stations overlay */}
-          {mapLoaded && <SubwayLayer visible={layerVisibility.subway} />}
         </MapGL>
 
         {/* Map Side Panel */}
@@ -498,6 +504,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
       {segments.length > 0 && (
         <TimelineSegmentBar
           segments={segments}
+          locations={locations}
           selectedIndex={selectedSegmentIndex}
           hoveredIndex={hoveredSegmentIndex}
           onSegmentClick={handleSegmentClick}
