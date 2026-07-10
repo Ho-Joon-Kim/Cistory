@@ -28,15 +28,17 @@
  *      confirming them IS part of the spike. If authorize returns invalid_scope,
  *      fix SCOPES and re-run.
  *
- * RUN:
- *   yarn tsx scripts/probe-google-health.ts            # first connect + probe
- *   yarn tsx scripts/probe-google-health.ts --refresh  # ~8 days later: durability
+ * RUN (this project has no local tsx — use npx):
+ *   npx tsx scripts/probe-google-health.ts            # first run: browser consent + probe
+ *   npx tsx scripts/probe-google-health.ts            # subsequent runs: reuse stored token, no browser
+ *   npx tsx scripts/probe-google-health.ts --fresh    # force a new browser consent
+ *   npx tsx scripts/probe-google-health.ts --refresh  # ~8 days later: durability check only
  *
  * The refresh token is written to .google-health-spike-tokens.json (gitignored).
  * Findings are appended to docs/health/google-health-spike-findings.md.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { Agent, fetch as undiciFetch } from "undici";
@@ -218,9 +220,9 @@ async function probeDataType(dataType: string, accessToken: string): Promise<Pro
   return {
     dataType,
     listStatus: listRes.status,
-    listSnippet: listBody.slice(0, 600),
+    listSnippet: listBody.slice(0, 2500),
     rollupStatus: rollupRes.status,
-    rollupSnippet: rollupBody.slice(0, 600),
+    rollupSnippet: rollupBody.slice(0, 2500),
   };
 }
 
@@ -285,11 +287,46 @@ async function runConnect(): Promise<void> {
   );
   console.log(`3) Refresh token stored → ${TOKEN_STORE}\n   Granted scope: ${tokens.scope}\n`);
 
-  console.log("4) Probing metrics…\n");
+  await probeAllAndRecord(
+    tokens.access_token,
+    `Connect + probe. Granted scope: ${tokens.scope ?? "(none reported)"}`
+  );
+
+  console.log(
+    "\n✅ Connect probe done. Review the findings doc, fill in the shape/total/source columns,\n" +
+      "   then re-run with --refresh in ~8 days to close the durability check."
+  );
+}
+
+/** Reuse the stored refresh token (no browser) → fresh access token → probe. */
+async function runReuse(): Promise<void> {
+  const { clientId, clientSecret } = loadEnv();
+  let stored: { refresh_token: string };
+  try {
+    stored = JSON.parse(readFileSync(TOKEN_STORE, "utf8"));
+  } catch {
+    throw new Error(
+      `No stored token at ${TOKEN_STORE} — run without a flag (or --fresh) to connect.`
+    );
+  }
+  console.log("Reusing stored refresh token (no browser). Add --fresh to re-consent.\n");
+  const tokens = await postToken({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: stored.refresh_token,
+    grant_type: "refresh_token",
+  });
+  await probeAllAndRecord(tokens.access_token, "Re-probe (stored token)");
+  console.log("\n✅ Re-probe done — see the findings doc.");
+}
+
+/** Probe every DATA_TYPE with the given access token, print + append findings. */
+async function probeAllAndRecord(accessToken: string, header: string): Promise<void> {
+  console.log("Probing metrics…\n");
   const results: ProbeResult[] = [];
   for (const dt of DATA_TYPES) {
     try {
-      const r = await probeDataType(dt, tokens.access_token);
+      const r = await probeDataType(dt, accessToken);
       results.push(r);
       console.log(`   ${dt}: list=${r.listStatus} rollup=${r.rollupStatus}`);
     } catch (e) {
@@ -315,12 +352,7 @@ async function runConnect(): Promise<void> {
       "```",
     ]),
   ];
-  appendFindings(`Connect + probe. Granted scope: ${tokens.scope ?? "(none reported)"}`, lines);
-
-  console.log(
-    "\n✅ Connect probe done. Review the findings doc, fill in the shape/total/source columns,\n" +
-      "   then re-run with --refresh in ~8 days to close the durability check."
-  );
+  appendFindings(header, lines);
 }
 
 async function runRefresh(): Promise<void> {
@@ -367,9 +399,16 @@ async function runRefresh(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const mode = process.argv.includes("--refresh") ? "refresh" : "connect";
-  if (mode === "refresh") await runRefresh();
-  else await runConnect();
+  const argv = process.argv;
+  if (argv.includes("--refresh")) {
+    await runRefresh(); // durability check only
+  } else if (argv.includes("--fresh")) {
+    await runConnect(); // force a new browser consent
+  } else if (existsSync(TOKEN_STORE)) {
+    await runReuse(); // reuse stored token, no browser
+  } else {
+    await runConnect(); // first run
+  }
 }
 
 main().catch((e) => {
