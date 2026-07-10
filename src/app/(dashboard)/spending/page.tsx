@@ -36,6 +36,11 @@ import {
 } from "@/components/ui/select";
 import { formatBytes, formatDate, toLocalDateString } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
+import {
+  EXPENSE_CATEGORIES,
+  EXPENSE_CATEGORY_LABELS,
+  type ExpenseCategory,
+} from "@/modules/spending/categories";
 import { MonthlySpendingBar } from "@/modules/spending/components/MonthlySpendingBar";
 import { SpendingTrendChart } from "@/modules/spending/components/SpendingTrendChart";
 import type {
@@ -52,6 +57,7 @@ import {
   useReparse,
   useSpendingTrend,
   useTransactions,
+  useUpdateTransactionCategory,
   useUpdateTransactionOverride,
 } from "@/modules/spending/hooks";
 
@@ -224,9 +230,11 @@ function BucketBadge({ bucket }: { bucket: Bucket }) {
 
 function TransactionRow({
   tx,
+  onChangeCategory,
   onChangeOverride,
 }: {
   tx: TransactionItem;
+  onChangeCategory: (id: string, value: ExpenseCategory) => void;
   onChangeOverride: (id: string, value: "include" | "exclude" | null) => void;
 }) {
   const isIgnored = tx.bucket === "ignore";
@@ -251,6 +259,26 @@ function TransactionRow({
         )}
         <span className="text-sm font-medium truncate max-w-full">{tx.merchant}</span>
         <BucketBadge bucket={tx.bucket} />
+        {tx.bucket === "spending" && (
+          <Select
+            value={tx.category ?? undefined}
+            onValueChange={(value) => onChangeCategory(tx.id, value as ExpenseCategory)}
+          >
+            <SelectTrigger
+              className="h-5 w-auto min-w-[62px] border-0 bg-muted px-1.5 text-[10px] shadow-none"
+              size="sm"
+            >
+              <SelectValue placeholder="분류 중" />
+            </SelectTrigger>
+            <SelectContent>
+              {EXPENSE_CATEGORIES.map((category) => (
+                <SelectItem key={category} value={category}>
+                  {EXPENSE_CATEGORY_LABELS[category]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {tx.spendingOverride && (
           <span
             className="text-[10px] px-1 py-0.5 rounded-sm bg-primary/10 text-primary flex-shrink-0"
@@ -348,6 +376,7 @@ export default function SpendingPage() {
 
   const { deleteTransaction, isDeleting } = useDeleteTransaction();
   const { updateOverride } = useUpdateTransactionOverride();
+  const { updateCategory } = useUpdateTransactionCategory();
 
   const handleChangeOverride = async (id: string, value: "include" | "exclude" | null) => {
     const success = await updateOverride(id, value);
@@ -362,6 +391,16 @@ export default function SpendingPage() {
       refreshTransactions();
     } else {
       toast.error("저장에 실패했습니다");
+    }
+  };
+
+  const handleChangeCategory = async (id: string, value: ExpenseCategory) => {
+    const success = await updateCategory(id, value);
+    if (success) {
+      toast.success(`${EXPENSE_CATEGORY_LABELS[value]}(으)로 분류했습니다`);
+      refreshTransactions();
+    } else {
+      toast.error("카테고리 저장에 실패했습니다");
     }
   };
 
@@ -404,32 +443,54 @@ export default function SpendingPage() {
           <p className="text-sm text-muted-foreground mt-1">Toss 알림으로 수집된 소비/입금 내역</p>
         </div>
 
+        {summary.categoryBreakdown.length > 0 && (
+          <Card className="mb-5">
+            <CardContent className="px-3 py-3">
+              <p className="text-sm font-medium mb-2">카테고리별 지출</p>
+              <div className="flex flex-wrap gap-2">
+                {summary.categoryBreakdown.map((item) => (
+                  <div
+                    key={item.category ?? "pending"}
+                    className="rounded-md bg-muted px-2.5 py-1.5"
+                  >
+                    <p className="text-[11px] text-muted-foreground">
+                      {item.category ? EXPENSE_CATEGORY_LABELS[item.category] : "분류 중"} ·{" "}
+                      {item.count}건
+                    </p>
+                    <p className="text-sm font-medium tabular-nums">{formatAmount(item.total)}원</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* 요약 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
-          <Card>
-            <CardContent className="px-3 py-2">
+          <Card className="gap-0 py-0">
+            <CardContent className="px-3 py-2.5">
               <p className="text-[11px] text-muted-foreground">총 출금</p>
               <p className="text-base font-semibold text-red-500">
                 {formatAmount(summary.totalWithdrawal)}원
               </p>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="px-3 py-2">
+          <Card className="gap-0 py-0">
+            <CardContent className="px-3 py-2.5">
               <p className="text-[11px] text-muted-foreground">총 입금</p>
               <p className="text-base font-semibold text-green-500">
                 {formatAmount(summary.totalDeposit)}원
               </p>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="px-3 py-2">
+          <Card className="gap-0 py-0">
+            <CardContent className="px-3 py-2.5">
               <p className="text-[11px] text-muted-foreground">출금 건수</p>
               <p className="text-base font-semibold">{summary.withdrawalCount}건</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="px-3 py-2">
+          <Card className="gap-0 py-0">
+            <CardContent className="px-3 py-2.5">
               <p className="text-[11px] text-muted-foreground">입금 건수</p>
               <p className="text-base font-semibold">{summary.depositCount}건</p>
             </CardContent>
@@ -573,7 +634,12 @@ export default function SpendingPage() {
               <Card>
                 <CardContent className="p-0 divide-y">
                   {transactions.map((tx) => (
-                    <TransactionRow key={tx.id} tx={tx} onChangeOverride={handleChangeOverride} />
+                    <TransactionRow
+                      key={tx.id}
+                      tx={tx}
+                      onChangeCategory={handleChangeCategory}
+                      onChangeOverride={handleChangeOverride}
+                    />
                   ))}
                 </CardContent>
               </Card>
