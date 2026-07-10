@@ -43,3 +43,9 @@ next-env.d.ts
 
 # reference codebases
 /dawarich-master/
+
+# oauth client secrets (never commit)
+client_secret_*.json
+
+# U1 Google Health spike — holds a live refresh token (never commit)
+.google-health-spike-tokens.json
