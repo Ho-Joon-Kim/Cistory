@@ -109,7 +109,9 @@ export function SpendingTrendChart({
               <Line
                 key={category}
                 type="monotone"
-                dataKey={(item: CumulativeDataPoint) => item.categories[category] ?? null}
+                dataKey={(item: CumulativeDataPoint) =>
+                  item.actual === null ? null : (item.categories[category] ?? 0)
+                }
                 name={SPENDING_CATEGORY_LABELS[category]}
                 stroke={SPENDING_CATEGORY_COLORS[category]}
                 strokeWidth={1.5}

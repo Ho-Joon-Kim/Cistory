@@ -41,6 +41,7 @@ import {
   EXPENSE_CATEGORY_LABELS,
   type ExpenseCategory,
 } from "@/modules/spending/categories";
+import { CategorySpendingChart } from "@/modules/spending/components/CategorySpendingChart";
 import { MonthlySpendingBar } from "@/modules/spending/components/MonthlySpendingBar";
 import { SpendingTrendChart } from "@/modules/spending/components/SpendingTrendChart";
 import type {
@@ -445,22 +446,12 @@ export default function SpendingPage() {
 
         {summary.categoryBreakdown.length > 0 && (
           <Card className="mb-5">
-            <CardContent className="px-3 py-3">
-              <p className="text-sm font-medium mb-2">카테고리별 지출</p>
-              <div className="flex flex-wrap gap-2">
-                {summary.categoryBreakdown.map((item) => (
-                  <div
-                    key={item.category ?? "pending"}
-                    className="rounded-md bg-muted px-2.5 py-1.5"
-                  >
-                    <p className="text-[11px] text-muted-foreground">
-                      {item.category ? EXPENSE_CATEGORY_LABELS[item.category] : "분류 중"} ·{" "}
-                      {item.count}건
-                    </p>
-                    <p className="text-sm font-medium tabular-nums">{formatAmount(item.total)}원</p>
-                  </div>
-                ))}
+            <CardContent className="px-4 py-4">
+              <div className="mb-1 flex items-baseline justify-between gap-3">
+                <p className="text-sm font-semibold">카테고리별 지출</p>
+                <p className="text-[11px] text-muted-foreground">선택 기간 기준</p>
               </div>
+              <CategorySpendingChart data={summary.categoryBreakdown} />
             </CardContent>
           </Card>
         )}
