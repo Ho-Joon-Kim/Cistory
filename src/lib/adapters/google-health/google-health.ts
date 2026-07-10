@@ -212,20 +212,24 @@ export class GoogleHealthAdapter {
     });
   }
 
-  /** List intraday data points for a metric within a window (paged by caller). */
+  /**
+   * List intraday data points for a metric (paged by caller). Time filtering uses
+   * the API's AIP-160 `filter` param — there is NO startTime/endTime query param.
+   * The filter field is metric-specific (e.g. `steps.interval.start_time >= "..."`
+   * / `heart-rate.sample_time.physical_time >= "..."`), so the caller (U5) builds
+   * it from the U1-confirmed per-metric shape. Omit `filter` to get recent points.
+   */
   async listDataPoints(opts: {
     accessToken: string;
     dataType: string;
-    startTime?: Date;
-    endTime?: Date;
+    filter?: string;
     pageSize?: number;
     pageToken?: string;
   }): Promise<ListResult> {
     const url = new URL(
       `${HEALTH_API_BASE}/users/me/dataTypes/${encodeURIComponent(opts.dataType)}/dataPoints`
     );
-    if (opts.startTime) url.searchParams.set("startTime", opts.startTime.toISOString());
-    if (opts.endTime) url.searchParams.set("endTime", opts.endTime.toISOString());
+    if (opts.filter) url.searchParams.set("filter", opts.filter);
     if (opts.pageSize) url.searchParams.set("pageSize", String(opts.pageSize));
     if (opts.pageToken) url.searchParams.set("pageToken", opts.pageToken);
 
@@ -236,27 +240,38 @@ export class GoogleHealthAdapter {
     return { dataPoints: data.dataPoints ?? [], nextPageToken: data.nextPageToken };
   }
 
-  /** Daily rollup (server-aggregated) for a metric over a local-date range. */
+  /**
+   * Daily rollup (server-aggregated) for a metric over a civil-date range. The body
+   * uses `range: { start, end }` (closed-open CivilDate interval) + `windowSizeDays`
+   * — NOT `localDateRange`. `start` must be aligned to the aggregation window.
+   */
   async dailyRollUp(opts: {
     accessToken: string;
     dataType: string;
-    startDate: { year: number; month: number; day: number };
-    endDate: { year: number; month: number; day: number };
+    range: {
+      start: { year: number; month: number; day: number };
+      end: { year: number; month: number; day: number };
+    };
+    windowSizeDays?: number;
     pageToken?: string;
   }): Promise<RollUpResult> {
     const url = `${HEALTH_API_BASE}/users/me/dataTypes/${encodeURIComponent(
       opts.dataType
     )}/dataPoints:dailyRollUp`;
-    const body: Record<string, unknown> = {
-      localDateRange: { startDate: opts.startDate, endDate: opts.endDate },
-    };
+    const body: Record<string, unknown> = { range: opts.range };
+    if (opts.windowSizeDays != null) body.windowSizeDays = opts.windowSizeDays;
     if (opts.pageToken) body.pageToken = opts.pageToken;
 
+    // Response key not yet confirmed against a 200 — tolerate rollupDataPoints or dataPoints.
     const data = await this.apiRequest<{
       rollupDataPoints?: GoogleHealthDataPoint[];
+      dataPoints?: GoogleHealthDataPoint[];
       nextPageToken?: string;
     }>("POST", url, opts.accessToken, `dailyRollUp/${opts.dataType}`, body);
-    return { rollupDataPoints: data.rollupDataPoints ?? [], nextPageToken: data.nextPageToken };
+    return {
+      rollupDataPoints: data.rollupDataPoints ?? data.dataPoints ?? [],
+      nextPageToken: data.nextPageToken,
+    };
   }
 
   /**
@@ -266,8 +281,7 @@ export class GoogleHealthAdapter {
   async listAllDataPoints(opts: {
     accessToken: string;
     dataType: string;
-    startTime?: Date;
-    endTime?: Date;
+    filter?: string;
     pageSize?: number;
   }): Promise<GoogleHealthDataPoint[]> {
     const all: GoogleHealthDataPoint[] = [];

@@ -193,24 +193,23 @@ async function probeDataType(dataType: string, accessToken: string): Promise<Pro
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
 
-  // list (intraday). Try a time-windowed GET; record whatever the API says.
+  // list (intraday). No startTime/endTime params exist — time filtering is the
+  // AIP-160 `filter` param, whose field name is metric-specific. For a presence
+  // probe we skip the filter and just pull the most recent points.
   const listUrl = new URL(`${HEALTH_BASE}/users/me/dataTypes/${dataType}/dataPoints`);
   listUrl.searchParams.set("pageSize", "5");
-  listUrl.searchParams.set("startTime", weekAgo.toISOString());
-  listUrl.searchParams.set("endTime", now.toISOString());
   const listRes = await undiciFetch(listUrl.toString(), { headers: auth, dispatcher: ipv4 });
   const listBody = await listRes.text();
 
-  // dailyRollUp (custom method, POST). Body shape is a best guess — record result.
+  // dailyRollUp (custom method, POST). Body is `range: { start, end }` (closed-open
+  // CivilDate interval) + windowSizeDays — NOT localDateRange.
   const rollupUrl = `${HEALTH_BASE}/users/me/dataTypes/${dataType}/dataPoints:dailyRollUp`;
   const rollupRes = await undiciFetch(rollupUrl, {
     method: "POST",
     headers: { ...auth, "content-type": "application/json" },
     body: JSON.stringify({
-      localDateRange: {
-        startDate: toLocalDate(weekAgo),
-        endDate: toLocalDate(now),
-      },
+      range: { start: toLocalDate(weekAgo), end: toLocalDate(now) },
+      windowSizeDays: 1,
     }),
     dispatcher: ipv4,
   });

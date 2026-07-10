@@ -158,20 +158,31 @@ describe("pagination + rollup", () => {
     expect(secondCallUrl).toContain("pageToken=tok-2");
   });
 
-  it("dailyRollUp POSTs the local-date range and returns rollup points", async () => {
+  it("dailyRollUp POSTs the range + windowSizeDays and returns rollup points", async () => {
     fetchMock.mockResolvedValueOnce(resp({ rollupDataPoints: [{ day: "2026-07-01" }] }));
     const result = await adapter().dailyRollUp({
       accessToken: "at",
       dataType: "daily-resting-heart-rate",
-      startDate: { year: 2026, month: 7, day: 1 },
-      endDate: { year: 2026, month: 7, day: 7 },
+      range: { start: { year: 2026, month: 7, day: 1 }, end: { year: 2026, month: 7, day: 7 } },
+      windowSizeDays: 1,
     });
     expect(result.rollupDataPoints).toEqual([{ day: "2026-07-01" }]);
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain(":dailyRollUp");
     expect((init as { method: string }).method).toBe("POST");
     const body = JSON.parse((init as { body: string }).body);
-    expect(body.localDateRange.startDate).toEqual({ year: 2026, month: 7, day: 1 });
+    expect(body.range.start).toEqual({ year: 2026, month: 7, day: 1 });
+    expect(body.windowSizeDays).toBe(1);
+  });
+
+  it("dailyRollUp falls back to dataPoints when rollupDataPoints is absent", async () => {
+    fetchMock.mockResolvedValueOnce(resp({ dataPoints: [{ day: "2026-07-02" }] }));
+    const result = await adapter().dailyRollUp({
+      accessToken: "at",
+      dataType: "steps",
+      range: { start: { year: 2026, month: 7, day: 1 }, end: { year: 2026, month: 7, day: 7 } },
+    });
+    expect(result.rollupDataPoints).toEqual([{ day: "2026-07-02" }]);
   });
 });
 
