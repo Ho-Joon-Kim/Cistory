@@ -57,12 +57,18 @@ export function SettingsForm() {
   const githubUsername = user?.githubUsername;
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {/* 데이터 용량 */}
-      <DataUsageCard />
+      <div className="lg:col-span-2 [&>*]:h-full">
+        <DataUsageCard />
+      </div>
 
       {/* DB 벤치마크 — admin-only, gated by NEXT_PUBLIC_ENABLE_DB_BENCHMARK */}
-      {process.env.NEXT_PUBLIC_ENABLE_DB_BENCHMARK === "true" && <DbBenchmarkCard />}
+      {process.env.NEXT_PUBLIC_ENABLE_DB_BENCHMARK === "true" && (
+        <div className="lg:col-span-2 [&>*]:h-full">
+          <DbBenchmarkCard />
+        </div>
+      )}
 
       {/* GitHub 연결 & 동기화 */}
       <Card>

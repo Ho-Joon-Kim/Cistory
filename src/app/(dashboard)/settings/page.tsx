@@ -35,7 +35,7 @@ export default function SettingsPage() {
       <Header showSync={false} />
 
       {/* 메인 컨텐츠 */}
-      <main className="container mx-auto px-4 py-6 max-w-2xl">
+      <main className="container mx-auto max-w-6xl px-4 py-6">
         <h1 className="text-2xl font-bold mb-6">설정</h1>
         <SettingsForm />
       </main>
