@@ -1,15 +1,13 @@
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   type HealthConnection,
   healthConnections,
-  healthDailySummaries,
   healthRawPages,
   healthSamples,
   healthSyncState,
   type NewHealthSample,
 } from "@/db/schema";
-import { localDaySql } from "@/db/sql";
 import {
   createGoogleHealthAdapter,
   type GoogleHealthAdapter,
@@ -107,15 +105,13 @@ export const HEALTH_METRICS: MetricConfig[] = [
     valueKey: "vo2Max",
     agg: "avg",
   },
-  {
-    key: "exercise",
-    dataType: "exercise",
-    wrapper: "exercise",
-    timeShape: "interval",
-    filterField: "exercise.interval.start_time",
-    valueKey: null, // structured workout session → valueJson
-    agg: "sum",
-  },
+  // DEFERRED: `exercise` (structured workout sessions). `list` works unfiltered,
+  // but every interval `filter` variant is rejected 400
+  // (INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER) — the exercise data type isn't
+  // time-filterable via the members we can address, so incremental windowing is
+  // impossible without a different fetch strategy. It's not shown on /health
+  // (absent from CURATED_METRICS), so it's left out until its filter is figured
+  // out. The parser already handles structured metrics (valueKey: null → valueJson).
 ];
 
 // ── Pure helpers (exported for unit tests) ───────────────────────────────────
@@ -618,62 +614,36 @@ export class HealthSyncService {
     windowStart: Date,
     windowEnd: Date
   ): Promise<void> {
-    const localDay = localDaySql(healthSamples.sampleAt);
-    const touched = await this.db
-      .selectDistinct({ day: sql<string>`${localDay}::text` })
-      .from(healthSamples)
-      .where(
-        and(
-          eq(healthSamples.userId, userId),
-          eq(healthSamples.metric, config.key),
-          gte(healthSamples.sampleAt, windowStart),
-          lt(healthSamples.sampleAt, windowEnd)
+    // One atomic upsert: aggregate every KST day the window touched, FULLY (over
+    // all that day's samples, not just the window's, via the IN-subquery) so a
+    // day straddling two windows stays correct. The KST day is derived in SQL
+    // (localDaySql form) — never the UTC day. value_sum is populated only for
+    // accumulating metrics; instantaneous metrics leave it null. Timestamps bind
+    // as UTC-wall ISO strings cast to `timestamp` to match how sample_at is stored.
+    const kstDay = sql.raw("(sample_at at time zone 'UTC' at time zone 'Asia/Seoul')::date");
+    const valueSum = config.agg === "sum" ? sql`sum(value)` : sql`NULL::double precision`;
+    await this.db.execute(sql`
+      INSERT INTO health_daily_summaries
+        (user_id, metric, day, value_avg, value_min, value_max, value_sum, count, updated_at)
+      SELECT user_id, metric, ${kstDay}::text,
+             avg(value), min(value), max(value), ${valueSum}, count(*)::int, now()
+      FROM health_samples
+      WHERE user_id = ${userId} AND metric = ${config.key}
+        AND ${kstDay} IN (
+          SELECT DISTINCT ${kstDay} FROM health_samples
+          WHERE user_id = ${userId} AND metric = ${config.key}
+            AND sample_at >= ${windowStart.toISOString()}::timestamp
+            AND sample_at < ${windowEnd.toISOString()}::timestamp
         )
-      );
-    const days = touched.map((t) => t.day);
-    if (days.length === 0) return;
-
-    const agg = await this.db
-      .select({
-        day: sql<string>`${localDay}::text`,
-        avg: sql<number>`avg(${healthSamples.value})`,
-        min: sql<number>`min(${healthSamples.value})`,
-        max: sql<number>`max(${healthSamples.value})`,
-        sum: sql<number>`sum(${healthSamples.value})`,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(healthSamples)
-      .where(
-        and(
-          eq(healthSamples.userId, userId),
-          eq(healthSamples.metric, config.key),
-          sql`${localDay}::text = ANY(${days})`
-        )
-      )
-      .groupBy(localDay);
-
-    const isSum = config.agg === "sum";
-    for (const r of agg) {
-      const set = {
-        valueAvg: r.avg,
-        valueMin: r.min,
-        valueMax: r.max,
-        valueSum: isSum ? r.sum : null,
-        count: r.count,
-        updatedAt: new Date(),
-      };
-      await this.db
-        .insert(healthDailySummaries)
-        .values({ userId, metric: config.key, day: r.day, ...set })
-        .onConflictDoUpdate({
-          target: [
-            healthDailySummaries.userId,
-            healthDailySummaries.metric,
-            healthDailySummaries.day,
-          ],
-          set,
-        });
-    }
+      GROUP BY user_id, metric, ${kstDay}
+      ON CONFLICT (user_id, metric, day) DO UPDATE SET
+        value_avg = EXCLUDED.value_avg,
+        value_min = EXCLUDED.value_min,
+        value_max = EXCLUDED.value_max,
+        value_sum = EXCLUDED.value_sum,
+        count = EXCLUDED.count,
+        updated_at = now()
+    `);
   }
 
   private async getSyncState(userId: string, metric: string) {

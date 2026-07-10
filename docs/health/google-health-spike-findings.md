@@ -62,7 +62,14 @@ point is `"32400s"` (KST, +9h).
 | heart_rate | `heart-rate` | `heartRate` | `sampleTime.physicalTime` | `beatsPerMinute` | string | scalar, avg |
 | spo2 | `oxygen-saturation` | `oxygenSaturation` | `sampleTime.physicalTime` | `percentage` | number | scalar, avg |
 | vo2_max | `vo2-max` | `vo2Max` | `sampleTime.physicalTime` | `vo2Max` | number | scalar, avg |
-| exercise | `exercise` | `exercise` | `interval.startTime` | — (whole obj) | object | structured → valueJson |
+| ~~exercise~~ | `exercise` | `exercise` | `interval.startTime` | — (whole obj) | object | structured — **deferred** |
+
+**exercise deferred**: `list` works unfiltered, but every interval `filter` variant
+is rejected 400 (`INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER`) — the exercise data
+type is not time-filterable via addressable members, so incremental windowing is
+impossible without a different fetch strategy. Left out of `HEALTH_METRICS` (and it
+isn't in the curated `/health` view anyway). The parser's structured branch still
+ships for when it (or sleep) is re-enabled.
 
 **Empty-but-valid today** (`list` returns `{}`; populate once Fitbit writes to
 Health Connect): `sleep`, `daily-resting-heart-rate`, `heart-rate-variability`,

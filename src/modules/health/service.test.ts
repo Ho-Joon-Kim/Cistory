@@ -32,8 +32,7 @@ describe("HEALTH_METRICS config", () => {
     }
   });
 
-  it("marks exercise structured (no scalar value key) and steps/distance as sum", () => {
-    expect(byKey("exercise").valueKey).toBeNull();
+  it("marks steps/distance as sum and heart_rate as avg", () => {
     expect(byKey("steps").agg).toBe("sum");
     expect(byKey("distance").agg).toBe("sum");
     expect(byKey("heart_rate").agg).toBe("avg");
@@ -138,15 +137,27 @@ describe("parseSample — instantaneous scalar metrics", () => {
   });
 });
 
-describe("parseSample — structured metric", () => {
-  it("exercise keeps the whole wrapper as valueJson, no scalar", () => {
+describe("parseSample — structured metric (valueKey: null)", () => {
+  // `exercise` is deferred from HEALTH_METRICS (unfilterable), but the parser's
+  // structured branch still ships, so exercise it here via a synthetic config.
+  const structured: MetricConfig = {
+    key: "exercise",
+    dataType: "exercise",
+    wrapper: "exercise",
+    timeShape: "interval",
+    filterField: "exercise.interval.start_time",
+    valueKey: null,
+    agg: "sum",
+  };
+
+  it("keeps the whole wrapper as valueJson, no scalar", () => {
     const wrapper = {
       interval: { startTime: "2026-06-19T09:30:00Z", endTime: "2026-06-19T09:41:00Z" },
       exerciseType: "WALKING",
       displayName: "걷기",
       activeDuration: "660s",
     };
-    const p = parseSample(byKey("exercise"), {
+    const p = parseSample(structured, {
       dataSource: { application: { packageName: "com.sec.android.app.shealth" } },
       exercise: wrapper,
     });
