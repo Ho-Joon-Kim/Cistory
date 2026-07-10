@@ -1,3 +1,4 @@
+import { Agent, fetch as undiciFetch } from "undici";
 import { logger } from "@/lib/logger";
 import { BODY_SMART_MEASURE_TYPES, parseMeasureGroups } from "./measure-types";
 import {
@@ -16,6 +17,16 @@ export const WITHINGS_DEFAULT_SCOPE = "user.metrics";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RETRIES = 5;
+
+// Force IPv4 for every Withings request. wbsapi.withings.net publishes both A and
+// AAAA records, but the IPv6 route is a black hole from some hosts (bare-metal dev
+// boxes especially) — undici's connector picks IPv6 and stalls until ETIMEDOUT,
+// surfacing as "TypeError: fetch failed" in the OAuth token exchange. curl -4
+// confirms IPv4 is reachable. This dispatcher is scoped to the adapter's own
+// undici fetch, so it needs no global/process state and is immune to Next's fetch
+// patching and Node's inconsistent dns result-order handling. (Docker's default
+// bridge is IPv4-only, so this is also a no-op there.)
+const ipv4Dispatcher = new Agent({ connect: { family: 4 } });
 // 120 req/min = 1 request / 500ms. Use 600ms for margin (see plan Open Questions).
 const DEFAULT_THROTTLE_MS = 600;
 // Safety cap on getmeas pagination. Pages hold many groups, so even a multi-year
@@ -212,10 +223,11 @@ export class WithingsAdapter {
     };
     if (accessToken) headers.authorization = `Bearer ${accessToken}`;
 
-    const response = await fetch(url, {
+    const response = await undiciFetch(url, {
       method: "POST",
       headers,
       body: new URLSearchParams(params).toString(),
+      dispatcher: ipv4Dispatcher,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 

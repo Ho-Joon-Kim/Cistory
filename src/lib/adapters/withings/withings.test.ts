@@ -1,7 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseMeasureGroups } from "./measure-types";
 import { WithingsApiError, WithingsAuthError, type WithingsMeasureGroup } from "./types";
 import { createWithingsAdapter } from "./withings";
+
+// The adapter calls undici's own fetch (with a family:4 dispatcher to force IPv4),
+// not the global fetch, so mock the undici module rather than stubbing globalThis.
+const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
+vi.mock("undici", () => ({
+  Agent: class {},
+  fetch: fetchMock,
+}));
 
 function jsonResponse(payload: unknown, status = 200) {
   return {
@@ -12,9 +20,12 @@ function jsonResponse(payload: unknown, status = 200) {
   } as unknown as Response;
 }
 
+beforeEach(() => {
+  fetchMock.mockReset();
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllGlobals();
 });
 
 describe("parseMeasureGroups", () => {
@@ -96,7 +107,7 @@ describe("WithingsAdapter.buildAuthorizeUrl", () => {
 
 describe("WithingsAdapter token exchange", () => {
   it("exchangeCode maps the token envelope to ParsedTokens", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    fetchMock.mockResolvedValue(
       jsonResponse({
         status: 0,
         body: {
@@ -109,7 +120,6 @@ describe("WithingsAdapter token exchange", () => {
         },
       })
     );
-    vi.stubGlobal("fetch", fetchMock);
 
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
     const tokens = await adapter.exchangeCode({ code: "code123", redirectUri: "https://app/cb" });
@@ -126,21 +136,18 @@ describe("WithingsAdapter token exchange", () => {
   });
 
   it("refreshToken returns the rotated token pair", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        jsonResponse({
-          status: 0,
-          body: {
-            userid: 42,
-            access_token: "acc2",
-            refresh_token: "ref2",
-            scope: "user.metrics",
-            expires_in: 10800,
-            token_type: "Bearer",
-          },
-        })
-      )
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        status: 0,
+        body: {
+          userid: 42,
+          access_token: "acc2",
+          refresh_token: "ref2",
+          scope: "user.metrics",
+          expires_in: 10800,
+          token_type: "Bearer",
+        },
+      })
     );
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
     const tokens = await adapter.refreshToken("old-refresh");
@@ -151,8 +158,7 @@ describe("WithingsAdapter token exchange", () => {
 
 describe("WithingsAdapter.getMeasurements", () => {
   it("follows more/offset pagination and returns the final updatetime", async () => {
-    const fetchMock = vi
-      .fn()
+    fetchMock
       .mockResolvedValueOnce(
         jsonResponse({
           status: 0,
@@ -179,7 +185,6 @@ describe("WithingsAdapter.getMeasurements", () => {
           },
         })
       );
-    vi.stubGlobal("fetch", fetchMock);
 
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
     const { groups, updatetime } = await adapter.getMeasurements({
@@ -205,7 +210,7 @@ describe("WithingsAdapter.getMeasurements", () => {
   it("stops paginating when the offset stops advancing (no infinite loop)", async () => {
     // Every page reports more:1 with the SAME offset — a malformed/buggy cursor.
     // The adapter must require forward progress and terminate instead of spinning.
-    const fetchMock = vi.fn().mockResolvedValue(
+    fetchMock.mockResolvedValue(
       jsonResponse({
         status: 0,
         body: {
@@ -218,7 +223,6 @@ describe("WithingsAdapter.getMeasurements", () => {
         },
       })
     );
-    vi.stubGlobal("fetch", fetchMock);
 
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
     const { groups } = await adapter.getMeasurements({ accessToken: "acc", startdate: 0 });
@@ -230,13 +234,11 @@ describe("WithingsAdapter.getMeasurements", () => {
 
   it("retries a 601 rate-limit response and then succeeds", async () => {
     vi.useFakeTimers();
-    const fetchMock = vi
-      .fn()
+    fetchMock
       .mockResolvedValueOnce(jsonResponse({ status: 601 }))
       .mockResolvedValueOnce(
         jsonResponse({ status: 0, body: { updatetime: 7, more: 0, offset: 0, measuregrps: [] } })
       );
-    vi.stubGlobal("fetch", fetchMock);
 
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
     const promise = adapter.getMeasurements({ accessToken: "acc", lastupdate: 0 });
@@ -250,8 +252,7 @@ describe("WithingsAdapter.getMeasurements", () => {
 
   it("throws after exhausting retries on persistent 5xx", async () => {
     vi.useFakeTimers();
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 503));
-    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(jsonResponse({}, 503));
 
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
     const promise = adapter.getMeasurements({ accessToken: "acc", lastupdate: 0 });
@@ -266,13 +267,13 @@ describe("WithingsAdapter.getMeasurements", () => {
 
 describe("WithingsAdapter error taxonomy", () => {
   it("maps auth-family statuses to WithingsAuthError", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ status: 401 })));
+    fetchMock.mockResolvedValue(jsonResponse({ status: 401 }));
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
     await expect(adapter.refreshToken("old")).rejects.toBeInstanceOf(WithingsAuthError);
   });
 
   it("maps other non-zero statuses to WithingsApiError", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ status: 342 })));
+    fetchMock.mockResolvedValue(jsonResponse({ status: 342 }));
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
     await expect(
       adapter.getMeasurements({ accessToken: "acc", lastupdate: 0 })
