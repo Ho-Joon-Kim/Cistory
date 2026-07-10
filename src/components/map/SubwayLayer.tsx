@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Layer, Source, useMap } from "react-map-gl/mapbox";
 import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { type Bbox, bboxContains, expandBbox } from "./subwayViewport";
 
 interface SubwayData {
   lines: GeoJSON.FeatureCollection;
   stations: GeoJSON.FeatureCollection;
 }
 
-type Bbox = [number, number, number, number];
-
 interface SubwayLayerProps {
   visible?: boolean;
+  theme?: "light" | "dark";
   minZoomLines?: number;
   minZoomStations?: number;
   minZoomLabels?: number;
@@ -44,6 +44,7 @@ function filterFeatures(
  */
 export function SubwayLayer({
   visible = true,
+  theme = "light",
   minZoomLines = 9,
   minZoomStations = 12,
   minZoomLabels = 14,
@@ -52,6 +53,7 @@ export function SubwayLayer({
   const { current: map } = useMap();
   const [bbox, setBbox] = useState<Bbox | null>(null);
   const [data, setData] = useState<SubwayData | null>(null);
+  const loadedBboxRef = useRef<Bbox | null>(null);
 
   // Track viewport bbox from the parent map.
   useEffect(() => {
@@ -71,17 +73,24 @@ export function SubwayLayer({
 
   const debouncedBbox = useDebouncedValue(bbox, 400);
 
-  // Fetch subway data for the current bbox.
+  // Fetch a buffered area and keep it until the viewport leaves that buffer.
+  // This avoids visible GeoJSON replacement during small zoom and pan changes.
   useEffect(() => {
     if (!visible || !debouncedBbox) return;
-    const [w, s, e, n] = debouncedBbox;
+    if (loadedBboxRef.current && bboxContains(loadedBboxRef.current, debouncedBbox)) return;
+
+    const requestBbox = expandBbox(debouncedBbox);
+    const [w, s, e, n] = requestBbox;
     const controller = new AbortController();
     fetch(`/api/map/subway?bbox=${w},${s},${e},${n}`, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`subway fetch ${res.status}`);
         return res.json() as Promise<SubwayData>;
       })
-      .then(setData)
+      .then((nextData) => {
+        loadedBboxRef.current = requestBbox;
+        setData(nextData);
+      })
       .catch((err) => {
         if (err.name !== "AbortError") {
           console.error("SubwayLayer fetch failed:", err);
@@ -94,6 +103,7 @@ export function SubwayLayer({
 
   const lines = filterFeatures(data.lines, highlightLineIds);
   const stations = filterFeatures(data.stations, highlightLineIds);
+  const isDark = theme === "dark";
 
   return (
     <>
@@ -104,8 +114,8 @@ export function SubwayLayer({
           minzoom={minZoomLines}
           paint={{
             "line-color": ["get", "color"],
-            "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.4, 12, 2.4, 16, 4],
-            "line-opacity": 0.85,
+            "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.1, 12, 1.9, 16, 3.2],
+            "line-opacity": isDark ? 0.42 : 0.68,
           }}
           layout={{ "line-join": "round", "line-cap": "round" }}
         />
@@ -117,9 +127,9 @@ export function SubwayLayer({
           minzoom={minZoomStations}
           paint={{
             "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2, 14, 4, 17, 7],
-            "circle-color": "#ffffff",
-            "circle-stroke-color": "#222",
-            "circle-stroke-width": 1.3,
+            "circle-color": isDark ? "#d8dde5" : "#ffffff",
+            "circle-stroke-color": isDark ? "#111827" : "#1f2937",
+            "circle-stroke-width": 1.5,
           }}
         />
         <Layer
@@ -128,16 +138,18 @@ export function SubwayLayer({
           minzoom={minZoomLabels}
           layout={{
             "text-field": ["get", "name"],
-            "text-size": ["interpolate", ["linear"], ["zoom"], 13, 10, 16, 13],
-            "text-offset": [0, 1.1],
+            "text-size": ["interpolate", ["linear"], ["zoom"], 13, 11.5, 16, 15],
+            "text-offset": [0, 1.2],
             "text-anchor": "top",
+            "text-letter-spacing": 0.02,
             "text-optional": true,
             "text-allow-overlap": false,
           }}
           paint={{
-            "text-color": "#222",
-            "text-halo-color": "#fff",
-            "text-halo-width": 1.4,
+            "text-color": isDark ? "#f8fafc" : "#111827",
+            "text-halo-color": isDark ? "#111318" : "#ffffff",
+            "text-halo-width": 2,
+            "text-halo-blur": 0.4,
           }}
         />
       </Source>
