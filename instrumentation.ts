@@ -11,6 +11,16 @@ import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Enable Happy Eyeballs (RFC 8305) for all server-side fetch(). Some external
+    // hosts — e.g. Withings' wbsapi.withings.net — publish both A and AAAA records
+    // but are only reachable over IPv4 from our network. undici's default connector
+    // picks a single address family and stalls until ETIMEDOUT on a dead IPv6 route
+    // (surfacing as a bare `TypeError: fetch failed`). autoSelectFamily races IPv4
+    // and IPv6 the way curl and browsers do, so the reachable family wins; it is a
+    // no-op where IPv6 already works. Set before any outbound request is made.
+    const { setGlobalDispatcher, Agent } = await import("undici");
+    setGlobalDispatcher(new Agent({ connect: { autoSelectFamily: true } }));
+
     await import("./sentry.server.config");
 
     // Cron runs in a DEDICATED container, separate from the web container.
