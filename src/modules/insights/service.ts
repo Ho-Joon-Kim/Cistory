@@ -1,6 +1,7 @@
 import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
+  bodyMeasurements,
   codingDailyStats,
   codingSessions,
   commits,
@@ -11,6 +12,7 @@ import {
   trips,
   visits,
 } from "@/db/schema";
+import { localDaySql } from "@/db/sql";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -170,6 +172,99 @@ export interface DataUsageResult {
 
 export interface DiscoveriesResult {
   bullets: { kind: string; title: string; detail: string }[];
+}
+
+// ── Body composition (Withings) ─────────────────────────────────────────────
+
+/** Per-metric summary: latest value, the value before it, their delta, min/max. */
+export interface BodyMetricSummary {
+  latest: number | null;
+  previous: number | null;
+  delta: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+export interface BodyResult {
+  measurementCount: number;
+  latestMeasuredAt: string | null; // ISO
+  weight: BodyMetricSummary;
+  fatRatioPct: BodyMetricSummary;
+  muscleMassKg: BodyMetricSummary;
+  boneMassKg: BodyMetricSummary;
+  hydrationKg: BodyMetricSummary;
+  visceralFat: BodyMetricSummary;
+  bmrKcal: BodyMetricSummary;
+  metabolicAge: BodyMetricSummary;
+  heartRateBpm: BodyMetricSummary;
+  /** One point per KST calendar day (last weight of that day), ascending. */
+  weightSeries: { date: string; weight: number }[];
+}
+
+/** A single measurement, numeric metrics already parsed, with its KST day. */
+export interface BodyMeasurementPoint {
+  day: string; // KST calendar day (from localDaySql)
+  measuredAt: Date;
+  weightKg: number | null;
+  fatRatioPct: number | null;
+  muscleMassKg: number | null;
+  boneMassKg: number | null;
+  hydrationKg: number | null;
+  visceralFat: number | null;
+  bmrKcal: number | null;
+  metabolicAge: number | null;
+  heartRateBpm: number | null;
+}
+
+function summarizeMetric(values: number[]): BodyMetricSummary {
+  if (values.length === 0)
+    return { latest: null, previous: null, delta: null, min: null, max: null };
+  const latest = values[values.length - 1];
+  const previous = values.length >= 2 ? values[values.length - 2] : null;
+  return {
+    latest,
+    previous,
+    delta: previous == null ? null : latest - previous,
+    min: Math.min(...values),
+    max: Math.max(...values),
+  };
+}
+
+/**
+ * Pure aggregation over chronologically-ascending measurement points. `day` is
+ * the KST calendar day derived in SQL (localDaySql), so the per-day weight
+ * series honors KST even for 00:00–09:00 measurements (AE4) — grouping never
+ * shifts them onto the previous UTC day. Metrics a Body Smart never reports
+ * (e.g. vascular age, PWV) are simply absent from the point and drop out of the
+ * summaries naturally.
+ */
+export function aggregateBody(rows: BodyMeasurementPoint[]): BodyResult {
+  const collect = (pick: (r: BodyMeasurementPoint) => number | null): number[] =>
+    rows.map(pick).filter((v): v is number => v != null);
+
+  // One weight point per KST day; rows are ascending so the last write wins.
+  const dayWeight = new Map<string, number>();
+  for (const r of rows) {
+    if (r.weightKg != null) dayWeight.set(r.day, r.weightKg);
+  }
+  const weightSeries = [...dayWeight.entries()]
+    .map(([date, weight]) => ({ date, weight }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    measurementCount: rows.length,
+    latestMeasuredAt: rows.length ? rows[rows.length - 1].measuredAt.toISOString() : null,
+    weight: summarizeMetric(collect((r) => r.weightKg)),
+    fatRatioPct: summarizeMetric(collect((r) => r.fatRatioPct)),
+    muscleMassKg: summarizeMetric(collect((r) => r.muscleMassKg)),
+    boneMassKg: summarizeMetric(collect((r) => r.boneMassKg)),
+    hydrationKg: summarizeMetric(collect((r) => r.hydrationKg)),
+    visceralFat: summarizeMetric(collect((r) => r.visceralFat)),
+    bmrKcal: summarizeMetric(collect((r) => r.bmrKcal)),
+    metabolicAge: summarizeMetric(collect((r) => r.metabolicAge)),
+    heartRateBpm: summarizeMetric(collect((r) => r.heartRateBpm)),
+    weightSeries,
+  };
 }
 
 // ── Service ────────────────────────────────────────────────────────────────
@@ -1060,5 +1155,55 @@ export class InsightsService {
     }
 
     return { bullets };
+  }
+
+  /**
+   * Body composition (Withings) for the year — latest snapshot, per-metric
+   * deltas/min/max, and a KST-day weight series for the trend chart.
+   */
+  static async getBody(db: Database, userId: string, year: number): Promise<BodyResult> {
+    const { start, end } = yearRange(year);
+    const rows = await db
+      .select({
+        day: localDaySql(bodyMeasurements.measuredAt),
+        measuredAt: bodyMeasurements.measuredAt,
+        weightKg: bodyMeasurements.weightKg,
+        fatRatioPct: bodyMeasurements.fatRatioPct,
+        muscleMassKg: bodyMeasurements.muscleMassKg,
+        boneMassKg: bodyMeasurements.boneMassKg,
+        hydrationKg: bodyMeasurements.hydrationKg,
+        visceralFat: bodyMeasurements.visceralFat,
+        bmrKcal: bodyMeasurements.bmrKcal,
+        metabolicAge: bodyMeasurements.metabolicAge,
+        heartRateBpm: bodyMeasurements.heartRateBpm,
+      })
+      .from(bodyMeasurements)
+      .where(
+        and(
+          eq(bodyMeasurements.userId, userId),
+          gte(bodyMeasurements.measuredAt, start),
+          lte(bodyMeasurements.measuredAt, end)
+        )
+      )
+      .orderBy(bodyMeasurements.measuredAt);
+
+    // numeric columns arrive as strings (drizzle numeric contract); integer
+    // columns (metabolicAge, heartRateBpm) arrive as numbers already.
+    const num = (v: string | null): number | null => (v == null ? null : Number(v));
+    return aggregateBody(
+      rows.map((r) => ({
+        day: r.day,
+        measuredAt: r.measuredAt,
+        weightKg: num(r.weightKg),
+        fatRatioPct: num(r.fatRatioPct),
+        muscleMassKg: num(r.muscleMassKg),
+        boneMassKg: num(r.boneMassKg),
+        hydrationKg: num(r.hydrationKg),
+        visceralFat: num(r.visceralFat),
+        bmrKcal: num(r.bmrKcal),
+        metabolicAge: r.metabolicAge,
+        heartRateBpm: r.heartRateBpm,
+      }))
+    );
   }
 }
