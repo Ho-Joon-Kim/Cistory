@@ -27,6 +27,11 @@ interface SortedPoint {
   timestamp: string;
 }
 
+interface StayRange {
+  start: number;
+  end: number;
+}
+
 /** Linear interpolation between two coordinates */
 function lerpCoord(
   a: { lat: number; lon: number },
@@ -40,7 +45,7 @@ function lerpCoord(
 }
 
 /** Find coord and timestamp for a given progress (0-1) along sorted points */
-function getPositionAtProgress(
+export function getPositionAtProgress(
   points: SortedPoint[],
   progress: number
 ): { coord: { lat: number; lon: number }; timestamp: string } | null {
@@ -73,9 +78,19 @@ function getPositionAtProgress(
   const t = segDuration > 0 ? (targetTime - a.time) / segDuration : 0;
   const coord = lerpCoord(a, b, Math.min(1, Math.max(0, t)));
 
-  // Pick the closer timestamp
-  const timestamp = t < 0.5 ? a.timestamp : b.timestamp;
+  // Keep the clock on the same continuous timeline as the marker. Returning
+  // the nearest raw point's timestamp makes the replay clock visibly jump.
+  const timestamp = new Date(targetTime).toISOString();
   return { coord, timestamp };
+}
+
+/** Convert an absolute timestamp to normalized progress along a replay. */
+export function getProgressAtTime(points: SortedPoint[], time: number): number {
+  if (points.length < 2) return 0;
+  const start = points[0].time;
+  const duration = points[points.length - 1].time - start;
+  if (duration <= 0) return 0;
+  return Math.min(1, Math.max(0, (time - start) / duration));
 }
 
 export function useRouteReplay({
@@ -96,6 +111,8 @@ export function useRouteReplay({
   const stayPauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStayPausedRef = useRef(false);
   const activeStayRangeIndexRef = useRef(-1);
+  const replayPointsRef = useRef<SortedPoint[] | null>(null);
+  const replayStayRangesRef = useRef<StayRange[] | null>(null);
 
   // Keep refs in sync
   stateRef.current = state;
@@ -104,7 +121,7 @@ export function useRouteReplay({
 
   // Sort locations by timestamp once
   const sortedPoints = useRef<SortedPoint[]>([]);
-  const stayRanges = useRef<{ start: number; end: number }[]>([]);
+  const stayRanges = useRef<StayRange[]>([]);
 
   useEffect(() => {
     sortedPoints.current = locations
@@ -124,8 +141,9 @@ export function useRouteReplay({
 
   /** Find the stay point range containing a given simulated time. */
   const getStayRangeIndex = useCallback((simulatedTime: number): number => {
-    for (let index = 0; index < stayRanges.current.length; index++) {
-      const range = stayRanges.current[index];
+    const ranges = replayStayRangesRef.current ?? stayRanges.current;
+    for (let index = 0; index < ranges.length; index++) {
+      const range = ranges[index];
       if (simulatedTime >= range.start && simulatedTime <= range.end) {
         return index;
       }
@@ -134,7 +152,8 @@ export function useRouteReplay({
   }, []);
 
   const updatePosition = useCallback((prog: number) => {
-    const result = getPositionAtProgress(sortedPoints.current, prog);
+    const points = replayPointsRef.current ?? sortedPoints.current;
+    const result = getPositionAtProgress(points, prog);
     if (result) {
       setCurrentCoord(result.coord);
       setCurrentTimestamp(result.timestamp);
@@ -147,7 +166,7 @@ export function useRouteReplay({
     (now: number) => {
       if (stateRef.current !== "playing" || isStayPausedRef.current) return;
 
-      const points = sortedPoints.current;
+      const points = replayPointsRef.current ?? sortedPoints.current;
       if (points.length < 2) return;
 
       const totalDuration = points[points.length - 1].time - points[0].time;
@@ -184,9 +203,19 @@ export function useRouteReplay({
         activeStayRangeIndexRef.current = stayRangeIndex;
         isStayPausedRef.current = true;
         const pauseDuration = 1500 / speedRef.current;
+        const ranges = replayStayRangesRef.current ?? stayRanges.current;
+        const resumeProgress = getProgressAtTime(points, ranges[stayRangeIndex].end);
         stayPauseTimeoutRef.current = setTimeout(() => {
           isStayPausedRef.current = false;
           if (stateRef.current === "playing") {
+            // A stay is represented by a short, intentional pause. Do not then
+            // spend its full real-world duration replaying stationary GPS noise.
+            updatePosition(Math.max(progressRef.current, resumeProgress));
+            if (progressRef.current >= 1) {
+              stateRef.current = "idle";
+              setState("idle");
+              return;
+            }
             lastFrameTimeRef.current = performance.now();
             rafRef.current = requestAnimationFrame(animationLoop);
           }
@@ -205,6 +234,10 @@ export function useRouteReplay({
     // If we were idle, start from 0
     if (stateRef.current === "idle") {
       activeStayRangeIndexRef.current = -1;
+      // Keep a stable snapshot for this run so today's one-minute polling does
+      // not move the endpoint or reset an in-flight replay.
+      replayPointsRef.current = [...sortedPoints.current];
+      replayStayRangesRef.current = [...stayRanges.current];
       updatePosition(0);
     }
 
@@ -224,6 +257,7 @@ export function useRouteReplay({
       stayPauseTimeoutRef.current = null;
     }
     isStayPausedRef.current = false;
+    activeStayRangeIndexRef.current = -1;
   }, []);
 
   const stop = useCallback(() => {
@@ -236,6 +270,8 @@ export function useRouteReplay({
     }
     isStayPausedRef.current = false;
     activeStayRangeIndexRef.current = -1;
+    replayPointsRef.current = null;
+    replayStayRangesRef.current = null;
     progressRef.current = 0;
     setProgress(0);
     setCurrentCoord(null);
@@ -278,12 +314,6 @@ export function useRouteReplay({
       }
     };
   }, []);
-
-  // Reset when locations change
-  // biome-ignore lint/correctness/useExhaustiveDependencies: replay must reset when fresh location data arrives
-  useEffect(() => {
-    stop();
-  }, [locations, stop]);
 
   return {
     state,

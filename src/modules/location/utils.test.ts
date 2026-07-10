@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LocationData, StayPointData } from "./hooks";
-import { segmentLocations } from "./utils";
+import { clipMovingSegmentsAtTime, segmentLocations } from "./utils";
 
 function location(minute: number, lon: number): LocationData {
   return {
@@ -96,5 +96,52 @@ describe("segmentLocations", () => {
         [127.003, 37.5],
       ],
     });
+  });
+});
+
+describe("clipMovingSegmentsAtTime", () => {
+  it("starts with an empty route and restores the full route at the end", () => {
+    const segments = segmentLocations([location(0, 127), location(10, 128)], []);
+
+    expect(
+      clipMovingSegmentsAtTime(segments, new Date("2026-07-09T23:59:59.000Z").getTime()).lines
+    ).toEqual([]);
+    expect(
+      clipMovingSegmentsAtTime(segments, new Date("2026-07-10T00:10:00.000Z").getTime()).lines
+    ).toEqual([
+      [
+        [127, 37.5],
+        [128, 37.5],
+      ],
+    ]);
+  });
+
+  it("draws the route only through the interpolated replay position", () => {
+    const segments = segmentLocations([location(0, 127), location(10, 128), location(20, 129)], []);
+
+    expect(
+      clipMovingSegmentsAtTime(segments, new Date("2026-07-10T00:05:00.000Z").getTime())
+    ).toEqual({
+      lines: [
+        [
+          [127, 37.5],
+          [127.5, 37.5],
+        ],
+      ],
+      segmentIndices: [0],
+    });
+  });
+
+  it("does not include future moving segments across a stay", () => {
+    const segments = segmentLocations(
+      [location(0, 126), location(10, 127), location(20, 127.1), location(30, 128)],
+      [stay(10, 20)]
+    );
+
+    const clipped = clipMovingSegmentsAtTime(
+      segments,
+      new Date("2026-07-10T00:15:00.000Z").getTime()
+    );
+    expect(clipped.segmentIndices).toEqual([0]);
   });
 });

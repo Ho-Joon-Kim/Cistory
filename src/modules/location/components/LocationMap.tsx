@@ -378,6 +378,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
               hoveredSegmentIndex={hoveredSegmentIndex}
               speedColorMode={layerVisibility.speedColors}
               replayProgress={replayMode ? replay.progress : undefined}
+              replayTimestamp={replayMode ? replay.currentTimestamp : undefined}
             />
           )}
           {/* Route replay animated marker */}

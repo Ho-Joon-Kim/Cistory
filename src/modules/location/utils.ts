@@ -27,6 +27,7 @@ export function createGeoCircle(
 export interface MovingSegment {
   type: "moving";
   coords: [number, number][]; // [lon, lat]
+  timestamps: string[];
   startTime: string;
   endTime: string;
 }
@@ -73,6 +74,7 @@ function appendMovingSegment(segments: TimelineSegment[], points: LocationData[]
   segments.push({
     type: "moving",
     coords: points.map((point) => [point.lon, point.lat]),
+    timestamps: points.map((point) => point.timestamp),
     startTime: points[0].timestamp,
     endTime: points[points.length - 1].timestamp,
   });
@@ -95,6 +97,7 @@ export function segmentLocations(
       {
         type: "moving",
         coords: locations.map((l) => [l.lon, l.lat]),
+        timestamps: locations.map((location) => location.timestamp),
         startTime: locations[0].timestamp,
         endTime: locations[locations.length - 1].timestamp,
       },
@@ -140,6 +143,56 @@ export function segmentLocations(
   appendMovingSegment(segments, departureAnchor ? [departureAnchor, ...remaining] : remaining);
 
   return segments;
+}
+
+interface ClippedMovingSegments {
+  lines: [number, number][][];
+  segmentIndices: number[];
+}
+
+/** Return only the route geometry reached at the supplied replay time. */
+export function clipMovingSegmentsAtTime(
+  segments: TimelineSegment[],
+  replayTime: number
+): ClippedMovingSegments {
+  const lines: [number, number][][] = [];
+  const segmentIndices: number[] = [];
+
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+    const segment = segments[segmentIndex];
+    if (segment.type !== "moving" || segment.coords.length < 2) continue;
+
+    const startTime = new Date(segment.startTime).getTime();
+    const endTime = new Date(segment.endTime).getTime();
+    if (replayTime < startTime) break;
+
+    if (replayTime >= endTime) {
+      lines.push(segment.coords);
+      segmentIndices.push(segmentIndex);
+      continue;
+    }
+
+    const pointTimes = segment.timestamps.map((timestamp) => new Date(timestamp).getTime());
+    const upperIndex = pointTimes.findIndex((time) => time > replayTime);
+    if (upperIndex <= 0) break;
+
+    const lowerIndex = upperIndex - 1;
+    const lowerTime = pointTimes[lowerIndex];
+    const upperTime = pointTimes[upperIndex];
+    const ratio = upperTime > lowerTime ? (replayTime - lowerTime) / (upperTime - lowerTime) : 0;
+    const lowerCoord = segment.coords[lowerIndex];
+    const upperCoord = segment.coords[upperIndex];
+    const interpolated: [number, number] = [
+      lowerCoord[0] + (upperCoord[0] - lowerCoord[0]) * ratio,
+      lowerCoord[1] + (upperCoord[1] - lowerCoord[1]) * ratio,
+    ];
+
+    lines.push([...segment.coords.slice(0, upperIndex), interpolated]);
+    segmentIndices.push(segmentIndex);
+    break;
+  }
+
+  return { lines, segmentIndices };
 }
 
 /** Find the segment index matching a given stay point by startTime + coordinates */
