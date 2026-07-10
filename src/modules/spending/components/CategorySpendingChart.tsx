@@ -74,7 +74,7 @@ export function CategorySpendingChart({ data }: CategorySpendingChartProps) {
         <strong className="text-sm tabular-nums">총 {formatCompactWon(total)}</strong>
       </div>
 
-      <div className="h-5 overflow-hidden rounded-md bg-muted">
+      <div className="relative z-0 h-5 rounded-md bg-muted">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
@@ -86,6 +86,7 @@ export function CategorySpendingChart({ data }: CategorySpendingChartProps) {
             <YAxis type="category" hide />
             <Tooltip
               cursor={false}
+              wrapperStyle={{ zIndex: 50 }}
               contentStyle={{
                 backgroundColor: "hsl(var(--popover))",
                 border: "1px solid hsl(var(--border))",

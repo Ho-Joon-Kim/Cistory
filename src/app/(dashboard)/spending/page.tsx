@@ -445,8 +445,8 @@ export default function SpendingPage() {
         </div>
 
         {summary.categoryBreakdown.length > 0 && (
-          <Card className="mb-5">
-            <CardContent className="px-4 py-4">
+          <Card className="mb-5 gap-0 py-0">
+            <CardContent className="px-4 py-3">
               <div className="mb-1 flex items-baseline justify-between gap-3">
                 <p className="text-sm font-semibold">카테고리별 지출</p>
                 <p className="text-[11px] text-muted-foreground">선택 기간 기준</p>
