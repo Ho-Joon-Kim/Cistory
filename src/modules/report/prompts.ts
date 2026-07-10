@@ -5,6 +5,7 @@
  */
 
 import type {
+  BodySectionData,
   ContextSwitchingMetrics,
   EnrichedCodingSectionData,
   MonthlyReportData,
@@ -27,6 +28,32 @@ function formatMeters(meters: number): string {
 }
 
 /**
+ * Low-cost body-composition block, appended only when the period actually has
+ * measurements. Change is stated as a neutral first→last delta (no good/bad
+ * framing) so the narrative doesn't editorialize weight.
+ */
+function buildBodyBlock(body: BodySectionData): string {
+  if (body.measurementCount === 0) return "";
+  const one = (v: number | null, unit: string) => (v == null ? "-" : `${v.toFixed(1)}${unit}`);
+  const signed = (v: number | null, unit: string) =>
+    v == null ? "-" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}${unit}`;
+
+  let block = "\n\n### 체성분 (Withings)";
+  block += `\n- 측정 횟수: ${body.measurementCount}회`;
+  block += `\n- 평균 체중: ${one(body.avgWeightKg, "kg")} (기간 변화 ${signed(body.weightChangeKg, "kg")})`;
+  if (body.avgFatRatioPct != null) {
+    block += `\n- 평균 체지방률: ${one(body.avgFatRatioPct, "%")} (변화 ${signed(body.fatRatioChangePct, "%")})`;
+  }
+  if (body.avgMuscleMassKg != null) {
+    block += `\n- 평균 근육량: ${one(body.avgMuscleMassKg, "kg")} (변화 ${signed(body.muscleChangeKg, "kg")})`;
+  }
+  if (body.weightMinKg != null && body.weightMaxKg != null) {
+    block += `\n- 체중 범위: ${one(body.weightMinKg, "kg")} ~ ${one(body.weightMaxKg, "kg")}`;
+  }
+  return block;
+}
+
+/**
  * 월간 보고서 AI 내러티브 프롬프트
  */
 export function buildMonthlyNarrativePrompt(
@@ -40,6 +67,7 @@ export function buildMonthlyNarrativePrompt(
     contextSwitching?: ContextSwitchingMetrics;
     placeProductivity?: PlaceProductivity[];
     routinePatterns?: RoutinePattern[];
+    body?: BodySectionData;
   }
 ): string {
   const [year, month] = yearMonth.split("-");
@@ -174,6 +202,10 @@ export function buildMonthlyNarrativePrompt(
     }
   }
 
+  if (enriched?.body) {
+    prompt += buildBodyBlock(enriched.body);
+  }
+
   prompt += `
 
 ## 작성 규칙
@@ -188,6 +220,7 @@ export function buildMonthlyNarrativePrompt(
 9. 장소별 생산성 차이가 있으면 공간과 생산성의 관계 인사이트
 10. 워라밸 점수가 낮으면(60 이하) 적절한 휴식 격려, 높으면 칭찬
 11. 요일별 패턴이 있으면 루틴의 리듬감 언급
+12. 체성분 데이터가 있으면 건강 리듬을 담백하게 언급 (체중 증감에 좋다/나쁘다 가치판단 금지)
 
 회고문만 출력하세요.`;
 
@@ -208,6 +241,7 @@ export function buildYearlyNarrativePrompt(
     contextSwitching?: ContextSwitchingMetrics;
     placeProductivity?: PlaceProductivity[];
     routinePatterns?: RoutinePattern[];
+    body?: BodySectionData;
   }
 ): string {
   const topProjects = data.projectBreakdown.slice(0, 8);
@@ -320,6 +354,10 @@ export function buildYearlyNarrativePrompt(
     }
   }
 
+  if (enriched?.body) {
+    prompt += buildBodyBlock(enriched.body);
+  }
+
   prompt += `
 
 ## 작성 규칙
@@ -333,6 +371,7 @@ export function buildYearlyNarrativePrompt(
 8. 딥워크/집중도가 있으면 흐름과 몰입 경험을 언급
 9. 워라밸 점수가 낮으면 적절한 휴식 격려
 10. 장소별 생산성 차이가 있으면 공간과 작업의 관계 인사이트
+11. 체성분 데이터가 있으면 한 해의 건강 리듬을 담백하게 언급 (체중 증감에 좋다/나쁘다 가치판단 금지)
 
 회고문만 출력하세요.`;
 

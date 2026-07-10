@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { ActivityHeatmap } from "@/modules/report/components/ActivityHeatmap";
 import { AiCodeRatio } from "@/modules/report/components/AiCodeRatio";
+import { BodyReportSection } from "@/modules/report/components/BodyReportSection";
 import { CategoryBreakdownChart } from "@/modules/report/components/CategoryBreakdownChart";
 import { ContextSwitchingCard } from "@/modules/report/components/ContextSwitchingCard";
 import { DeepWorkCard } from "@/modules/report/components/DeepWorkCard";
@@ -304,6 +305,9 @@ function ReportContent() {
                 period={period}
                 reportType={reportType}
               />
+
+              {/* Body Section (Withings) */}
+              <BodyReportSection isLoading={report.body.isLoading} bodyData={report.body.data} />
 
               {/* Scratch Map (yearly only) */}
               {reportType === "yearly" && scratchMap.data && scratchMap.data.regions.length > 0 && (

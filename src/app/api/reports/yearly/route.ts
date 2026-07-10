@@ -11,10 +11,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { createReportService } from "@/modules/report/service";
 import { logger } from "@/lib/logger";
+import { createReportService } from "@/modules/report/service";
 
-const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross"]);
+const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross", "body"]);
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const section = request.nextUrl.searchParams.get("section");
     if (section && !VALID_SECTIONS.has(section)) {
       return NextResponse.json(
-        { error: "유효하지 않은 section 파라미터입니다 (commits, coding, location, cross)" },
+        { error: "유효하지 않은 section 파라미터입니다 (commits, coding, location, cross, body)" },
         { status: 400 }
       );
     }
@@ -54,6 +54,10 @@ export async function GET(request: NextRequest) {
     if (section === "cross") {
       // Cross analysis uses monthly functions internally — not supported for yearly
       return NextResponse.json({ data: null });
+    }
+    if (section === "body") {
+      const data = await service.aggregateYearlyBody(user.id, year);
+      return NextResponse.json({ data });
     }
 
     // No section → full aggregation (backward compat)
@@ -91,8 +95,12 @@ export async function POST(request: NextRequest) {
     // Enriched yearly aggregation is not yet implemented; narrative is generated
     // from base yearly data only. Previously this path passed `year` (YYYY) to
     // monthly-enriched helpers which expect `yearMonth` (YYYY-MM), producing
-    // Invalid Date and corrupted enriched fields.
-    const narrative = await service.generateYearlyNarrative(user.id, year, data);
+    // Invalid Date and corrupted enriched fields. Body is the exception — it has
+    // a real yearly aggregation, so thread it in for the health block.
+    const bodyData = await service.aggregateYearlyBody(user.id, year);
+    const narrative = await service.generateYearlyNarrative(user.id, year, data, {
+      body: bodyData,
+    });
 
     return NextResponse.json({ narrative });
   } catch (error) {

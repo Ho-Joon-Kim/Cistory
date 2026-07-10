@@ -57,6 +57,24 @@ export interface LocationSectionData {
   }[];
 }
 
+export interface BodySectionData {
+  measurementCount: number;
+  // Period averages
+  avgWeightKg: number | null;
+  avgFatRatioPct: number | null;
+  avgMuscleMassKg: number | null;
+  avgVisceralFat: number | null;
+  // Period change (first ↔ last measurement in the window)
+  weightChangeKg: number | null;
+  fatRatioChangePct: number | null;
+  muscleChangeKg: number | null;
+  // Weight range
+  weightMinKg: number | null;
+  weightMaxKg: number | null;
+  // One point per KST calendar day (last weight of that day), ascending.
+  weightSeries: { date: string; weight: number }[];
+}
+
 // Yearly variants with extra fields
 export interface YearlyCommitsSectionData extends CommitsSectionData {
   projectTimeline: {
@@ -209,6 +227,9 @@ export interface MonthlyReportData {
     visitedCountries: string[];
     isOverseas: boolean;
   }[];
+
+  // 체성분 (Withings)
+  body?: BodySectionData;
 
   // 전월 대비
   prevMonth?: {

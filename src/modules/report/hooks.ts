@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { YearComparisonData } from "./comparison-service";
 import type {
+  BodySectionData,
   CodingSectionData,
   CommitsSectionData,
   CrossAnalysisData,
@@ -28,6 +29,7 @@ export interface UseReportReturn<TCommits, TCoding, TLocation> {
   enrichedCoding: SectionState<EnrichedCodingSectionData>;
   enrichedLocation: SectionState<EnrichedLocationSectionData>;
   crossAnalysis: SectionState<CrossAnalysisData>;
+  body: SectionState<BodySectionData>;
   isLoading: boolean;
   hasAnyData: boolean;
   narrative: string | null;
@@ -101,6 +103,7 @@ export function useMonthlyReport(
   const crossAnalysis = useSectionFetch<CrossAnalysisData>(
     baseUrl ? `${baseUrl}&section=cross` : null
   );
+  const body = useSectionFetch<BodySectionData>(baseUrl ? `${baseUrl}&section=body` : null);
 
   const isLoading = commits.isLoading || coding.isLoading || location.isLoading;
   const hasAnyData = !!(commits.data || coding.data || location.data);
@@ -147,6 +150,7 @@ export function useMonthlyReport(
     enrichedCoding,
     enrichedLocation,
     crossAnalysis,
+    body,
     isLoading,
     hasAnyData,
     narrative,
@@ -184,6 +188,7 @@ export function useYearlyReport(
   const crossAnalysis = useSectionFetch<CrossAnalysisData>(
     baseUrl ? `${baseUrl}&section=cross` : null
   );
+  const body = useSectionFetch<BodySectionData>(baseUrl ? `${baseUrl}&section=body` : null);
 
   const isLoading = commits.isLoading || coding.isLoading || location.isLoading;
   const hasAnyData = !!(commits.data || coding.data || location.data);
@@ -230,6 +235,7 @@ export function useYearlyReport(
     enrichedCoding,
     enrichedLocation,
     crossAnalysis,
+    body,
     isLoading,
     hasAnyData,
     narrative,
