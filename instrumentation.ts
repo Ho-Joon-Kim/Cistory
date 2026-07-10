@@ -11,17 +11,6 @@ import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    // Prefer IPv4 for all server-side DNS resolution. Some external hosts — e.g.
-    // Withings' wbsapi.withings.net — publish both A and AAAA records but are only
-    // reachable over IPv4 from our network; undici's default connector picks IPv6
-    // and stalls until ETIMEDOUT on the dead route (surfacing as a bare
-    // `TypeError: fetch failed` in the OAuth token exchange). This works at the
-    // node:dns layer, below undici, so it applies to every fetch() regardless of
-    // which undici instance or dispatcher Next uses — unlike setGlobalDispatcher,
-    // which Next's route runtime does not pick up. No-op where IPv6 works.
-    const { setDefaultResultOrder } = await import("node:dns");
-    setDefaultResultOrder("ipv4first");
-
     await import("./sentry.server.config");
 
     // Cron runs in a DEDICATED container, separate from the web container.
