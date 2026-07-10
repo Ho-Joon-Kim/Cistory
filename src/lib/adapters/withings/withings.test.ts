@@ -69,6 +69,14 @@ describe("parseMeasureGroups", () => {
     ];
     expect(parseMeasureGroups(groups)).toHaveLength(0);
   });
+
+  it("rounds value × 10^unit to real precision, dropping IEEE-754 noise", () => {
+    // 184 × 10^-1 is 18.400000000000002 in raw float; must persist as exactly 18.4.
+    const [g] = parseMeasureGroups([
+      { grpid: 5, date: 1, category: 1, measures: [{ value: 184, type: 6, unit: -1 }] },
+    ]);
+    expect(g.metrics.fatRatioPct).toBe(18.4);
+  });
 });
 
 describe("WithingsAdapter.buildAuthorizeUrl", () => {
@@ -192,6 +200,67 @@ describe("WithingsAdapter.getMeasurements", () => {
 
     const secondBody = fetchMock.mock.calls[1][1].body as string;
     expect(secondBody).toContain("offset=2");
+  });
+
+  it("stops paginating when the offset stops advancing (no infinite loop)", async () => {
+    // Every page reports more:1 with the SAME offset — a malformed/buggy cursor.
+    // The adapter must require forward progress and terminate instead of spinning.
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        status: 0,
+        body: {
+          updatetime: 100,
+          more: 1,
+          offset: 2,
+          measuregrps: [
+            { grpid: 1, date: 1, category: 1, measures: [{ value: 70000, type: 1, unit: -3 }] },
+          ],
+        },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
+    const { groups } = await adapter.getMeasurements({ accessToken: "acc", startdate: 0 });
+
+    // Page 1 (offset 0 → 2) advances, page 2 (offset 2 → 2) does not → stop.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(groups).toHaveLength(2);
+  });
+
+  it("retries a 601 rate-limit response and then succeeds", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ status: 601 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ status: 0, body: { updatetime: 7, more: 0, offset: 0, measuregrps: [] } })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
+    const promise = adapter.getMeasurements({ accessToken: "acc", lastupdate: 0 });
+    await vi.runAllTimersAsync();
+    const { updatetime } = await promise;
+
+    expect(updatetime).toBe(7);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("throws after exhausting retries on persistent 5xx", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 503));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
+    const promise = adapter.getMeasurements({ accessToken: "acc", lastupdate: 0 });
+    const expectation = expect(promise).rejects.toThrow();
+    await vi.runAllTimersAsync();
+    await expectation;
+
+    expect(fetchMock).toHaveBeenCalledTimes(5); // MAX_RETRIES
+    vi.useRealTimers();
   });
 });
 

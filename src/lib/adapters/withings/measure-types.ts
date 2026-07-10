@@ -18,8 +18,10 @@ export const WITHINGS_MEASURE = {
   METABOLIC_AGE: 227,
 } as const;
 
-/** Measure type code → body_measurements typed column. */
-export const MEASURE_TYPE_TO_COLUMN: Record<number, BodyMetricColumn> = {
+/** Measure type code → body_measurements typed column. Partial: only Body Smart
+ *  codes are mapped, so `MEASURE_TYPE_TO_COLUMN[type]` is legitimately undefined
+ *  for other measure types (the parse loop skips those). */
+export const MEASURE_TYPE_TO_COLUMN: Partial<Record<number, BodyMetricColumn>> = {
   [WITHINGS_MEASURE.WEIGHT]: "weightKg",
   [WITHINGS_MEASURE.FAT_MASS]: "fatMassKg",
   [WITHINGS_MEASURE.FAT_FREE_MASS]: "fatFreeMassKg",
@@ -46,7 +48,12 @@ export function parseMeasureGroup(grp: WithingsMeasureGroup): ParsedMeasureGroup
   for (const m of grp.measures ?? []) {
     const col = MEASURE_TYPE_TO_COLUMN[m.type];
     if (col === undefined) continue;
-    metrics[col] = m.value * 10 ** m.unit;
+    // value × 10^unit is exact in intent but noisy in IEEE-754 (184 × 10^-1 =
+    // 18.400000000000002). The real precision is exactly max(0, -unit) decimals,
+    // so round there — otherwise the noise is persisted verbatim into the
+    // unbounded numeric columns.
+    const decimals = m.unit < 0 ? Math.min(-m.unit, 12) : 0;
+    metrics[col] = Number((m.value * 10 ** m.unit).toFixed(decimals));
   }
   return {
     groupId: grp.grpid,

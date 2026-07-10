@@ -34,7 +34,9 @@ export async function GET(request: NextRequest) {
   }
 
   // Cap token-exchange attempts per user so one account can't burn the shared
-  // Withings 120 req/min app quota by replaying the callback.
+  // Withings 120 req/min app quota by replaying the callback. The callback is a
+  // full-page redirect, so a 429 also routes back to /settings with the reason
+  // rather than a bare JSON body.
   const limit = enforceRateLimit(request, `withings-callback:${user.id}`);
   if (!limit.allowed) return fail(request, "rate_limited");
 

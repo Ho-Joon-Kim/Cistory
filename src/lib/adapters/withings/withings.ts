@@ -18,6 +18,10 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RETRIES = 5;
 // 120 req/min = 1 request / 500ms. Use 600ms for margin (see plan Open Questions).
 const DEFAULT_THROTTLE_MS = 600;
+// Safety cap on getmeas pagination. Pages hold many groups, so even a multi-year
+// history needs far fewer than this — the cap only exists so a malformed `more`
+// response can't spin the (sequential) cron forever.
+const MAX_MEASURE_PAGES = 100;
 
 // Withings status codes. status 0 = success.
 const RATE_LIMIT_STATUS = 601;
@@ -96,6 +100,7 @@ export class WithingsAdapter {
     let offset = 0;
     let updatetime = opts.lastupdate ?? 0;
     let more = false;
+    let page = 0;
 
     do {
       const params: Record<string, string> = {
@@ -115,9 +120,25 @@ export class WithingsAdapter {
       if (typeof body.updatetime === "number") updatetime = body.updatetime;
       groups.push(...parseMeasureGroups(body.measuregrps ?? []));
 
-      more = Number(body.more) === 1;
-      offset = body.offset ?? 0;
-    } while (more && offset > 0);
+      // Continue only when Withings both signals `more` (0/1 or boolean) AND
+      // advances the offset cursor. Requiring forward progress prevents an
+      // infinite loop on a non-advancing offset; treating any truthy `more`
+      // (not just === 1) avoids stopping early on an unexpected shape.
+      const nextOffset = body.offset ?? 0;
+      more = Boolean(body.more) && nextOffset > offset;
+      offset = nextOffset;
+      page++;
+    } while (more && page < MAX_MEASURE_PAGES);
+
+    if (more) {
+      // Should be unreachable for a real (solo) history — surface it if a
+      // malformed response ever pins `more` so a truncated page isn't mistaken
+      // for a complete sync.
+      logger.warn("[Withings] getmeas hit page cap; returning partial history", {
+        pages: page,
+        groups: groups.length,
+      });
+    }
 
     return { groups, updatetime };
   }

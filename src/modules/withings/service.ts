@@ -240,7 +240,18 @@ export class WithingsSyncService {
       // and retry once before giving up.
       if (err instanceof WithingsAuthError) {
         token = await this.getValidToken(connection, token);
-        return adapter.getMeasurements({ accessToken: token, ...fetchOpts });
+        try {
+          return await adapter.getMeasurements({ accessToken: token, ...fetchOpts });
+        } catch (retryErr) {
+          // A brand-new token still failing auth is a confirmed re-link
+          // situation (e.g. scope revoked Withings-side), not transient. Promote
+          // so the settings UI shows the "다시 연동" prompt instead of silently
+          // burning a refresh-token rotation every cron run.
+          if (retryErr instanceof WithingsAuthError) {
+            await this.markNeedsReauth(connection.userId, retryErr.message);
+          }
+          throw retryErr;
+        }
       }
       throw err;
     }

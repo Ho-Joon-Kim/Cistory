@@ -42,6 +42,18 @@ describe("aggregateBody", () => {
     expect(r.weightSeries).toHaveLength(3);
   });
 
+  it("leaves previous/delta null for a single measurement (min=max=latest)", () => {
+    const r = aggregateBody([pt("2026-03-01", "2026-03-01T00:00:00Z", { weightKg: 70 })]);
+
+    expect(r.measurementCount).toBe(1);
+    expect(r.weight.latest).toBe(70);
+    expect(r.weight.previous).toBeNull();
+    expect(r.weight.delta).toBeNull();
+    expect(r.weight.min).toBe(70);
+    expect(r.weight.max).toBe(70);
+    expect(r.weightSeries).toEqual([{ date: "2026-03-01", weight: 70 }]);
+  });
+
   it("returns null summaries and an empty series when there are no measurements", () => {
     const r = aggregateBody([]);
 

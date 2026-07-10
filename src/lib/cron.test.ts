@@ -16,6 +16,7 @@ const m = vi.hoisted(() => ({
   hasActiveAccounts: vi.fn(),
   syncUserAccounts: vi.fn(),
   backfillPendingAccounts: vi.fn(),
+  withingsSyncUser: vi.fn(),
   maybeRefreshDataUsage: vi.fn(),
   getGitHubToken: vi.fn(),
   // location pipeline collaborators
@@ -69,6 +70,9 @@ vi.mock("@/modules/portfolio/service", () => ({
     backfillPendingAccounts: m.backfillPendingAccounts,
   })),
 }));
+vi.mock("@/modules/withings/service", () => ({
+  createWithingsSyncService: vi.fn(() => ({ syncUser: m.withingsSyncUser })),
+}));
 vi.mock("@/modules/subway/service", () => ({
   refreshAllSubwaySystems: vi.fn(),
   seedSubwaySystemsIfEmpty: vi.fn(),
@@ -121,6 +125,7 @@ beforeEach(() => {
   m.hasActiveAccounts.mockResolvedValue(false);
   m.syncUserAccounts.mockResolvedValue([]);
   m.backfillPendingAccounts.mockResolvedValue([]);
+  m.withingsSyncUser.mockResolvedValue({ userId: "u1", measurementsUpserted: 0, skipped: true });
   m.runAnomalyDetectionForDay.mockResolvedValue({ total: 0 });
   m.detectAndPersistVisits.mockResolvedValue([]);
   m.detectAndPersistTracks.mockResolvedValue({ trackCount: 0, segmentCount: 0 });
@@ -168,6 +173,17 @@ describe("syncAllUsers", () => {
       skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
     });
     expect(m.backfillPendingAccounts).toHaveBeenCalledWith("u1");
+  });
+
+  it("syncs Withings body data for each user behind the 24h gate", async () => {
+    m.dbUsers = [syncUser()];
+    await syncAllUsers();
+
+    // syncUser self-skips when there's no active connection, so the cron calls it
+    // unconditionally with the 24h gate rather than pre-checking.
+    expect(m.withingsSyncUser).toHaveBeenCalledWith("u1", {
+      skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
+    });
   });
 
   it("exits without syncing when no users have a GitHub token", async () => {
