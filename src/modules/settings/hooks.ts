@@ -268,6 +268,35 @@ export function useTossKey(hasKey: boolean) {
   };
 }
 
+export function useWithings(hasConnection: boolean) {
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [hasWithingsConnection, setHasWithingsConnection] = useState(hasConnection);
+  const prevHasConnection = useRef(hasConnection);
+
+  useEffect(() => {
+    if (prevHasConnection.current !== hasConnection) {
+      setHasWithingsConnection(hasConnection);
+      prevHasConnection.current = hasConnection;
+    }
+  }, [hasConnection]);
+
+  const disconnect = useCallback(async () => {
+    setIsDisconnecting(true);
+    try {
+      const response = await fetch("/api/withings", { method: "DELETE" });
+      if (!response.ok) throw new Error("Failed to disconnect");
+      setHasWithingsConnection(false);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsDisconnecting(false);
+    }
+  }, []);
+
+  return { hasWithingsConnection, isDisconnecting, disconnect };
+}
+
 interface WakaTimeUser {
   displayName: string;
   email: string;
