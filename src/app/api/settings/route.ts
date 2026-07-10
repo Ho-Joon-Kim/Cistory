@@ -28,35 +28,37 @@ const SettingsUpdateBody = z
  */
 async function readUserSettings(userId: string): Promise<UserSettings> {
   const db = getDb();
-  const userResult = await db
-    .select({
-      theme: users.theme,
-      syncIntervalHours: users.syncIntervalHours,
-      lastSyncedAt: users.lastSyncedAt,
-      ownTracksApiKey: users.ownTracksApiKey,
-      tossNotificationApiKey: users.tossNotificationApiKey,
-      tossMyName: users.tossMyName,
-      wakatimeApiKey: users.wakatimeApiKey,
-      lastLat: users.lastLat,
-      lastLon: users.lastLon,
-    })
-    .from(users)
-    .where(eq(users.id, userId));
+  // Both selects key only on userId and are independent — run them together.
+  const [userResult, withingsResult] = await Promise.all([
+    db
+      .select({
+        theme: users.theme,
+        syncIntervalHours: users.syncIntervalHours,
+        lastSyncedAt: users.lastSyncedAt,
+        ownTracksApiKey: users.ownTracksApiKey,
+        tossNotificationApiKey: users.tossNotificationApiKey,
+        tossMyName: users.tossMyName,
+        wakatimeApiKey: users.wakatimeApiKey,
+        lastLat: users.lastLat,
+        lastLon: users.lastLon,
+      })
+      .from(users)
+      .where(eq(users.id, userId)),
+    db
+      .select({
+        withingsUserId: withingsConnections.withingsUserId,
+        status: withingsConnections.status,
+        lastSyncedAt: withingsConnections.lastSyncedAt,
+      })
+      .from(withingsConnections)
+      .where(eq(withingsConnections.userId, userId)),
+  ]);
 
   if (userResult.length === 0) {
     return DEFAULT_USER_SETTINGS;
   }
 
-  const withingsResult = await db
-    .select({
-      withingsUserId: withingsConnections.withingsUserId,
-      status: withingsConnections.status,
-      lastSyncedAt: withingsConnections.lastSyncedAt,
-    })
-    .from(withingsConnections)
-    .where(eq(withingsConnections.userId, userId));
   const withings = withingsResult[0];
-
   const row = userResult[0];
   return {
     theme: (row.theme as UserSettings["theme"]) || DEFAULT_USER_SETTINGS.theme,

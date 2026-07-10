@@ -20,7 +20,7 @@ import {
   savedPlaces,
   trips,
 } from "@/db/schema";
-import { localDaySql } from "@/db/sql";
+import { localDaySql, numericToNumber } from "@/db/sql";
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { KOREA_BOUNDS } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
@@ -201,14 +201,13 @@ export class ReportService {
       )
       .orderBy(bodyMeasurements.measuredAt);
 
-    const num = (v: string | null): number | null => (v == null ? null : Number(v));
     return aggregateReportBody(
       rows.map((r) => ({
         day: r.day,
-        weightKg: num(r.weightKg),
-        fatRatioPct: num(r.fatRatioPct),
-        muscleMassKg: num(r.muscleMassKg),
-        visceralFat: num(r.visceralFat),
+        weightKg: numericToNumber(r.weightKg),
+        fatRatioPct: numericToNumber(r.fatRatioPct),
+        muscleMassKg: numericToNumber(r.muscleMassKg),
+        visceralFat: numericToNumber(r.visceralFat),
       }))
     );
   }

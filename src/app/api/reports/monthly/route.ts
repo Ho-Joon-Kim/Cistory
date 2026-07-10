@@ -104,12 +104,12 @@ export async function POST(request: NextRequest) {
     // Aggregate data + enriched insights, then generate narrative
     const data = await service.aggregateMonthlyData(user.id, yearMonth);
 
-    // Collect enriched data for deeper narrative
-    const [enrichedCommits, enrichedCoding, crossAnalysis, bodyData] = await Promise.all([
+    // Collect enriched data for deeper narrative. Body is already aggregated
+    // inside `data` (aggregateMonthlyData), so reuse it rather than re-querying.
+    const [enrichedCommits, enrichedCoding, crossAnalysis] = await Promise.all([
       service.aggregateEnrichedMonthlyCommits(user.id, yearMonth),
       service.aggregateEnrichedMonthlyCoding(user.id, yearMonth),
       service.aggregateCrossAnalysis(user.id, yearMonth),
-      service.aggregateMonthlyBody(user.id, yearMonth),
     ]);
 
     const narrative = await service.generateMonthlyNarrative(user.id, yearMonth, data, {
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
       contextSwitching: enrichedCoding.contextSwitching,
       placeProductivity: crossAnalysis.placeProductivity,
       routinePatterns: crossAnalysis.routinePatterns,
-      body: bodyData,
+      body: data.body,
     });
 
     return NextResponse.json({ narrative });

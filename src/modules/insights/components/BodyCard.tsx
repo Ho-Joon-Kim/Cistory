@@ -1,6 +1,13 @@
 "use client";
 
-import { formatKcal, formatKg, formatPct, formatSignedDelta } from "@/lib/body-format";
+import {
+  computeWeightTrendGeometry,
+  formatIndex,
+  formatKcal,
+  formatKg,
+  formatPct,
+  formatSignedDelta,
+} from "@/lib/body-format";
 import { formatRelativeTime } from "@/lib/utils";
 import type { BodyResult } from "../service";
 import { InsightCard, InsightCardEmpty } from "./primitives/InsightCard";
@@ -76,24 +83,7 @@ function WeightTrend({ series }: { series: { date: string; weight: number }[] })
 
   const W = 300;
   const H = 80;
-  const pad = 6;
-  const weights = series.map((s) => s.weight);
-  const min = Math.min(...weights);
-  const max = Math.max(...weights);
-  const span = max - min || 1;
-  const n = series.length;
-  const x = (i: number) => pad + (i / (n - 1)) * (W - 2 * pad);
-  const y = (w: number) => pad + (1 - (w - min) / span) * (H - 2 * pad);
-
-  // Exponential weighted moving average (Withings "Trend Weight").
-  const alpha = 0.25;
-  const trend: number[] = [];
-  for (let i = 0; i < n; i++) {
-    trend.push(i === 0 ? weights[0] : alpha * weights[i] + (1 - alpha) * trend[i - 1]);
-  }
-  const trendPath = trend
-    .map((w, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(w).toFixed(1)}`)
-    .join(" ");
+  const { points, trendPath } = computeWeightTrendGeometry(series, { width: W, height: H, pad: 6 });
 
   return (
     <svg
@@ -106,7 +96,13 @@ function WeightTrend({ series }: { series: { date: string; weight: number }[] })
     >
       <title>체중 추이</title>
       {series.map((s, i) => (
-        <circle key={s.date} cx={x(i)} cy={y(s.weight)} r={1.5} fill="hsl(var(--ink-mute))" />
+        <circle
+          key={s.date}
+          cx={points[i].x}
+          cy={points[i].y}
+          r={1.5}
+          fill="hsl(var(--ink-mute))"
+        />
       ))}
       <path
         d={trendPath}
@@ -202,7 +198,7 @@ export function BodyCard({ data, isLoading }: BodyCardProps) {
         />
         <Tile
           label="내장지방"
-          value={visceralFat.latest == null ? "—" : visceralFat.latest.toFixed(1)}
+          value={formatIndex(visceralFat.latest, 1)}
           delta={visceralFat.delta}
           unit=""
           caption="정상 1–12"

@@ -2,7 +2,13 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatKg, formatPct, formatSignedDelta } from "@/lib/body-format";
+import {
+  computeWeightTrendGeometry,
+  formatIndex,
+  formatKg,
+  formatPct,
+  formatSignedDelta,
+} from "@/lib/body-format";
 import type { BodySectionData } from "../types";
 
 interface BodyReportSectionProps {
@@ -31,23 +37,7 @@ function WeightTrend({ series }: { series: { date: string; weight: number }[] })
 
   const W = 320;
   const H = 96;
-  const pad = 8;
-  const weights = series.map((s) => s.weight);
-  const min = Math.min(...weights);
-  const max = Math.max(...weights);
-  const span = max - min || 1;
-  const n = series.length;
-  const x = (i: number) => pad + (i / (n - 1)) * (W - 2 * pad);
-  const y = (w: number) => pad + (1 - (w - min) / span) * (H - 2 * pad);
-
-  const alpha = 0.25;
-  const trend: number[] = [];
-  for (let i = 0; i < n; i++) {
-    trend.push(i === 0 ? weights[0] : alpha * weights[i] + (1 - alpha) * trend[i - 1]);
-  }
-  const trendPath = trend
-    .map((w, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(w).toFixed(1)}`)
-    .join(" ");
+  const { points, trendPath } = computeWeightTrendGeometry(series, { width: W, height: H, pad: 8 });
 
   return (
     <svg
@@ -62,8 +52,8 @@ function WeightTrend({ series }: { series: { date: string; weight: number }[] })
       {series.map((s, i) => (
         <circle
           key={s.date}
-          cx={x(i)}
-          cy={y(s.weight)}
+          cx={points[i].x}
+          cy={points[i].y}
           r={1.75}
           className="fill-muted-foreground"
         />
@@ -129,10 +119,7 @@ export function BodyReportSection({ isLoading, bodyData }: BodyReportSectionProp
               value={formatKg(b.avgMuscleMassKg)}
               delta={formatSignedDelta(b.muscleChangeKg, "kg")}
             />
-            <BodyStat
-              label="평균 내장지방"
-              value={b.avgVisceralFat == null ? "—" : b.avgVisceralFat.toFixed(1)}
-            />
+            <BodyStat label="평균 내장지방" value={formatIndex(b.avgVisceralFat, 1)} />
           </div>
 
           <WeightTrend series={b.weightSeries} />

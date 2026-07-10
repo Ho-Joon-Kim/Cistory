@@ -16,7 +16,6 @@ export interface WithingsSyncResult {
   userId: string;
   measurementsUpserted: number;
   skipped: boolean;
-  error: string | null;
 }
 
 interface ServiceOptions {
@@ -111,11 +110,6 @@ export class WithingsSyncService {
     return rows[0] ?? null;
   }
 
-  async hasActiveConnection(userId: string): Promise<boolean> {
-    const conn = await this.getConnection(userId);
-    return !!conn && conn.status === "active";
-  }
-
   async disconnect(userId: string): Promise<void> {
     // Hard-delete so no decryptable live token survives the user's revocation.
     // Measurement history (body_measurements) is intentionally retained.
@@ -208,14 +202,14 @@ export class WithingsSyncService {
   ): Promise<WithingsSyncResult> {
     const connection = await this.getConnection(userId);
     if (!connection || connection.status !== "active") {
-      return { userId, measurementsUpserted: 0, skipped: true, error: null };
+      return { userId, measurementsUpserted: 0, skipped: true };
     }
     if (
       opts.skipIfSyncedWithinMs &&
       connection.lastSyncedAt &&
       Date.now() - connection.lastSyncedAt.getTime() < opts.skipIfSyncedWithinMs
     ) {
-      return { userId, measurementsUpserted: 0, skipped: true, error: null };
+      return { userId, measurementsUpserted: 0, skipped: true };
     }
 
     return this.runSync(connection, connection.lastMeasureUpdate == null);
@@ -225,7 +219,7 @@ export class WithingsSyncService {
   async backfillUser(userId: string): Promise<WithingsSyncResult> {
     const connection = await this.getConnection(userId);
     if (!connection || connection.status !== "active") {
-      return { userId, measurementsUpserted: 0, skipped: true, error: null };
+      return { userId, measurementsUpserted: 0, skipped: true };
     }
     return this.runSync(connection, true);
   }
@@ -290,7 +284,7 @@ export class WithingsSyncService {
         measurements: groups.length,
         updatetime,
       });
-      return { userId, measurementsUpserted: groups.length, skipped: false, error: null };
+      return { userId, measurementsUpserted: groups.length, skipped: false };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.db

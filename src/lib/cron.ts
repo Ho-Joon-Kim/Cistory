@@ -285,23 +285,21 @@ async function _syncAllUsersInner() {
         }
 
         // Withings body-scale sync (24h interval, gated by lastSyncedAt).
+        // syncUser self-selects: it no-ops (skipped) when there's no active
+        // connection or the 24h gate hasn't elapsed, so no pre-check is needed.
+        // Self-heal: if the OAuth-callback backfill never completed
+        // (lastMeasureUpdate still null), syncUser runs a full startdate=0 fetch,
+        // so a failed initial backfill converges on the next run.
         try {
-          const withings = createWithingsSyncService(db);
-          if (await withings.hasActiveConnection(user.id)) {
-            const result = await withings.syncUser(user.id, {
-              skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
+          const result = await createWithingsSyncService(db).syncUser(user.id, {
+            skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
+          });
+          if (!result.skipped) {
+            logger.info("[Cron] Withings sync done", {
+              userId: user.id,
+              githubLogin: user.githubLogin,
+              measurements: result.measurementsUpserted,
             });
-            // Self-heal: if the OAuth-callback backfill never completed
-            // (lastMeasureUpdate still null), syncUser runs a full startdate=0
-            // fetch, so a failed initial backfill converges on the next run —
-            // no separate backfill sweep needed.
-            if (!result.skipped) {
-              logger.info("[Cron] Withings sync done", {
-                userId: user.id,
-                githubLogin: user.githubLogin,
-                measurements: result.measurementsUpserted,
-              });
-            }
           }
         } catch (withingsError) {
           logger.error("[Cron] Withings sync error", {

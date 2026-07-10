@@ -12,7 +12,7 @@ import {
   trips,
   visits,
 } from "@/db/schema";
-import { localDaySql } from "@/db/sql";
+import { localDaySql, numericToNumber } from "@/db/sql";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1189,18 +1189,17 @@ export class InsightsService {
 
     // numeric columns arrive as strings (drizzle numeric contract); integer
     // columns (metabolicAge, heartRateBpm) arrive as numbers already.
-    const num = (v: string | null): number | null => (v == null ? null : Number(v));
     return aggregateBody(
       rows.map((r) => ({
         day: r.day,
         measuredAt: r.measuredAt,
-        weightKg: num(r.weightKg),
-        fatRatioPct: num(r.fatRatioPct),
-        muscleMassKg: num(r.muscleMassKg),
-        boneMassKg: num(r.boneMassKg),
-        hydrationKg: num(r.hydrationKg),
-        visceralFat: num(r.visceralFat),
-        bmrKcal: num(r.bmrKcal),
+        weightKg: numericToNumber(r.weightKg),
+        fatRatioPct: numericToNumber(r.fatRatioPct),
+        muscleMassKg: numericToNumber(r.muscleMassKg),
+        boneMassKg: numericToNumber(r.boneMassKg),
+        hydrationKg: numericToNumber(r.hydrationKg),
+        visceralFat: numericToNumber(r.visceralFat),
+        bmrKcal: numericToNumber(r.bmrKcal),
         metabolicAge: r.metabolicAge,
         heartRateBpm: r.heartRateBpm,
       }))

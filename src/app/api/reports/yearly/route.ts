@@ -95,11 +95,10 @@ export async function POST(request: NextRequest) {
     // Enriched yearly aggregation is not yet implemented; narrative is generated
     // from base yearly data only. Previously this path passed `year` (YYYY) to
     // monthly-enriched helpers which expect `yearMonth` (YYYY-MM), producing
-    // Invalid Date and corrupted enriched fields. Body is the exception — it has
-    // a real yearly aggregation, so thread it in for the health block.
-    const bodyData = await service.aggregateYearlyBody(user.id, year);
+    // Invalid Date and corrupted enriched fields. Body is the exception — it's
+    // already aggregated in `data`, so thread it in for the health block.
     const narrative = await service.generateYearlyNarrative(user.id, year, data, {
-      body: bodyData,
+      body: data.body,
     });
 
     return NextResponse.json({ narrative });

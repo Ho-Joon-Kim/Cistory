@@ -29,3 +29,12 @@ export function localDaySql(column: PgColumn | SQL): SQL<string> {
 export function localDayRawSql(columnRef: string): string {
   return `(${columnRef} at time zone 'UTC' at time zone 'Asia/Seoul')::date`;
 }
+
+/**
+ * Parse a Drizzle `numeric` column (serialized to a string on read) into a
+ * number, preserving null. Integer columns already arrive as numbers and don't
+ * need this.
+ */
+export function numericToNumber(v: string | null): number | null {
+  return v == null ? null : Number(v);
+}
