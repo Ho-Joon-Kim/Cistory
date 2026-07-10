@@ -3,6 +3,7 @@
 import { Code, Loader2, MapPin } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { formatCodingTime, toLocalDateString } from "@/lib/utils";
 import { TrackCard } from "@/modules/location/components/TrackCard";
 import {
   type StayPointData,
@@ -25,7 +26,6 @@ import { CompactCommitCard } from "./CompactCommitCard";
 import { StayPointCard } from "./StayPointCard";
 import { TimelineSkeleton } from "./TimelineSkeleton";
 import { TransactionCard } from "./TransactionCard";
-import { formatCodingTime, toLocalDateString } from "@/lib/utils";
 
 interface TimelineProps {
   commits: TimelineCommit[];
@@ -114,7 +114,8 @@ const DateGroupSection = memo(function DateGroupSection({
   transactions,
 }: DateGroupSectionProps) {
   const { date, commits: dateCommits, isEmpty } = entry;
-  const { label, isToday } = formatDateHeader(date);
+  const { label } = formatDateHeader(date);
+  const [expandedCommitId, setExpandedCommitId] = useState<string | null>(null);
 
   // Build unified timeline events for the selected date
   const hasAnyData =
@@ -173,6 +174,13 @@ const DateGroupSection = memo(function DateGroupSection({
     tracks,
     transactions,
   ]);
+  const lastCommitId = useMemo(() => {
+    if (!unifiedEventGroups) return null;
+    return unifiedEventGroups
+      .flatMap((group) => group.events)
+      .filter((event) => event.type === "commit")
+      .at(-1)?.data.id;
+  }, [unifiedEventGroups]);
 
   return (
     <div
@@ -180,71 +188,60 @@ const DateGroupSection = memo(function DateGroupSection({
       className={`date-group-section relative ${isVisible ? "is-visible" : ""}`}
     >
       {/* Date header */}
-      <div className="relative flex items-center mb-2">
+      <div className={`relative flex items-center ${isSelected ? "mb-2" : "mb-2"}`}>
         {/* Stepper dot as button */}
-        <button
-          type="button"
-          className={`
-            stepper-dot absolute left-1 sm:left-2 md:left-3 flex items-center justify-center w-6 h-6
-          `}
-          onClick={() => onSelectDate(date)}
-          aria-label={`${label} 선택`}
-        >
-          <span
-            className={`
-              block rounded-full transition-all duration-200
-              ${
-                isSelected
-                  ? "w-3 h-3 bg-primary animate-pulse-glow"
-                  : "w-2.5 h-2.5 bg-muted-foreground hover:bg-muted-foreground"
-              }
-            `}
-          />
-        </button>
+        {!isSelected && (
+          <button
+            type="button"
+            className="stepper-dot absolute left-1 flex size-6 items-center justify-center sm:left-2 md:left-3"
+            onClick={() => onSelectDate(date)}
+            aria-label={`${label} 선택`}
+          >
+            <span className="block size-2.5 rounded-full bg-muted-foreground transition-all duration-200 hover:bg-muted-foreground" />
+          </button>
+        )}
 
         <button
           type="button"
-          className="ml-10 sm:ml-12 md:ml-14 flex items-center gap-2 cursor-pointer bg-transparent border-0 text-left"
+          className={`ml-10 sm:ml-12 md:ml-14 flex min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-left ${
+            isSelected ? "commit-day-header" : "items-center gap-2"
+          }`}
           onClick={() => onSelectDate(date)}
           aria-label={`${label} 선택`}
         >
+          {isSelected && <span className="commit-day-dot" />}
           <h3
-            className={`text-sm font-medium transition-colors duration-200 ${
-              isSelected
-                ? isToday
-                  ? "text-primary"
-                  : "text-foreground"
-                : "text-muted-foreground/50"
-            }`}
+            className={`${isSelected ? "commit-day-label" : "text-sm font-medium text-muted-foreground/50"}`}
           >
             {label}
           </h3>
           <span
-            className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
-              isSelected ? "bg-muted text-muted-foreground" : "bg-muted/50 text-muted-foreground/50"
-            }`}
+            className={
+              isSelected
+                ? "commit-count-badge"
+                : "inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"
+            }
           >
             <AnimatedNumber value={dateCommits.length} />
+            {isSelected && " 커밋"}
           </span>
           {distanceMeters != null && distanceMeters > 0 && (
             <span
-              className={`inline-flex items-center gap-0.5 h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
-                isSelected ? "bg-primary/15 text-primary" : "bg-muted/50 text-muted-foreground/50"
-              }`}
+              className={
+                isSelected
+                  ? "commit-day-stat ml-auto"
+                  : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"
+              }
             >
-              <MapPin className="w-3 h-3" />
+              <MapPin className={isSelected ? "size-2.5" : "size-3"} />
               {formatDistance(distanceMeters)}
             </span>
           )}
           {codingSeconds != null && codingSeconds > 0 && (
             <span
-              className={`inline-flex items-center gap-0.5 h-5 px-1.5 rounded-full text-[10px] font-medium transition-colors duration-200 ${
-                isSelected
-                  ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
-                  : "bg-muted/50 text-muted-foreground/50"
-              }`}
+              className={`${isSelected ? "commit-day-stat" : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"} ${distanceMeters == null || distanceMeters <= 0 ? "ml-auto" : ""}`}
             >
-              <Code className="w-3 h-3" />
+              <Code className={isSelected ? "size-2.5" : "size-3"} />
               {formatCodingTime(codingSeconds)}
             </span>
           )}
@@ -272,16 +269,19 @@ const DateGroupSection = memo(function DateGroupSection({
                     switch (event.type) {
                       case "commit":
                         return (
-                          <div
-                            key={`commit-${event.data.id}`}
-                            className="relative commit-card-stagger"
-                          >
-                            <div className="timeline-tick absolute -left-[23px] sm:-left-[27px] md:-left-[31px] top-1/2 -translate-y-1/2" />
+                          <div key={`commit-${event.data.id}`} className="commit-card-stagger">
                             <CommitCard
                               commit={event.data}
                               isNew={newCommitIds.has(event.data.id)}
                               animationDelay={index * 50}
                               repoColor={repoColorMap.get(event.data.repository.fullName)}
+                              isExpanded={expandedCommitId === event.data.id}
+                              onToggle={() =>
+                                setExpandedCommitId((current) =>
+                                  current === event.data.id ? null : event.data.id
+                                )
+                              }
+                              isLast={lastCommitId === event.data.id}
                             />
                           </div>
                         );

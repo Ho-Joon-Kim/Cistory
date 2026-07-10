@@ -1,14 +1,8 @@
 "use client";
 
-import { FileText, GitCommit, GitMerge, Loader2, Minus, Plus, Sparkles } from "lucide-react";
+import { GitMerge, Loader2, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatedNumber } from "@/components/AnimatedNumber";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { formatRelativeTime } from "@/lib/utils";
 import type { TimelineCommit } from "../hooks";
-import { getCommitSize } from "../utils";
 
 interface CommitStats {
   additions: number;
@@ -22,6 +16,36 @@ interface CommitCardProps {
   isNew?: boolean;
   animationDelay?: number;
   repoColor?: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+  isLast?: boolean;
+}
+
+const TYPE_STYLES: Record<string, string> = {
+  feat: "commit-type-feat",
+  fix: "commit-type-fix",
+  test: "commit-type-test",
+  perf: "commit-type-perf",
+};
+
+function getCommitType(message: string): string {
+  return message.match(/^([a-z]+)(?:\([^)]+\))?!?:\s/i)?.[1].toLowerCase() ?? "commit";
+}
+
+function getMergePresentation(message: string): { prNumber: string | null; label: string } {
+  const firstLine = message.split("\n")[0];
+  const githubMerge = firstLine.match(/^Merge pull request #(\d+) from (?:[^/]+\/)?(.+)$/i);
+  if (githubMerge) {
+    return { prNumber: githubMerge[1], label: githubMerge[2] };
+  }
+
+  const prNumber = firstLine.match(/#(\d+)/)?.[1] ?? null;
+  return { prNumber, label: firstLine.replace(/^Merge\s+/i, "") };
+}
+
+function formatCommitTime(value: string): string {
+  const date = new Date(value);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 export function CommitCard({
@@ -29,9 +53,11 @@ export function CommitCard({
   onStatsLoaded,
   isNew = false,
   animationDelay = 0,
-  repoColor,
+  repoColor = "217 91% 60%",
+  isExpanded,
+  onToggle,
+  isLast = false,
 }: CommitCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const [statsState, setStatsState] = useState<{ stats: CommitStats | null; isLoading: boolean }>({
     stats: null,
     isLoading: false,
@@ -46,39 +72,32 @@ export function CommitCard({
     localSummary: null,
   });
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const summary = summaryState.localSummary ?? commit.summary?.summary;
-  const hasSummary = !!summary;
   const isPending = summaryState.status === "pending";
   const isProcessing = summaryState.status === "processing" || summaryState.isGenerating;
 
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // 폴링으로 요약 상태 확인
   const pollSummaryStatus = useCallback(async () => {
     try {
       const response = await fetch(`/api/timeline/commits/${commit.id}`, {
         signal: abortControllerRef.current?.signal,
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.summary?.status === "completed" && data.summary?.summary) {
-          setSummaryState({
-            isGenerating: false,
-            status: "completed",
-            localSummary: data.summary.summary,
-          });
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current);
-            pollingRef.current = null;
-          }
-        } else if (data.summary?.status === "failed") {
-          setSummaryState((prev) => ({ ...prev, isGenerating: false, status: "failed" }));
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current);
-            pollingRef.current = null;
-          }
-        }
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (data.summary?.status === "completed" && data.summary?.summary) {
+        setSummaryState({
+          isGenerating: false,
+          status: "completed",
+          localSummary: data.summary.summary,
+        });
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      } else if (data.summary?.status === "failed") {
+        setSummaryState((prev) => ({ ...prev, isGenerating: false, status: "failed" }));
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        pollingRef.current = null;
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
@@ -86,33 +105,26 @@ export function CommitCard({
     }
   }, [commit.id]);
 
-  // 컴포넌트 언마운트 시 폴링 및 진행 중 fetch 정리
   useEffect(() => {
     abortControllerRef.current = new AbortController();
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
+      if (pollingRef.current) clearInterval(pollingRef.current);
       abortControllerRef.current?.abort();
     };
   }, []);
 
-  const handleGenerateSummary = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleGenerateSummary = async (event: React.MouseEvent) => {
+    event.stopPropagation();
     if (summaryState.isGenerating) return;
 
     setSummaryState((prev) => ({ ...prev, isGenerating: true, status: "processing" }));
-
     try {
       const response = await fetch(`/api/timeline/commits/${commit.id}/summary`, {
         method: "POST",
       });
-
       if (response.ok) {
         pollingRef.current = setInterval(pollSummaryStatus, 2000);
       } else {
-        const data = await response.json();
-        console.error("Summary generation failed:", data.error);
         setSummaryState((prev) => ({ ...prev, isGenerating: false, status: "pending" }));
       }
     } catch (error) {
@@ -123,12 +135,7 @@ export function CommitCard({
     }
   };
 
-  // 커밋 메시지 첫 줄
-  const messageFirstLine = commit.message.split("\n")[0];
-  const hasMoreMessage = commit.message.includes("\n");
-
-  // 현재 표시할 stats (로컬 상태 또는 commit에서)
-  const displayStats: CommitStats = statsState.stats ?? {
+  const displayStats = statsState.stats ?? {
     additions: commit.additions,
     deletions: commit.deletions,
     changedFilesCount: commit.changedFilesCount,
@@ -137,200 +144,137 @@ export function CommitCard({
     displayStats.additions > 0 || displayStats.deletions > 0 || displayStats.changedFilesCount > 0;
   const needsStatsLoad = !hasStats && !statsState.stats && !statsState.isLoading;
 
-  // 확장 시 stats 로드
   const fetchStats = useCallback(async () => {
     setStatsState({ stats: null, isLoading: true });
     try {
-      const res = await fetch(`/api/timeline/commits/${commit.id}/stats`, {
+      const response = await fetch(`/api/timeline/commits/${commit.id}/stats`, {
         method: "POST",
         signal: abortControllerRef.current?.signal,
       });
-      const data = await res.json();
+      const data = await response.json();
       if (data.additions !== undefined) {
-        const newStats = {
+        const stats = {
           additions: data.additions,
           deletions: data.deletions,
           changedFilesCount: data.changedFilesCount,
         };
-        setStatsState({ stats: newStats, isLoading: false });
-        onStatsLoaded?.(commit.id, newStats);
+        setStatsState({ stats, isLoading: false });
+        onStatsLoaded?.(commit.id, stats);
       } else {
         setStatsState((prev) => ({ ...prev, isLoading: false }));
       }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      console.error(error);
       setStatsState((prev) => ({ ...prev, isLoading: false }));
     }
   }, [commit.id, onStatsLoaded]);
 
   useEffect(() => {
-    if (isExpanded && needsStatsLoad) {
-      fetchStats();
-    }
-  }, [isExpanded, needsStatsLoad, fetchStats]);
+    if (isExpanded && needsStatsLoad) fetchStats();
+  }, [fetchStats, isExpanded, needsStatsLoad]);
 
-  const commitSize = getCommitSize(commit);
-  const isLarge = commitSize === "large";
   const isMerge = commit.isMergeCommit;
-
-  const cardStyle: React.CSSProperties = {
-    ...(repoColor
-      ? ({ "--repo-color-glow": `hsl(${repoColor} / 0.3)` } as React.CSSProperties)
-      : {}),
+  const mergePresentation = getMergePresentation(commit.message);
+  const type = getCommitType(commit.message);
+  const message = isMerge ? mergePresentation.label : commit.message.split("\n")[0];
+  const repoName = commit.repository.fullName.split("/").at(-1) ?? commit.repository.fullName;
+  const fileLabel = `${displayStats.changedFilesCount} ${displayStats.changedFilesCount === 1 ? "file" : "files"}`;
+  const style = {
+    "--repo-color": `hsl(${repoColor})`,
+    "--repo-color-soft": `hsl(${repoColor} / 0.6)`,
     ...(isNew ? { animationDelay: `${animationDelay}ms` } : {}),
-  };
+  } as React.CSSProperties;
 
   return (
-    <Card
-      className={`
-        commit-card-hover cursor-pointer !py-0 !gap-0 rounded-lg relative overflow-hidden
-        ${isNew ? "animate-slide-up-fade animate-highlight" : ""}
-        ${isLarge ? "large-commit-card" : ""}
-        ${isMerge ? "opacity-70 bg-muted/30" : ""}
-      `}
-      style={cardStyle}
-      onClick={() => setIsExpanded(!isExpanded)}
+    <div
+      className={`commit-feed-row ${isMerge && !isExpanded ? "is-dimmed" : ""} ${isNew ? "animate-slide-up-fade animate-highlight" : ""}`}
+      style={style}
     >
-      {/* Left repo color border */}
-      {repoColor && (
-        <div
-          className="absolute left-0 top-0 bottom-0 w-[3px] repo-border-glow"
-          style={{ backgroundColor: `hsl(${repoColor})` }}
-        />
-      )}
-
-      <CardContent
-        className={`py-1.5 ${repoColor ? "pl-4 pr-3" : "px-3"} ${isLarge ? "py-2" : ""}`}
-      >
-        {/* 헤더 */}
-        <div className="flex items-start gap-2">
-          <Avatar className="h-5 w-5 flex-shrink-0 mt-0.5">
-            <AvatarImage src={commit.authorAvatarUrl ?? undefined} />
-            <AvatarFallback className="text-xs">
-              {commit.authorName.slice(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-sm">{commit.authorName}</span>
-              <span className="text-xs text-muted-foreground">
-                {formatRelativeTime(commit.committedAt)}
-              </span>
-              {commit.isMergeCommit && (
-                <span className="inline-flex items-center gap-1 text-xs bg-secondary px-1.5 py-0.5 rounded">
-                  <GitMerge className="h-3 w-3" />
-                  머지
-                </span>
-              )}
-              {isProcessing && <Sparkles className="h-3 w-3 text-primary animate-sparkle" />}
-              {hasSummary && summaryState.status === "completed" && (
-                <Sparkles className="h-3 w-3 text-primary/60" />
-              )}
-              <span className="text-xs text-muted-foreground">{commit.repository.fullName}</span>
-            </div>
-
-            {/* 커밋 메시지 */}
-            <p className="text-sm mt-0.5 break-words line-clamp-1">{messageFirstLine}</p>
-
-            {/* AI 요약 (접힌 상태에서도 표시) */}
-            {hasSummary && (
-              <p
-                className={`text-xs mt-0.5 text-muted-foreground line-clamp-1 ${summaryState.localSummary ? "animate-summary-reveal" : ""}`}
-              >
-                {summary}
-              </p>
-            )}
-            {(isPending || isProcessing) && (
-              <div className="flex items-center gap-2 mt-0.5">
-                {isPending && !isProcessing && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    onClick={handleGenerateSummary}
-                  >
-                    <Sparkles className="h-3 w-3 mr-1" />
-                    요약 생성
-                  </Button>
-                )}
-                {isProcessing && (
-                  <p className="text-xs text-muted-foreground italic flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    요약 생성 중...
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* 변경 통계 */}
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-0.5 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <GitCommit className="h-3 w-3" />
-                {commit.sha.slice(0, 7)}
-              </span>
-              {statsState.isLoading && <Loader2 className="h-3 w-3 animate-spin" />}
-              {hasStats && (
-                <>
-                  <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
-                    <Plus className="h-3 w-3" />
-                    <AnimatedNumber value={displayStats.additions} />
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
-                    <Minus className="h-3 w-3" />
-                    <AnimatedNumber value={displayStats.deletions} />
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <FileText className="h-3 w-3" />
-                    <AnimatedNumber value={displayStats.changedFilesCount} suffix="개 파일" />
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 확장 영역: AI 요약 */}
-        {isExpanded && (
-          <div className="mt-4 pt-4 border-t animate-in fade-in-0 slide-in-from-top-2 duration-200">
-            <h4 className="text-xs font-medium text-muted-foreground mb-2">AI 요약</h4>
-
-            {isPending && (
-              <p className="text-sm text-muted-foreground italic">요약 생성 대기 중...</p>
-            )}
-
-            {isProcessing && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                요약 생성 중...
-              </div>
-            )}
-
-            {hasSummary && (
-              <p
-                className={`text-sm leading-relaxed ${summaryState.localSummary ? "animate-summary-reveal" : ""}`}
-              >
-                {summary}
-              </p>
-            )}
-
-            {!hasSummary && !isPending && !isProcessing && (
-              <p className="text-sm text-muted-foreground italic">요약을 생성할 수 없습니다</p>
-            )}
-
-            {/* 전체 커밋 메시지 (있을 경우) */}
-            {hasMoreMessage && (
-              <div className="mt-3 pt-3 border-t">
-                <h4 className="text-xs font-medium text-muted-foreground mb-2">전체 커밋 메시지</h4>
-                <pre className="text-xs bg-muted p-3 rounded-md whitespace-pre-wrap font-mono">
-                  {commit.message}
-                </pre>
-              </div>
-            )}
-          </div>
+      <div className="commit-graph-rail" aria-hidden="true">
+        <span className={`commit-graph-line ${isLast ? "is-last" : ""}`} />
+        {isMerge && (
+          <svg
+            className="commit-branch"
+            width="26"
+            height="30"
+            viewBox="0 0 26 30"
+            aria-hidden="true"
+          >
+            <path d="M13 30 V24 C13 15 2 18 2 6" />
+            <circle cx="2" cy="4" r="2.5" />
+          </svg>
         )}
-      </CardContent>
-    </Card>
+        <span
+          className={`commit-node ${isMerge ? "is-merge" : ""} ${isExpanded ? "is-active" : ""}`}
+        >
+          {isMerge && <GitMerge size={isExpanded ? 8 : 7} strokeWidth={3.5} />}
+        </span>
+      </div>
+
+      <div className={`commit-feed-card ${isExpanded ? "is-expanded" : ""}`}>
+        <button
+          type="button"
+          className="commit-card-toggle"
+          onClick={onToggle}
+          aria-expanded={isExpanded}
+          aria-label={`${repoName} 커밋 ${isExpanded ? "접기" : "펼치기"}`}
+        />
+        <span className="commit-meta-row">
+          <span className="commit-repo">
+            <span className="commit-repo-dot" />
+            <span className="truncate">{repoName}</span>
+          </span>
+          <time dateTime={commit.committedAt}>{formatCommitTime(commit.committedAt)}</time>
+        </span>
+
+        <span className="commit-message-row">
+          {isMerge ? (
+            <span className="commit-pr-chip">
+              {mergePresentation.prNumber ? `#${mergePresentation.prNumber}` : "merge"}
+            </span>
+          ) : (
+            <span className={`commit-type-chip ${TYPE_STYLES[type] ?? "commit-type-default"}`}>
+              {type}
+            </span>
+          )}
+          <span className={`commit-message ${isMerge ? "is-merge" : ""}`}>{message}</span>
+        </span>
+
+        {isExpanded && (
+          <span className="commit-summary animate-summary-reveal">
+            {summary && <span>{summary}</span>}
+            {isPending && !isProcessing && (
+              <button
+                type="button"
+                className="commit-summary-action"
+                onClick={handleGenerateSummary}
+              >
+                <Sparkles size={12} /> 요약 생성
+              </button>
+            )}
+            {isProcessing && (
+              <span className="commit-summary-loading">
+                <Loader2 size={12} className="animate-spin" /> 요약 생성 중...
+              </span>
+            )}
+            {!summary && !isPending && !isProcessing && <span>요약이 없습니다</span>}
+          </span>
+        )}
+
+        <span className="commit-stats-row">
+          <span>{commit.sha.slice(0, 7)}</span>
+          {statsState.isLoading ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <>
+              <span className="commit-additions">+{displayStats.additions}</span>
+              <span className="commit-deletions">−{displayStats.deletions}</span>
+              <span className="commit-files">{fileLabel}</span>
+            </>
+          )}
+        </span>
+      </div>
+    </div>
   );
 }
