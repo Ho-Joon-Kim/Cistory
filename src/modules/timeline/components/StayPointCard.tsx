@@ -2,6 +2,7 @@
 
 import { MapPin } from "lucide-react";
 import type { StayPointData } from "@/modules/location/hooks";
+import { ActivityCard } from "./ActivityCard";
 
 interface StayPointCardProps {
   stayPoint: StayPointData;
@@ -24,31 +25,22 @@ export function StayPointCard({ stayPoint }: StayPointCardProps) {
   const title = placeName || address || "알 수 없는 장소";
 
   return (
-    <article className="activity-feed-card activity-location-card">
-      <div className="activity-meta-row">
-        <span className="activity-kind">
-          <span className="activity-kind-dot" />
-          위치
-          {category && <span className="activity-category-chip">{category}</span>}
-        </span>
-        <time dateTime={startTime}>{formatTime(startTime)}</time>
-      </div>
-
-      <div className="activity-message-row">
-        <span className="activity-icon-chip">
-          <MapPin size={12} />
-        </span>
-        <strong>{title}</strong>
-      </div>
-
-      {placeName && address && <p className="activity-detail">{address}</p>}
-
-      <div className="activity-stats-row">
-        <span>
-          {formatTime(startTime)}–{formatTime(endTime)}
-        </span>
-        <span className="activity-stat-emphasis">{formatDuration(durationMinutes)}</span>
-      </div>
-    </article>
+    <ActivityCard
+      accent="location"
+      kind="위치"
+      chip={category}
+      icon={<MapPin size={12} />}
+      title={title}
+      trailing={<time dateTime={startTime}>{formatTime(startTime)}</time>}
+      detail={placeName ? address : undefined}
+      stats={
+        <>
+          <span>
+            {formatTime(startTime)}–{formatTime(endTime)}
+          </span>
+          <strong>{formatDuration(durationMinutes)}</strong>
+        </>
+      }
+    />
   );
 }

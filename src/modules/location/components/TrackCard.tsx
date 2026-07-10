@@ -14,6 +14,7 @@ import {
   TrainFront,
 } from "lucide-react";
 import { useState } from "react";
+import { ActivityCard } from "@/modules/timeline/components/ActivityCard";
 import type { SubwayLegData, TrackData, TrackSegmentData } from "../hooks";
 
 const MODE_ICONS: Record<string, React.ReactNode> = {
@@ -168,82 +169,72 @@ export function TrackCard({ track }: TrackCardProps) {
   const endName = track.endPlaceName ?? formatTime(track.endTime);
   const chunks = groupIntoChunks(track.segments);
   const primaryMode = track.segments[0]?.mode ?? "unknown";
-
-  return (
-    <article className={`activity-feed-card activity-track-card ${expanded ? "is-expanded" : ""}`}>
-      <button
-        type="button"
-        className="activity-card-toggle"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        aria-label={`이동 기록 ${expanded ? "접기" : "펼치기"}`}
-      />
-
-      <div className="activity-meta-row">
-        <span className="activity-kind">
-          <span className="activity-kind-dot" />
-          이동
-          <span className="activity-category-chip">
-            {MODE_ICONS[primaryMode]}
-            {MODE_LABELS[primaryMode] ?? primaryMode}
-          </span>
-        </span>
-        <time dateTime={track.startTime}>{formatTime(track.startTime)}</time>
-      </div>
-
-      <div className="activity-message-row">
-        <strong>{startName}</strong>
-        <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
-        <strong>{endName}</strong>
-        <span className="activity-mode-sequence">
-          {track.segments.map((segment, index) => (
-            <span
-              key={`${segment.mode}-${index}`}
-              title={MODE_LABELS[segment.mode] ?? segment.mode}
-            >
-              {MODE_ICONS[segment.mode] ?? segment.mode}
-            </span>
-          ))}
-          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </span>
-      </div>
-
-      {chunks.some((chunk) => chunk.kind === "subway-session") && (
-        <div className="activity-detail flex flex-wrap items-center gap-1.5">
-          {chunks
-            .filter((chunk) => chunk.kind === "subway-session")
-            .map((chunk) => (
-              <span
-                key={chunk.legs.map((leg) => leg.lineId).join(":") || chunk.segments[0]?.startTime}
-                className="flex flex-wrap items-center gap-1"
-              >
-                {chunk.legs.map((leg, index) => (
-                  <span key={`${leg.lineId}-${index}`} className="flex items-center gap-1">
-                    {index > 0 && <ArrowLeftRight className="size-3 text-muted-foreground" />}
-                    <SubwayLegBadge leg={leg} />
-                  </span>
-                ))}
+  const subwayDetail = chunks.some((chunk) => chunk.kind === "subway-session") ? (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {chunks
+        .filter((chunk) => chunk.kind === "subway-session")
+        .map((chunk) => (
+          <span
+            key={chunk.legs.map((leg) => leg.lineId).join(":") || chunk.segments[0]?.startTime}
+            className="flex flex-wrap items-center gap-1"
+          >
+            {chunk.legs.map((leg, index) => (
+              <span key={`${leg.lineId}-${index}`} className="flex items-center gap-1">
+                {index > 0 && <ArrowLeftRight className="size-3 text-muted-foreground" />}
+                <SubwayLegBadge leg={leg} />
               </span>
             ))}
-        </div>
-      )}
-
-      <div className="activity-stats-row">
-        <span>
-          {formatTime(track.startTime)}–{formatTime(track.endTime)}
-        </span>
-        <span className="activity-stat-emphasis">{formatDistance(track.distanceMeters)}</span>
-        <span>{formatDuration(track.durationSeconds)}</span>
-        {track.elevationGain != null && track.elevationGain > 0 && (
-          <span className="ml-auto flex items-center gap-0.5">
-            <Mountain className="size-3" />↑{track.elevationGain}m
-            {track.elevationLoss != null && track.elevationLoss > 0 && (
-              <> ↓{track.elevationLoss}m</>
-            )}
           </span>
-        )}
-      </div>
+        ))}
+    </div>
+  ) : undefined;
 
+  return (
+    <ActivityCard
+      accent="movement"
+      kind="이동"
+      chip={
+        <>
+          {MODE_ICONS[primaryMode]}
+          {MODE_LABELS[primaryMode] ?? primaryMode}
+        </>
+      }
+      icon={<ArrowRight size={12} />}
+      title={
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{startName}</span>
+          <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
+          <span className="truncate">{endName}</span>
+        </span>
+      }
+      trailing={
+        <span className="flex items-center gap-1.5">
+          <time dateTime={track.startTime}>{formatTime(track.startTime)}</time>
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </span>
+      }
+      detail={subwayDetail}
+      stats={
+        <>
+          <span>
+            {formatTime(track.startTime)}–{formatTime(track.endTime)}
+          </span>
+          <strong>{formatDistance(track.distanceMeters)}</strong>
+          <span>{formatDuration(track.durationSeconds)}</span>
+          {track.elevationGain != null && track.elevationGain > 0 && (
+            <span className="flex items-center gap-0.5">
+              <Mountain className="size-3" />↑{track.elevationGain}m
+              {track.elevationLoss != null && track.elevationLoss > 0 && (
+                <> ↓{track.elevationLoss}m</>
+              )}
+            </span>
+          )}
+        </>
+      }
+      expanded={expanded}
+      onToggle={() => setExpanded(!expanded)}
+      toggleLabel={`이동 기록 ${expanded ? "접기" : "펼치기"}`}
+    >
       {expanded && track.segments.length > 0 && (
         <div className="activity-expanded-details">
           {track.segments.map((segment, index) => (
@@ -270,6 +261,6 @@ export function TrackCard({ track }: TrackCardProps) {
           ))}
         </div>
       )}
-    </article>
+    </ActivityCard>
   );
 }

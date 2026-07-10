@@ -41,7 +41,7 @@ function ActivityTimelineItem({
   type,
   children,
 }: {
-  type: "coding" | "stay" | "track" | "transaction";
+  type: "coding" | "stay" | "track" | "transaction" | "income";
   children: ReactNode;
 }) {
   return (
@@ -316,7 +316,10 @@ const DateGroupSection = memo(function DateGroupSection({
                         );
                       case "transaction":
                         return (
-                          <ActivityTimelineItem key={`tx-${event.data.id}`} type="transaction">
+                          <ActivityTimelineItem
+                            key={`tx-${event.data.id}`}
+                            type={event.data.type === "withdrawal" ? "transaction" : "income"}
+                          >
                             <TransactionCard transaction={event.data} />
                           </ActivityTimelineItem>
                         );
@@ -537,7 +540,8 @@ export function Timeline({
   }
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="timeline-master-feed relative">
+      <div className="timeline-master-line" aria-hidden="true" />
       <div className="space-y-4">
         {filledDates.map((entry) => (
           <DateGroupSection
