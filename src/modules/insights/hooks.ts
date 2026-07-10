@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { SubwayInsightsData } from "@/modules/location/services/subway-match/usage";
 import type {
   AIClockResult,
+  BodyResult,
   CommitHeatmapResult,
   CommuteReliabilityResult,
   DataUsageResult,
@@ -46,6 +47,7 @@ interface AllInsights {
   repoSplit: RepoSplitResult;
   dataUsage: DataUsageResult;
   discoveries: DiscoveriesResult;
+  body: BodyResult;
 }
 
 export interface UseInsightsReturn {
@@ -68,6 +70,7 @@ export interface UseInsightsReturn {
   repoSplit: SectionState<RepoSplitResult>;
   dataUsage: SectionState<DataUsageResult>;
   discoveries: SectionState<DiscoveriesResult>;
+  body: SectionState<BodyResult>;
 }
 
 export function useInsights(year: number): UseInsightsReturn {
@@ -136,5 +139,6 @@ export function useInsights(year: number): UseInsightsReturn {
     repoSplit: section(data?.repoSplit),
     dataUsage: section(data?.dataUsage),
     discoveries: section(data?.discoveries),
+    body: section(data?.body),
   };
 }

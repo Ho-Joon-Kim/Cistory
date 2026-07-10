@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { users } from "@/db/schema";
+import { users, withingsConnections } from "@/db/schema";
 import { withAuth, withValidation } from "@/lib/api-handler";
 import { DEFAULT_USER_SETTINGS, type UserSettings } from "@/modules/settings/types";
 
@@ -28,25 +28,37 @@ const SettingsUpdateBody = z
  */
 async function readUserSettings(userId: string): Promise<UserSettings> {
   const db = getDb();
-  const userResult = await db
-    .select({
-      theme: users.theme,
-      syncIntervalHours: users.syncIntervalHours,
-      lastSyncedAt: users.lastSyncedAt,
-      ownTracksApiKey: users.ownTracksApiKey,
-      tossNotificationApiKey: users.tossNotificationApiKey,
-      tossMyName: users.tossMyName,
-      wakatimeApiKey: users.wakatimeApiKey,
-      lastLat: users.lastLat,
-      lastLon: users.lastLon,
-    })
-    .from(users)
-    .where(eq(users.id, userId));
+  // Both selects key only on userId and are independent — run them together.
+  const [userResult, withingsResult] = await Promise.all([
+    db
+      .select({
+        theme: users.theme,
+        syncIntervalHours: users.syncIntervalHours,
+        lastSyncedAt: users.lastSyncedAt,
+        ownTracksApiKey: users.ownTracksApiKey,
+        tossNotificationApiKey: users.tossNotificationApiKey,
+        tossMyName: users.tossMyName,
+        wakatimeApiKey: users.wakatimeApiKey,
+        lastLat: users.lastLat,
+        lastLon: users.lastLon,
+      })
+      .from(users)
+      .where(eq(users.id, userId)),
+    db
+      .select({
+        withingsUserId: withingsConnections.withingsUserId,
+        status: withingsConnections.status,
+        lastSyncedAt: withingsConnections.lastSyncedAt,
+      })
+      .from(withingsConnections)
+      .where(eq(withingsConnections.userId, userId)),
+  ]);
 
   if (userResult.length === 0) {
     return DEFAULT_USER_SETTINGS;
   }
 
+  const withings = withingsResult[0];
   const row = userResult[0];
   return {
     theme: (row.theme as UserSettings["theme"]) || DEFAULT_USER_SETTINGS.theme,
@@ -58,6 +70,10 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
     hasWakaTimeKey: !!row.wakatimeApiKey,
     lastLat: row.lastLat ?? null,
     lastLon: row.lastLon ?? null,
+    hasWithingsConnection: !!withings,
+    withingsUserId: withings?.withingsUserId ?? null,
+    withingsLastSyncedAt: withings?.lastSyncedAt?.toISOString() ?? null,
+    withingsNeedsReauth: withings?.status === "needs_reauth",
   };
 }
 

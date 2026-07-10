@@ -11,10 +11,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { createReportService } from "@/modules/report/service";
 import { logger } from "@/lib/logger";
+import { createReportService } from "@/modules/report/service";
 
-const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross"]);
+const VALID_SECTIONS = new Set(["commits", "coding", "location", "cross", "body"]);
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const section = request.nextUrl.searchParams.get("section");
     if (section && !VALID_SECTIONS.has(section)) {
       return NextResponse.json(
-        { error: "유효하지 않은 section 파라미터입니다 (commits, coding, location, cross)" },
+        { error: "유효하지 않은 section 파라미터입니다 (commits, coding, location, cross, body)" },
         { status: 400 }
       );
     }
@@ -61,6 +61,10 @@ export async function GET(request: NextRequest) {
     }
     if (section === "cross") {
       const data = await service.aggregateCrossAnalysis(user.id, yearMonth);
+      return NextResponse.json({ data });
+    }
+    if (section === "body") {
+      const data = await service.aggregateMonthlyBody(user.id, yearMonth);
       return NextResponse.json({ data });
     }
 
@@ -100,7 +104,8 @@ export async function POST(request: NextRequest) {
     // Aggregate data + enriched insights, then generate narrative
     const data = await service.aggregateMonthlyData(user.id, yearMonth);
 
-    // Collect enriched data for deeper narrative
+    // Collect enriched data for deeper narrative. Body is already aggregated
+    // inside `data` (aggregateMonthlyData), so reuse it rather than re-querying.
     const [enrichedCommits, enrichedCoding, crossAnalysis] = await Promise.all([
       service.aggregateEnrichedMonthlyCommits(user.id, yearMonth),
       service.aggregateEnrichedMonthlyCoding(user.id, yearMonth),
@@ -114,6 +119,7 @@ export async function POST(request: NextRequest) {
       contextSwitching: enrichedCoding.contextSwitching,
       placeProductivity: crossAnalysis.placeProductivity,
       routinePatterns: crossAnalysis.routinePatterns,
+      body: data.body,
     });
 
     return NextResponse.json({ narrative });

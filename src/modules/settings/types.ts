@@ -16,6 +16,10 @@ export interface UserSettings {
   hasWakaTimeKey: boolean;
   lastLat: number | null;
   lastLon: number | null;
+  hasWithingsConnection: boolean;
+  withingsUserId: string | null;
+  withingsLastSyncedAt: string | null;
+  withingsNeedsReauth: boolean;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -28,4 +32,8 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   hasWakaTimeKey: false,
   lastLat: null,
   lastLon: null,
+  hasWithingsConnection: false,
+  withingsUserId: null,
+  withingsLastSyncedAt: null,
+  withingsNeedsReauth: false,
 };

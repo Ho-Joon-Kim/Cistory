@@ -758,3 +758,73 @@ export type BrokerageDailyPnl = typeof brokerageDailyPnl.$inferSelect;
 export type NewBrokerageDailyPnl = typeof brokerageDailyPnl.$inferInsert;
 export type BrokerageTargetAllocation = typeof brokerageTargetAllocations.$inferSelect;
 export type NewBrokerageTargetAllocation = typeof brokerageTargetAllocations.$inferInsert;
+
+// ============ Withings (Body Smart scale) ============
+// One connection row per user (single Withings account linking). Access +
+// refresh tokens are AES-256-GCM encrypted via src/lib/crypto.ts (same key as
+// KIS). Withings refresh tokens rotate on every refresh, so both the access and
+// the new refresh token are persisted together inside the advisory-locked
+// refresh transaction (see WithingsSyncService.getValidToken).
+export const withingsConnections = pgTable(
+  "withings_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    withingsUserId: text("withings_user_id"),
+    accessTokenEnc: text("access_token_enc").notNull(),
+    refreshTokenEnc: text("refresh_token_enc").notNull(),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    scope: text("scope"),
+    // "active" | "needs_reauth" — flipped to needs_reauth only on a confirmed
+    // refresh-token-invalid signal so a transient error doesn't force re-linking.
+    status: text("status").notNull().default("active"),
+    // getmeas `body.updatetime` (unix seconds) — incremental sync watermark.
+    // Null = backfill has not completed; syncUser treats null as a full fetch.
+    lastMeasureUpdate: bigint("last_measure_update", { mode: "number" }),
+    lastSyncedAt: timestamp("last_synced_at"),
+    lastSyncError: text("last_sync_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("idx_withings_conn_user").on(t.userId)]
+);
+
+// One row per Withings measurement group (grpid). Typed columns cover the
+// Body Smart metrics we chart; anything else (incl. higher-tier codes) is kept
+// losslessly in rawMeasures JSON. Upsert-in-place on (userId, withingsGroupId).
+export const bodyMeasurements = pgTable(
+  "body_measurements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    withingsGroupId: bigint("withings_group_id", { mode: "number" }).notNull(),
+    measuredAt: timestamp("measured_at").notNull(),
+    category: integer("category"),
+    weightKg: numeric("weight_kg"),
+    fatMassKg: numeric("fat_mass_kg"),
+    fatFreeMassKg: numeric("fat_free_mass_kg"),
+    muscleMassKg: numeric("muscle_mass_kg"),
+    boneMassKg: numeric("bone_mass_kg"),
+    hydrationKg: numeric("hydration_kg"),
+    fatRatioPct: numeric("fat_ratio_pct"),
+    heartRateBpm: integer("heart_rate_bpm"),
+    visceralFat: numeric("visceral_fat"),
+    bmrKcal: numeric("bmr_kcal"),
+    metabolicAge: integer("metabolic_age"),
+    rawMeasures: text("raw_measures").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_body_measurement_unique").on(t.userId, t.withingsGroupId),
+    index("idx_body_measurement_user_time").on(t.userId, t.measuredAt),
+  ]
+);
+
+export type WithingsConnection = typeof withingsConnections.$inferSelect;
+export type NewWithingsConnection = typeof withingsConnections.$inferInsert;
+export type BodyMeasurement = typeof bodyMeasurements.$inferSelect;
+export type NewBodyMeasurement = typeof bodyMeasurements.$inferInsert;

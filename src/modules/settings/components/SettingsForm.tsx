@@ -1,6 +1,7 @@
 "use client";
 
 import { ExternalLink, Github, Loader2, RefreshCw } from "lucide-react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,10 +28,39 @@ import { SummaryStats } from "./SummaryStats";
 import { TossNotificationSettings } from "./TossNotificationSettings";
 import { TripDetectionCard } from "./TripDetectionCard";
 import { WakaTimeSettings } from "./WakaTimeSettings";
+import { WithingsSettings } from "./WithingsSettings";
+
+const WITHINGS_ERROR_MESSAGES: Record<string, string> = {
+  denied: "Withings 연동이 취소되었습니다",
+  state_invalid: "Withings 연동 요청이 만료되었거나 유효하지 않습니다. 다시 시도해주세요",
+  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
+  exchange_failed: "Withings 연동에 실패했습니다. 다시 시도해주세요",
+};
 
 export function SettingsForm() {
-  const { settings, isLoading, isSaving, updateSettings } = useSettings();
+  const { settings, isLoading, isSaving, updateSettings, refresh } = useSettings();
   const { user } = useAuth();
+
+  // Surface the Withings OAuth callback outcome (?withings=connected | error&reason=...),
+  // then strip the params so a refresh doesn't re-fire the toast.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const withings = params.get("withings");
+    if (!withings) return;
+
+    if (withings === "connected") {
+      toast.success("Withings가 연결되었습니다");
+      refresh();
+    } else if (withings === "error") {
+      const reason = params.get("reason") ?? "";
+      toast.error(WITHINGS_ERROR_MESSAGES[reason] ?? "Withings 연동에 실패했습니다");
+    }
+
+    params.delete("withings");
+    params.delete("reason");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [refresh]);
 
   if (isLoading || !settings) {
     return (
@@ -190,6 +220,14 @@ export function SettingsForm() {
 
       {/* 포트폴리오 (KIS) */}
       <KISAccountSettingsCard />
+
+      {/* 체성분 (Withings) */}
+      <WithingsSettings
+        hasConnection={settings.hasWithingsConnection}
+        withingsUserId={settings.withingsUserId}
+        lastSyncedAt={settings.withingsLastSyncedAt}
+        needsReauth={settings.withingsNeedsReauth}
+      />
 
       {/* AI 요약 */}
       <SummaryStats />

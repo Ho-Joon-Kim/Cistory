@@ -2,9 +2,9 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 import { InsightsService } from "@/modules/insights/service";
 import { getSubwayInsights } from "@/modules/location/services/subway-match/usage";
-import { logger } from "@/lib/logger";
 
 const VALID_SECTIONS = new Set([
   "streaks",
@@ -24,6 +24,7 @@ const VALID_SECTIONS = new Set([
   "repo-split",
   "data-usage",
   "discoveries",
+  "body",
 ]);
 
 function yearBounds(year: number): { from: Date; toExclusive: Date } {
@@ -67,6 +68,7 @@ export async function GET(request: NextRequest) {
         netSpend,
         repoSplit,
         dataUsage,
+        body,
       ] = await db.transaction(async (tx) => {
         // Run the entire dashboard fan-out on ONE pooled connection instead of
         // firing ~30-40 queries across the pool at once. The parallel fan-out
@@ -95,6 +97,7 @@ export async function GET(request: NextRequest) {
           InsightsService.getNetSpend(txDb, user.id, year),
           InsightsService.getRepoSplit(txDb, user.id, year),
           InsightsService.getDataUsage(txDb, user.id),
+          InsightsService.getBody(txDb, user.id, year),
         ]);
       });
       // Discoveries only synthesizes over four sections fetched above —
@@ -118,6 +121,7 @@ export async function GET(request: NextRequest) {
         repoSplit,
         dataUsage,
         discoveries,
+        body,
       });
     }
 
@@ -182,6 +186,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ data: await InsightsService.getDataUsage(db, user.id) });
       case "discoveries":
         return NextResponse.json({ data: await InsightsService.getDiscoveries(db, user.id, year) });
+      case "body":
+        return NextResponse.json({ data: await InsightsService.getBody(db, user.id, year) });
       default:
         return NextResponse.json({ error: "유효하지 않은 section" }, { status: 400 });
     }

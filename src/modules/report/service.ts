@@ -9,6 +9,7 @@
 import { and, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
+  bodyMeasurements,
   codingDailyStats,
   codingSessions,
   commitSummaries,
@@ -19,6 +20,7 @@ import {
   savedPlaces,
   trips,
 } from "@/db/schema";
+import { localDaySql, numericToNumber } from "@/db/sql";
 import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { KOREA_BOUNDS } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
@@ -31,6 +33,7 @@ import { detectCommitType } from "@/modules/summary/prompts";
 import { buildMonthlyNarrativePrompt, buildYearlyNarrativePrompt } from "./prompts";
 import { detectOverseasTrips, isOverseas, type OverseasTrip } from "./travel";
 import type {
+  BodySectionData,
   CodingSectionData,
   CommitsSectionData,
   ContextSwitchingMetrics,
@@ -52,6 +55,56 @@ import type {
 
 // Drizzle tx has the same query interface as db
 type QueryExecutor = Database;
+
+/** A period measurement with numeric metrics parsed + its KST day. */
+export interface ReportBodyPoint {
+  day: string; // KST calendar day (from localDaySql)
+  weightKg: number | null;
+  fatRatioPct: number | null;
+  muscleMassKg: number | null;
+  visceralFat: number | null;
+}
+
+/**
+ * Pure period aggregation over chronologically-ascending measurement points:
+ * averages, first→last change, weight range, and a per-KST-day weight series.
+ * `day` is SQL-derived (localDaySql) so month/year boundaries and the series
+ * honor KST rather than the UTC day (AE4).
+ */
+export function aggregateReportBody(rows: ReportBodyPoint[]): BodySectionData {
+  const collect = (pick: (r: ReportBodyPoint) => number | null): number[] =>
+    rows.map(pick).filter((v): v is number => v != null);
+  const avg = (v: number[]): number | null =>
+    v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+  const change = (v: number[]): number | null => (v.length >= 2 ? v[v.length - 1] - v[0] : null);
+
+  const weights = collect((r) => r.weightKg);
+  const fats = collect((r) => r.fatRatioPct);
+  const muscles = collect((r) => r.muscleMassKg);
+  const visceral = collect((r) => r.visceralFat);
+
+  const dayWeight = new Map<string, number>();
+  for (const r of rows) {
+    if (r.weightKg != null) dayWeight.set(r.day, r.weightKg); // asc → last wins
+  }
+  const weightSeries = [...dayWeight.entries()]
+    .map(([date, weight]) => ({ date, weight }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    measurementCount: rows.length,
+    avgWeightKg: avg(weights),
+    avgFatRatioPct: avg(fats),
+    avgMuscleMassKg: avg(muscles),
+    avgVisceralFat: avg(visceral),
+    weightChangeKg: change(weights),
+    fatRatioChangePct: change(fats),
+    muscleChangeKg: change(muscles),
+    weightMinKg: weights.length ? Math.min(...weights) : null,
+    weightMaxKg: weights.length ? Math.max(...weights) : null,
+    weightSeries,
+  };
+}
 
 export class ReportService {
   constructor(
@@ -97,6 +150,66 @@ export class ReportService {
     return this.db.transaction(async (tx) => {
       return this._aggregateYearlyLocation(tx as unknown as QueryExecutor, userId, year);
     });
+  }
+
+  // ==================== Body (Withings) Section Methods ====================
+
+  async aggregateMonthlyBody(userId: string, yearMonth: string): Promise<BodySectionData> {
+    return this.db.transaction(async (tx) => {
+      return this._aggregateBody(
+        tx as unknown as QueryExecutor,
+        userId,
+        this._toLocalDate(this._monthStart(yearMonth)),
+        this._toLocalDate(this._monthEnd(yearMonth))
+      );
+    });
+  }
+
+  async aggregateYearlyBody(userId: string, year: string): Promise<BodySectionData> {
+    return this.db.transaction(async (tx) => {
+      return this._aggregateBody(
+        tx as unknown as QueryExecutor,
+        userId,
+        new Date(Number(year), 0, 1),
+        new Date(Number(year) + 1, 0, 1)
+      );
+    });
+  }
+
+  /** Shared body-composition aggregation over a [startTs, endTs) window. */
+  private async _aggregateBody(
+    tx: QueryExecutor,
+    userId: string,
+    startTs: Date,
+    endTs: Date
+  ): Promise<BodySectionData> {
+    const rows = await tx
+      .select({
+        day: localDaySql(bodyMeasurements.measuredAt),
+        weightKg: bodyMeasurements.weightKg,
+        fatRatioPct: bodyMeasurements.fatRatioPct,
+        muscleMassKg: bodyMeasurements.muscleMassKg,
+        visceralFat: bodyMeasurements.visceralFat,
+      })
+      .from(bodyMeasurements)
+      .where(
+        and(
+          eq(bodyMeasurements.userId, userId),
+          gte(bodyMeasurements.measuredAt, startTs),
+          lt(bodyMeasurements.measuredAt, endTs)
+        )
+      )
+      .orderBy(bodyMeasurements.measuredAt);
+
+    return aggregateReportBody(
+      rows.map((r) => ({
+        day: r.day,
+        weightKg: numericToNumber(r.weightKg),
+        fatRatioPct: numericToNumber(r.fatRatioPct),
+        muscleMassKg: numericToNumber(r.muscleMassKg),
+        visceralFat: numericToNumber(r.visceralFat),
+      }))
+    );
   }
 
   // ==================== Enriched Monthly Section Methods ====================
@@ -261,16 +374,23 @@ export class ReportService {
   async aggregateMonthlyData(userId: string, yearMonth: string): Promise<MonthlyReportData> {
     return this.db.transaction(async (tx) => {
       const txq = tx as unknown as QueryExecutor;
-      const [commitsData, codingData, locationData] = await Promise.all([
+      const [commitsData, codingData, locationData, bodyData] = await Promise.all([
         this._aggregateMonthlyCommits(txq, userId, yearMonth),
         this._aggregateMonthlyCoding(txq, userId, yearMonth),
         this._aggregateMonthlyLocation(txq, userId, yearMonth),
+        this._aggregateBody(
+          txq,
+          userId,
+          this._toLocalDate(this._monthStart(yearMonth)),
+          this._toLocalDate(this._monthEnd(yearMonth))
+        ),
       ]);
 
       return {
         ...commitsData,
         ...codingData,
         ...locationData,
+        body: bodyData,
         prevMonth: this._combinePrevMonth(commitsData, codingData, locationData),
       };
     });
@@ -279,10 +399,16 @@ export class ReportService {
   async aggregateYearlyData(userId: string, year: string): Promise<YearlyReportData> {
     return this.db.transaction(async (tx) => {
       const txq = tx as unknown as QueryExecutor;
-      const [commitsData, codingData, locationData] = await Promise.all([
+      const [commitsData, codingData, locationData, bodyData] = await Promise.all([
         this._aggregateYearlyCommits(txq, userId, year),
         this._aggregateYearlyCoding(txq, userId, year),
         this._aggregateYearlyLocation(txq, userId, year),
+        this._aggregateBody(
+          txq,
+          userId,
+          new Date(Number(year), 0, 1),
+          new Date(Number(year) + 1, 0, 1)
+        ),
       ]);
 
       // Monthly trend — built from daily data across all 3 sections
@@ -318,6 +444,7 @@ export class ReportService {
         ...commitsData,
         ...codingData,
         ...locationData,
+        body: bodyData,
         monthlyTrend,
         projectTimeline: commitsData.projectTimeline,
         newLanguages: codingData.newLanguages,
@@ -929,6 +1056,7 @@ export class ReportService {
       contextSwitching?: ContextSwitchingMetrics;
       placeProductivity?: PlaceProductivity[];
       routinePatterns?: RoutinePattern[];
+      body?: BodySectionData;
     }
   ): Promise<string> {
     const summaries = await this.getCommitSummariesForPeriod(
@@ -952,6 +1080,7 @@ export class ReportService {
       contextSwitching?: ContextSwitchingMetrics;
       placeProductivity?: PlaceProductivity[];
       routinePatterns?: RoutinePattern[];
+      body?: BodySectionData;
     }
   ): Promise<string> {
     const summaries = await this.getCommitSummariesForPeriod(

@@ -17,6 +17,7 @@ import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/sub
 import { createSummaryService, SummaryService } from "@/modules/summary/service";
 import { createSyncService } from "@/modules/sync/service";
 import { createWakaTimeSyncService } from "@/modules/wakatime/service";
+import { createWithingsSyncService } from "@/modules/withings/service";
 
 let isInitialized = false;
 let cronTask: cron.ScheduledTask | null = null;
@@ -308,6 +309,31 @@ async function _syncAllUsersInner() {
             githubLogin: user.githubLogin,
             error:
               portfolioError instanceof Error ? portfolioError.message : String(portfolioError),
+          });
+        }
+
+        // Withings body-scale sync (24h interval, gated by lastSyncedAt).
+        // syncUser self-selects: it no-ops (skipped) when there's no active
+        // connection or the 24h gate hasn't elapsed, so no pre-check is needed.
+        // Self-heal: if the OAuth-callback backfill never completed
+        // (lastMeasureUpdate still null), syncUser runs a full startdate=0 fetch,
+        // so a failed initial backfill converges on the next run.
+        try {
+          const result = await createWithingsSyncService(db).syncUser(user.id, {
+            skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
+          });
+          if (!result.skipped) {
+            logger.info("[Cron] Withings sync done", {
+              userId: user.id,
+              githubLogin: user.githubLogin,
+              measurements: result.measurementsUpserted,
+            });
+          }
+        } catch (withingsError) {
+          logger.error("[Cron] Withings sync error", {
+            userId: user.id,
+            githubLogin: user.githubLogin,
+            error: withingsError instanceof Error ? withingsError.message : String(withingsError),
           });
         }
 

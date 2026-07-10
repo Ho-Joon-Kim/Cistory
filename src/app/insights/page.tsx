@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/modules/auth/hooks";
 // New cards (insights redesign)
 import { AIClockCard } from "@/modules/insights/components/AIClockCard";
+import { BodyCard } from "@/modules/insights/components/BodyCard";
 import { CodingHeatmap } from "@/modules/insights/components/CodingHeatmap";
 import { CommuteReliabilityCard } from "@/modules/insights/components/CommuteReliabilityCard";
 import { DataUsageCard } from "@/modules/insights/components/DataUsageCard";
@@ -79,6 +80,7 @@ function InsightsContent() {
     repoSplit,
     dataUsage,
     discoveries,
+    body,
   } = useInsights(year);
 
   useEffect(() => {
@@ -190,6 +192,10 @@ function InsightsContent() {
               <DiscoveriesCard data={discoveries.data} isLoading={discoveries.isLoading} />
               <RoutineDiscovery data={routines.data} isLoading={routines.isLoading} />
             </div>
+
+            {/* HEALTH — 체성분 (Withings) */}
+            <SectionDivider label="건강" tone="primary" />
+            <BodyCard data={body.data} isLoading={body.isLoading} />
 
             {/* Monthly digest — full-width strip (12 months × 4 cols) */}
             <MonthlyDigestCard data={digests.data} isLoading={digests.isLoading} year={year} />
