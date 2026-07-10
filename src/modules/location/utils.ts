@@ -38,6 +38,46 @@ export interface StayingSegment {
 
 export type TimelineSegment = MovingSegment | StayingSegment;
 
+function takeLocationsBefore(
+  locations: LocationData[],
+  startIndex: number,
+  endTime: number
+): { points: LocationData[]; nextIndex: number } {
+  let nextIndex = startIndex;
+  while (
+    nextIndex < locations.length &&
+    new Date(locations[nextIndex].timestamp).getTime() < endTime
+  ) {
+    nextIndex++;
+  }
+  return { points: locations.slice(startIndex, nextIndex), nextIndex };
+}
+
+function takeLocationsThrough(
+  locations: LocationData[],
+  startIndex: number,
+  endTime: number
+): { points: LocationData[]; nextIndex: number } {
+  let nextIndex = startIndex;
+  while (
+    nextIndex < locations.length &&
+    new Date(locations[nextIndex].timestamp).getTime() <= endTime
+  ) {
+    nextIndex++;
+  }
+  return { points: locations.slice(startIndex, nextIndex), nextIndex };
+}
+
+function appendMovingSegment(segments: TimelineSegment[], points: LocationData[]): void {
+  if (points.length < 2) return;
+  segments.push({
+    type: "moving",
+    coords: points.map((point) => [point.lon, point.lat]),
+    startTime: points[0].timestamp,
+    endTime: points[points.length - 1].timestamp,
+  });
+}
+
 /**
  * Split location points into moving/staying segments based on stay points.
  *
@@ -67,68 +107,37 @@ export function segmentLocations(
 
   const segments: TimelineSegment[] = [];
   let locIdx = 0;
+  let departureAnchor: LocationData | null = null;
 
   for (const sp of sorted) {
     const spStart = new Date(sp.startTime).getTime();
     const spEnd = new Date(sp.endTime).getTime();
 
-    // Collect moving points before this stay
-    const movingCoords: [number, number][] = [];
-    let movingStart: string | null = null;
-    let movingEnd: string | null = null;
+    // Keep the last point from the previous stay as the departure anchor. This
+    // connects the route out of a stay without drawing all stationary points.
+    const beforeStay = takeLocationsBefore(locations, locIdx, spStart);
+    locIdx = beforeStay.nextIndex;
+    const movingPoints = departureAnchor
+      ? [departureAnchor, ...beforeStay.points]
+      : beforeStay.points;
 
-    while (locIdx < locations.length) {
-      const t = new Date(locations[locIdx].timestamp).getTime();
-      if (t < spStart) {
-        if (!movingStart) movingStart = locations[locIdx].timestamp;
-        movingEnd = locations[locIdx].timestamp;
-        movingCoords.push([locations[locIdx].lon, locations[locIdx].lat]);
-        locIdx++;
-      } else {
-        break;
-      }
-    }
-
-    if (movingCoords.length > 0 && movingStart && movingEnd) {
-      segments.push({
-        type: "moving",
-        coords: movingCoords,
-        startTime: movingStart,
-        endTime: movingEnd,
-      });
-    }
+    // Preserve only the first and last raw points in the stay. The first point
+    // completes the arrival line; the last becomes the next departure line's
+    // anchor. Interior stationary points remain hidden.
+    const withinStay = takeLocationsThrough(locations, locIdx, spEnd);
+    locIdx = withinStay.nextIndex;
+    const arrivalAnchor = withinStay.points[0];
+    departureAnchor = withinStay.points.at(-1) ?? null;
+    if (arrivalAnchor) movingPoints.push(arrivalAnchor);
+    appendMovingSegment(segments, movingPoints);
 
     // Add the staying segment
     segments.push({ type: "staying", stayPoint: sp });
-
-    // Skip location points within the stay period
-    while (locIdx < locations.length) {
-      const t = new Date(locations[locIdx].timestamp).getTime();
-      if (t <= spEnd) {
-        locIdx++;
-      } else {
-        break;
-      }
-    }
   }
 
   // Remaining moving points after last stay
-  if (locIdx < locations.length) {
-    const movingCoords: [number, number][] = [];
-    const movingStart = locations[locIdx].timestamp;
-    while (locIdx < locations.length) {
-      movingCoords.push([locations[locIdx].lon, locations[locIdx].lat]);
-      locIdx++;
-    }
-    if (movingCoords.length > 0) {
-      segments.push({
-        type: "moving",
-        coords: movingCoords,
-        startTime: movingStart,
-        endTime: locations[locations.length - 1].timestamp,
-      });
-    }
-  }
+  const remaining = locations.slice(locIdx);
+  appendMovingSegment(segments, departureAnchor ? [departureAnchor, ...remaining] : remaining);
 
   return segments;
 }
