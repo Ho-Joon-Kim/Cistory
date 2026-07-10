@@ -9,6 +9,7 @@
 import { getDb, locationPoints } from "@/db";
 import { roundCoord } from "@/lib/geo";
 import { toLocalDateString } from "@/lib/utils";
+import { metersPerSecondToKmh } from "@/modules/location/speed";
 import type { ParsedPoint } from "./types";
 
 /** Wrap a sync array of points as an AsyncIterable so callers always get the same shape. */
@@ -78,7 +79,7 @@ export async function importPoints(
       lon: roundCoord(p.lon),
       accuracy: p.accuracy != null ? Math.round(p.accuracy) : null,
       altitude: p.altitude != null ? Math.round(p.altitude) : null,
-      velocity: p.velocity != null ? Math.round(p.velocity) : null,
+      velocity: p.velocity != null ? Math.round(metersPerSecondToKmh(p.velocity)) : null,
       battery: null,
       trackerId: null,
       timestamp: p.timestamp,

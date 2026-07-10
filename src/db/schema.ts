@@ -132,7 +132,7 @@ export const locationPoints = pgTable(
     lon: doublePrecision("lon").notNull(),
     accuracy: integer("accuracy"),
     altitude: integer("altitude"),
-    velocity: integer("velocity"),
+    velocity: integer("velocity"), // km/h
     battery: integer("battery"),
     trackerId: text("tracker_id"),
     anomaly: boolean("anomaly"),

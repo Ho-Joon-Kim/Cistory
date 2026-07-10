@@ -3,7 +3,7 @@ import { subwayMatchConfig } from "./config";
 export interface ScorerPoint {
   lat: number;
   lon: number;
-  velocity: number | null; // m/s (OwnTracks delivers m/s)
+  velocity: number | null; // km/h
   timestamp: Date;
 }
 
@@ -20,7 +20,7 @@ export function scoreSpeedProfile(points: ScorerPoint[]): number {
   if (points.length < 2) return 0;
 
   const speedsKmh = points
-    .map((p) => (p.velocity == null ? null : p.velocity * 3.6))
+    .map((p) => p.velocity)
     .filter((v): v is number => v !== null && Number.isFinite(v));
 
   // If GPS hardly reported velocity (underground), fall back to neutral.
