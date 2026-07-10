@@ -11,15 +11,16 @@ import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    // Enable Happy Eyeballs (RFC 8305) for all server-side fetch(). Some external
-    // hosts — e.g. Withings' wbsapi.withings.net — publish both A and AAAA records
-    // but are only reachable over IPv4 from our network. undici's default connector
-    // picks a single address family and stalls until ETIMEDOUT on a dead IPv6 route
-    // (surfacing as a bare `TypeError: fetch failed`). autoSelectFamily races IPv4
-    // and IPv6 the way curl and browsers do, so the reachable family wins; it is a
-    // no-op where IPv6 already works. Set before any outbound request is made.
-    const { setGlobalDispatcher, Agent } = await import("undici");
-    setGlobalDispatcher(new Agent({ connect: { autoSelectFamily: true } }));
+    // Prefer IPv4 for all server-side DNS resolution. Some external hosts — e.g.
+    // Withings' wbsapi.withings.net — publish both A and AAAA records but are only
+    // reachable over IPv4 from our network; undici's default connector picks IPv6
+    // and stalls until ETIMEDOUT on the dead route (surfacing as a bare
+    // `TypeError: fetch failed` in the OAuth token exchange). This works at the
+    // node:dns layer, below undici, so it applies to every fetch() regardless of
+    // which undici instance or dispatcher Next uses — unlike setGlobalDispatcher,
+    // which Next's route runtime does not pick up. No-op where IPv6 works.
+    const { setDefaultResultOrder } = await import("node:dns");
+    setDefaultResultOrder("ipv4first");
 
     await import("./sentry.server.config");
 
