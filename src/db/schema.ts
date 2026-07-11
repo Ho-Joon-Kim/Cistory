@@ -940,8 +940,9 @@ export const healthDailySummaries = pgTable(
 );
 
 // Verbatim API responses kept for lossless re-normalization if the parser or
-// schema changes (Google Health API is still moving). Append-only; likely the
-// larger storage consumer, pruned later by fetchedAt.
+// schema changes (Google Health API is still moving). Append-only and retained
+// INDEFINITELY (no pruning) — likely the larger storage consumer, so its size is
+// surfaced per-user in the settings data-usage card (data-usage.ts "health").
 export const healthRawPages = pgTable(
   "health_raw_pages",
   {
