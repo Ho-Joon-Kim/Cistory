@@ -26,26 +26,111 @@ function formatValue(v: number, decimals: number): string {
   });
 }
 
-export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
+interface AxisPoint {
+  day: string;
+  avg: number | null;
+  min: number | null;
+  max: number | null;
+  sum: number | null;
+}
+
+/** Dense 30-day axis (missing days stay null → rendered as gaps), values scaled. */
+function buildAxis(series: HealthMetricSeries): AxisPoint[] {
   const scale = series.scale ?? 1;
-  const pointValue = (p: HealthMetricSeries["points"][number]): number | null => {
-    const raw = series.agg === "sum" ? p.sum : p.avg;
-    return raw == null ? null : raw * scale;
-  };
-
-  // Index points by day, then walk a dense 30-day axis so missing days become
-  // visual gaps (AE6) rather than zero-height bars.
   const byDay = new Map(series.points.map((p) => [p.day, p]));
-  const axis = lastNDays(WINDOW_DAYS).map((day) => {
+  return lastNDays(WINDOW_DAYS).map((day) => {
     const p = byDay.get(day);
-    return { day, value: p ? pointValue(p) : null };
+    const s = (v: number | null | undefined) => (v == null ? null : v * scale);
+    return { day, avg: s(p?.avg), min: s(p?.min), max: s(p?.max), sum: s(p?.sum) };
   });
+}
 
-  const values = axis.map((a) => a.value).filter((v): v is number => v != null);
-  const hasData = values.length > 0;
-  const maxV = hasData ? Math.max(...values) : 0;
-  const minV = hasData ? Math.min(...values) : 0;
-  const latest = [...axis].reverse().find((a) => a.value != null)?.value ?? null;
+/**
+ * Accumulation metrics (steps, distance): 0-baseline bars — bar height is
+ * proportional to the daily total, which is the meaningful reading.
+ */
+function SumBars({ axis, series }: { axis: AxisPoint[]; series: HealthMetricSeries }) {
+  const values = axis.map((a) => a.sum).filter((v): v is number => v != null);
+  const maxV = Math.max(...values);
+  return (
+    <div className="flex items-end gap-[2px]" style={{ height: CHART_HEIGHT }}>
+      {axis.map((a) =>
+        a.sum == null ? (
+          <div key={a.day} className="flex-1" aria-hidden />
+        ) : (
+          <div
+            key={a.day}
+            className="flex-1 rounded-t-sm bg-primary/70"
+            style={{ height: maxV > 0 ? Math.max(2, (a.sum / maxV) * CHART_HEIGHT) : 2 }}
+            title={`${a.day}: ${formatValue(a.sum, series.decimals)} ${series.unit}`}
+          />
+        )
+      )}
+    </div>
+  );
+}
+
+/**
+ * Average / instantaneous metrics (heart rate, SpO2, VO2max): a range plot — each
+ * day is a faint min→max bar with a solid dot at the average — scaled to the
+ * window's actual [min, max] (NOT zero), so day-to-day variation is visible rather
+ * than flattened against a far-off zero baseline.
+ */
+function AvgRange({
+  axis,
+  domainMin,
+  domainMax,
+  series,
+}: {
+  axis: AxisPoint[];
+  domainMin: number;
+  domainMax: number;
+  series: HealthMetricSeries;
+}) {
+  const span = domainMax - domainMin;
+  // pixels from the top; higher value → nearer the top. Flat series → mid-height.
+  const yTop = (v: number) => (span > 0 ? 1 - (v - domainMin) / span : 0.5) * CHART_HEIGHT;
+  return (
+    <div className="flex items-stretch gap-[2px]" style={{ height: CHART_HEIGHT }}>
+      {axis.map((a) => (
+        <div key={a.day} className="relative flex-1">
+          {a.avg != null ? (
+            <>
+              {a.min != null && a.max != null ? (
+                <div
+                  className="absolute left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-primary/25"
+                  style={{ top: yTop(a.max), height: Math.max(3, yTop(a.min) - yTop(a.max)) }}
+                  aria-hidden
+                />
+              ) : null}
+              <div
+                className="absolute left-1/2 h-[5px] w-[5px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary"
+                style={{ top: yTop(a.avg) }}
+                title={`${a.day}: ${formatValue(a.avg, series.decimals)} ${series.unit}`}
+              />
+            </>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
+  const isSum = series.agg === "sum";
+  const axis = buildAxis(series);
+
+  // Chart footer + latest read from the field this metric is actually about.
+  const primary = axis.map((a) => (isSum ? a.sum : a.avg)).filter((v): v is number => v != null);
+  const hasData = primary.length > 0;
+  const latest = [...axis].reverse().find((a) => (isSum ? a.sum : a.avg) != null);
+  const latestValue = latest ? (isSum ? latest.sum : latest.avg) : null;
+
+  // Footer range: sum → min/max of daily totals; avg → the range-plot's domain.
+  const lows = axis.map((a) => a.min).filter((v): v is number => v != null);
+  const highs = axis.map((a) => a.max).filter((v): v is number => v != null);
+  const footMin = isSum ? Math.min(...primary) : Math.min(...(lows.length ? lows : primary));
+  const footMax = isSum ? Math.max(...primary) : Math.max(...(highs.length ? highs : primary));
 
   return (
     <Card>
@@ -54,10 +139,10 @@ export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
           <CardTitle className="text-sm font-medium text-muted-foreground">
             {series.label}
           </CardTitle>
-          {latest != null ? (
+          {latestValue != null ? (
             <div className="text-right">
               <span className="text-xl font-semibold tabular-nums">
-                {formatValue(latest, series.decimals)}
+                {formatValue(latestValue, series.decimals)}
               </span>
               <span className="ml-1 text-xs text-muted-foreground">{series.unit}</span>
             </div>
@@ -67,28 +152,16 @@ export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
       <CardContent>
         {hasData ? (
           <>
-            <div className="flex items-end gap-[2px]" style={{ height: CHART_HEIGHT }}>
-              {axis.map((a) => {
-                if (a.value == null) {
-                  // gap — a missing day is not zero
-                  return <div key={a.day} className="flex-1" aria-hidden />;
-                }
-                const h = maxV > 0 ? Math.max(2, (a.value / maxV) * CHART_HEIGHT) : 2;
-                return (
-                  <div
-                    key={a.day}
-                    className="flex-1 rounded-t-sm bg-primary/70"
-                    style={{ height: h }}
-                    title={`${a.day}: ${formatValue(a.value, series.decimals)} ${series.unit}`}
-                  />
-                );
-              })}
-            </div>
+            {isSum ? (
+              <SumBars axis={axis} series={series} />
+            ) : (
+              <AvgRange axis={axis} domainMin={footMin} domainMax={footMax} series={series} />
+            )}
             <div className="mt-2 flex justify-between text-[11px] text-muted-foreground tabular-nums">
               <span>
-                최근 {WINDOW_DAYS}일 · 최소 {formatValue(minV, series.decimals)}
+                최근 {WINDOW_DAYS}일 · 최소 {formatValue(footMin, series.decimals)}
               </span>
-              <span>최대 {formatValue(maxV, series.decimals)}</span>
+              <span>최대 {formatValue(footMax, series.decimals)}</span>
             </div>
           </>
         ) : (
