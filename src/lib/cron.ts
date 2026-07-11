@@ -338,10 +338,12 @@ async function _syncAllUsersInner() {
           });
         }
 
-        // Google Health (Fitbit) sync (24h interval, gated by lastSyncedAt).
-        // syncUser self-selects: no-ops when there's no active connection or the
-        // 24h gate hasn't elapsed. After the incremental forward sync, walk any
-        // historical gap toward the backfill floor (idempotent, resumable).
+        // Google Health (Fitbit) sync. Forward sync is 24h-gated (syncUser
+        // self-skips when synced <24h ago or there's no active connection).
+        // Backfill runs EVERY tick, independent of that gate, so a fresh
+        // connection's all-time history import advances every ~10 min (not once
+        // per day) and finishes in minutes/hours instead of days;
+        // backfillPendingConnections self-skips once complete or when idle.
         try {
           const health = createHealthSyncService(db);
           const result = await health.syncUser(user.id, {
@@ -353,14 +355,14 @@ async function _syncAllUsersInner() {
               githubLogin: user.githubLogin,
               samples: result.samplesUpserted,
             });
-            const backfill = await health.backfillPendingConnections(user.id);
-            if (!backfill.skipped) {
-              logger.info("[Cron] Health backfill done", {
-                userId: user.id,
-                githubLogin: user.githubLogin,
-                samples: backfill.samplesUpserted,
-              });
-            }
+          }
+          const backfill = await health.backfillPendingConnections(user.id);
+          if (!backfill.skipped) {
+            logger.info("[Cron] Health backfill progressed", {
+              userId: user.id,
+              githubLogin: user.githubLogin,
+              samples: backfill.samplesUpserted,
+            });
           }
         } catch (healthError) {
           logger.error("[Cron] Health sync error", {

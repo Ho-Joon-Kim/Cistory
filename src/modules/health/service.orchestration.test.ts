@@ -179,6 +179,32 @@ describe("forward sync — page-cap truncation does not advance the watermark (f
   });
 });
 
+describe("backfill — all-time walk stops when history runs out (empty streak)", () => {
+  it("returns reachedFloor after 3 consecutive empty windows, not the full run", async () => {
+    const { db } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
+    const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [] }); // every window empty
+    const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
+    const deepFloor = new Date("2020-01-01T00:00:00Z"); // far past → floor won't trip first
+    const config = {
+      key: "steps",
+      dataType: "steps",
+      wrapper: "steps",
+      timeShape: "interval",
+      filterField: "steps.interval.start_time",
+      valueKey: "count",
+      agg: "sum",
+    };
+    const done = await (
+      svc as unknown as {
+        backfillMetric: (c: unknown, m: unknown, f: Date) => Promise<{ reachedFloor: boolean }>;
+      }
+    ).backfillMetric(activeConn(), config, deepFloor);
+    expect(done.reachedFloor).toBe(true);
+    // stopped at the 3rd empty window (EMPTY_BACKFILL_CHUNKS_TO_STOP), not all 4 chunks
+    expect(listDataPoints).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("disconnect — clears sync watermarks (fix #11)", () => {
   it("deletes both the connection and its sync_state", async () => {
     const { db, rec } = fakeDb({ connectionRows: [activeConn()] });

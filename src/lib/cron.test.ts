@@ -196,7 +196,7 @@ describe("syncAllUsers", () => {
     });
   });
 
-  it("syncs Google Health behind the 24h gate, then backfills when not skipped", async () => {
+  it("syncs Google Health behind the 24h gate, then progresses backfill", async () => {
     m.healthSyncUser.mockResolvedValue({ userId: "u1", samplesUpserted: 3, skipped: false });
     m.dbUsers = [syncUser()];
     await syncAllUsers();
@@ -207,12 +207,15 @@ describe("syncAllUsers", () => {
     expect(m.healthBackfill).toHaveBeenCalledWith("u1");
   });
 
-  it("does not backfill health when the forward sync self-skipped (gate/no connection)", async () => {
+  it("still progresses backfill even when the forward sync self-skipped (24h gate)", async () => {
+    // Backfill is decoupled from the forward-sync gate so a fresh connection's
+    // all-time import advances every tick; backfillPendingConnections self-skips
+    // internally once complete or idle.
     m.healthSyncUser.mockResolvedValue({ userId: "u1", samplesUpserted: 0, skipped: true });
     m.dbUsers = [syncUser()];
     await syncAllUsers();
 
-    expect(m.healthBackfill).not.toHaveBeenCalled();
+    expect(m.healthBackfill).toHaveBeenCalledWith("u1");
   });
 
   it("isolates a health sync failure — other integrations still run", async () => {

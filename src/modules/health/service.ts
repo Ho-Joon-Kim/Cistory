@@ -25,11 +25,18 @@ const TOKEN_REFRESH_GRACE_MS = 60_000;
 const FORWARD_FALLBACK_MS = 7 * 24 * 3600_000; // first forward sync reaches back 7d
 const LIST_PAGE_SIZE = 1000;
 const MAX_PAGES_PER_WINDOW = 200; // backstop against a malformed never-empty pageToken
-// Historical backfill: how far back to reach, and how it is chunked per run so
-// one cron tick never pages an unbounded history in a single event-loop stretch.
-const BACKFILL_HORIZON_MS = 90 * 24 * 3600_000;
+// Historical backfill reaches back over ALL available history: it walks fixed
+// chunks backward until a metric's data runs out — detected by a run of empty
+// windows (older windows return no points) — with a deep floor only as an absolute
+// backstop. Bounded chunks/run so one cron tick never pages unbounded history in a
+// single event-loop stretch.
+const BACKFILL_SAFETY_FLOOR_MS = 5 * 365 * 24 * 3600_000; // ~5y backstop (>> Health Connect retention)
 const BACKFILL_CHUNK_MS = 14 * 24 * 3600_000;
 const BACKFILL_CHUNKS_PER_RUN = 4;
+// Consecutive empty 14d windows that mark "history has ended" and stop the walk.
+// 3 = ~42d of zero data across all sources; a tunable completeness/efficiency knob
+// (higher survives longer real gaps in history, lower finishes sooner).
+const EMPTY_BACKFILL_CHUNKS_TO_STOP = 3;
 
 // ── Metric config (ground-truthed by the U1 live spike) ──────────────────────
 // The Google Health `list` payload wraps each point under a camelCase key
@@ -428,11 +435,11 @@ export class HealthSyncService {
 
   /**
    * Historical backfill: walk each metric's `backfilledFrom` watermark backward
-   * toward `health_connections.backfillFloor` (seeded lazily to now − 90d), a
-   * bounded number of 14-day chunks per run so a single tick never pages an
-   * unbounded history. Resumable + idempotent (samples upsert DO NOTHING). Once
-   * every metric reaches the floor, stamp `backfillCompletedAt` so the UI can
-   * leave the "동기화 중" state (R12).
+   * over all available history — until the metric's data runs out (a run of empty
+   * windows) or the deep `health_connections.backfillFloor` backstop — a bounded
+   * number of 14-day chunks per run so a single tick never pages an unbounded
+   * history. Resumable + idempotent (samples upsert DO NOTHING). Once every metric
+   * is done, stamp `backfillCompletedAt` so the UI can leave the "동기화 중" state (R12).
    */
   async backfillPendingConnections(userId: string): Promise<HealthSyncResult> {
     const connection = await this.getConnection(userId);
@@ -478,6 +485,7 @@ export class HealthSyncService {
     // no backfill has run yet, so the two directions meet without a gap.
     let cursor = state?.backfilledFrom ?? new Date(Date.now() - FORWARD_FALLBACK_MS);
     let upserted = 0;
+    let emptyStreak = 0;
 
     for (let chunk = 0; chunk < BACKFILL_CHUNKS_PER_RUN; chunk++) {
       if (cursor.getTime() <= floor.getTime()) break;
@@ -498,13 +506,20 @@ export class HealthSyncService {
       if (truncated) break;
       cursor = chunkStart;
       await this.setSyncState(connection.userId, config.key, { backfilledFrom: cursor });
+      // All-time backfill: the metric's history has ended once enough consecutive
+      // windows come back empty. Treat that as done (don't grind empty windows all
+      // the way to the deep floor).
+      emptyStreak = got === 0 ? emptyStreak + 1 : 0;
+      if (emptyStreak >= EMPTY_BACKFILL_CHUNKS_TO_STOP) {
+        return { upserted, reachedFloor: true };
+      }
     }
 
     return { upserted, reachedFloor: cursor.getTime() <= floor.getTime() };
   }
 
   private async seedBackfillFloor(connection: HealthConnection): Promise<Date> {
-    const floor = new Date(Date.now() - BACKFILL_HORIZON_MS);
+    const floor = new Date(Date.now() - BACKFILL_SAFETY_FLOOR_MS);
     await this.db
       .update(healthConnections)
       .set({ backfillFloor: floor, updatedAt: new Date() })
