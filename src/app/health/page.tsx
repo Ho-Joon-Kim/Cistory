@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { Activity, AlertTriangle, Loader2, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Header } from "@/components/Layout/Header";
@@ -117,7 +117,7 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
 export default function HealthPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
-  const { summary, isLoading, refresh } = useHealthSummary();
+  const { summary, isLoading, isSyncing, syncNow } = useHealthSummary();
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) {
@@ -141,13 +141,13 @@ export default function HealthPage() {
                 : "걸음·심박·산소포화도 등 일일 건강 추이"}
             </p>
           </div>
-          <Button onClick={refresh} disabled={isLoading} size="sm" variant="outline">
-            {isLoading ? (
+          <Button onClick={syncNow} disabled={isSyncing} size="sm" variant="outline">
+            {isSyncing ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              <RefreshCw className="w-4 h-4 mr-2" />
+              <RotateCw className="w-4 h-4 mr-2" />
             )}
-            새로고침
+            {isSyncing ? "동기화 중" : "동기화"}
           </Button>
         </div>
 
