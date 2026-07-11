@@ -179,29 +179,53 @@ describe("forward sync — page-cap truncation does not advance the watermark (f
   });
 });
 
-describe("backfill — all-time walk stops when history runs out (empty streak)", () => {
-  it("returns reachedFloor after 3 consecutive empty windows, not the full run", async () => {
-    const { db } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
-    const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [] }); // every window empty
-    const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
-    const deepFloor = new Date("2020-01-01T00:00:00Z"); // far past → floor won't trip first
-    const config = {
-      key: "steps",
-      dataType: "steps",
-      wrapper: "steps",
-      timeShape: "interval",
-      filterField: "steps.interval.start_time",
-      valueKey: "count",
-      agg: "sum",
-    };
-    const done = await (
+describe("backfill — all-time walk, gap-proof stop (presence probe)", () => {
+  const config = {
+    key: "steps",
+    dataType: "steps",
+    wrapper: "steps",
+    timeShape: "interval",
+    filterField: "steps.interval.start_time",
+    valueKey: "count",
+    agg: "sum",
+  };
+  const deepFloor = new Date("2020-01-01T00:00:00Z"); // far past → floor won't trip first
+  const runBackfill = (svc: HealthSyncService) =>
+    (
       svc as unknown as {
         backfillMetric: (c: unknown, m: unknown, f: Date) => Promise<{ reachedFloor: boolean }>;
       }
     ).backfillMetric(activeConn(), config, deepFloor);
+
+  it("stops at the first empty window when NO data remains below the cursor", async () => {
+    const { db } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
+    // Every call empty: the window fetch AND the presence probe find nothing.
+    const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [] });
+    const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
+    const done = await runBackfill(svc);
     expect(done.reachedFloor).toBe(true);
-    // stopped at the 3rd empty window (EMPTY_BACKFILL_CHUNKS_TO_STOP), not all 4 chunks
-    expect(listDataPoints).toHaveBeenCalledTimes(3);
+    // one window fetch + one presence probe, then done — not the full 4-chunk run
+    expect(listDataPoints).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT stop on an empty window when older data exists beyond the gap", async () => {
+    const { db } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
+    // pageSize 1 = the presence probe → data exists somewhere below (a gap, not the
+    // end). Larger page = the window fetch → this specific window is empty.
+    const listDataPoints = vi.fn().mockImplementation((opts: { pageSize?: number }) =>
+      Promise.resolve({
+        dataPoints:
+          opts.pageSize === 1
+            ? [{ steps: { interval: { startTime: "2025-01-01T00:00:00Z" }, count: "1" } }]
+            : [],
+      })
+    );
+    const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
+    const done = await runBackfill(svc);
+    // gap traversed: all 4 chunks walked, not stopped; not done (more remains below)
+    expect(done.reachedFloor).toBe(false);
+    const probeCalls = listDataPoints.mock.calls.filter((c) => c[0].pageSize === 1);
+    expect(probeCalls.length).toBe(4); // probed on every empty window, kept going
   });
 });
 

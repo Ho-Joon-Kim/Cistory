@@ -26,17 +26,14 @@ const FORWARD_FALLBACK_MS = 7 * 24 * 3600_000; // first forward sync reaches bac
 const LIST_PAGE_SIZE = 1000;
 const MAX_PAGES_PER_WINDOW = 200; // backstop against a malformed never-empty pageToken
 // Historical backfill reaches back over ALL available history: it walks fixed
-// chunks backward until a metric's data runs out — detected by a run of empty
-// windows (older windows return no points) — with a deep floor only as an absolute
-// backstop. Bounded chunks/run so one cron tick never pages unbounded history in a
-// single event-loop stretch.
+// chunks backward until no data at all remains below the cursor (verified by a
+// presence probe, so it's robust to arbitrarily long mid-history gaps — real data
+// has 80+ day gaps for sparse metrics like SpO2/VO2max), with a deep floor only as
+// an absolute backstop. Bounded chunks/run so one cron tick never pages unbounded
+// history in a single event-loop stretch.
 const BACKFILL_SAFETY_FLOOR_MS = 5 * 365 * 24 * 3600_000; // ~5y backstop (>> Health Connect retention)
 const BACKFILL_CHUNK_MS = 14 * 24 * 3600_000;
 const BACKFILL_CHUNKS_PER_RUN = 4;
-// Consecutive empty 14d windows that mark "history has ended" and stop the walk.
-// 3 = ~42d of zero data across all sources; a tunable completeness/efficiency knob
-// (higher survives longer real gaps in history, lower finishes sooner).
-const EMPTY_BACKFILL_CHUNKS_TO_STOP = 3;
 
 // ── Metric config (ground-truthed by the U1 live spike) ──────────────────────
 // The Google Health `list` payload wraps each point under a camelCase key
@@ -435,11 +432,12 @@ export class HealthSyncService {
 
   /**
    * Historical backfill: walk each metric's `backfilledFrom` watermark backward
-   * over all available history — until the metric's data runs out (a run of empty
-   * windows) or the deep `health_connections.backfillFloor` backstop — a bounded
-   * number of 14-day chunks per run so a single tick never pages an unbounded
-   * history. Resumable + idempotent (samples upsert DO NOTHING). Once every metric
-   * is done, stamp `backfillCompletedAt` so the UI can leave the "동기화 중" state (R12).
+   * over all available history — until no data remains below the cursor (a presence
+   * probe, gap-proof) or the deep `health_connections.backfillFloor` backstop — a
+   * bounded number of 14-day chunks per run so a single tick never pages an
+   * unbounded history. Resumable + idempotent (samples upsert DO NOTHING). Once
+   * every metric is done, stamp `backfillCompletedAt` so the UI can leave the
+   * "동기화 중" state (R12).
    */
   async backfillPendingConnections(userId: string): Promise<HealthSyncResult> {
     const connection = await this.getConnection(userId);
@@ -485,7 +483,6 @@ export class HealthSyncService {
     // no backfill has run yet, so the two directions meet without a gap.
     let cursor = state?.backfilledFrom ?? new Date(Date.now() - FORWARD_FALLBACK_MS);
     let upserted = 0;
-    let emptyStreak = 0;
 
     for (let chunk = 0; chunk < BACKFILL_CHUNKS_PER_RUN; chunk++) {
       if (cursor.getTime() <= floor.getTime()) break;
@@ -506,16 +503,38 @@ export class HealthSyncService {
       if (truncated) break;
       cursor = chunkStart;
       await this.setSyncState(connection.userId, config.key, { backfilledFrom: cursor });
-      // All-time backfill: the metric's history has ended once enough consecutive
-      // windows come back empty. Treat that as done (don't grind empty windows all
-      // the way to the deep floor).
-      emptyStreak = got === 0 ? emptyStreak + 1 : 0;
-      if (emptyStreak >= EMPTY_BACKFILL_CHUNKS_TO_STOP) {
+      // All-time backfill with real gaps: an empty window does NOT mean history
+      // ended — older data can sit beyond a months-long gap (verified: SpO2 has an
+      // 84d gap; sparse metrics also lead with empty recent windows). Only stop when
+      // NO data remains anywhere below the cursor — one presence probe over the whole
+      // remaining range, so it's gap-proof regardless of gap length.
+      if (got === 0 && !(await this.hasDataBefore(connection, config, cursor, floor))) {
         return { upserted, reachedFloor: true };
       }
     }
 
     return { upserted, reachedFloor: cursor.getTime() <= floor.getTime() };
+  }
+
+  /**
+   * Presence probe: does ANY data exist for this metric in [floor, before)?
+   * A single pageSize=1 `list` over the entire remaining range, so backfill can
+   * tell "history ended" from "just a gap" no matter how long the gap is.
+   */
+  private async hasDataBefore(
+    connection: HealthConnection,
+    config: MetricConfig,
+    before: Date,
+    floor: Date
+  ): Promise<boolean> {
+    const page = await this.listPageWithAuth(
+      connection,
+      config,
+      buildTimeFilter(config, floor, before),
+      undefined,
+      1
+    );
+    return page.dataPoints.length > 0;
   }
 
   private async seedBackfillFloor(connection: HealthConnection): Promise<Date> {
@@ -634,7 +653,8 @@ export class HealthSyncService {
     connection: HealthConnection,
     config: MetricConfig,
     filter: string,
-    pageToken?: string
+    pageToken?: string,
+    pageSize: number = LIST_PAGE_SIZE
   ): Promise<ListResult> {
     const adapter = this.getAdapter();
     const req = (accessToken: string) =>
@@ -642,7 +662,7 @@ export class HealthSyncService {
         accessToken,
         dataType: config.dataType,
         filter,
-        pageSize: LIST_PAGE_SIZE,
+        pageSize,
         pageToken,
       });
 
