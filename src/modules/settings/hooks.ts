@@ -299,6 +299,7 @@ export function useWithings(hasConnection: boolean) {
 
 export function useHealth(hasConnection: boolean) {
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [hasHealthConnection, setHasHealthConnection] = useState(hasConnection);
   const prevHasConnection = useRef(hasConnection);
 
@@ -323,7 +324,21 @@ export function useHealth(hasConnection: boolean) {
     }
   }, []);
 
-  return { hasHealthConnection, isDisconnecting, disconnect };
+  // Manual pull from Google Health now (no 24h gate) — forward + exercise + backfill.
+  const syncNow = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const response = await fetch("/api/fitbit/sync", { method: "POST" });
+      if (!response.ok) throw new Error("Failed to sync");
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  return { hasHealthConnection, isDisconnecting, isSyncing, disconnect, syncNow };
 }
 
 interface WakaTimeUser {
