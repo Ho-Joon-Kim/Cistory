@@ -83,8 +83,8 @@ export const GET = withAuth(async ({ user }) => {
   return NextResponse.json({
     hasConnection: !!conn,
     status: conn?.status ?? null,
-    backfillCompletedAt: conn?.backfillCompletedAt ?? null,
-    lastSyncedAt: conn?.lastSyncedAt ?? null,
+    backfillCompletedAt: conn?.backfillCompletedAt?.toISOString() ?? null,
+    lastSyncedAt: conn?.lastSyncedAt?.toISOString() ?? null,
     hasAnyHistory: metrics.some((m) => m.points.length > 0),
     metrics,
   });

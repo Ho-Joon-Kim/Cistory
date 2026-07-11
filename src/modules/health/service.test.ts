@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CURATED_METRICS } from "./metrics-meta";
 import {
   buildTimeFilter,
   HEALTH_METRICS,
@@ -36,6 +37,17 @@ describe("HEALTH_METRICS config", () => {
     expect(byKey("steps").agg).toBe("sum");
     expect(byKey("distance").agg).toBe("sum");
     expect(byKey("heart_rate").agg).toBe("avg");
+  });
+
+  // The curated /health view duplicates `agg` (it can't import the server-only
+  // service module into client bundles). Guard against the two drifting apart —
+  // a mismatch would make the trend read the wrong summary column (sum vs avg).
+  it("every curated metric exists in HEALTH_METRICS with a matching agg", () => {
+    for (const m of CURATED_METRICS) {
+      const config = HEALTH_METRICS.find((h) => h.key === m.key);
+      expect(config, `curated metric ${m.key} must exist in HEALTH_METRICS`).toBeDefined();
+      expect(m.agg).toBe(config?.agg);
+    }
   });
 });
 

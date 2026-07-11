@@ -59,6 +59,12 @@ function scrubBreadcrumbs(breadcrumbs: NonNullable<ScrubbableEvent["breadcrumbs"
  *  — drop them and any auth-bearing headers. */
 function scrubRequest(request: NonNullable<ScrubbableEvent["request"]>): void {
   if (!isHealthUrl(request.url)) return;
+  // The OAuth callback URL carries ?code=…&state=… in the querystring — keep only
+  // the path so the grant code never lands in Sentry via request.url.
+  if (typeof request.url === "string") {
+    const q = request.url.indexOf("?");
+    if (q !== -1) request.url = request.url.slice(0, q);
+  }
   request.data = undefined;
   request.query_string = undefined;
   if (request.headers) {

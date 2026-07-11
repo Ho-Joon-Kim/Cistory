@@ -312,7 +312,8 @@ export class GoogleHealthAdapter {
     return {
       accessToken: data.access_token,
       // Non-rotation: keep the existing refresh token when the response omits one.
-      refreshToken: data.refresh_token ?? fallbackRefresh ?? "",
+      // Truthiness (not ??) so an empty-string refresh_token also falls back.
+      refreshToken: data.refresh_token || fallbackRefresh || "",
       expiresAt: new Date(Date.now() + (data.expires_in ?? 0) * 1000),
       scope: data.scope ?? "",
       googleSub: subFromIdToken(data.id_token),

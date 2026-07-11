@@ -44,6 +44,9 @@ describe("scrubHealthData", () => {
     scrubHealthData(event);
     expect(event.request?.data).toBeUndefined();
     expect(event.request?.query_string).toBeUndefined();
+    // The querystring (with the grant code) is stripped off request.url itself.
+    expect(event.request?.url).toBe("https://app.example.com/api/fitbit/callback");
+    expect(event.request?.url).not.toContain("secret-code");
     expect(event.request?.headers?.authorization).toBeUndefined();
     expect(event.request?.headers?.cookie).toBeUndefined();
     expect(event.request?.headers?.["user-agent"]).toBe("keep-me");

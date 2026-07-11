@@ -8,6 +8,7 @@ import {
   healthSyncState,
   type NewHealthSample,
 } from "@/db/schema";
+import { localDayRawSql } from "@/db/sql";
 import {
   createGoogleHealthAdapter,
   type GoogleHealthAdapter,
@@ -207,6 +208,9 @@ export class HealthSyncService {
   private readonly clientId?: string;
   private readonly clientSecret?: string;
   private readonly adapterOptions?: { throttleMs?: number };
+  /** Memoized so the adapter's self-throttle state persists across pages of a
+   *  sync run — re-creating it per call reset the throttle and defeated pacing. */
+  private adapter?: GoogleHealthAdapter;
 
   constructor(
     private db: Database,
@@ -218,12 +222,14 @@ export class HealthSyncService {
   }
 
   private getAdapter(): GoogleHealthAdapter {
+    if (this.adapter) return this.adapter;
     const clientId = this.clientId ?? process.env.FITBIT_CLIENT_ID;
     const clientSecret = this.clientSecret ?? process.env.FITBIT_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
       throw new Error("FITBIT_CLIENT_ID / FITBIT_CLIENT_SECRET is not set");
     }
-    return createGoogleHealthAdapter(clientId, clientSecret, this.adapterOptions);
+    this.adapter = createGoogleHealthAdapter(clientId, clientSecret, this.adapterOptions);
+    return this.adapter;
   }
 
   async getConnection(userId: string): Promise<HealthConnection | null> {
@@ -256,6 +262,10 @@ export class HealthSyncService {
       }
     }
     await this.db.delete(healthConnections).where(eq(healthConnections.userId, userId));
+    // Clear the per-metric watermarks too: retained samples/summaries survive, but
+    // a later reconnect must re-sync the disconnected gap from scratch rather than
+    // resume from stale syncedThrough/backfilledFrom cursors.
+    await this.db.delete(healthSyncState).where(eq(healthSyncState.userId, userId));
   }
 
   private async markNeedsReauth(userId: string, message: string): Promise<void> {
@@ -376,10 +386,14 @@ export class HealthSyncService {
       }
     }
 
+    // Advance the sync clock only when at least one metric succeeded. A TOTAL
+    // failure (dead token, network down) leaves lastSyncedAt untouched so the
+    // skipIfSyncedWithinMs gate doesn't suppress the retry for a full interval.
+    const allFailed = errors.length === HEALTH_METRICS.length;
     await this.db
       .update(healthConnections)
       .set({
-        lastSyncedAt: now,
+        ...(allFailed ? {} : { lastSyncedAt: now }),
         lastSyncError: errors.length ? errors.join("; ").slice(0, 500) : null,
         updatedAt: new Date(),
       })
@@ -397,14 +411,18 @@ export class HealthSyncService {
   ): Promise<number> {
     const state = await this.getSyncState(connection.userId, config.key);
     const since = state?.syncedThrough ?? new Date(now.getTime() - FORWARD_FALLBACK_MS);
-    const upserted = await this.fetchWindowAndPersist(
+    const { upserted, truncated } = await this.fetchWindowAndPersist(
       connection,
       config,
       buildTimeFilter(config, since),
       since,
       now
     );
-    await this.setSyncState(connection.userId, config.key, { syncedThrough: now });
+    // Don't advance the watermark past a window we couldn't fully page — otherwise
+    // the unfetched tail is skipped permanently. Leave `since` for the next tick.
+    if (!truncated) {
+      await this.setSyncState(connection.userId, config.key, { syncedThrough: now });
+    }
     return upserted;
   }
 
@@ -467,13 +485,17 @@ export class HealthSyncService {
       const chunkStart = new Date(
         Math.max(floor.getTime(), chunkEnd.getTime() - BACKFILL_CHUNK_MS)
       );
-      upserted += await this.fetchWindowAndPersist(
+      const { upserted: got, truncated } = await this.fetchWindowAndPersist(
         connection,
         config,
         buildTimeFilter(config, chunkStart, chunkEnd),
         chunkStart,
         chunkEnd
       );
+      upserted += got;
+      // A truncated chunk left data unfetched — stop without advancing the cursor
+      // so the same chunk (not just its unread tail) is retried next run.
+      if (truncated) break;
       cursor = chunkStart;
       await this.setSyncState(connection.userId, config.key, { backfilledFrom: cursor });
     }
@@ -501,28 +523,59 @@ export class HealthSyncService {
     filter: string,
     windowStart: Date,
     windowEnd: Date
-  ): Promise<number> {
+  ): Promise<{ upserted: number; truncated: boolean }> {
     let pageToken: string | undefined;
     let pages = 0;
     let upserted = 0;
     let touchedAny = false;
+    let truncated = false;
 
-    do {
-      const page = await this.listPageWithAuth(connection, config, filter, pageToken);
-      const rows = await this.persistPage(connection.userId, config, page, windowStart, windowEnd);
-      if (rows > 0) {
-        upserted += rows;
-        touchedAny = true;
+    try {
+      do {
+        const page = await this.listPageWithAuth(connection, config, filter, pageToken);
+        const rows = await this.persistPage(
+          connection.userId,
+          config,
+          page,
+          windowStart,
+          windowEnd
+        );
+        if (rows > 0) {
+          upserted += rows;
+          touchedAny = true;
+        }
+        pageToken = page.nextPageToken;
+        pages++;
+        await new Promise((resolve) => setImmediate(resolve)); // event-loop yield
+      } while (pageToken && pages < MAX_PAGES_PER_WINDOW);
+
+      // Still a pageToken after the cap = unfetched data remains. Flag it so the
+      // caller does NOT advance its watermark past this window (silent data loss).
+      if (pageToken) {
+        truncated = true;
+        logger.warn("[Health] window hit page cap; not advancing watermark", {
+          userId: connection.userId,
+          metric: config.key,
+          pages,
+        });
       }
-      pageToken = page.nextPageToken;
-      pages++;
-      await new Promise((resolve) => setImmediate(resolve)); // event-loop yield
-    } while (pageToken && pages < MAX_PAGES_PER_WINDOW);
-
-    if (touchedAny && config.valueKey != null) {
-      await this.recomputeDailySummaries(connection.userId, config, windowStart, windowEnd);
+    } finally {
+      // Recompute in `finally` so pages already persisted before a mid-window page
+      // error still get their KST-day summaries (the watermark won't have advanced,
+      // so a later run re-touches them, but this closes the transient gap now). A
+      // recompute failure is logged, never masks the original error.
+      if (touchedAny && config.valueKey != null) {
+        await this.recomputeDailySummaries(connection.userId, config, windowStart, windowEnd).catch(
+          (err) =>
+            logger.warn("[Health] daily summary recompute failed", {
+              userId: connection.userId,
+              metric: config.key,
+              error: err instanceof Error ? err.message : String(err),
+            })
+        );
+      }
     }
-    return upserted;
+    return { upserted, truncated };
   }
 
   /** Store one raw page verbatim and upsert its parsed samples. Returns the row count. */
@@ -601,12 +654,17 @@ export class HealthSyncService {
 
   /**
    * Recompute health_daily_summaries for every KST day this window touched.
-   * The day boundary is derived in SQL via localDaySql (KST, not the UTC day),
+   * The day boundary is derived in SQL via localDayRawSql (KST, not the UTC day),
    * and each touched day is aggregated FULLY (over all its samples, not just the
    * window's) so summaries stay correct when a day straddles two sync windows.
-   * NOTE: while multiple sources for one metric exist (Fitbit not yet connected =
-   * single source), sum/avg over all rows is correct; source-aware dedup is
-   * deferred until real multi-source data lands (rows are preserved to recompute).
+   *
+   * Multi-source: the same metric is written by multiple Health Connect apps
+   * (phone pedometer + Samsung Health today, Fitbit later), so summing every row
+   * double-counts overlapping sources. Instead we aggregate PER SOURCE per day,
+   * then pick the single dominant source (largest daily sum for accumulating
+   * metrics, most samples for instantaneous ones) — a lossless, calibration-free
+   * dedup: no source's value is blended, and a smarter reconciliation can still be
+   * recomputed later from the preserved rows.
    */
   private async recomputeDailySummaries(
     userId: string,
@@ -614,28 +672,46 @@ export class HealthSyncService {
     windowStart: Date,
     windowEnd: Date
   ): Promise<void> {
-    // One atomic upsert: aggregate every KST day the window touched, FULLY (over
-    // all that day's samples, not just the window's, via the IN-subquery) so a
-    // day straddling two windows stays correct. The KST day is derived in SQL
-    // (localDaySql form) — never the UTC day. value_sum is populated only for
-    // accumulating metrics; instantaneous metrics leave it null. Timestamps bind
-    // as UTC-wall ISO strings cast to `timestamp` to match how sample_at is stored.
-    const kstDay = sql.raw("(sample_at at time zone 'UTC' at time zone 'Asia/Seoul')::date");
-    const valueSum = config.agg === "sum" ? sql`sum(value)` : sql`NULL::double precision`;
+    // The KST day is derived in SQL (localDayRawSql form) — never the UTC day.
+    const kstDay = sql.raw(localDayRawSql("sample_at"));
+    // Bound the aggregation scan to the touched days' UTC span (window ± 1 day) so
+    // it rides the (user_id, metric, sample_at) index instead of scanning the whole
+    // (user, metric) partition. KST is a fixed UTC+9, so any KST day the window
+    // touched lies entirely within [windowStart − 24h, windowEnd + 24h).
+    const scanStart = new Date(windowStart.getTime() - 86_400_000).toISOString();
+    const scanEnd = new Date(windowEnd.getTime() + 86_400_000).toISOString();
+    // Rank sources within a day: accumulating metrics by total, instantaneous by
+    // sample count (both already aggregated in per_source, so reference the column).
+    const rankCol = config.agg === "sum" ? sql.raw("s_sum") : sql.raw("s_count");
+    // value_sum is populated only for accumulating metrics; instantaneous leave it null.
+    const valueSum = config.agg === "sum" ? sql.raw("s_sum") : sql`NULL::double precision`;
     await this.db.execute(sql`
+      WITH per_source AS (
+        SELECT user_id, metric, ${kstDay} AS day, source,
+               avg(value) AS s_avg, min(value) AS s_min, max(value) AS s_max,
+               sum(value) AS s_sum, count(*)::int AS s_count
+        FROM health_samples
+        WHERE user_id = ${userId} AND metric = ${config.key}
+          AND sample_at >= ${scanStart}::timestamp
+          AND sample_at < ${scanEnd}::timestamp
+          AND ${kstDay} IN (
+            SELECT DISTINCT ${kstDay} FROM health_samples
+            WHERE user_id = ${userId} AND metric = ${config.key}
+              AND sample_at >= ${windowStart.toISOString()}::timestamp
+              AND sample_at < ${windowEnd.toISOString()}::timestamp
+          )
+        GROUP BY user_id, metric, ${kstDay}, source
+      ),
+      picked AS (
+        SELECT DISTINCT ON (user_id, metric, day)
+               user_id, metric, day, s_avg, s_min, s_max, s_sum, s_count
+        FROM per_source
+        ORDER BY user_id, metric, day, ${rankCol} DESC NULLS LAST, source
+      )
       INSERT INTO health_daily_summaries
         (user_id, metric, day, value_avg, value_min, value_max, value_sum, count, updated_at)
-      SELECT user_id, metric, ${kstDay}::text,
-             avg(value), min(value), max(value), ${valueSum}, count(*)::int, now()
-      FROM health_samples
-      WHERE user_id = ${userId} AND metric = ${config.key}
-        AND ${kstDay} IN (
-          SELECT DISTINCT ${kstDay} FROM health_samples
-          WHERE user_id = ${userId} AND metric = ${config.key}
-            AND sample_at >= ${windowStart.toISOString()}::timestamp
-            AND sample_at < ${windowEnd.toISOString()}::timestamp
-        )
-      GROUP BY user_id, metric, ${kstDay}
+      SELECT user_id, metric, day::text, s_avg, s_min, s_max, ${valueSum}, s_count, now()
+      FROM picked
       ON CONFLICT (user_id, metric, day) DO UPDATE SET
         value_avg = EXCLUDED.value_avg,
         value_min = EXCLUDED.value_min,

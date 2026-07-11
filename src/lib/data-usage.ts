@@ -66,6 +66,7 @@ const TABLE_DEFS: TableDef[] = [
   { category: "health", table: "health_daily_summaries" },
   { category: "health", table: "health_raw_pages" },
   { category: "health", table: "health_connections" },
+  { category: "health", table: "health_sync_state" },
   { category: "system", table: "sync_jobs" },
 ];
 
