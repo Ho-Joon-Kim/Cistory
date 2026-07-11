@@ -828,3 +828,145 @@ export type WithingsConnection = typeof withingsConnections.$inferSelect;
 export type NewWithingsConnection = typeof withingsConnections.$inferInsert;
 export type BodyMeasurement = typeof bodyMeasurements.$inferSelect;
 export type NewBodyMeasurement = typeof bodyMeasurements.$inferInsert;
+
+// ============ Health (Fitbit Air via Google Health API) ============
+// One connection row per user (single Google Health account linking). Access +
+// refresh tokens are AES-256-GCM encrypted via src/lib/crypto.ts (same key as
+// KIS/Withings). Unlike Withings, Google refresh tokens do NOT rotate — the
+// stored refresh token is preserved when a refresh response omits one (see
+// HealthSyncService.getValidToken). `status` flips to needs_reauth only on a
+// CONFIRMED auth failure so a transient error doesn't force re-linking.
+export const healthConnections = pgTable(
+  "health_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Google account subject (sub claim) — stable per-user id, for reference only.
+    googleSub: text("google_sub"),
+    accessTokenEnc: text("access_token_enc").notNull(),
+    refreshTokenEnc: text("refresh_token_enc").notNull(),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    scope: text("scope"),
+    status: text("status").notNull().default("active"), // "active" | "needs_reauth"
+    lastSyncedAt: timestamp("last_synced_at"),
+    lastSyncError: text("last_sync_error"),
+    // Earliest instant historical backfill targets (the KIS `openedAt` analog).
+    // Seeded from the U1-discovered intraday-retention limit / connection date so
+    // backfill has a defined stop and can't walk forever.
+    backfillFloor: timestamp("backfill_floor"),
+    // Null until every metric's backfilledFrom reaches backfillFloor. Lets the UI
+    // distinguish "still backfilling" from "connected, no data" (R12).
+    backfillCompletedAt: timestamp("backfill_completed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("idx_health_conn_user").on(t.userId)]
+);
+
+// Per-metric sync watermarks (KIS-watermark analog). `syncedThrough` is the
+// forward incremental cursor; `backfilledFrom` walks history backward toward
+// health_connections.backfillFloor. Null on either = that direction never ran.
+export const healthSyncState = pgTable(
+  "health_sync_state",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    metric: text("metric").notNull(),
+    syncedThrough: timestamp("synced_through"),
+    backfilledFrom: timestamp("backfilled_from"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("idx_health_sync_state_unique").on(t.userId, t.metric)]
+);
+
+// Long/narrow intraday time series. `userId` is denormalized (not via a snapshot
+// FK) so data-usage can filter per-user. Scalar metrics populate `value`;
+// structured metrics that don't reduce to one float (sleep-stage segments, HRV
+// interval payloads, SpO2-with-confidence) populate `valueJson` — the U1 spike's
+// per-metric shape enumeration decides which.
+//
+// `source` is the Health Connect writing app's package name (e.g.
+// "com.sec.android.app.shealth", "android", or a Fitbit package). The U1 spike
+// confirmed real multi-source data: the same metric (steps, heart rate) can be
+// written by several apps at once, so `source` is part of the unique key —
+// overlapping sources coexist row-by-row instead of colliding under
+// ON CONFLICT DO NOTHING (which would silently drop one source's value). The
+// index doubles as the (userId, metric, time-range) read path.
+export const healthSamples = pgTable(
+  "health_samples",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    metric: text("metric").notNull(),
+    sampleAt: timestamp("sample_at").notNull(),
+    // Health Connect source app package; "unknown" when the payload omits it.
+    source: text("source").notNull().default("unknown"),
+    value: doublePrecision("value"),
+    valueJson: jsonb("value_json"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("idx_health_sample_unique").on(t.userId, t.metric, t.sampleAt, t.source)]
+);
+
+// Per-KST-day rollup. `day` is a 'YYYY-MM-DD' KST local day derived by bucketing
+// health_samples via localDaySql (NOT copied from dailyRollUp, whose buckets are
+// Google-server-TZ). `valueSum` is null for average-shaped metrics (resting HR)
+// and populated for total-shaped ones (steps, sleep-minutes). Raw payloads live
+// once in health_raw_pages — never duplicated here.
+export const healthDailySummaries = pgTable(
+  "health_daily_summaries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    day: text("day").notNull(), // 'YYYY-MM-DD' KST
+    metric: text("metric").notNull(),
+    valueAvg: doublePrecision("value_avg"),
+    valueMin: doublePrecision("value_min"),
+    valueMax: doublePrecision("value_max"),
+    valueSum: doublePrecision("value_sum"),
+    count: integer("count"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("idx_health_daily_unique").on(t.userId, t.metric, t.day)]
+);
+
+// Verbatim API responses kept for lossless re-normalization if the parser or
+// schema changes (Google Health API is still moving). Append-only and retained
+// INDEFINITELY (no pruning) — likely the larger storage consumer, so its size is
+// surfaced per-user in the settings data-usage card (data-usage.ts "health").
+export const healthRawPages = pgTable(
+  "health_raw_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    dataType: text("data_type").notNull(),
+    method: text("method").notNull(), // 'list' | 'dailyRollUp'
+    windowStart: timestamp("window_start"),
+    windowEnd: timestamp("window_end"),
+    rawJson: jsonb("raw_json").notNull(),
+    fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+  },
+  (t) => [index("idx_health_raw_pages_user_time").on(t.userId, t.fetchedAt)]
+);
+
+export type HealthConnection = typeof healthConnections.$inferSelect;
+export type NewHealthConnection = typeof healthConnections.$inferInsert;
+export type HealthSyncState = typeof healthSyncState.$inferSelect;
+export type NewHealthSyncState = typeof healthSyncState.$inferInsert;
+export type HealthSample = typeof healthSamples.$inferSelect;
+export type NewHealthSample = typeof healthSamples.$inferInsert;
+export type HealthDailySummary = typeof healthDailySummaries.$inferSelect;
+export type NewHealthDailySummary = typeof healthDailySummaries.$inferInsert;
+export type HealthRawPage = typeof healthRawPages.$inferSelect;
+export type NewHealthRawPage = typeof healthRawPages.$inferInsert;

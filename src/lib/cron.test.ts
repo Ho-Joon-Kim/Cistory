@@ -17,6 +17,8 @@ const m = vi.hoisted(() => ({
   syncUserAccounts: vi.fn(),
   backfillPendingAccounts: vi.fn(),
   withingsSyncUser: vi.fn(),
+  healthSyncUser: vi.fn(),
+  healthBackfill: vi.fn(),
   maybeRefreshDataUsage: vi.fn(),
   getGitHubToken: vi.fn(),
   // location pipeline collaborators
@@ -73,6 +75,12 @@ vi.mock("@/modules/portfolio/service", () => ({
 vi.mock("@/modules/withings/service", () => ({
   createWithingsSyncService: vi.fn(() => ({ syncUser: m.withingsSyncUser })),
 }));
+vi.mock("@/modules/health/service", () => ({
+  createHealthSyncService: vi.fn(() => ({
+    syncUser: m.healthSyncUser,
+    backfillPendingConnections: m.healthBackfill,
+  })),
+}));
 vi.mock("@/modules/subway/service", () => ({
   refreshAllSubwaySystems: vi.fn(),
   seedSubwaySystemsIfEmpty: vi.fn(),
@@ -126,6 +134,8 @@ beforeEach(() => {
   m.syncUserAccounts.mockResolvedValue([]);
   m.backfillPendingAccounts.mockResolvedValue([]);
   m.withingsSyncUser.mockResolvedValue({ userId: "u1", measurementsUpserted: 0, skipped: true });
+  m.healthSyncUser.mockResolvedValue({ userId: "u1", samplesUpserted: 0, skipped: true });
+  m.healthBackfill.mockResolvedValue({ userId: "u1", samplesUpserted: 0, skipped: true });
   m.runAnomalyDetectionForDay.mockResolvedValue({ total: 0 });
   m.detectAndPersistVisits.mockResolvedValue([]);
   m.detectAndPersistTracks.mockResolvedValue({ trackCount: 0, segmentCount: 0 });
@@ -184,6 +194,39 @@ describe("syncAllUsers", () => {
     expect(m.withingsSyncUser).toHaveBeenCalledWith("u1", {
       skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
     });
+  });
+
+  it("syncs Google Health behind the 24h gate, then progresses backfill", async () => {
+    m.healthSyncUser.mockResolvedValue({ userId: "u1", samplesUpserted: 3, skipped: false });
+    m.dbUsers = [syncUser()];
+    await syncAllUsers();
+
+    expect(m.healthSyncUser).toHaveBeenCalledWith("u1", {
+      skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
+    });
+    expect(m.healthBackfill).toHaveBeenCalledWith("u1");
+  });
+
+  it("still progresses backfill even when the forward sync self-skipped (24h gate)", async () => {
+    // Backfill is decoupled from the forward-sync gate so a fresh connection's
+    // all-time import advances every tick; backfillPendingConnections self-skips
+    // internally once complete or idle.
+    m.healthSyncUser.mockResolvedValue({ userId: "u1", samplesUpserted: 0, skipped: true });
+    m.dbUsers = [syncUser()];
+    await syncAllUsers();
+
+    expect(m.healthBackfill).toHaveBeenCalledWith("u1");
+  });
+
+  it("isolates a health sync failure — other integrations still run", async () => {
+    m.healthSyncUser.mockRejectedValue(new Error("google health 500"));
+    m.dbUsers = [syncUser()];
+    await syncAllUsers();
+
+    // The health block throws, but the surrounding per-user loop continues:
+    // Withings (earlier) and the data-usage refresh (later) still fire.
+    expect(m.withingsSyncUser).toHaveBeenCalled();
+    expect(m.maybeRefreshDataUsage).toHaveBeenCalledWith(expect.anything(), "u1");
   });
 
   it("exits without syncing when no users have a GitHub token", async () => {

@@ -20,6 +20,9 @@ export interface UserSettings {
   withingsUserId: string | null;
   withingsLastSyncedAt: string | null;
   withingsNeedsReauth: boolean;
+  hasHealthConnection: boolean;
+  healthLastSyncedAt: string | null;
+  healthNeedsReauth: boolean;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -36,4 +39,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   withingsUserId: null,
   withingsLastSyncedAt: null,
   withingsNeedsReauth: false,
+  hasHealthConnection: false,
+  healthLastSyncedAt: null,
+  healthNeedsReauth: false,
 };

@@ -19,6 +19,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   location: "#f59e0b",
   coding: "#3b82f6",
   spending: "#8b5cf6",
+  health: "#ef4444",
   system: "#6b7280",
 };
 

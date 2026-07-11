@@ -1,6 +1,7 @@
 "use client";
 
 import { Github, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/modules/auth/hooks";
@@ -37,6 +38,15 @@ export default function LoginPage() {
             <br />
             비공개 레포지토리도 추적할 수 있습니다.
           </p>
+          <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
+            <Link href="/privacy" className="hover:underline">
+              개인정보처리방침
+            </Link>
+            <span aria-hidden>·</span>
+            <Link href="/terms" className="hover:underline">
+              이용약관
+            </Link>
+          </div>
         </CardContent>
       </Card>
     </div>

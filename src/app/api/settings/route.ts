@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { users, withingsConnections } from "@/db/schema";
+import { healthConnections, users, withingsConnections } from "@/db/schema";
 import { withAuth, withValidation } from "@/lib/api-handler";
 import { DEFAULT_USER_SETTINGS, type UserSettings } from "@/modules/settings/types";
 
@@ -28,8 +28,8 @@ const SettingsUpdateBody = z
  */
 async function readUserSettings(userId: string): Promise<UserSettings> {
   const db = getDb();
-  // Both selects key only on userId and are independent — run them together.
-  const [userResult, withingsResult] = await Promise.all([
+  // All selects key only on userId and are independent — run them together.
+  const [userResult, withingsResult, healthResult] = await Promise.all([
     db
       .select({
         theme: users.theme,
@@ -52,6 +52,13 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
       })
       .from(withingsConnections)
       .where(eq(withingsConnections.userId, userId)),
+    db
+      .select({
+        status: healthConnections.status,
+        lastSyncedAt: healthConnections.lastSyncedAt,
+      })
+      .from(healthConnections)
+      .where(eq(healthConnections.userId, userId)),
   ]);
 
   if (userResult.length === 0) {
@@ -59,6 +66,7 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
   }
 
   const withings = withingsResult[0];
+  const health = healthResult[0];
   const row = userResult[0];
   return {
     theme: (row.theme as UserSettings["theme"]) || DEFAULT_USER_SETTINGS.theme,
@@ -74,6 +82,9 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
     withingsUserId: withings?.withingsUserId ?? null,
     withingsLastSyncedAt: withings?.lastSyncedAt?.toISOString() ?? null,
     withingsNeedsReauth: withings?.status === "needs_reauth",
+    hasHealthConnection: !!health,
+    healthLastSyncedAt: health?.lastSyncedAt?.toISOString() ?? null,
+    healthNeedsReauth: health?.status === "needs_reauth",
   };
 }
 
