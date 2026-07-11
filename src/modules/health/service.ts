@@ -110,14 +110,56 @@ export const HEALTH_METRICS: MetricConfig[] = [
     valueKey: "vo2Max",
     agg: "avg",
   },
-  // DEFERRED: `exercise` (structured workout sessions). `list` works unfiltered,
-  // but every interval `filter` variant is rejected 400
-  // (INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER) — the exercise data type isn't
-  // time-filterable via the members we can address, so incremental windowing is
-  // impossible without a different fetch strategy. It's not shown on /health
-  // (absent from CURATED_METRICS), so it's left out until its filter is figured
-  // out. The parser already handles structured metrics (valueKey: null → valueJson).
+  // `exercise` (workout sessions) is synced SEPARATELY (syncExercise), not here:
+  // it's structured (not a scalar) and — like sleep — its `list` filter is rejected
+  // 400 (INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER), so it can't be time-windowed.
 ];
+
+// ── Exercise (structured workouts, synced unfiltered) ────────────────────────
+export const EXERCISE_METRIC = "exercise";
+const EXERCISE_MAX_PAGES = 10; // low volume; a full unfiltered re-fetch is cheap
+const EXERCISE_CONFIG: MetricConfig = {
+  key: EXERCISE_METRIC,
+  dataType: "exercise",
+  wrapper: "exercise",
+  timeShape: "interval",
+  filterField: "exercise.interval.start_time",
+  valueKey: null,
+  agg: "sum",
+};
+
+export interface ParsedWorkout {
+  sampleAt: Date;
+  source: string;
+  activeMinutes: number;
+  wrapper: Record<string, unknown>;
+}
+
+/** Parse a protobuf Duration string ("660s", "660.5s") — or raw seconds — to minutes. */
+export function durationToMinutes(raw: unknown): number {
+  if (typeof raw === "number") return raw / 60;
+  if (typeof raw !== "string") return 0;
+  const m = raw.match(/^(\d+(?:\.\d+)?)s?$/);
+  return m ? Number(m[1]) / 60 : 0;
+}
+
+/**
+ * Normalize one raw `exercise` data point into a workout row, or null if unusable.
+ * Stored in health_samples with `value` = active minutes (for daily-total rollups)
+ * and `valueJson` = the whole workout wrapper (type/name/duration for the list).
+ */
+export function parseExerciseWorkout(point: GoogleHealthDataPoint): ParsedWorkout | null {
+  const wrapper = point.exercise as Record<string, unknown> | undefined;
+  if (!wrapper || typeof wrapper !== "object") return null;
+  const start = (wrapper.interval as { startTime?: string } | undefined)?.startTime;
+  if (!start) return null;
+  const sampleAt = new Date(start);
+  if (Number.isNaN(sampleAt.getTime())) return null;
+  const source =
+    (point.dataSource as { application?: { packageName?: string } } | undefined)?.application
+      ?.packageName ?? "unknown";
+  return { sampleAt, source, activeMinutes: durationToMinutes(wrapper.activeDuration), wrapper };
+}
 
 // ── Pure helpers (exported for unit tests) ───────────────────────────────────
 
@@ -375,8 +417,10 @@ export class HealthSyncService {
 
     const now = new Date();
     let total = 0;
+    let attempts = 0;
     const errors: string[] = [];
     for (const config of HEALTH_METRICS) {
+      attempts++;
       try {
         total += await this.syncMetricForward(connection, config, now);
       } catch (err) {
@@ -389,11 +433,23 @@ export class HealthSyncService {
         });
       }
     }
+    // Exercise: structured workouts, synced unfiltered (its `list` filter 400s).
+    attempts++;
+    try {
+      total += await this.syncExercise(connection);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`exercise: ${message}`);
+      logger.warn("[Health] exercise sync failed (skipping)", {
+        userId,
+        status: err instanceof GoogleHealthApiError ? err.status : undefined,
+      });
+    }
 
-    // Advance the sync clock only when at least one metric succeeded. A TOTAL
+    // Advance the sync clock only when at least one unit succeeded. A TOTAL
     // failure (dead token, network down) leaves lastSyncedAt untouched so the
     // skipIfSyncedWithinMs gate doesn't suppress the retry for a full interval.
-    const allFailed = errors.length === HEALTH_METRICS.length;
+    const allFailed = errors.length === attempts;
     await this.db
       .update(healthConnections)
       .set({
@@ -428,6 +484,42 @@ export class HealthSyncService {
       await this.setSyncState(connection.userId, config.key, { syncedThrough: now });
     }
     return upserted;
+  }
+
+  /**
+   * Sync workout sessions. `exercise` can't be time-filtered (its `list` filter
+   * 400s), so it's fetched unfiltered newest-first, bounded to EXERCISE_MAX_PAGES,
+   * and upserted (onConflictDoNothing dedups by (userId, metric, sampleAt, source)).
+   * Low volume makes a full re-fetch per run cheap + idempotent — no watermark. Each
+   * row carries `value` = active minutes (daily rollups) + `valueJson` = the workout.
+   */
+  private async syncExercise(connection: HealthConnection): Promise<number> {
+    let pageToken: string | undefined;
+    let pages = 0;
+    const rows: NewHealthSample[] = [];
+    do {
+      // Empty filter → the adapter omits it → unfiltered (most recent first).
+      const page = await this.listPageWithAuth(connection, EXERCISE_CONFIG, "", pageToken);
+      for (const point of page.dataPoints) {
+        const w = parseExerciseWorkout(point);
+        if (!w) continue;
+        rows.push({
+          userId: connection.userId,
+          metric: EXERCISE_METRIC,
+          sampleAt: w.sampleAt,
+          source: w.source,
+          value: w.activeMinutes,
+          valueJson: w.wrapper,
+        });
+      }
+      pageToken = page.nextPageToken;
+      pages++;
+      await new Promise((resolve) => setImmediate(resolve)); // event-loop yield
+    } while (pageToken && pages < EXERCISE_MAX_PAGES);
+
+    if (rows.length === 0) return 0;
+    await this.db.insert(healthSamples).values(rows).onConflictDoNothing();
+    return rows.length;
   }
 
   /**

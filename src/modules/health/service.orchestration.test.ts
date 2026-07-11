@@ -14,7 +14,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import type { Database } from "@/db";
-import { healthConnections, healthSyncState } from "@/db/schema";
+import { healthConnections, healthSamples, healthSyncState } from "@/db/schema";
 import {
   GoogleHealthApiError,
   GoogleHealthAuthError,
@@ -226,6 +226,34 @@ describe("backfill — all-time walk, gap-proof stop (presence probe)", () => {
     expect(done.reachedFloor).toBe(false);
     const probeCalls = listDataPoints.mock.calls.filter((c) => c[0].pageSize === 1);
     expect(probeCalls.length).toBe(4); // probed on every empty window, kept going
+  });
+});
+
+describe("syncExercise — unfiltered structured workout upsert", () => {
+  it("parses workouts and upserts them into health_samples", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()] });
+    const point = {
+      dataSource: { application: { packageName: "com.sec.android.app.shealth" } },
+      exercise: {
+        interval: { startTime: "2026-07-11T09:30:00Z" },
+        exerciseType: "BIKING",
+        displayName: "자전거",
+        activeDuration: "660s",
+      },
+    };
+    const svc = withAdapter(new HealthSyncService(db), {
+      listDataPoints: vi.fn().mockResolvedValue({ dataPoints: [point] }), // no nextPageToken → one page
+    });
+    const n = await (
+      svc as unknown as { syncExercise: (c: unknown) => Promise<number> }
+    ).syncExercise(activeConn());
+    expect(n).toBe(1);
+    const ins = rec.inserts.find((i) => i.table === healthSamples);
+    expect(ins).toBeDefined();
+    const row = (ins?.values as Array<Record<string, unknown>>)[0];
+    expect(row.metric).toBe("exercise");
+    expect(row.value).toBe(11); // 660s → 11 min
+    expect((row.valueJson as { displayName?: string }).displayName).toBe("자전거");
   });
 });
 

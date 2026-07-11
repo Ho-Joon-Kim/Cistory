@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { CURATED_METRICS } from "./metrics-meta";
 import {
   buildTimeFilter,
+  durationToMinutes,
   HEALTH_METRICS,
   isHealthTokenFresh,
   type MetricConfig,
+  parseExerciseWorkout,
   parseSample,
 } from "./service";
 
@@ -176,6 +178,55 @@ describe("parseSample — structured metric (valueKey: null)", () => {
     expect(p?.value).toBeNull();
     expect(p?.valueJson).toEqual(wrapper);
     expect(p?.sampleAt.toISOString()).toBe("2026-06-19T09:30:00.000Z");
+  });
+});
+
+describe("durationToMinutes", () => {
+  it("parses protobuf Duration seconds → minutes", () => {
+    expect(durationToMinutes("660s")).toBe(11);
+    expect(durationToMinutes("90s")).toBe(1.5);
+  });
+  it("accepts a raw seconds number and a bare digit string", () => {
+    expect(durationToMinutes(120)).toBe(2);
+    expect(durationToMinutes("120")).toBe(2);
+  });
+  it("returns 0 for unparseable input", () => {
+    expect(durationToMinutes("abc")).toBe(0);
+    expect(durationToMinutes(undefined)).toBe(0);
+    expect(durationToMinutes(null)).toBe(0);
+  });
+});
+
+describe("parseExerciseWorkout", () => {
+  const point = {
+    dataSource: { application: { packageName: "com.sec.android.app.shealth" } },
+    exercise: {
+      interval: { startTime: "2026-07-11T09:30:00Z", endTime: "2026-07-11T10:12:00Z" },
+      exerciseType: "BIKING",
+      displayName: "자전거",
+      activeDuration: "660s",
+    },
+  };
+
+  it("extracts start/source/active-minutes and keeps the wrapper", () => {
+    const w = parseExerciseWorkout(point);
+    expect(w?.sampleAt.toISOString()).toBe("2026-07-11T09:30:00.000Z");
+    expect(w?.source).toBe("com.sec.android.app.shealth");
+    expect(w?.activeMinutes).toBe(11);
+    expect((w?.wrapper as { displayName?: string }).displayName).toBe("자전거");
+  });
+
+  it("returns null without an exercise wrapper or start time", () => {
+    expect(parseExerciseWorkout({})).toBeNull();
+    expect(parseExerciseWorkout({ exercise: { exerciseType: "BIKING" } })).toBeNull();
+  });
+
+  it("falls back to 0 minutes / unknown source when fields are absent", () => {
+    const w = parseExerciseWorkout({
+      exercise: { interval: { startTime: "2026-07-11T09:30:00Z" } },
+    });
+    expect(w?.activeMinutes).toBe(0);
+    expect(w?.source).toBe("unknown");
   });
 });
 

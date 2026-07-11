@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
 import { HealthTrendCard } from "@/modules/health/components/HealthTrendCard";
+import { WorkoutList } from "@/modules/health/components/WorkoutList";
 import { type HealthSummary, useHealthSummary } from "@/modules/health/hooks";
 
 function CenteredSpinner() {
@@ -106,6 +107,7 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
               <HealthTrendCard key={m.key} series={m} />
             ))}
           </div>
+          <WorkoutList workouts={summary.workouts} />
         </>
       )}
     </div>

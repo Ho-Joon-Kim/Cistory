@@ -21,6 +21,18 @@ export interface HealthMetricSeries {
   points: HealthDayPoint[];
 }
 
+/** One workout session (structured `exercise` data point). */
+export interface HealthWorkout {
+  /** ISO start time */
+  start: string;
+  /** active duration, whole minutes */
+  minutes: number;
+  /** localized name (e.g. "자전거", "걷기"), or null */
+  name: string | null;
+  /** raw exercise type enum (e.g. "BIKING"), or null */
+  type: string | null;
+}
+
 export interface HealthSummary {
   hasConnection: boolean;
   status: "active" | "needs_reauth" | null;
@@ -28,4 +40,5 @@ export interface HealthSummary {
   lastSyncedAt: string | null;
   hasAnyHistory: boolean;
   metrics: HealthMetricSeries[];
+  workouts: HealthWorkout[];
 }
