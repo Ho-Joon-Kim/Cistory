@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, AlertTriangle, Check, Clock, Loader2, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, Check, Clock, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +14,8 @@ interface HealthSettingsProps {
 }
 
 export function HealthSettings({ hasConnection, lastSyncedAt, needsReauth }: HealthSettingsProps) {
-  const { hasHealthConnection, isDisconnecting, disconnect } = useHealth(hasConnection);
+  const { hasHealthConnection, isDisconnecting, isSyncing, disconnect, syncNow } =
+    useHealth(hasConnection);
 
   const handleDisconnect = async () => {
     const success = await disconnect();
@@ -22,6 +23,15 @@ export function HealthSettings({ hasConnection, lastSyncedAt, needsReauth }: Hea
       toast.success("Fitbit 연결이 해제되었습니다");
     } else {
       toast.error("Fitbit 연결 해제에 실패했습니다");
+    }
+  };
+
+  const handleSync = async () => {
+    const success = await syncNow();
+    if (success) {
+      toast.success("동기화했습니다");
+    } else {
+      toast.error("동기화에 실패했습니다");
     }
   };
 
@@ -65,19 +75,29 @@ export function HealthSettings({ hasConnection, lastSyncedAt, needsReauth }: Hea
               <code className="p-2 rounded bg-muted text-sm font-mono text-muted-foreground">
                 연결됨
               </code>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDisconnect}
-                disabled={isDisconnecting}
-              >
-                {isDisconnecting ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4 mr-2" />
-                )}
-                연결 해제
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
+                  {isSyncing ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RotateCw className="h-4 w-4 mr-2" />
+                  )}
+                  {isSyncing ? "동기화 중" : "지금 동기화"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDisconnect}
+                  disabled={isDisconnecting}
+                >
+                  {isDisconnecting ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  연결 해제
+                </Button>
+              </div>
             </div>
 
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
