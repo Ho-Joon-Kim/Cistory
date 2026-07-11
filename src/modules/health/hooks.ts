@@ -2,33 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export interface HealthDayPoint {
-  day: string;
-  avg: number | null;
-  min: number | null;
-  max: number | null;
-  sum: number | null;
-  count: number | null;
-}
+// Re-export the shared wire contract so existing importers of these types from
+// hooks keep working while the source of truth lives in one client-safe module.
+export type { HealthDayPoint, HealthMetricSeries, HealthSummary } from "./types";
 
-export interface HealthMetricSeries {
-  key: string;
-  label: string;
-  unit: string;
-  agg: "sum" | "avg";
-  scale: number | null;
-  decimals: number;
-  points: HealthDayPoint[];
-}
-
-export interface HealthSummary {
-  hasConnection: boolean;
-  status: "active" | "needs_reauth" | null;
-  backfillCompletedAt: string | null;
-  lastSyncedAt: string | null;
-  hasAnyHistory: boolean;
-  metrics: HealthMetricSeries[];
-}
+import type { HealthSummary } from "./types";
 
 export function useHealthSummary() {
   const [summary, setSummary] = useState<HealthSummary | null>(null);

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb, healthConnections, healthDailySummaries } from "@/db";
 import { withAuth } from "@/lib/api-handler";
 import { CURATED_METRIC_KEYS, CURATED_METRICS } from "@/modules/health/metrics-meta";
+import type { HealthDayPoint } from "@/modules/health/types";
 
 const TREND_WINDOW_DAYS = 30;
 
@@ -15,15 +16,6 @@ function kstDayNDaysAgo(days: number): string {
     day: "2-digit",
   });
   return fmt.format(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
-}
-
-interface DayPoint {
-  day: string;
-  avg: number | null;
-  min: number | null;
-  max: number | null;
-  sum: number | null;
-  count: number | null;
 }
 
 /**
@@ -56,7 +48,7 @@ export const GET = withAuth(async ({ user }) => {
     )
     .orderBy(asc(healthDailySummaries.day));
 
-  const byMetric = new Map<string, DayPoint[]>();
+  const byMetric = new Map<string, HealthDayPoint[]>();
   for (const r of rows) {
     const list = byMetric.get(r.metric) ?? [];
     list.push({
