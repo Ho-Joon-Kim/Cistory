@@ -9,7 +9,7 @@ const ICON_RULES: { match: RegExp; Icon: typeof Activity }[] = [
   { match: /bik|cycl|자전거/i, Icon: Bike },
   { match: /swim|수영/i, Icon: Waves },
   { match: /hik|mountain|climb|등산|하이킹/i, Icon: Mountain },
-  { match: /strength|weight|근력|웨이트|헬스/i, Icon: Dumbbell },
+  { match: /strength|weight|workout|gym|근력|웨이트|헬스|기구|운동/i, Icon: Dumbbell },
   { match: /walk|run|걷기|걸음|러닝|달리기|조깅/i, Icon: Footprints },
 ];
 function iconFor(w: HealthWorkout): typeof Activity {

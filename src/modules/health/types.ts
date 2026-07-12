@@ -33,6 +33,14 @@ export interface HealthWorkout {
   type: string | null;
 }
 
+/** One sleep session (structured `sleep` record). */
+export interface HealthSleepSession {
+  /** ISO start time */
+  start: string;
+  /** session duration, whole minutes */
+  minutes: number;
+}
+
 export interface HealthSummary {
   hasConnection: boolean;
   status: "active" | "needs_reauth" | null;
@@ -41,4 +49,5 @@ export interface HealthSummary {
   hasAnyHistory: boolean;
   metrics: HealthMetricSeries[];
   workouts: HealthWorkout[];
+  sleepSessions: HealthSleepSession[];
 }
