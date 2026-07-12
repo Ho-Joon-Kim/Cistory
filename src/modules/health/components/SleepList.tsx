@@ -3,6 +3,7 @@
 import { Moon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { HealthSleepSession, SleepStages } from "@/modules/health/types";
+import { HealthListSkeletonRow } from "./WorkoutList";
 
 const DATE_FMT = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
@@ -60,32 +61,34 @@ function StageBar({ stages }: { stages: SleepStages }) {
 }
 
 export function SleepList({ sessions }: { sessions: HealthSleepSession[] }) {
-  if (!sessions?.length) return null;
+  const isEmpty = !sessions?.length;
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">최근 수면</CardTitle>
       </CardHeader>
       <CardContent className="divide-y divide-border">
-        {sessions.map((s) => {
-          const d = new Date(s.start);
-          return (
-            <div key={s.start} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-500">
-                <Moon size={18} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-sm font-medium">{duration(s.minutes)}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {DATE_FMT.format(d)} {TIME_FMT.format(d)}
-                  </span>
+        {isEmpty
+          ? [0, 1, 2].map((i) => <HealthListSkeletonRow key={`sk-${i}`} />)
+          : sessions.map((s) => {
+              const d = new Date(s.start);
+              return (
+                <div key={s.start} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-500">
+                    <Moon size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-medium">{duration(s.minutes)}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {DATE_FMT.format(d)} {TIME_FMT.format(d)}
+                      </span>
+                    </div>
+                    {s.stages ? <StageBar stages={s.stages} /> : null}
+                  </div>
                 </div>
-                {s.stages ? <StageBar stages={s.stages} /> : null}
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
       </CardContent>
     </Card>
   );

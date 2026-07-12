@@ -26,6 +26,27 @@ function formatValue(v: number, decimals: number): string {
   });
 }
 
+// Static height pattern for the empty-state skeleton chart (data-less preview),
+// pre-keyed so the render doesn't use array indices as React keys.
+const SKELETON_BARS = [
+  40, 55, 35, 60, 45, 70, 50, 38, 62, 48, 58, 42, 66, 52, 44, 60, 36, 54, 68, 46, 50, 40, 58, 34,
+  62, 48, 56, 42, 64, 50,
+].map((h, i) => ({ id: `${i}-${h}`, h }));
+
+function SkeletonChart() {
+  return (
+    <div className="flex items-end gap-[2px]" style={{ height: CHART_HEIGHT }}>
+      {SKELETON_BARS.map((b) => (
+        <div
+          key={b.id}
+          className="flex-1 animate-pulse rounded-t-sm bg-muted"
+          style={{ height: `${b.h}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 interface AxisPoint {
   day: string;
   avg: number | null;
@@ -146,7 +167,9 @@ export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
               </span>
               <span className="ml-1 text-xs text-muted-foreground">{series.unit}</span>
             </div>
-          ) : null}
+          ) : (
+            <div className="h-5 w-12 animate-pulse rounded bg-muted" />
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -165,12 +188,10 @@ export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
             </div>
           </>
         ) : (
-          <div
-            className="flex items-center justify-center text-xs text-muted-foreground"
-            style={{ height: CHART_HEIGHT }}
-          >
-            데이터 없음
-          </div>
+          <>
+            <SkeletonChart />
+            <div className="mt-2 text-[11px] text-muted-foreground">데이터 없음</div>
+          </>
         )}
       </CardContent>
     </Card>

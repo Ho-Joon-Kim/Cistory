@@ -10,7 +10,12 @@ import { useAuth } from "@/modules/auth/hooks";
 import { HealthTrendCard } from "@/modules/health/components/HealthTrendCard";
 import { SleepList } from "@/modules/health/components/SleepList";
 import { WorkoutList } from "@/modules/health/components/WorkoutList";
-import { type HealthSummary, useHealthSummary } from "@/modules/health/hooks";
+import {
+  type HealthMetricSeries,
+  type HealthSummary,
+  useHealthSummary,
+} from "@/modules/health/hooks";
+import { ALL_HEALTH_METRICS } from "@/modules/health/metrics-meta";
 
 function CenteredSpinner() {
   return (
@@ -88,6 +93,7 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
 
   const backfilling = summary.hasConnection && !summary.backfillCompletedAt;
   const showBackfillingOnly = backfilling && !summary.hasAnyHistory;
+  const byMetric = new Map(summary.metrics.map((m) => [m.key, m]));
 
   return (
     <div className="space-y-4">
@@ -104,9 +110,20 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
             <p className="text-xs text-muted-foreground">과거 데이터 백필이 아직 진행 중입니다.</p>
           ) : null}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {summary.metrics.map((m) => (
-              <HealthTrendCard key={m.key} series={m} />
-            ))}
+            {ALL_HEALTH_METRICS.map((meta) => {
+              // Render the full card set always; metrics with no data show a
+              // skeleton so the layout is visible before data arrives.
+              const series: HealthMetricSeries = byMetric.get(meta.key) ?? {
+                key: meta.key,
+                label: meta.label,
+                unit: meta.unit,
+                agg: meta.agg,
+                scale: meta.scale ?? null,
+                decimals: meta.decimals ?? 0,
+                points: [],
+              };
+              return <HealthTrendCard key={meta.key} series={series} />;
+            })}
           </div>
           <WorkoutList workouts={summary.workouts} />
           <SleepList sessions={summary.sleepSessions} />
