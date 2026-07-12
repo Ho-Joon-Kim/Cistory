@@ -83,18 +83,39 @@ function numify(v: unknown): number | null {
   return null;
 }
 
-function resolveMetric(rec: Rec): string | null {
-  const raw = rec.metric ?? rec.type ?? rec.recordType;
-  if (typeof raw === "string") {
-    const k = raw.toLowerCase().replace(/[\s_-]/g, "");
-    const stripped = k.replace(/record$/, "").replace(/session$/, "");
-    const canon = METRIC_ALIASES[k] ?? METRIC_ALIASES[stripped];
-    if (canon) return canon;
-  }
-  // Infer from structural fields when the type isn't labeled.
+/** Map a type/record-type NAME (e.g. "OxygenSaturationRecord") → canonical metric. */
+function metricFromName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const k = raw.toLowerCase().replace(/[\s_-]/g, "");
+  const stripped = k.replace(/record$/, "").replace(/session$/, "");
+  return METRIC_ALIASES[k] ?? METRIC_ALIASES[stripped] ?? null;
+}
+
+/**
+ * Infer the metric from a record's distinctive fields. The TaskerHealthConnect
+ * plugin emits raw HC records with NO type label, so this is the primary path for
+ * scalar records (sleep/exercise already had structural signals). Order matters —
+ * check the most specific field first.
+ */
+function metricFromFields(rec: Rec): string | null {
   if (rec.stages != null || rec.sleepStages != null) return "sleep";
   if (rec.exerciseType != null || rec.segments != null) return "exercise";
+  if (rec.percentage != null) return "spo2";
+  if (rec.vo2MillilitersPerMinuteKilogram != null) return "vo2_max";
+  if (rec.heartRateVariabilityMillis != null) return "hrv";
+  if (rec.samples != null) return "heart_rate"; // HeartRateRecord (samples[]) — dropped later (no scalar)
+  if (rec.distance != null) return "distance";
+  if (rec.count != null) return "steps";
+  if (rec.beatsPerMinute != null) return "resting_heart_rate"; // top-level bpm = resting; HR uses samples[]
   return null;
+}
+
+function resolveMetric(rec: Rec, typeHint?: string | null): string | null {
+  return (
+    metricFromName(rec.metric ?? rec.type ?? rec.recordType) ??
+    metricFromName(typeHint) ??
+    metricFromFields(rec)
+  );
 }
 
 function extractScalar(metric: string, rec: Rec): number | null {
@@ -113,11 +134,15 @@ function extractScalar(metric: string, rec: Rec): number | null {
  * Normalize one pushed record → a health_samples row, or null if unusable.
  * `userId` is bound by the caller (never trusted from the payload).
  */
-export function parseImportRecord(userId: string, raw: unknown): NewHealthSample | null {
+export function parseImportRecord(
+  userId: string,
+  raw: unknown,
+  typeHint?: string | null
+): NewHealthSample | null {
   if (!raw || typeof raw !== "object") return null;
   const rec = raw as Rec;
 
-  const metric = resolveMetric(rec);
+  const metric = resolveMetric(rec, typeHint);
   if (!metric) return null;
 
   const start = firstTime(rec, ["start", "startTime", "time", "sampleTime", "startDate"]);
@@ -144,8 +169,16 @@ export function parseImportRecord(userId: string, raw: unknown): NewHealthSample
   return { userId, metric, sampleAt: start, source, value, valueJson: null };
 }
 
-/** Parse a batch. Accepts `[...]` or `{ records: [...] }`. Bad rows are skipped. */
-export function parseImportBatch(userId: string, body: unknown): NewHealthSample[] {
+/**
+ * Parse a batch. Accepts `[...]` or `{ records: [...] }`. `typeHint` (from a
+ * `?type=`/`?metric=` query param) labels records that carry no type field — the
+ * plugin reads one record type per call, so the caller knows it. Bad rows skipped.
+ */
+export function parseImportBatch(
+  userId: string,
+  body: unknown,
+  typeHint?: string | null
+): NewHealthSample[] {
   const list = Array.isArray(body)
     ? body
     : Array.isArray((body as { records?: unknown[] })?.records)
@@ -153,7 +186,7 @@ export function parseImportBatch(userId: string, body: unknown): NewHealthSample
       : [];
   const rows: NewHealthSample[] = [];
   for (const rec of list) {
-    const parsed = parseImportRecord(userId, rec);
+    const parsed = parseImportRecord(userId, rec, typeHint);
     if (parsed) rows.push(parsed);
   }
   return rows;

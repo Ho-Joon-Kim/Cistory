@@ -141,6 +141,39 @@ describe("parseImportRecord — scalars + rejects", () => {
   });
 });
 
+describe("metric inference for UNLABELED records (the plugin omits the type field)", () => {
+  it("infers the metric from distinctive fields", () => {
+    expect(parseImportRecord(U, { time: 1746800000000, percentage: { value: 97.5 } })?.metric).toBe(
+      "spo2"
+    );
+    expect(
+      parseImportRecord(U, { time: 1746800000000, vo2MillilitersPerMinuteKilogram: 50 })?.metric
+    ).toBe("vo2_max");
+    expect(
+      parseImportRecord(U, { time: 1746800000000, heartRateVariabilityMillis: 42 })?.metric
+    ).toBe("hrv");
+    expect(parseImportRecord(U, { time: 1746800000000, beatsPerMinute: 69 })?.metric).toBe(
+      "resting_heart_rate"
+    );
+    expect(
+      parseImportRecord(U, { startTime: 1746800000000, endTime: 1746810000000, count: 512 })?.metric
+    ).toBe("steps");
+    expect(
+      parseImportRecord(U, {
+        startTime: 1746800000000,
+        endTime: 1746810000000,
+        distance: { value: 5000 },
+      })?.metric
+    ).toBe("distance");
+  });
+
+  it("falls back to the typeHint when a record has no type and no distinctive field", () => {
+    const p = parseImportRecord(U, { time: 1746800000000, value: 97 }, "OxygenSaturationRecord");
+    expect(p?.metric).toBe("spo2");
+    expect(p?.value).toBe(97);
+  });
+});
+
 describe("parseImportBatch", () => {
   it("accepts a bare array and a { records } wrapper, skipping bad rows", () => {
     const good = { type: "sleep", start: "2026-07-11T23:00:00Z", end: "2026-07-12T00:00:00Z" };
