@@ -26,3 +26,13 @@ export const CURATED_METRICS: HealthMetricMeta[] = [
 ];
 
 export const CURATED_METRIC_KEYS = CURATED_METRICS.map((m) => m.key);
+
+// Every trend card the /health grid renders — the curated scalars plus the ones
+// computed live (resting HR, exercise). Used CLIENT-SIDE only to render the full
+// card set (with skeletons for metrics that have no data yet), so it can include
+// keys the summary route doesn't read from health_daily_summaries.
+export const ALL_HEALTH_METRICS: HealthMetricMeta[] = [
+  ...CURATED_METRICS,
+  { key: "resting_heart_rate", label: "안정시 심박", unit: "bpm", agg: "avg", decimals: 0 },
+  { key: "exercise", label: "운동 시간", unit: "분", agg: "sum", decimals: 0 },
+];

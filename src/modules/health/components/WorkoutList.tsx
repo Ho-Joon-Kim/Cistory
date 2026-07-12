@@ -33,32 +33,48 @@ function whenLabel(iso: string): string {
   return `${DATE_FMT.format(d)} ${TIME_FMT.format(d)}`;
 }
 
+/** Placeholder row for the empty state of a health list card (shared with sleep). */
+export function HealthListSkeletonRow() {
+  return (
+    <div className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+      <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-muted" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="h-3.5 w-24 animate-pulse rounded bg-muted" />
+        <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+      </div>
+      <div className="h-5 w-10 shrink-0 animate-pulse rounded bg-muted" />
+    </div>
+  );
+}
+
 export function WorkoutList({ workouts }: { workouts: HealthWorkout[] }) {
-  if (workouts.length === 0) return null;
+  const isEmpty = !workouts?.length;
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">최근 운동</CardTitle>
       </CardHeader>
       <CardContent className="divide-y divide-border">
-        {workouts.map((w) => {
-          const Icon = iconFor(w);
-          return (
-            <div key={w.start} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-500/10 text-orange-500">
-                <Icon size={18} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{w.name ?? "운동"}</div>
-                <div className="text-xs text-muted-foreground">{whenLabel(w.start)}</div>
-              </div>
-              <div className="shrink-0 text-right">
-                <span className="text-base font-semibold tabular-nums">{w.minutes}</span>
-                <span className="ml-1 text-xs text-muted-foreground">분</span>
-              </div>
-            </div>
-          );
-        })}
+        {isEmpty
+          ? [0, 1, 2].map((i) => <HealthListSkeletonRow key={`sk-${i}`} />)
+          : workouts.map((w) => {
+              const Icon = iconFor(w);
+              return (
+                <div key={w.start} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-500/10 text-orange-500">
+                    <Icon size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{w.name ?? "운동"}</div>
+                    <div className="text-xs text-muted-foreground">{whenLabel(w.start)}</div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="text-base font-semibold tabular-nums">{w.minutes}</span>
+                    <span className="ml-1 text-xs text-muted-foreground">분</span>
+                  </div>
+                </div>
+              );
+            })}
       </CardContent>
     </Card>
   );

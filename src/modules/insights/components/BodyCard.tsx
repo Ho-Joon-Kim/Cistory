@@ -10,7 +10,44 @@ import {
 } from "@/lib/body-format";
 import { formatRelativeTime } from "@/lib/utils";
 import type { BodyResult } from "../service";
-import { InsightCard, InsightCardEmpty } from "./primitives/InsightCard";
+import { InsightCard } from "./primitives/InsightCard";
+
+/** Full-layout skeleton so the card's shape is visible before any measurement. */
+function BodyCardSkeleton() {
+  return (
+    <div className="animate-pulse">
+      <div className="mb-4 flex items-end justify-between gap-3">
+        <div className="space-y-2">
+          <div className="h-2.5 w-8 rounded bg-muted" />
+          <div className="h-8 w-24 rounded bg-muted" />
+        </div>
+        <div className="space-y-2 text-right">
+          <div className="ml-auto h-2.5 w-10 rounded bg-muted" />
+          <div className="ml-auto h-6 w-16 rounded bg-muted" />
+        </div>
+      </div>
+      <div className="h-20 rounded bg-muted/60" />
+      <div className="mt-1.5 flex justify-between">
+        <div className="h-3 w-14 rounded bg-muted" />
+        <div className="h-3 w-14 rounded bg-muted" />
+        <div className="h-3 w-14 rounded bg-muted" />
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={`t-${i}`} className="h-16 rounded-lg bg-muted/60" />
+        ))}
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-3 border-t border-hairline pt-3">
+        {[0, 1, 2].map((i) => (
+          <div key={`a-${i}`} className="space-y-1.5">
+            <div className="h-2.5 w-12 rounded bg-muted" />
+            <div className="h-4 w-16 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface BodyCardProps {
   data: BodyResult | null;
@@ -130,7 +167,7 @@ export function BodyCard({ data, isLoading }: BodyCardProps) {
   if (!data || data.measurementCount === 0) {
     return (
       <InsightCard schema="cross" title="체성분" subtitle="Withings · 체중 · 체성분 추이">
-        <InsightCardEmpty message="체성분 측정 데이터가 없습니다" />
+        <BodyCardSkeleton />
       </InsightCard>
     );
   }
