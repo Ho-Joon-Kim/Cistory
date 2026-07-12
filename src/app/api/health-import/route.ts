@@ -1,8 +1,9 @@
 /**
  * On-device Health Connect import.
  *
- * POST /api/health-import?apikey={key}
- * Body: a JSON array of records, or { "records": [ ... ] }.
+ * POST /api/health-import?apikey={key}   — ingest (phone automation, API key)
+ *   Body: a JSON array of records, or { "records": [ ... ] }.
+ * GET  /api/health-import                — verify (browser, session) what landed
  *
  * Fed by a phone automation (MacroDroid/Tasker + a Health Connect reader) to
  * backfill sleep / exercise (and any scalar) that Google's cloud sync doesn't
@@ -10,6 +11,7 @@
  * (userId, metric, sampleAt, source) unique key), so re-pushing is safe.
  */
 
+import { and, desc, eq, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, healthSamples } from "@/db";
 import type { NewHealthSample } from "@/db/schema";
@@ -19,6 +21,7 @@ import {
   logIngestionFailure,
   verifyApiKey,
 } from "@/lib/api-auth";
+import { withAuth } from "@/lib/api-handler";
 import { logger } from "@/lib/logger";
 import { parseImportBatch } from "@/modules/health/import";
 
@@ -51,12 +54,24 @@ export async function POST(request: NextRequest) {
   try {
     body = JSON.parse(text);
   } catch {
-    return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "invalid JSON", bytes: Buffer.byteLength(text) },
+      { status: 400 }
+    );
   }
 
   const rows = parseImportBatch(authed.id, body);
   if (rows.length === 0) {
-    return NextResponse.json({ imported: 0, received: 0 });
+    // Body arrived but nothing parsed — surface it so the phone side can be debugged.
+    logger.warn("[health-import] parsed 0 records", {
+      userId: authed.id,
+      bytes: Buffer.byteLength(text),
+    });
+    return NextResponse.json({
+      imported: 0,
+      received: 0,
+      hint: "0 records parsed — check the record type / JSON shape sent",
+    });
   }
 
   const db = getDb();
@@ -78,3 +93,39 @@ export async function POST(request: NextRequest) {
   logger.info("[health-import] imported", { userId: authed.id, rows: rows.length });
   return NextResponse.json({ imported, received: rows.length });
 }
+
+/**
+ * Verification view — open in a browser while signed in. Shows what's actually in
+ * health_samples per metric (count + date range) + the newest sleep rows, so the
+ * import can be confirmed without digging through logs.
+ */
+export const GET = withAuth(async ({ user }) => {
+  const db = getDb();
+
+  const byMetric = await db
+    .select({
+      metric: healthSamples.metric,
+      count: sql<number>`count(*)::int`,
+      earliest: sql<string>`min(sample_at)::text`,
+      latest: sql<string>`max(sample_at)::text`,
+    })
+    .from(healthSamples)
+    .where(eq(healthSamples.userId, user.id))
+    .groupBy(healthSamples.metric);
+
+  const recentSleep = await db
+    .select({
+      sampleAt: sql<string>`sample_at::text`,
+      minutes: healthSamples.value,
+      source: healthSamples.source,
+    })
+    .from(healthSamples)
+    .where(and(eq(healthSamples.userId, user.id), eq(healthSamples.metric, "sleep")))
+    .orderBy(desc(healthSamples.sampleAt))
+    .limit(5);
+
+  return NextResponse.json({
+    byMetric: byMetric.sort((a, b) => a.metric.localeCompare(b.metric)),
+    recentSleep,
+  });
+});
