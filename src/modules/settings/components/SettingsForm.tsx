@@ -22,6 +22,7 @@ import { useSettings } from "../hooks";
 import { AccountRolesCard } from "./AccountRolesCard";
 import { DataUsageCard } from "./DataUsageCard";
 import { DbBenchmarkCard } from "./DbBenchmarkCard";
+import { HealthImportSettings } from "./HealthImportSettings";
 import { HealthSettings } from "./HealthSettings";
 import { LocationBackfillCard } from "./LocationBackfillCard";
 import { OwnTracksSettings } from "./OwnTracksSettings";
@@ -274,6 +275,9 @@ export function SettingsForm() {
         lastSyncedAt={settings.healthLastSyncedAt}
         needsReauth={settings.healthNeedsReauth}
       />
+
+      {/* 건강 데이터 가져오기 (Health Connect on-device import) */}
+      <HealthImportSettings hasKey={settings.hasHealthImportKey} />
 
       {/* AI 요약 */}
       <SummaryStats />

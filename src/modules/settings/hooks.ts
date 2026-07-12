@@ -208,6 +208,62 @@ export function useOwnTracksKey(hasKey: boolean) {
   };
 }
 
+export function useHealthImportKey(hasKey: boolean) {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [hasHealthImportKey, setHasHealthImportKey] = useState(hasKey);
+  const prevHasKey = useRef(hasKey);
+
+  useEffect(() => {
+    if (prevHasKey.current !== hasKey) {
+      setHasHealthImportKey(hasKey);
+      prevHasKey.current = hasKey;
+    }
+  }, [hasKey]);
+
+  const generate = useCallback(async () => {
+    setIsGenerating(true);
+    try {
+      const response = await fetch("/api/settings/health-import-key", { method: "POST" });
+      if (!response.ok) throw new Error("Failed to generate key");
+      const data = (await response.json()) as { apiKey: string };
+      setNewKey(data.apiKey);
+      setHasHealthImportKey(true);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, []);
+
+  const revoke = useCallback(async () => {
+    setIsRevoking(true);
+    try {
+      const response = await fetch("/api/settings/health-import-key", { method: "DELETE" });
+      if (!response.ok) throw new Error("Failed to revoke key");
+      setNewKey(null);
+      setHasHealthImportKey(false);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsRevoking(false);
+    }
+  }, []);
+
+  return {
+    hasHealthImportKey,
+    newKey,
+    isGenerating,
+    isRevoking,
+    generate,
+    revoke,
+    clearNewKey: () => setNewKey(null),
+  };
+}
+
 export function useTossKey(hasKey: boolean) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);

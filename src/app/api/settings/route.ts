@@ -39,6 +39,7 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
         tossNotificationApiKey: users.tossNotificationApiKey,
         tossMyName: users.tossMyName,
         wakatimeApiKey: users.wakatimeApiKey,
+        healthImportApiKey: users.healthImportApiKey,
         lastLat: users.lastLat,
         lastLon: users.lastLon,
       })
@@ -85,6 +86,7 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
     hasHealthConnection: !!health,
     healthLastSyncedAt: health?.lastSyncedAt?.toISOString() ?? null,
     healthNeedsReauth: health?.status === "needs_reauth",
+    hasHealthImportKey: !!row.healthImportApiKey,
   };
 }
 
