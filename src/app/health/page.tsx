@@ -13,9 +13,11 @@ import { WorkoutList } from "@/modules/health/components/WorkoutList";
 import {
   type HealthMetricSeries,
   type HealthSummary,
+  useBody,
   useHealthSummary,
 } from "@/modules/health/hooks";
 import { ALL_HEALTH_METRICS } from "@/modules/health/metrics-meta";
+import { BodyCard } from "@/modules/insights/components/BodyCard";
 
 function CenteredSpinner() {
   return (
@@ -86,6 +88,7 @@ function BackfillingNotice() {
 function HealthBody({ summary }: { summary: HealthSummary }) {
   const router = useRouter();
   const goSettings = () => router.push("/settings");
+  const body = useBody();
 
   if (!summary.hasConnection && !summary.hasAnyHistory) {
     return <NeverConnected onGoSettings={goSettings} />;
@@ -125,6 +128,7 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
               return <HealthTrendCard key={meta.key} series={series} />;
             })}
           </div>
+          <BodyCard data={body.data} isLoading={body.isLoading} />
           <WorkoutList workouts={summary.workouts} />
           <SleepList sessions={summary.sleepSessions} />
         </>
