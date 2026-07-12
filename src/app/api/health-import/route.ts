@@ -60,17 +60,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const rows = parseImportBatch(authed.id, body);
+  // The plugin reads one record type per call and emits UNLABELED records, so let
+  // the caller name it via ?type= / ?metric= (falls back to field inference).
+  const typeHint =
+    request.nextUrl.searchParams.get("type") ?? request.nextUrl.searchParams.get("metric");
+  const rows = parseImportBatch(authed.id, body, typeHint);
   if (rows.length === 0) {
-    // Body arrived but nothing parsed — surface it so the phone side can be debugged.
+    // Body arrived but nothing parsed — log the shape (keys only, no values) so a
+    // record-shape mismatch on the phone side can be diagnosed.
+    const sample = Array.isArray(body) ? body[0] : (body as { records?: unknown[] })?.records?.[0];
     logger.warn("[health-import] parsed 0 records", {
       userId: authed.id,
       bytes: Buffer.byteLength(text),
+      typeHint,
+      firstKeys:
+        sample && typeof sample === "object" ? Object.keys(sample as object) : typeof sample,
     });
     return NextResponse.json({
       imported: 0,
       received: 0,
-      hint: "0 records parsed — check the record type / JSON shape sent",
+      hint: "0 records parsed — add ?type=<RecordType> to the URL or check the JSON shape",
     });
   }
 
