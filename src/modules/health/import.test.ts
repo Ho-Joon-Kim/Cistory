@@ -70,6 +70,63 @@ describe("parseImportRecord — scalars + rejects", () => {
     ).toBe("spo2");
   });
 
+  it("handles real HC record shapes: epoch-millis times + nested { value } + suffixes", () => {
+    // OxygenSaturationRecord: instant `time`, percentage nested as { value }
+    const o = parseImportRecord(U, {
+      type: "OxygenSaturationRecord",
+      time: 1746800000000,
+      percentage: { value: 97.5 },
+    });
+    expect(o?.metric).toBe("spo2");
+    expect(o?.value).toBe(97.5);
+    expect(o?.sampleAt.getTime()).toBe(1746800000000);
+
+    // Vo2MaxRecord: vo2MillilitersPerMinuteKilogram
+    expect(
+      parseImportRecord(U, {
+        type: "Vo2MaxRecord",
+        time: 1746800000000,
+        vo2MillilitersPerMinuteKilogram: 50,
+      })?.value
+    ).toBe(50);
+
+    // DistanceRecord: distance.value in METERS → millimeters
+    expect(
+      parseImportRecord(U, {
+        type: "DistanceRecord",
+        startTime: 1746800000000,
+        endTime: 1746810000000,
+        distance: { value: 5000, type: "METERS" },
+      })?.value
+    ).toBe(5_000_000);
+
+    // StepsRecord: count
+    expect(
+      parseImportRecord(U, {
+        type: "StepsRecord",
+        startTime: 1746800000000,
+        endTime: 1746810000000,
+        count: 512,
+      })?.value
+    ).toBe(512);
+
+    // RestingHeartRateRecord + HeartRateVariabilityRmssdRecord (new metrics)
+    expect(
+      parseImportRecord(U, {
+        type: "RestingHeartRateRecord",
+        time: 1746800000000,
+        beatsPerMinute: 69,
+      })?.metric
+    ).toBe("resting_heart_rate");
+    expect(
+      parseImportRecord(U, {
+        type: "HeartRateVariabilityRmssdRecord",
+        time: 1746800000000,
+        heartRateVariabilityMillis: 42,
+      })?.metric
+    ).toBe("hrv");
+  });
+
   it("rejects unknown metrics, missing time, and non-objects", () => {
     expect(
       parseImportRecord(U, { metric: "bloodpressure", start: "2026-07-11T10:00:00Z", value: 1 })

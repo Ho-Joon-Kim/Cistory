@@ -1,40 +1,48 @@
 /**
  * Parser for the on-device Health Connect importer (MacroDroid/Tasker →
  * POST /api/health-import). Normalizes each pushed record into a health_samples
- * row. Tolerant of both a clean normalized shape and raw Health Connect record
- * JSON (the plugin emits HC-native records).
+ * row. Tolerant of raw Health Connect record JSON (the TaskerHealthConnect plugin
+ * emits HC-native records: epoch-millis times, some values nested as { value }).
  *
- * Session records (sleep, exercise) → value = duration in minutes, valueJson =
- * the record (stages / type kept for detail). Scalar records → value = the number.
- * Unknown metrics are dropped so junk can't pollute health_samples.
+ * Session records (sleep, exercise) → value = duration minutes, valueJson = the
+ * record. Scalar records → value = the metric's number (unit-normalized). Unknown
+ * metrics are dropped so junk can't pollute health_samples.
  */
 
 import type { NewHealthSample } from "@/db/schema";
 
-// Accepted metric names (many aliases) → the canonical health_samples.metric key.
+// Normalized metric-name (separators removed, "record"/"session" suffixes stripped)
+// → the canonical health_samples.metric key.
 const METRIC_ALIASES: Record<string, string> = {
   sleep: "sleep",
-  sleepsession: "sleep",
-  sleepsessionrecord: "sleep",
   exercise: "exercise",
-  exercisesession: "exercise",
-  exercisesessionrecord: "exercise",
   workout: "exercise",
   steps: "steps",
-  stepsrecord: "steps",
   distance: "distance",
-  distancerecord: "distance",
   heartrate: "heart_rate",
-  heart_rate: "heart_rate",
-  heartraterecord: "heart_rate",
+  restingheartrate: "resting_heart_rate",
   oxygensaturation: "spo2",
-  oxygen_saturation: "spo2",
   spo2: "spo2",
   vo2max: "vo2_max",
-  vo2_max: "vo2_max",
+  heartratevariability: "hrv",
+  heartratevariabilityrmssd: "hrv",
+  hrv: "hrv",
 };
 
 const SESSION_METRICS = new Set(["sleep", "exercise"]);
+
+// Scalar value: field to read + how to interpret it. `value` may be a bare number
+// or nested as { value } (HC wraps quantities). `scale` normalizes units to match
+// what the cloud path stored (distance: HC meters → millimeters).
+const SCALAR_FIELDS: Record<string, { keys: string[]; scale?: number }> = {
+  steps: { keys: ["count"] },
+  distance: { keys: ["distance"], scale: 1000 }, // meters → mm
+  heart_rate: { keys: ["beatsPerMinute"] },
+  resting_heart_rate: { keys: ["beatsPerMinute"] },
+  spo2: { keys: ["percentage"] },
+  vo2_max: { keys: ["vo2MillilitersPerMinuteKilogram", "vo2Max"] },
+  hrv: { keys: ["heartRateVariabilityMillis"] },
+};
 
 type Rec = Record<string, unknown>;
 
@@ -62,25 +70,43 @@ function pickSource(rec: Rec): string {
   return "healthconnect";
 }
 
+/** A number directly, a numeric string, or an HC quantity object `{ value }`. */
+function numify(v: unknown): number | null {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  }
+  if (v && typeof v === "object" && typeof (v as { value?: unknown }).value === "number") {
+    return (v as { value: number }).value;
+  }
+  return null;
+}
+
 function resolveMetric(rec: Rec): string | null {
   const raw = rec.metric ?? rec.type ?? rec.recordType;
   if (typeof raw === "string") {
-    const canon = METRIC_ALIASES[raw.toLowerCase().replace(/[\s-]/g, "")];
+    const k = raw.toLowerCase().replace(/[\s_-]/g, "");
+    const stripped = k.replace(/record$/, "").replace(/session$/, "");
+    const canon = METRIC_ALIASES[k] ?? METRIC_ALIASES[stripped];
     if (canon) return canon;
   }
   // Infer from structural fields when the type isn't labeled.
   if (rec.stages != null || rec.sleepStages != null) return "sleep";
-  if (rec.exerciseType != null) return "exercise";
+  if (rec.exerciseType != null || rec.segments != null) return "exercise";
   return null;
 }
 
-function firstNumber(rec: Rec, keys: string[]): number | null {
-  for (const k of keys) {
-    const v = rec[k];
-    const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : Number.NaN;
-    if (!Number.isNaN(n)) return n;
+function extractScalar(metric: string, rec: Rec): number | null {
+  const spec = SCALAR_FIELDS[metric];
+  if (spec) {
+    for (const k of spec.keys) {
+      const n = numify(rec[k]);
+      if (n != null) return spec.scale ? n * spec.scale : n;
+    }
   }
-  return null;
+  // Normalized-shape fallback: a bare `value` (already in the target unit).
+  return numify(rec.value);
 }
 
 /**
@@ -100,8 +126,7 @@ export function parseImportRecord(userId: string, raw: unknown): NewHealthSample
 
   if (SESSION_METRICS.has(metric)) {
     const end = firstTime(rec, ["end", "endTime", "endDate"]);
-    // duration: explicit minutes, else derived from the interval.
-    const explicit = firstNumber(rec, ["durationMinutes", "minutes"]);
+    const explicit = numify(rec.durationMinutes ?? rec.minutes);
     const derived = end ? (end.getTime() - start.getTime()) / 60000 : null;
     const minutes = explicit ?? derived;
     return {
@@ -114,15 +139,7 @@ export function parseImportRecord(userId: string, raw: unknown): NewHealthSample
     };
   }
 
-  // Scalar metric: needs a numeric value.
-  const value = firstNumber(rec, [
-    "value",
-    "count",
-    "beatsPerMinute",
-    "millimeters",
-    "percentage",
-    "vo2Max",
-  ]);
+  const value = extractScalar(metric, rec);
   if (value == null) return null;
   return { userId, metric, sampleAt: start, source, value, valueJson: null };
 }
