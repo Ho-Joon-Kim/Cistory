@@ -4,7 +4,7 @@ import { getDb, healthConnections, healthDailySummaries, healthSamples } from "@
 import { withAuth } from "@/lib/api-handler";
 import { CURATED_METRIC_KEYS, CURATED_METRICS } from "@/modules/health/metrics-meta";
 import { EXERCISE_METRIC } from "@/modules/health/service";
-import type { HealthDayPoint, HealthWorkout } from "@/modules/health/types";
+import type { HealthDayPoint, HealthSleepSession, HealthWorkout } from "@/modules/health/types";
 
 const TREND_WINDOW_DAYS = 30;
 
@@ -147,13 +147,66 @@ export const GET = withAuth(async ({ user }) => {
     type: str(w.wrapper.exerciseType),
   }));
 
+  // ── Sleep: sparse + historical (latest may be months old), so a list of the
+  // most recent sessions rather than a 30-day trend that would render empty. ───
+  const sleepRows = await db
+    .select({ sampleAt: healthSamples.sampleAt, minutes: healthSamples.value })
+    .from(healthSamples)
+    .where(and(eq(healthSamples.userId, user.id), eq(healthSamples.metric, "sleep")))
+    .orderBy(desc(healthSamples.sampleAt))
+    .limit(10);
+  const sleepSessions: HealthSleepSession[] = sleepRows.map((r) => ({
+    start: r.sampleAt.toISOString(),
+    minutes: Math.round(r.minutes ?? 0),
+  }));
+
+  // ── Resting heart rate: live daily avg from imported samples (not a curated
+  // metric — it only exists via the on-device import). ────────────────────────
+  const rhrCutoff = new Date(Date.now() - (TREND_WINDOW_DAYS + 1) * 24 * 60 * 60 * 1000);
+  const rhrRows = await db
+    .select({ sampleAt: healthSamples.sampleAt, value: healthSamples.value })
+    .from(healthSamples)
+    .where(
+      and(
+        eq(healthSamples.userId, user.id),
+        eq(healthSamples.metric, "resting_heart_rate"),
+        gte(healthSamples.sampleAt, rhrCutoff)
+      )
+    );
+  const rhrByDay = new Map<string, { sum: number; n: number; min: number; max: number }>();
+  for (const r of rhrRows) {
+    if (r.value == null) continue;
+    const day = kstDay(r.sampleAt);
+    const cur = rhrByDay.get(day) ?? { sum: 0, n: 0, min: r.value, max: r.value };
+    cur.sum += r.value;
+    cur.n++;
+    cur.min = Math.min(cur.min, r.value);
+    cur.max = Math.max(cur.max, r.value);
+    rhrByDay.set(day, cur);
+  }
+  const rhrPoints: HealthDayPoint[] = [...rhrByDay.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([day, v]) => ({ day, avg: v.sum / v.n, min: v.min, max: v.max, sum: null, count: v.n }));
+  if (rhrPoints.length > 0) {
+    metrics.push({
+      key: "resting_heart_rate",
+      label: "안정시 심박",
+      unit: "bpm",
+      agg: "avg",
+      scale: null,
+      decimals: 0,
+      points: rhrPoints,
+    });
+  }
+
   return NextResponse.json({
     hasConnection: !!conn,
     status: conn?.status ?? null,
     backfillCompletedAt: conn?.backfillCompletedAt?.toISOString() ?? null,
     lastSyncedAt: conn?.lastSyncedAt?.toISOString() ?? null,
-    hasAnyHistory: metrics.some((m) => m.points.length > 0),
+    hasAnyHistory: metrics.some((m) => m.points.length > 0) || sleepSessions.length > 0,
     metrics,
     workouts,
+    sleepSessions,
   });
 });
