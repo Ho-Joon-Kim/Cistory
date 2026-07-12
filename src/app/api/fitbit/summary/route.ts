@@ -24,6 +24,35 @@ function kstDayNDaysAgo(days: number): string {
 }
 
 /**
+ * Sum a sleep record's `stages` array into minutes per depth. HC stage codes:
+ * 1/7 = awake, 2/4 = light, 5 = deep, 6 = rem. Returns null when a session has no
+ * stage detail (some records only carry a total). Stage times are epoch millis.
+ */
+function stageBreakdown(
+  valueJson: unknown
+): { deep: number; light: number; rem: number; awake: number } | null {
+  const stages = (
+    valueJson as {
+      stages?: Array<{ startTime?: number | string; endTime?: number | string; stage?: unknown }>;
+    }
+  )?.stages;
+  if (!Array.isArray(stages) || stages.length === 0) return null;
+  const acc = { deep: 0, light: 0, rem: 0, awake: 0 };
+  for (const s of stages) {
+    const st = Number(s.startTime);
+    const en = Number(s.endTime);
+    if (!Number.isFinite(st) || !Number.isFinite(en) || en <= st) continue;
+    const min = (en - st) / 60000;
+    const code = String(s.stage);
+    if (code === "5") acc.deep += min;
+    else if (code === "6") acc.rem += min;
+    else if (code === "4" || code === "2") acc.light += min;
+    else if (code === "1" || code === "7") acc.awake += min;
+  }
+  return acc;
+}
+
+/**
  * Curated daily health trends + recent workouts + connection meta in one call, so
  * the page picks its state without extra requests. Summaries are returned even with
  * no connection so retained history (R1) still renders after a disconnect.
@@ -150,7 +179,11 @@ export const GET = withAuth(async ({ user }) => {
   // ── Sleep: sparse + historical (latest may be months old), so a list of the
   // most recent sessions rather than a 30-day trend that would render empty. ───
   const sleepRows = await db
-    .select({ sampleAt: healthSamples.sampleAt, minutes: healthSamples.value })
+    .select({
+      sampleAt: healthSamples.sampleAt,
+      minutes: healthSamples.value,
+      valueJson: healthSamples.valueJson,
+    })
     .from(healthSamples)
     .where(and(eq(healthSamples.userId, user.id), eq(healthSamples.metric, "sleep")))
     .orderBy(desc(healthSamples.sampleAt))
@@ -158,6 +191,7 @@ export const GET = withAuth(async ({ user }) => {
   const sleepSessions: HealthSleepSession[] = sleepRows.map((r) => ({
     start: r.sampleAt.toISOString(),
     minutes: Math.round(r.minutes ?? 0),
+    stages: stageBreakdown(r.valueJson),
   }));
 
   // ── Resting heart rate: live daily avg from imported samples (not a curated
