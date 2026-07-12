@@ -24,6 +24,10 @@ export const users = pgTable(
     ownTracksApiKey: text("own_tracks_api_key"),
     tossNotificationApiKey: text("toss_notification_api_key"),
     tossMyName: text("toss_my_name"),
+    // Push key for the on-device Health Connect importer (MacroDroid/Tasker →
+    // POST /api/health-import), used to backfill sleep/exercise that Google's
+    // cloud sync doesn't carry.
+    healthImportApiKey: text("health_import_api_key"),
     wakatimeApiKey: text("wakatime_api_key"),
     wakatimeLastSyncedAt: timestamp("wakatime_last_synced_at"),
     lastLat: doublePrecision("last_lat"),

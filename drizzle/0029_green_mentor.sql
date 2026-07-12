@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "health_import_api_key" text;

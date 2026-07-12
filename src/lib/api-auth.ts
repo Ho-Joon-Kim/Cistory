@@ -20,7 +20,7 @@ export const MAX_INGESTION_BODY_BYTES = 10 * 1024; // 10KB
 const RATE_LIMIT_MAX_REQUESTS = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
-type ApiKeyColumn = "ownTracksApiKey" | "tossNotificationApiKey";
+type ApiKeyColumn = "ownTracksApiKey" | "tossNotificationApiKey" | "healthImportApiKey";
 
 interface AuthedUser {
   id: string;

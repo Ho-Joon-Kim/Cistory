@@ -23,6 +23,7 @@ export interface UserSettings {
   hasHealthConnection: boolean;
   healthLastSyncedAt: string | null;
   healthNeedsReauth: boolean;
+  hasHealthImportKey: boolean;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -42,4 +43,5 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   hasHealthConnection: false,
   healthLastSyncedAt: null,
   healthNeedsReauth: false,
+  hasHealthImportKey: false,
 };

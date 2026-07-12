@@ -20,7 +20,7 @@ import { getDb, users } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 
-type ApiKeyColumn = "ownTracksApiKey" | "tossNotificationApiKey";
+type ApiKeyColumn = "ownTracksApiKey" | "tossNotificationApiKey" | "healthImportApiKey";
 
 interface Options {
   column: ApiKeyColumn;
