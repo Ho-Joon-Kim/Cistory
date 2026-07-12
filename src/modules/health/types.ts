@@ -33,12 +33,22 @@ export interface HealthWorkout {
   type: string | null;
 }
 
+/** Minutes per sleep depth (from the record's stages), or null if no stage detail. */
+export interface SleepStages {
+  deep: number;
+  light: number;
+  rem: number;
+  awake: number;
+}
+
 /** One sleep session (structured `sleep` record). */
 export interface HealthSleepSession {
   /** ISO start time */
   start: string;
   /** session duration, whole minutes */
   minutes: number;
+  /** per-depth minutes, or null when the record carries no stages */
+  stages: SleepStages | null;
 }
 
 export interface HealthSummary {
