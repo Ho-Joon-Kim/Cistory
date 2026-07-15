@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
 import { HealthTrendCard } from "@/modules/health/components/HealthTrendCard";
-import { SleepList } from "@/modules/health/components/SleepList";
+import { SleepCard } from "@/modules/health/components/SleepCard";
 import { WorkoutList } from "@/modules/health/components/WorkoutList";
 import {
   type HealthMetricSeries,
@@ -130,7 +130,7 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
           </div>
           <BodyCard data={body.data} isLoading={body.isLoading} />
           <WorkoutList workouts={summary.workouts} />
-          <SleepList sessions={summary.sleepSessions} />
+          <SleepCard sessions={summary.sleepSessions} />
         </>
       )}
     </div>
