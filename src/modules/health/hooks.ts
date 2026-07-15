@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 export type { HealthDayPoint, HealthMetricSeries, HealthSummary } from "./types";
 
 import type { BodyResult } from "@/modules/insights/service";
-import type { HealthSummary } from "./types";
+import type { ActivityCorrelationDay, HealthSummary } from "./types";
 
 export function useHealthSummary() {
   const [summary, setSummary] = useState<HealthSummary | null>(null);
@@ -62,4 +62,31 @@ export function useBody() {
   }, []);
 
   return { data, isLoading };
+}
+
+/** 건강 × 활동 교차 (걸음·외출·코딩) for the last 14 days. */
+export function useActivityCorrelation() {
+  const [days, setDays] = useState<ActivityCorrelationDay[] | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/fitbit/activity-correlation");
+        if (!res.ok) throw new Error("failed");
+        const json = (await res.json()) as { days: ActivityCorrelationDay[] };
+        if (!cancelled) setDays(json.days);
+      } catch {
+        if (!cancelled) setDays(null);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { days, isLoading };
 }

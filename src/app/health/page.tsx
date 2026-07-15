@@ -2,17 +2,21 @@
 
 import { Activity, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
+import { CorrelationCard } from "@/modules/health/components/CorrelationCard";
+import { HealthHero } from "@/modules/health/components/HealthHero";
 import { HealthTrendCard } from "@/modules/health/components/HealthTrendCard";
 import { SleepCard } from "@/modules/health/components/SleepCard";
 import { WorkoutList } from "@/modules/health/components/WorkoutList";
 import {
   type HealthMetricSeries,
   type HealthSummary,
+  useActivityCorrelation,
   useBody,
   useHealthSummary,
 } from "@/modules/health/hooks";
@@ -85,10 +89,41 @@ function BackfillingNotice() {
   );
 }
 
+const META_BY_KEY = new Map(ALL_HEALTH_METRICS.map((m) => [m.key, m]));
+const METRIC_GRID = "grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3";
+
+/** Section eyebrow used above the metric-grid groups. */
+function Section({
+  dot,
+  title,
+  note,
+  children,
+}: {
+  dot: string;
+  title: string;
+  note?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mb-8">
+      <div className="mb-3.5 ml-0.5 flex items-center gap-2.5">
+        <span
+          className="h-[7px] w-[7px] rounded-full"
+          style={{ background: dot, boxShadow: `0 0 8px ${dot}` }}
+        />
+        <h2 className="text-xs font-semibold uppercase tracking-[0.09em] text-ink-dim">{title}</h2>
+        {note ? <span className="ml-auto text-[11px] text-ink-mute">{note}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function HealthBody({ summary }: { summary: HealthSummary }) {
   const router = useRouter();
   const goSettings = () => router.push("/settings");
   const body = useBody();
+  const correlation = useActivityCorrelation();
 
   if (!summary.hasConnection && !summary.hasAnyHistory) {
     return <NeverConnected onGoSettings={goSettings} />;
@@ -98,8 +133,25 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
   const showBackfillingOnly = backfilling && !summary.hasAnyHistory;
   const byMetric = new Map(summary.metrics.map((m) => [m.key, m]));
 
+  // Full card set always renders; a metric with no data falls back to a skeleton
+  // series so the section layout is visible before data arrives.
+  const seriesFor = (key: string): HealthMetricSeries => {
+    const existing = byMetric.get(key);
+    if (existing) return existing;
+    const meta = META_BY_KEY.get(key);
+    return {
+      key,
+      label: meta?.label ?? key,
+      unit: meta?.unit ?? "",
+      agg: meta?.agg ?? "avg",
+      scale: meta?.scale ?? null,
+      decimals: meta?.decimals ?? 0,
+      points: [],
+    };
+  };
+
   return (
-    <div className="space-y-4">
+    <div>
       {summary.status === "needs_reauth" ? <ReauthBanner onGoSettings={goSettings} /> : null}
       {!summary.hasConnection && summary.hasAnyHistory ? (
         <DisconnectedHistoryBanner onGoSettings={goSettings} />
@@ -110,27 +162,48 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
       ) : (
         <>
           {backfilling ? (
-            <p className="text-xs text-muted-foreground">과거 데이터 백필이 아직 진행 중입니다.</p>
+            <p className="mb-4 text-xs text-muted-foreground">
+              과거 데이터 백필이 아직 진행 중입니다.
+            </p>
           ) : null}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {ALL_HEALTH_METRICS.map((meta) => {
-              // Render the full card set always; metrics with no data show a
-              // skeleton so the layout is visible before data arrives.
-              const series: HealthMetricSeries = byMetric.get(meta.key) ?? {
-                key: meta.key,
-                label: meta.label,
-                unit: meta.unit,
-                agg: meta.agg,
-                scale: meta.scale ?? null,
-                decimals: meta.decimals ?? 0,
-                points: [],
-              };
-              return <HealthTrendCard key={meta.key} series={series} />;
-            })}
+
+          <HealthHero summary={summary} body={body.data} />
+
+          <Section dot="hsl(153 70% 53%)" title="움직임" note="걸음 · 이동 · 운동">
+            <div className={METRIC_GRID}>
+              <HealthTrendCard series={seriesFor("steps")} />
+              <HealthTrendCard series={seriesFor("distance")} />
+              <HealthTrendCard series={seriesFor("exercise")} />
+            </div>
+            <div className="mt-3.5">
+              <WorkoutList workouts={summary.workouts} />
+            </div>
+          </Section>
+
+          <Section dot="hsl(0 72% 62%)" title="심혈관" note="심박 · 안정시 · VO₂max">
+            <div className={METRIC_GRID}>
+              <HealthTrendCard series={seriesFor("heart_rate")} />
+              <HealthTrendCard series={seriesFor("resting_heart_rate")} />
+              <HealthTrendCard series={seriesFor("vo2_max")} />
+            </div>
+          </Section>
+
+          {/* Self-titled feature cards — no extra eyebrow (their card header is the title). */}
+          <div className="mb-8">
+            <SleepCard sessions={summary.sleepSessions} />
           </div>
-          <BodyCard data={body.data} isLoading={body.isLoading} />
-          <WorkoutList workouts={summary.workouts} />
-          <SleepCard sessions={summary.sleepSessions} />
+          <div className="mb-8">
+            <BodyCard data={body.data} isLoading={body.isLoading} />
+          </div>
+          <div className="mb-8">
+            <CorrelationCard days={correlation.days} isLoading={correlation.isLoading} />
+          </div>
+
+          <Section dot="hsl(0 0% 45%)" title="기타 지표" note="데이터가 쌓이면 승격">
+            <div className={METRIC_GRID}>
+              <HealthTrendCard series={seriesFor("spo2")} />
+            </div>
+          </Section>
         </>
       )}
     </div>
@@ -152,7 +225,7 @@ export default function HealthPage() {
   if (!isAuthenticated) return null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div data-neon className="min-h-screen flex flex-col bg-background">
       <Header showSync={false} />
       <main className="flex-1 container mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">

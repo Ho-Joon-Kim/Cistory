@@ -63,6 +63,18 @@ export interface HealthSleepSession {
   segments: SleepStageSegment[] | null;
 }
 
+/** One day of the 건강 × 활동 cross: steps vs places-visited vs coding minutes. */
+export interface ActivityCorrelationDay {
+  /** KST calendar day 'YYYY-MM-DD' */
+  day: string;
+  /** daily step total, or null when no health rollup exists for the day */
+  steps: number | null;
+  /** distinct places visited that day (from location visits) */
+  visits: number;
+  /** coding minutes that day (WakaTime), or null when none tracked */
+  codingMin: number | null;
+}
+
 export interface HealthSummary {
   hasConnection: boolean;
   status: "active" | "needs_reauth" | null;
