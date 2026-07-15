@@ -55,6 +55,7 @@ pipeline {
         }
 
         stage('Run Migrations') {
+            when { branch 'main' }
             steps {
                 sh """
                     # Ensure PostgreSQL is running (skip if container already exists from manual setup)
@@ -87,6 +88,7 @@ pipeline {
         }
 
         stage('Deploy') {
+            when { branch 'main' }
             steps {
                 sh """
                     docker stop ${CONTAINER_NAME} 2>/dev/null || true
@@ -137,6 +139,7 @@ pipeline {
         }
 
         stage('Health Check') {
+            when { branch 'main' }
             steps {
                 script {
                     sleep 3
@@ -164,6 +167,7 @@ pipeline {
         }
 
         stage('Cleanup') {
+            when { branch 'main' }
             steps {
                 sh """
                     docker images ${IMAGE_NAME} --format '{{.Tag}}' \
@@ -179,6 +183,9 @@ pipeline {
     post {
         success {
             script {
+                // Deploy notifications only for the main deploy (Test/Build-only
+                // branch & PR builds don't deploy, so "배포 성공" would be misleading).
+                if (env.BRANCH_NAME != 'main') { return }
                 def duration = currentBuild.durationString.replace(' and counting', '')
                 withCredentials([
                     string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
@@ -195,6 +202,7 @@ pipeline {
         }
         failure {
             script {
+                if (env.BRANCH_NAME != 'main') { return }
                 withCredentials([
                     string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
                     string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
