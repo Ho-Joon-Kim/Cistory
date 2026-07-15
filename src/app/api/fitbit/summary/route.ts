@@ -4,7 +4,13 @@ import { getDb, healthConnections, healthDailySummaries, healthSamples } from "@
 import { withAuth } from "@/lib/api-handler";
 import { CURATED_METRIC_KEYS, CURATED_METRICS } from "@/modules/health/metrics-meta";
 import { EXERCISE_METRIC } from "@/modules/health/service";
-import type { HealthDayPoint, HealthSleepSession, HealthWorkout } from "@/modules/health/types";
+import type {
+  HealthDayPoint,
+  HealthSleepSession,
+  HealthWorkout,
+  SleepStageKey,
+  SleepStageSegment,
+} from "@/modules/health/types";
 
 const TREND_WINDOW_DAYS = 30;
 
@@ -50,6 +56,41 @@ function stageBreakdown(
     else if (code === "1" || code === "7") acc.awake += min;
   }
   return acc;
+}
+
+/** HC stage code → depth key (same mapping as stageBreakdown); unknown → null. */
+const STAGE_KEY: Record<string, SleepStageKey> = {
+  "5": "deep",
+  "6": "rem",
+  "4": "light",
+  "2": "light",
+  "1": "awake",
+  "7": "awake",
+};
+
+/**
+ * Ordered stage spans relative to the record's own start, for a hypnogram. Offsets
+ * are minutes from `startTime`; returns null when the record carries no stages.
+ */
+function stageSegments(valueJson: unknown): SleepStageSegment[] | null {
+  const wrapper = valueJson as {
+    startTime?: number | string;
+    stages?: Array<{ startTime?: number | string; endTime?: number | string; stage?: unknown }>;
+  } | null;
+  const stages = wrapper?.stages;
+  if (!Array.isArray(stages) || stages.length === 0) return null;
+  const base = Number(wrapper?.startTime ?? stages[0]?.startTime);
+  if (!Number.isFinite(base)) return null;
+  const out: SleepStageSegment[] = [];
+  for (const s of stages) {
+    const st = Number(s.startTime);
+    const en = Number(s.endTime);
+    if (!Number.isFinite(st) || !Number.isFinite(en) || en <= st) continue;
+    const stage = STAGE_KEY[String(s.stage)];
+    if (!stage) continue;
+    out.push({ stage, startMin: (st - base) / 60000, endMin: (en - base) / 60000 });
+  }
+  return out.length > 0 ? out : null;
 }
 
 /**
@@ -192,6 +233,7 @@ export const GET = withAuth(async ({ user }) => {
     start: r.sampleAt.toISOString(),
     minutes: Math.round(r.minutes ?? 0),
     stages: stageBreakdown(r.valueJson),
+    segments: stageSegments(r.valueJson),
   }));
 
   // ── Resting heart rate: live daily avg from imported samples (not a curated

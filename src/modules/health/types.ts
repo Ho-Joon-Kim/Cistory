@@ -41,6 +41,16 @@ export interface SleepStages {
   awake: number;
 }
 
+/** Sleep depth key, deepest → most awake (also the hypnogram lane order, bottom→top). */
+export type SleepStageKey = "deep" | "light" | "rem" | "awake";
+
+/** One contiguous stage span within a session, in minutes relative to its start. */
+export interface SleepStageSegment {
+  stage: SleepStageKey;
+  startMin: number;
+  endMin: number;
+}
+
 /** One sleep session (structured `sleep` record). */
 export interface HealthSleepSession {
   /** ISO start time */
@@ -49,6 +59,8 @@ export interface HealthSleepSession {
   minutes: number;
   /** per-depth minutes, or null when the record carries no stages */
   stages: SleepStages | null;
+  /** ordered stage spans for a hypnogram, or null when the record carries no stages */
+  segments: SleepStageSegment[] | null;
 }
 
 export interface HealthSummary {
