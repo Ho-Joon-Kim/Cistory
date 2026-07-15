@@ -27,6 +27,25 @@ export const CURATED_METRICS: HealthMetricMeta[] = [
 
 export const CURATED_METRIC_KEYS = CURATED_METRICS.map((m) => m.key);
 
+/**
+ * Fixed identity color per metric (dataviz: hue follows the entity, never its rank),
+ * tuned for the dark neon surface. Charts read this by key so the accent never drifts.
+ */
+export const METRIC_ACCENT: Record<string, string> = {
+  steps: "hsl(153 70% 53%)", // green
+  distance: "hsl(210 90% 62%)", // blue
+  exercise: "hsl(30 92% 60%)", // orange
+  heart_rate: "hsl(0 72% 62%)", // red
+  resting_heart_rate: "hsl(0 72% 62%)", // red (dim in use)
+  spo2: "hsl(263 72% 72%)", // violet
+  vo2_max: "hsl(45 100% 60%)", // amber
+};
+
+/** Accent for a metric key, falling back to the primary green. */
+export function metricAccent(key: string): string {
+  return METRIC_ACCENT[key] ?? "hsl(153 70% 53%)";
+}
+
 // Every trend card the /health grid renders — the curated scalars plus the ones
 // computed live (resting HR, exercise). Used CLIENT-SIDE only to render the full
 // card set (with skeletons for metrics that have no data yet), so it can include

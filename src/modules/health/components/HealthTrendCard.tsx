@@ -1,10 +1,15 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { HealthMetricSeries } from "@/modules/health/hooks";
+import { metricAccent } from "@/modules/health/metrics-meta";
+import { InsightCard } from "@/modules/insights/components/primitives/InsightCard";
+import { HoverLayer } from "./HoverLayer";
 
 const WINDOW_DAYS = 30;
-const CHART_HEIGHT = 44;
+const VB_W = 300;
+const VB_H = 56;
+const TOP = 6;
+const BASE = 46;
 
 /** Local 'YYYY-MM-DD' keys for the last `n` days, oldest → newest. */
 function lastNDays(n: number): string[] {
@@ -26,8 +31,20 @@ function formatValue(v: number, decimals: number): string {
   });
 }
 
-// Static height pattern for the empty-state skeleton chart (data-less preview),
-// pre-keyed so the render doesn't use array indices as React keys.
+/** 'YYYY-MM-DD' → 'M.D' for tooltips. */
+function shortDay(day: string): string {
+  const [, m, d] = day.split("-");
+  return `${Number(m)}.${Number(d)}`;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+// Static height pattern for the empty-state skeleton chart.
 const SKELETON_BARS = [
   40, 55, 35, 60, 45, 70, 50, 38, 62, 48, 58, 42, 66, 52, 44, 60, 36, 54, 68, 46, 50, 40, 58, 34,
   62, 48, 56, 42, 64, 50,
@@ -35,7 +52,7 @@ const SKELETON_BARS = [
 
 function SkeletonChart() {
   return (
-    <div className="flex items-end gap-[2px]" style={{ height: CHART_HEIGHT }}>
+    <div className="flex items-end gap-[2px]" style={{ height: VB_H }}>
       {SKELETON_BARS.map((b) => (
         <div
           key={b.id}
@@ -66,134 +83,228 @@ function buildAxis(series: HealthMetricSeries): AxisPoint[] {
   });
 }
 
-/**
- * Accumulation metrics (steps, distance): 0-baseline bars — bar height is
- * proportional to the daily total, which is the meaningful reading.
- */
-function SumBars({ axis, series }: { axis: AxisPoint[]; series: HealthMetricSeries }) {
+const slot = VB_W / WINDOW_DAYS;
+const bw = slot - 2;
+
+/** Accumulation metrics (steps, distance, exercise): 0-baseline bars + median line. */
+function SumBars({
+  axis,
+  accent,
+  todayIdx,
+  active,
+}: {
+  axis: AxisPoint[];
+  accent: string;
+  todayIdx: number;
+  active: number | null;
+}) {
   const values = axis.map((a) => a.sum).filter((v): v is number => v != null);
-  const maxV = Math.max(...values);
+  const maxV = Math.max(...values, 1);
+  const med = median(values);
+  const barH = (v: number) => Math.max(2, (v / maxV) * (BASE - TOP));
+  const medY = BASE - (med / maxV) * (BASE - TOP);
   return (
-    <div className="flex items-end gap-[2px]" style={{ height: CHART_HEIGHT }}>
-      {axis.map((a) =>
-        a.sum == null ? (
-          <div key={a.day} className="flex-1" aria-hidden />
-        ) : (
-          <div
+    <svg
+      viewBox={`0 0 ${VB_W} ${VB_H}`}
+      preserveAspectRatio="none"
+      className="block h-auto w-full"
+      style={{ overflow: "visible" }}
+    >
+      <title>일별 누적 추이</title>
+      {med > 0 ? (
+        <line
+          x1={0}
+          y1={medY}
+          x2={VB_W}
+          y2={medY}
+          stroke="hsl(0 0% 100% / 0.14)"
+          strokeDasharray="3 4"
+          strokeWidth={1}
+        />
+      ) : null}
+      {axis.map((a, i) => {
+        if (a.sum == null)
+          return <rect key={a.day} x={i * slot + 1} y={BASE} width={bw} height={0} />;
+        const h = barH(a.sum);
+        const isToday = i === todayIdx;
+        const isActive = i === active;
+        return (
+          <rect
             key={a.day}
-            className="flex-1 rounded-t-sm bg-primary/70"
-            style={{ height: maxV > 0 ? Math.max(2, (a.sum / maxV) * CHART_HEIGHT) : 2 }}
-            title={`${a.day}: ${formatValue(a.sum, series.decimals)} ${series.unit}`}
-          />
-        )
-      )}
-    </div>
+            x={i * slot + 1}
+            y={BASE - h}
+            width={bw}
+            height={h}
+            rx={1.5}
+            fill={accent}
+            fillOpacity={isToday || isActive ? 1 : 0.5}
+            filter={isToday ? `drop-shadow(0 0 4px ${accent})` : undefined}
+          >
+            <title>{`${shortDay(a.day)}: ${a.sum}`}</title>
+          </rect>
+        );
+      })}
+    </svg>
   );
 }
 
-/**
- * Average / instantaneous metrics (heart rate, SpO2, VO2max): a range plot — each
- * day is a faint min→max bar with a solid dot at the average — scaled to the
- * window's actual [min, max] (NOT zero), so day-to-day variation is visible rather
- * than flattened against a far-off zero baseline.
- */
+/** Instant metrics (heart rate, SpO2, VO2max, resting HR): min–avg–max range plot. */
 function AvgRange({
   axis,
+  accent,
   domainMin,
   domainMax,
-  series,
+  active,
 }: {
   axis: AxisPoint[];
+  accent: string;
   domainMin: number;
   domainMax: number;
-  series: HealthMetricSeries;
+  active: number | null;
 }) {
   const span = domainMax - domainMin;
-  // pixels from the top; higher value → nearer the top. Flat series → mid-height.
-  const yTop = (v: number) => (span > 0 ? 1 - (v - domainMin) / span : 0.5) * CHART_HEIGHT;
+  const yTop = (v: number) => (span > 0 ? 1 - (v - domainMin) / span : 0.5) * (BASE - TOP) + TOP;
   return (
-    <div className="flex items-stretch gap-[2px]" style={{ height: CHART_HEIGHT }}>
-      {axis.map((a) => (
-        <div key={a.day} className="relative flex-1">
-          {a.avg != null ? (
-            <>
-              {a.min != null && a.max != null ? (
-                <div
-                  className="absolute left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-primary/25"
-                  style={{ top: yTop(a.max), height: Math.max(3, yTop(a.min) - yTop(a.max)) }}
-                  aria-hidden
-                />
-              ) : null}
-              <div
-                className="absolute left-1/2 h-[5px] w-[5px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary"
-                style={{ top: yTop(a.avg) }}
-                title={`${a.day}: ${formatValue(a.avg, series.decimals)} ${series.unit}`}
+    <svg
+      viewBox={`0 0 ${VB_W} ${VB_H}`}
+      preserveAspectRatio="none"
+      className="block h-auto w-full"
+      style={{ overflow: "visible" }}
+    >
+      <title>일별 범위 추이</title>
+      {axis.map((a, i) => {
+        if (a.avg == null) return <rect key={a.day} x={i * slot} width={slot} height={0} />;
+        const cx = i * slot + slot / 2;
+        const isActive = i === active;
+        return (
+          <g key={a.day}>
+            {a.min != null && a.max != null ? (
+              <line
+                x1={cx}
+                y1={yTop(a.max)}
+                x2={cx}
+                y2={yTop(a.min)}
+                stroke={accent}
+                strokeOpacity={isActive ? 0.5 : 0.28}
+                strokeWidth={3}
+                strokeLinecap="round"
               />
-            </>
-          ) : null}
-        </div>
-      ))}
-    </div>
+            ) : null}
+            <circle
+              cx={cx}
+              cy={yTop(a.avg)}
+              r={isActive ? 3.6 : 2.4}
+              fill={accent}
+              filter={isActive ? `drop-shadow(0 0 4px ${accent})` : undefined}
+            >
+              <title>{`${shortDay(a.day)}: ${a.avg}`}</title>
+            </circle>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
 export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
   const isSum = series.agg === "sum";
+  const accent = metricAccent(series.key);
   const axis = buildAxis(series);
 
-  // Chart footer + latest read from the field this metric is actually about.
   const primary = axis.map((a) => (isSum ? a.sum : a.avg)).filter((v): v is number => v != null);
   const hasData = primary.length > 0;
-  const latest = [...axis].reverse().find((a) => (isSum ? a.sum : a.avg) != null);
-  const latestValue = latest ? (isSum ? latest.sum : latest.avg) : null;
+  let todayIdx = -1;
+  for (let i = axis.length - 1; i >= 0; i--) {
+    if ((isSum ? axis[i].sum : axis[i].avg) != null) {
+      todayIdx = i;
+      break;
+    }
+  }
+  const latestValue = todayIdx >= 0 ? (isSum ? axis[todayIdx].sum : axis[todayIdx].avg) : null;
 
-  // Footer range: sum → min/max of daily totals; avg → the range-plot's domain.
   const lows = axis.map((a) => a.min).filter((v): v is number => v != null);
   const highs = axis.map((a) => a.max).filter((v): v is number => v != null);
   const footMin = isSum ? Math.min(...primary) : Math.min(...(lows.length ? lows : primary));
   const footMax = isSum ? Math.max(...primary) : Math.max(...(highs.length ? highs : primary));
 
+  const title = (
+    <span className="flex items-center gap-1.5">
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: accent }} />
+      {series.label}
+    </span>
+  );
+  const right =
+    latestValue != null ? (
+      <span className="tabular-mono">
+        <span className="text-xl font-semibold text-foreground">
+          {formatValue(latestValue, series.decimals)}
+        </span>
+        <span className="ml-1 text-[11px] text-ink-mute">{series.unit}</span>
+      </span>
+    ) : (
+      <span className="block h-5 w-12 animate-pulse rounded bg-muted" />
+    );
+
+  const tip = (a: AxisPoint) => {
+    const v = isSum ? a.sum : a.avg;
+    if (v == null) {
+      return (
+        <span className="text-ink-mute">
+          {shortDay(a.day)} · <span>기록 없음</span>
+        </span>
+      );
+    }
+    return (
+      <span>
+        <span className="text-ink-mute">{shortDay(a.day)}</span>{" "}
+        <span className="tabular-mono font-semibold text-foreground">
+          {formatValue(v, series.decimals)}
+        </span>{" "}
+        <span className="text-ink-mute">{series.unit}</span>
+        {!isSum && a.min != null && a.max != null ? (
+          <span className="ml-1 tabular-mono text-ink-mute">
+            ({formatValue(a.min, series.decimals)}–{formatValue(a.max, series.decimals)})
+          </span>
+        ) : null}
+      </span>
+    );
+  };
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-baseline justify-between">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            {series.label}
-          </CardTitle>
-          {latestValue != null ? (
-            <div className="text-right">
-              <span className="text-xl font-semibold tabular-nums">
-                {formatValue(latestValue, series.decimals)}
-              </span>
-              <span className="ml-1 text-xs text-muted-foreground">{series.unit}</span>
-            </div>
-          ) : (
-            <div className="h-5 w-12 animate-pulse rounded bg-muted" />
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {hasData ? (
-          <>
-            {isSum ? (
-              <SumBars axis={axis} series={series} />
-            ) : (
-              <AvgRange axis={axis} domainMin={footMin} domainMax={footMax} series={series} />
-            )}
-            <div className="mt-2 flex justify-between text-[11px] text-muted-foreground tabular-nums">
-              <span>
-                최근 {WINDOW_DAYS}일 · 최소 {formatValue(footMin, series.decimals)}
-              </span>
-              <span>최대 {formatValue(footMax, series.decimals)}</span>
-            </div>
-          </>
-        ) : (
-          <>
-            <SkeletonChart />
-            <div className="mt-2 text-[11px] text-muted-foreground">데이터 없음</div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <InsightCard title={title} right={right}>
+      {hasData ? (
+        <>
+          <HoverLayer
+            items={axis}
+            tooltip={tip}
+            render={(active) =>
+              isSum ? (
+                <SumBars axis={axis} accent={accent} todayIdx={todayIdx} active={active} />
+              ) : (
+                <AvgRange
+                  axis={axis}
+                  accent={accent}
+                  domainMin={footMin}
+                  domainMax={footMax}
+                  active={active}
+                />
+              )
+            }
+          />
+          <div className="mt-2 flex justify-between text-[10.5px] text-ink-mute tabular-mono">
+            <span>
+              최근 {WINDOW_DAYS}일 · {isSum ? "중앙값" : "최소"}{" "}
+              {formatValue(isSum ? median(primary) : footMin, series.decimals)}
+            </span>
+            <span>최대 {formatValue(footMax, series.decimals)}</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <SkeletonChart />
+          <div className="mt-2 text-[10.5px] text-ink-mute">데이터 없음</div>
+        </>
+      )}
+    </InsightCard>
   );
 }
