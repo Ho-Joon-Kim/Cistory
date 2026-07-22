@@ -12,6 +12,7 @@ import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
 import { createHealthSyncService } from "@/modules/health/service";
+import { rebuildDailyLocationHeatmap } from "@/modules/overview/aggregate/location";
 import { type LocationCompletedWindow, runOverviewPrecompute } from "@/modules/overview/precompute";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
 import { createExpenseCategoryService } from "@/modules/spending/category-classifier";
@@ -27,7 +28,6 @@ let dailyReparseTask: cron.ScheduledTask | null = null;
 let spendingCategoryTask: cron.ScheduledTask | null = null;
 let locationProcessingTask: cron.ScheduledTask | null = null;
 let locationCatchUpTask: cron.ScheduledTask | null = null;
-let overviewPrecomputeTask: cron.ScheduledTask | null = null;
 let subwayRefreshTask: cron.ScheduledTask | null = null;
 let tripDetectionTask: cron.ScheduledTask | null = null;
 let isSubwayRefreshRunning = false;
@@ -49,6 +49,16 @@ export async function precomputeOverviewSnapshots(
     logger.info("[Cron] Overview precompute completed", result);
   }
   return result;
+}
+
+async function precomputeAfterLocation(windows: LocationCompletedWindow[]) {
+  try {
+    await precomputeOverviewSnapshots(windows);
+  } catch (error) {
+    logger.error("[Cron] Overview precompute after location failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export async function categorizePendingSpending(): Promise<void> {
@@ -491,10 +501,150 @@ async function _syncAllUsersInner() {
  * daily 01:00 schedule + boot catch-up can all overlap if a previous run is
  * still in flight (subway discovery probes Overpass and can be slow).
  */
-export async function processYesterdayLocations(reason: string) {
+export interface LocationDayProcessingResult {
+  userId: string;
+  date: string;
+  status: "completed" | "failed";
+  failedStage?: "state" | "anomaly" | "visits" | "tracks" | "heatmap";
+  error?: string;
+}
+
+export interface LocationProcessingResult {
+  skipped: boolean;
+  days: LocationDayProcessingResult[];
+  completedLocationWindows: LocationCompletedWindow[];
+}
+
+function coreFailureStage(error: unknown): LocationDayProcessingResult["failedStage"] {
+  if (error && typeof error === "object" && "locationStage" in error) {
+    return (error as { locationStage: LocationDayProcessingResult["failedStage"] }).locationStage;
+  }
+  return "anomaly";
+}
+
+async function runLocationStateWrite(operation: () => Promise<void>) {
+  try {
+    await operation();
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      locationStage: "state" satisfies LocationDayProcessingResult["failedStage"],
+    });
+  }
+}
+
+async function markLocationDayProcessing(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  date: string,
+  now: Date
+) {
+  await db.execute(sql`
+    INSERT INTO location_processing_days (
+      user_id, date, status, processing_started_at, completed_at,
+      attempt_count, last_error, updated_at
+    ) VALUES (${userId}, ${date}, 'processing', ${now}, NULL, 1, NULL, ${now})
+    ON CONFLICT (user_id, date) DO UPDATE SET
+      status = 'processing',
+      processing_started_at = EXCLUDED.processing_started_at,
+      completed_at = NULL,
+      attempt_count = location_processing_days.attempt_count + 1,
+      last_error = NULL,
+      updated_at = EXCLUDED.updated_at
+  `);
+}
+
+async function markLocationDayCompleted(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  date: string,
+  now: Date
+) {
+  await db.execute(sql`
+    UPDATE location_processing_days
+    SET status = 'completed', completed_at = ${now}, last_error = NULL, updated_at = ${now}
+    WHERE user_id = ${userId} AND date = ${date}
+  `);
+}
+
+async function markLocationDayFailed(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  date: string,
+  error: string,
+  now: Date
+) {
+  await db.execute(sql`
+    UPDATE location_processing_days
+    SET status = 'failed', completed_at = NULL, last_error = ${error.slice(0, 1_000)},
+      updated_at = ${now}
+    WHERE user_id = ${userId} AND date = ${date}
+  `);
+}
+
+async function runLocationCoreDay(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  date: string,
+  services: {
+    runAnomalyDetectionForDay(userId: string, date: string): Promise<{ total: number }>;
+    detectAndPersistVisits(userId: string, date: string): Promise<unknown[]>;
+    detectAndPersistTracks(
+      userId: string,
+      date: string
+    ): Promise<{ trackCount: number; segmentCount: number }>;
+  }
+): Promise<void> {
+  const runStage = async <T>(
+    stage: LocationDayProcessingResult["failedStage"],
+    operation: () => Promise<T>
+  ) => {
+    try {
+      return await operation();
+    } catch (error) {
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+        locationStage: stage,
+      });
+    }
+  };
+
+  const anomalyResult = await runStage("anomaly", () =>
+    services.runAnomalyDetectionForDay(userId, date)
+  );
+  if (anomalyResult.total > 0) {
+    logger.info(`[Cron] Anomaly detection for ${userId} ${date}: ${anomalyResult.total} marked`);
+  }
+  const visits = await runStage("visits", () => services.detectAndPersistVisits(userId, date));
+  if (visits.length > 0) {
+    logger.info(`[Cron] Visit detection for ${userId} ${date}: ${visits.length} persisted`);
+  }
+  const tracks = await runStage("tracks", () => services.detectAndPersistTracks(userId, date));
+  if (tracks.trackCount > 0 || tracks.segmentCount > 0) {
+    logger.info(
+      `[Cron] Track detection for ${userId} ${date}: ${tracks.trackCount} tracks, ${tracks.segmentCount} segments persisted`
+    );
+  }
+  await runStage("heatmap", () => rebuildDailyLocationHeatmap(db, userId, date, new Date()));
+}
+
+function completedWindowForUser(
+  userId: string,
+  orderedDates: string[],
+  results: LocationDayProcessingResult[]
+): LocationCompletedWindow | null {
+  if (results.some((result) => result.status === "failed")) return null;
+  const byDate = new Map(results.map((result) => [result.date, result.status]));
+  let completedThrough: string | null = null;
+  for (const date of orderedDates) {
+    if (byDate.get(date) !== "completed") break;
+    completedThrough = date;
+  }
+  return completedThrough ? { userId, completedThrough } : null;
+}
+
+export async function processYesterdayLocations(reason: string): Promise<LocationProcessingResult> {
   if (isLocationProcessingRunning) {
     logger.info("[Cron] Location processing already running, skipping", { reason });
-    return;
+    return { skipped: true, days: [], completedLocationWindows: [] };
   }
   isLocationProcessingRunning = true;
   const startTime = Date.now();
@@ -507,27 +657,32 @@ export async function processYesterdayLocations(reason: string) {
 
     const db = getDb();
     const allUsers = await db
-      .select({ id: users.id })
+      .select({ id: users.id, ownTracksApiKey: users.ownTracksApiKey })
       .from(users)
-      .where(sql`${users.ownTracksApiKey} IS NOT NULL`);
+      .where(sql`TRUE`);
 
     if (allUsers.length === 0) {
-      logger.info("[Cron] No users with OwnTracks configured. Skipping location processing.");
-      return;
+      logger.info("[Cron] No users. Skipping location processing.");
+      await precomputeAfterLocation([]);
+      return { skipped: false, days: [], completedLocationWindows: [] };
     }
 
     const { detectAndPersistVisits } = await import("@/modules/location/services/visit-persister");
     const { detectAndPersistTracks } = await import("@/modules/location/services/track-persister");
 
-    // Always include yesterday. Adding it explicitly covers the case where
-    // yesterday has no points with anomaly IS NULL yet (edge race at 00:00).
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = toLocalDateString(yesterday);
     const todayStr = toLocalDateString(new Date());
 
+    const dayResults: LocationDayProcessingResult[] = [];
+    const completedLocationWindows: LocationCompletedWindow[] = [];
     for (const user of allUsers) {
       try {
+        if (!user.ownTracksApiKey) {
+          completedLocationWindows.push({ userId: user.id, completedThrough: todayStr });
+          continue;
+        }
         // Find unprocessed dates (at most 14, oldest first).
         // KST day of the UTC-wall timestamp — a bare date(timestamp) is the
         // UTC day, which misses days whose only points fall in 00:00–09:00 KST
@@ -536,22 +691,50 @@ export async function processYesterdayLocations(reason: string) {
         // (user_id, timestamp) index instead of GROUP BY-scanning the user's
         // entire point history; anything older is the manual backfill's job.
         const unprocessedResult = await db.execute<{ d: string; [key: string]: unknown }>(sql`
-          SELECT to_char(d, 'YYYY-MM-DD') AS d FROM (
-            SELECT (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d
-            FROM location_points
-            WHERE user_id = ${user.id}
-              AND timestamp >= (now() at time zone 'UTC') - interval '45 days'
-              AND (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date < ${todayStr}::date
-            GROUP BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date
-            HAVING count(*) FILTER (WHERE anomaly IS NULL) > 0
-            ORDER BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date DESC
+          SELECT to_char(candidate_days.d, 'YYYY-MM-DD') AS d FROM (
+            SELECT point_days.d FROM (
+              SELECT d, count(*) FILTER (WHERE anomaly IS NULL)::int AS pending_count FROM (
+                SELECT
+                  (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d,
+                  anomaly
+                FROM location_points
+                WHERE user_id = ${user.id}
+                  AND timestamp >= (now() at time zone 'UTC') - interval '45 days'
+                  AND (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date
+                    <= ${todayStr}::date
+              ) point_candidates
+              GROUP BY d
+            ) point_days
+            LEFT JOIN location_processing_days processing
+              ON processing.user_id = ${user.id}
+              AND processing.date = to_char(point_days.d, 'YYYY-MM-DD')
+            WHERE point_days.pending_count > 0
+              OR point_days.d IN (${yesterdayStr}::date, ${todayStr}::date)
+              OR processing.id IS NULL
+              OR processing.status = 'failed'
+              OR (
+                processing.status = 'processing'
+                AND processing.processing_started_at <= now() - interval '20 minutes'
+              )
+            UNION
+            SELECT processing.date::date AS d
+            FROM location_processing_days processing
+            WHERE processing.user_id = ${user.id}
+              AND processing.date::date >= ${todayStr}::date - 45
+              AND processing.date::date <= ${todayStr}::date
+              AND (
+                processing.status = 'failed'
+                OR (
+                  processing.status = 'processing'
+                  AND processing.processing_started_at <= now() - interval '20 minutes'
+                )
+              )
+            ORDER BY d DESC
             LIMIT 30
-          ) recent
-          ORDER BY d
+          ) candidate_days
+          ORDER BY candidate_days.d
         `);
-        const datesToProcess = new Set<string>(unprocessedResult.rows.map((r) => r.d));
-        datesToProcess.add(yesterdayStr);
-        const dateList = Array.from(datesToProcess).sort();
+        const dateList = Array.from(new Set(unprocessedResult.rows.map((row) => row.d))).sort();
 
         if (dateList.length > 1) {
           logger.info(
@@ -559,28 +742,49 @@ export async function processYesterdayLocations(reason: string) {
           );
         }
 
-        for (const dateStr of dateList) {
-          const anomalyResult = await runAnomalyDetectionForDay(user.id, dateStr);
-          if (anomalyResult.total > 0) {
-            logger.info(
-              `[Cron] Anomaly detection for ${user.id} ${dateStr}: ${anomalyResult.total} anomalies marked`
+        const userResults: LocationDayProcessingResult[] = [];
+        for (const date of dateList) {
+          try {
+            await runLocationStateWrite(() =>
+              markLocationDayProcessing(db, user.id, date, new Date())
             );
-          }
-
-          const detectedVisits = await detectAndPersistVisits(user.id, dateStr);
-          if (detectedVisits.length > 0) {
-            logger.info(
-              `[Cron] Visit detection for ${user.id} ${dateStr}: ${detectedVisits.length} visits persisted`
+            await runLocationCoreDay(db, user.id, date, {
+              runAnomalyDetectionForDay,
+              detectAndPersistVisits,
+              detectAndPersistTracks,
+            });
+            await runLocationStateWrite(() =>
+              markLocationDayCompleted(db, user.id, date, new Date())
             );
-          }
-
-          const trackResult = await detectAndPersistTracks(user.id, dateStr);
-          if (trackResult.trackCount > 0 || trackResult.segmentCount > 0) {
-            logger.info(
-              `[Cron] Track detection for ${user.id} ${dateStr}: ${trackResult.trackCount} tracks, ${trackResult.segmentCount} segments persisted`
-            );
+            userResults.push({ userId: user.id, date, status: "completed" });
+          } catch (error) {
+            const result: LocationDayProcessingResult = {
+              userId: user.id,
+              date,
+              status: "failed",
+              failedStage: coreFailureStage(error),
+              error: error instanceof Error ? error.message : String(error),
+            };
+            userResults.push(result);
+            try {
+              await markLocationDayFailed(db, user.id, date, result.error ?? "unknown", new Date());
+            } catch (stateError) {
+              logger.error(`[Cron] Failed to persist location failure for ${user.id} ${date}`, {
+                error: stateError instanceof Error ? stateError.message : String(stateError),
+              });
+            }
+            logger.error(`[Cron] Location core pipeline failed for ${user.id} ${date}`, result);
           }
         }
+        dayResults.push(...userResults);
+        const completedWindow =
+          dateList.length === 0
+            ? { userId: user.id, completedThrough: todayStr }
+            : completedWindowForUser(user.id, dateList, userResults);
+        if (completedWindow) completedLocationWindows.push(completedWindow);
+        const completedDates = userResults
+          .filter((result) => result.status === "completed")
+          .map((result) => result.date);
 
         // Subway track matching (Phase 2). For each processed date, score the
         // segments against subway_lines geometry and label trips. Then group
@@ -593,7 +797,7 @@ export async function processYesterdayLocations(reason: string) {
           const { groupMatchesIntoSessions } = await import(
             "@/modules/location/services/subway-match/session-grouper"
           );
-          for (const dateStr of dateList) {
+          for (const dateStr of completedDates) {
             const matchResult = await matchSubwayTrips(user.id, dateStr);
             if (matchResult.legsInserted > 0) {
               const sessionResult = await groupMatchesIntoSessions(user.id, dateStr);
@@ -632,13 +836,18 @@ export async function processYesterdayLocations(reason: string) {
       }
     }
 
+    await precomputeAfterLocation(completedLocationWindows);
+
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     logger.info(`[Cron] Daily location processing completed in ${elapsed}s`, { reason });
+    return { skipped: false, days: dayResults, completedLocationWindows };
   } catch (error) {
     logger.error("[Cron] Daily location processing failed", {
       reason,
       error: error instanceof Error ? error.message : String(error),
     });
+    await precomputeAfterLocation([]);
+    return { skipped: false, days: [], completedLocationWindows: [] };
   } finally {
     isLocationProcessingRunning = false;
   }
@@ -865,22 +1074,6 @@ export function initializeCron() {
     { timezone: TZ, name: "location-catchup" }
   );
 
-  // Run after the hourly location catch-up. Finalization remains gated on the
-  // explicit completed-through windows that U5 will return; this tick safely
-  // refreshes active periods even before that integration is connected.
-  const OVERVIEW_PRECOMPUTE_SCHEDULE = "25 * * * *";
-  overviewPrecomputeTask = cron.schedule(
-    OVERVIEW_PRECOMPUTE_SCHEDULE,
-    () => {
-      precomputeOverviewSnapshots().catch((error) => {
-        logger.error("[Cron] Unhandled error in overview precompute", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-    },
-    { timezone: TZ, name: "overview-precompute" }
-  );
-
   // Yearly subway data refresh — Jan 1, 03:00 KST. OSM subway data is near-static
   // (new lines/stations open occasionally; line colors and geometry rarely
   // change). The boot catch-up below also re-fetches anything older than 350
@@ -1009,10 +1202,6 @@ export async function stopCron() {
   if (locationCatchUpTask) {
     locationCatchUpTask.stop();
     locationCatchUpTask = null;
-  }
-  if (overviewPrecomputeTask) {
-    overviewPrecomputeTask.stop();
-    overviewPrecomputeTask = null;
   }
   if (subwayRefreshTask) {
     subwayRefreshTask.stop();

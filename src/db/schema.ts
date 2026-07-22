@@ -16,6 +16,7 @@ import {
 export type PeriodType = "recent" | "week" | "month" | "year";
 export type PeriodSnapshotStatus = "pending" | "computing" | "ready" | "failed";
 export type PeriodDomainStatus = "pending" | "ready" | "failed";
+export type LocationProcessingDayStatus = "processing" | "completed" | "failed";
 
 export interface PeriodDomainEnvelope<T = unknown> {
   data: T | null;
@@ -216,6 +217,29 @@ export const locationHeatmapDaily = pgTable(
       table.lon
     ),
     index("idx_location_heatmap_daily_user_date").on(table.userId, table.date),
+  ]
+);
+
+// Durable core-pipeline marker. Unlike heatmap rows, this records successful
+// empty days and survives a process restart after a post-anomaly stage fails.
+export const locationProcessingDays = pgTable(
+  "location_processing_days",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    status: text("status").$type<LocationProcessingDayStatus>().notNull(),
+    processingStartedAt: timestamp("processing_started_at"),
+    completedAt: timestamp("completed_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_location_processing_day_user_date").on(table.userId, table.date),
+    index("idx_location_processing_day_status_started").on(table.status, table.processingStartedAt),
   ]
 );
 
