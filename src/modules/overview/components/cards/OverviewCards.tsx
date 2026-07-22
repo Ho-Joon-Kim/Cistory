@@ -57,7 +57,12 @@ function DomainGroup<T>({
   children: (data: T) => ReactNode;
 }) {
   return (
-    <section data-overview-slot={id} aria-labelledby={`overview-${id}-title`} className="space-y-4">
+    <section
+      data-overview-slot={id}
+      aria-labelledby={`overview-${id}-title`}
+      className="scroll-mt-20 space-y-4 focus:outline-none"
+      tabIndex={-1}
+    >
       <div className="flex items-center gap-3 px-1 pt-2">
         <h2
           id={`overview-${id}-title`}

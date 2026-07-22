@@ -538,11 +538,11 @@ R18 판정은 아래로 확정한다. 사용 로그가 없으므로 이번 통�
 
 | 구 URL | 새 URL |
 |---|---|
-| `/insights?year=2026` | `/overview?period=year&key=2026` |
-| `/report?type=monthly&period=2026-07` | `/overview?period=month&key=2026-07` |
-| `/report?type=yearly&period=2026` | `/overview?period=year&key=2026` |
-| `/report/comparison` | `/overview?mode=comparison` (기존 비교 선택값 보존) |
-| `/health` | `/overview?section=health` |
+| `/insights?year=2026` | `/overview?periodType=year&periodKey=2026` |
+| `/report?type=monthly&period=2026-07` | `/overview?periodType=month&periodKey=2026-07` |
+| `/report?type=yearly&period=2026` | `/overview?periodType=year&periodKey=2026` |
+| `/report/comparison?year1=2025&year2=2026` | `/overview?mode=comparison&periodType=year&periodKey=2026&year1=2025&year2=2026` |
+| `/health` | `/overview?section=health&periodType=recent&periodKey=<KST today>` |
 
 기간 비교(R6)는 `src/modules/report/comparison-service.ts`를 대시보드 안의 기능으로 흡수한다. 사전 계산된 두 기간 스냅샷의 비교라 별도 집계가 필요 없다.
 
