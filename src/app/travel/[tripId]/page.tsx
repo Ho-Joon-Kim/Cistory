@@ -10,8 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/modules/auth/hooks";
 import { getTripDuration } from "@/modules/travel/components/TripCard";
+import { TripHealthCard } from "@/modules/travel/components/TripHealthCard";
 import { TripRouteMap } from "@/modules/travel/components/TripRouteMap";
+import { TripRoutineCard } from "@/modules/travel/components/TripRoutineCard";
+import { TripSpendingCard } from "@/modules/travel/components/TripSpendingCard";
 import { TripTimeline } from "@/modules/travel/components/TripTimeline";
+import { TripTransportCard } from "@/modules/travel/components/TripTransportCard";
 import { type TravelRoute, type TravelTripDetail, useTravelDetail } from "@/modules/travel/hooks";
 
 function CenteredSpinner() {
@@ -72,6 +76,12 @@ export function TravelDetailContent({ detail, route }: TravelDetailContentProps)
           <TripRouteMap points={route.points} visits={visits} />
         </section>
         <TripTimeline startDate={trip.startDate} endDate={trip.endDate} visits={visits} />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <TripSpendingCard spending={detail.spending} />
+          <TripTransportCard transport={detail.transport} />
+          <TripRoutineCard routine={detail.routine} />
+          {detail.health.length > 0 ? <TripHealthCard health={detail.health} /> : null}
+        </div>
       </div>
     </>
   );
