@@ -281,6 +281,7 @@ describe("location heatmap rollups", () => {
       const insertion = compiled(queries[index + 1]);
       expect(deletion.sql).toMatch(/delete from .*location_heatmap_daily/i);
       expect(insertion.sql).toMatch(/insert into .*location_heatmap_daily/i);
+      expect(insertion.sql).not.toContain('"location_heatmap_daily"."');
       expect(insertion.sql).toContain("location_points");
       expect(insertion.sql).toMatch(/timestamp[\s\S]*>=[\s\S]*timestamp[\s\S]*</i);
       expect(insertion.sql).not.toContain("at time zone");

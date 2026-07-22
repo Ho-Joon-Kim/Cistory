@@ -450,12 +450,12 @@ export async function rebuildDailyLocationHeatmap(
     `);
     await tx.execute(sql`
       INSERT INTO ${locationHeatmapDaily} (
-        ${locationHeatmapDaily.userId},
-        ${locationHeatmapDaily.date},
-        ${locationHeatmapDaily.lat},
-        ${locationHeatmapDaily.lon},
-        ${locationHeatmapDaily.count},
-        ${locationHeatmapDaily.calculatedAt}
+        "user_id",
+        "date",
+        "lat",
+        "lon",
+        "count",
+        "calculated_at"
       )
       SELECT
         ${userId},
