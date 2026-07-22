@@ -46,7 +46,7 @@ export async function precomputeOverviewSnapshots(
 ) {
   const result = await runOverviewPrecompute(getDb(), { completedLocationWindows });
   if (!result.skipped && (result.published > 0 || result.failed > 0)) {
-    logger.info("[Cron] Overview precompute completed", result);
+    logger.info("[Cron] Overview precompute completed", { ...result });
   }
   return result;
 }
@@ -773,7 +773,9 @@ export async function processYesterdayLocations(reason: string): Promise<Locatio
                 error: stateError instanceof Error ? stateError.message : String(stateError),
               });
             }
-            logger.error(`[Cron] Location core pipeline failed for ${user.id} ${date}`, result);
+            logger.error(`[Cron] Location core pipeline failed for ${user.id} ${date}`, {
+              ...result,
+            });
           }
         }
         dayResults.push(...userResults);
