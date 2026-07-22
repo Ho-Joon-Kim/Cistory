@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, BarChart3, Lightbulb, PieChart, Wallet } from "lucide-react";
+import { Activity, BarChart3, Lightbulb, PieChart, Plane, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CommitHeatmap } from "@/components/CommitHeatmap";
@@ -21,10 +21,11 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
   const isInsightsPage = pathname === "/insights";
   const isPortfolioPage = pathname === "/portfolio";
   const isHealthPage = pathname === "/health";
+  const isTravelPage = pathname === "/travel" || pathname.startsWith("/travel/");
 
   return (
     <header className="shrink-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto px-4 h-14 flex items-center justify-between">
+      <div className="container mx-auto h-14 flex items-center justify-between gap-2 px-2 sm:px-4">
         {/* 로고 */}
         <div className="flex items-center gap-4">
           <Link href="/" className="font-semibold text-lg">
@@ -37,7 +38,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
         </div>
 
         {/* 액션 버튼들 */}
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-1.5 sm:gap-3">
           <Link
             href="/spending"
             className={`flex items-center gap-1.5 text-sm transition-colors ${
@@ -70,6 +71,18 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
           >
             <Activity className="h-4 w-4" />
             <span className="hidden lg:inline">건강</span>
+          </Link>
+          <Link
+            href="/travel"
+            aria-current={isTravelPage ? "page" : undefined}
+            className={`flex items-center gap-1.5 text-sm transition-colors ${
+              isTravelPage
+                ? "text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Plane className="h-4 w-4" />
+            <span className="hidden lg:inline">여행</span>
           </Link>
           <Link
             href="/insights"
