@@ -14,10 +14,11 @@
  */
 
 import { and, asc, desc, eq, gt, gte, lt, sql } from "drizzle-orm";
-import { getDb, savedPlaces, tracks, trips, visits } from "@/db";
+import { getDb, savedPlaces, tracks, visits } from "@/db";
 import { isInKorea } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
 import { createTripName } from "./trip-naming";
+import { reconcileDetectedTrips, regenerateDetectedTrips } from "./trip-writer";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -119,7 +120,7 @@ export async function detectTrips(
   from: string,
   to: string
 ): Promise<DetectedTrip[]> {
-  if (!isValidDateRange(from, to)) return [];
+  if (!isValidTripDateRange(from, to)) return [];
 
   const placeLocations = await getSavedPlaceLocations(userId);
   const home = await getHomeLocation(userId, placeLocations);
@@ -322,28 +323,8 @@ function groupCandidateDays(days: ClassifiedDay[]): ClassifiedDay[][] {
 // ── Trip Persistence ─────────────────────────────────────────────────────────
 
 export async function persistTrips(userId: string, detectedTrips: DetectedTrip[]): Promise<number> {
-  if (detectedTrips.length === 0) return 0;
-
-  const db = getDb();
-  const now = new Date();
-
-  await db.insert(trips).values(
-    detectedTrips.map((t) => ({
-      userId,
-      name: t.name,
-      startDate: t.startDate,
-      endDate: t.endDate,
-      totalDistanceMeters: t.totalDistanceMeters,
-      visitedCities: JSON.stringify(t.visitedCities),
-      visitedCountries: JSON.stringify(t.visitedCountries),
-      isOverseas: t.isOverseas,
-      autoDetected: true,
-      createdAt: now,
-      updatedAt: now,
-    }))
-  );
-
-  return detectedTrips.length;
+  const result = await reconcileDetectedTrips(userId, detectedTrips);
+  return result.inserted;
 }
 
 // ── Idempotent Detect + Persist ──────────────────────────────────────────────
@@ -360,24 +341,27 @@ export async function persistTrips(userId: string, detectedTrips: DetectedTrip[]
 export async function detectAndPersistTrips(
   userId: string,
   from: string,
-  to: string
-): Promise<{ detected: number; inserted: number; skipped: number }> {
+  to: string,
+  options: { watermarkThrough?: string } = {}
+): Promise<{ detected: number; inserted: number; replaced: number; skipped: number }> {
   const detected = await detectTrips(userId, from, to);
-  if (detected.length === 0) return { detected: 0, inserted: 0, skipped: 0 };
+  const result = await reconcileDetectedTrips(userId, detected, options);
+  return { detected: detected.length, ...result };
+}
 
-  const db = getDb();
-  const existing = await db
-    .select({ startDate: trips.startDate, endDate: trips.endDate })
-    .from(trips)
-    .where(eq(trips.userId, userId));
-
-  // A detected trip is new only if its date range overlaps no existing trip.
-  const fresh = detected.filter(
-    (t) => !existing.some((e) => t.startDate <= e.endDate && e.startDate <= t.endDate)
-  );
-
-  const inserted = await persistTrips(userId, fresh);
-  return { detected: detected.length, inserted, skipped: detected.length - inserted };
+export async function regenerateTrips(
+  userId: string,
+  from: string,
+  to: string
+): Promise<{ detected: number; inserted: number; replaced: number; skipped: number }> {
+  if (!isValidTripDateRange(from, to)) {
+    throw new Error("유효하지 않은 여행 재생성 날짜 범위입니다");
+  }
+  // Detection and validation finish before the transaction begins. Existing
+  // rows are untouched if candidate calculation fails.
+  const detected = await detectTrips(userId, from, to);
+  const result = await regenerateDetectedTrips(userId, detected);
+  return { detected: detected.length, ...result };
 }
 
 function parseKstDateStart(dateStr: string): Date {
@@ -410,7 +394,7 @@ function calendarDayDifference(from: string, to: string): number {
   );
 }
 
-function isValidDateRange(from: string, to: string): boolean {
+export function isValidTripDateRange(from: string, to: string): boolean {
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   if (!datePattern.test(from) || !datePattern.test(to) || from > to) return false;
   return addCalendarDays(from, 0) === from && addCalendarDays(to, 0) === to;

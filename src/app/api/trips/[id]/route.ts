@@ -11,6 +11,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb, trips } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
+import { withTripWriteLock } from "@/modules/location/services/trip-writer";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -55,19 +56,26 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     const { id } = await context.params;
     const body = await request.json();
-    const db = getDb();
+    const updated = await withTripWriteLock(user.id, async (tx) => {
+      const [existing] = await tx
+        .select({ id: trips.id })
+        .from(trips)
+        .where(and(eq(trips.id, id), eq(trips.userId, user.id)));
+      if (!existing) return null;
 
-    const [updated] = await db
-      .update(trips)
-      .set({
-        ...(body.name != null ? { name: body.name } : {}),
-        ...(body.startDate != null ? { startDate: body.startDate } : {}),
-        ...(body.endDate != null ? { endDate: body.endDate } : {}),
-        ...(body.notes !== undefined ? { notes: body.notes } : {}),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(trips.id, id), eq(trips.userId, user.id)))
-      .returning();
+      const [row] = await tx
+        .update(trips)
+        .set({
+          ...(body.name != null ? { name: body.name } : {}),
+          ...(body.startDate != null ? { startDate: body.startDate } : {}),
+          ...(body.endDate != null ? { endDate: body.endDate } : {}),
+          ...(body.notes !== undefined ? { notes: body.notes } : {}),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(trips.id, id), eq(trips.userId, user.id)))
+        .returning();
+      return row ?? null;
+    });
 
     if (!updated) {
       return NextResponse.json({ error: "여행을 찾을 수 없습니다" }, { status: 404 });
@@ -88,11 +96,17 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     if (authError) return authError;
 
     const { id } = await context.params;
-    const db = getDb();
+    const deleted = await withTripWriteLock(user.id, async (tx) => {
+      const [existing] = await tx
+        .select({ id: trips.id })
+        .from(trips)
+        .where(and(eq(trips.id, id), eq(trips.userId, user.id)));
+      if (!existing) return false;
+      await tx.delete(trips).where(and(eq(trips.id, id), eq(trips.userId, user.id)));
+      return true;
+    });
 
-    const result = await db.delete(trips).where(and(eq(trips.id, id), eq(trips.userId, user.id)));
-
-    if (result.rowCount === 0) {
+    if (!deleted) {
       return NextResponse.json({ error: "여행을 찾을 수 없습니다" }, { status: 404 });
     }
 

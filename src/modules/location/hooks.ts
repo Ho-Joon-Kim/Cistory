@@ -449,6 +449,7 @@ export function useTripDetection() {
   const [detected, setDetected] = useState<DetectedTripData[]>([]);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const detectionRange = useRef<{ from: string; to: string } | null>(null);
 
   const detect = useCallback(async (from: string, to: string) => {
     setIsDetecting(true);
@@ -460,6 +461,7 @@ export function useTripDetection() {
       });
       if (!res.ok) throw new Error("Failed to detect");
       const data = await res.json();
+      detectionRange.current = { from, to };
       setDetected(data.trips);
       return data.trips as DetectedTripData[];
     } catch {
@@ -476,10 +478,16 @@ export function useTripDetection() {
       const res = await fetch("/api/trips/detect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from: "", to: "", confirm: true, trips }),
+        body: JSON.stringify({
+          from: detectionRange.current?.from,
+          to: detectionRange.current?.to,
+          confirm: true,
+          trips,
+        }),
       });
       if (!res.ok) throw new Error("Failed to save");
       const data = await res.json();
+      detectionRange.current = null;
       setDetected([]);
       return data.saved as number;
     } catch {

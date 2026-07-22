@@ -10,6 +10,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb, trips } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
+import { withTripWriteLock } from "@/modules/location/services/trip-writer";
 
 export async function GET(request: NextRequest) {
   try {
@@ -61,22 +62,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "name, startDate, endDate는 필수입니다" }, { status: 400 });
     }
 
-    const db = getDb();
     const now = new Date();
-
-    const [created] = await db
-      .insert(trips)
-      .values({
-        userId: user.id,
-        name,
-        startDate,
-        endDate,
-        notes: notes ?? null,
-        isOverseas: false,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
+    const created = await withTripWriteLock(user.id, async (tx) => {
+      const [row] = await tx
+        .insert(trips)
+        .values({
+          userId: user.id,
+          name,
+          startDate,
+          endDate,
+          notes: notes ?? null,
+          isOverseas: false,
+          autoDetected: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+      return row;
+    });
 
     return NextResponse.json({ trip: created }, { status: 201 });
   } catch (error) {

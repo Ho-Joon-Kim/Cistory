@@ -28,6 +28,7 @@ const m = vi.hoisted(() => ({
   matchSubwayTrips: vi.fn(),
   groupMatchesIntoSessions: vi.fn(),
   discoverMissingSubwayCities: vi.fn(),
+  detectAndPersistTrips: vi.fn(),
   // toss reparse collaborator
   reparseNotifications: vi.fn(),
   // db state, set per-test
@@ -103,11 +104,20 @@ vi.mock("@/modules/location/services/subway-match/session-grouper", () => ({
 vi.mock("@/modules/location/services/subway-discovery", () => ({
   discoverMissingSubwayCities: m.discoverMissingSubwayCities,
 }));
+vi.mock("@/modules/location/services/trip-detector", () => ({
+  detectAndPersistTrips: m.detectAndPersistTrips,
+}));
 vi.mock("@/modules/transaction/reparse-service", () => ({
   reparseNotifications: m.reparseNotifications,
 }));
 
-import { processYesterdayLocations, reparseTodayNotifications, syncAllUsers } from "./cron";
+import {
+  processYesterdayLocations,
+  reparseTodayNotifications,
+  runBootCatchUp,
+  runTripDetection,
+  syncAllUsers,
+} from "./cron";
 
 const DATE_STR = expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -142,7 +152,85 @@ beforeEach(() => {
   m.matchSubwayTrips.mockResolvedValue({ legsInserted: 0 });
   m.groupMatchesIntoSessions.mockResolvedValue({ multiLegSessions: 0 });
   m.discoverMissingSubwayCities.mockResolvedValue(undefined);
+  m.detectAndPersistTrips.mockResolvedValue({
+    detected: 0,
+    inserted: 0,
+    replaced: 0,
+    skipped: 0,
+  });
   m.reparseNotifications.mockResolvedValue({ created: 0, updated: 0, skipped: 0 });
+});
+
+describe("runTripDetection", () => {
+  it("catches up from the durable watermark with a two-day lookbehind", async () => {
+    m.dbUsers = [{ id: "u1", tripDetectionLastThrough: "2026-06-30" }];
+
+    await runTripDetection("test");
+
+    expect(m.detectAndPersistTrips).toHaveBeenCalledWith("u1", "2026-06-28", DATE_STR, {
+      watermarkThrough: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
+    const call = m.detectAndPersistTrips.mock.calls[0];
+    expect(call[2]).toBe(call[3].watermarkThrough);
+  });
+
+  it("uses the full-history baseline when no watermark exists", async () => {
+    m.dbUsers = [{ id: "u1", tripDetectionLastThrough: null }];
+
+    await runTripDetection("test");
+
+    expect(m.detectAndPersistTrips).toHaveBeenCalledWith(
+      "u1",
+      "2025-03-08",
+      DATE_STR,
+      expect.objectContaining({ watermarkThrough: expect.any(String) })
+    );
+  });
+
+  it("single-flights overlapping cron and boot invocations", async () => {
+    let release: (() => void) | undefined;
+    m.dbUsers = [{ id: "u1", tripDetectionLastThrough: null }];
+    m.detectAndPersistTrips.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ detected: 0, inserted: 0, replaced: 0, skipped: 0 });
+        })
+    );
+
+    const first = runTripDetection("weekly");
+    await vi.waitFor(() => expect(m.detectAndPersistTrips).toHaveBeenCalledOnce());
+    await runTripDetection("boot");
+    expect(m.detectAndPersistTrips).toHaveBeenCalledOnce();
+    release?.();
+    await first;
+  });
+});
+
+describe("runBootCatchUp", () => {
+  it("runs location before trip detection and continues after an earlier failure", async () => {
+    const calls: string[] = [];
+
+    await runBootCatchUp({
+      sync: async () => {
+        calls.push("sync");
+        throw new Error("sync failed");
+      },
+      spending: async () => {
+        calls.push("spending");
+      },
+      location: async () => {
+        calls.push("location");
+      },
+      trips: async () => {
+        calls.push("trips");
+      },
+      subway: async () => {
+        calls.push("subway");
+      },
+    });
+
+    expect(calls).toEqual(["sync", "spending", "location", "trips", "subway"]);
+  });
 });
 
 describe("syncAllUsers", () => {

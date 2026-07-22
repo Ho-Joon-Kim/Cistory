@@ -9,6 +9,85 @@ import { Input } from "@/components/ui/input";
 import { TripDetectDialog } from "@/modules/location/components/TripDetectDialog";
 import { useTripDetection } from "@/modules/location/hooks";
 
+function TripRegenerationSection() {
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [status, setStatus] = useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
+
+  const handleRegenerate = async () => {
+    const confirmed = window.confirm(
+      "2025-03-08부터 현재까지 자동 감지된 여행을 모두 최신 규칙으로 교체합니다. 수동으로 만든 여행은 보존됩니다. 계속할까요?"
+    );
+    if (!confirmed) return;
+
+    setIsRegenerating(true);
+    setStatus(null);
+    try {
+      const response = await fetch("/api/settings/trip-regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        inserted?: number;
+        replaced?: number;
+        skipped?: number;
+      };
+      if (!response.ok) throw new Error(data.error ?? "여행 재생성에 실패했습니다");
+
+      const message = `자동 여행 ${data.inserted ?? 0}건을 생성하고 기존 ${
+        data.replaced ?? 0
+      }건을 교체했습니다.${data.skipped ? ` 수동 여행과 겹친 ${data.skipped}건은 건너뛰었습니다.` : ""}`;
+      setStatus({ kind: "success", message });
+      toast.success("여행 재생성이 완료되었습니다");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "여행 재생성에 실패했습니다";
+      setStatus({ kind: "error", message });
+      toast.error(message);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  return (
+    <div className="border-t pt-4 space-y-3">
+      <div>
+        <p className="text-sm font-medium">자동 여행 전체 재생성</p>
+        <p className="text-sm text-muted-foreground">
+          2025-03-08 이후 자동 감지 여행을 최신 판정 규칙으로 원자적으로 교체합니다. 수동 여행은
+          삭제하지 않습니다.
+        </p>
+      </div>
+      <Button variant="destructive" disabled={isRegenerating} onClick={handleRegenerate}>
+        {isRegenerating ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            후보 분석 및 교체 중...
+          </>
+        ) : (
+          <>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            자동 여행 전체 재생성
+          </>
+        )}
+      </Button>
+      {status ? (
+        <p
+          className={
+            status.kind === "error" ? "text-sm text-destructive" : "text-sm text-muted-foreground"
+          }
+          role={status.kind === "error" ? "alert" : "status"}
+        >
+          {status.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function TripDetectionCard() {
   const { detected, isDetecting, isSaving, detect, confirmTrips } = useTripDetection();
   const [showDialog, setShowDialog] = useState(false);
@@ -113,6 +192,8 @@ export function TripDetectionCard() {
             onCancel={() => setShowDialog(false)}
           />
         )}
+
+        <TripRegenerationSection />
 
         <div className="border-t pt-4 space-y-3">
           <div>

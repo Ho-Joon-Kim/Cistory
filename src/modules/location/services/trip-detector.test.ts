@@ -24,43 +24,68 @@ const mockState = vi.hoisted(() => ({
   trackRows: [] as TrackRow[],
   insertedRows: [] as unknown[],
   trackSelectCount: 0,
+  selectError: null as Error | null,
+  transactionCount: 0,
 }));
 
 vi.mock("@/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/db")>();
+  const emptySelect = () => {
+    const builder: Record<string, unknown> = {
+      from: () => builder,
+      where: () => Promise.resolve([]),
+    };
+    return builder;
+  };
   return {
     ...actual,
-    getDb: () => ({
-      select: () => {
-        let rows: unknown[] = [];
-        const builder: Record<string, unknown> = {
-          from: (table: unknown) => {
-            if (table === actual.savedPlaces) rows = mockState.savedPlaceRows;
-            else if (table === actual.tracks) {
-              rows = mockState.trackRows;
-              mockState.trackSelectCount += 1;
-            } else rows = mockState.visitRows;
-            return builder;
-          },
-          // biome-ignore lint/suspicious/noThenProperty: drizzle query builders are awaitable thenables
-          then: (resolve: (value: unknown[]) => void) => resolve(rows),
-        };
-        for (const method of ["where", "limit", "orderBy", "groupBy"]) {
-          builder[method] = () => builder;
-        }
-        return builder;
-      },
-      insert: () => ({
-        values: (rows: unknown[]) => {
-          mockState.insertedRows = rows;
-          return Promise.resolve();
+    getDb: () => {
+      const database = {
+        select: () => {
+          let rows: unknown[] = [];
+          const builder: Record<string, unknown> = {
+            from: (table: unknown) => {
+              if (table === actual.savedPlaces) rows = mockState.savedPlaceRows;
+              else if (table === actual.tracks) {
+                rows = mockState.trackRows;
+                mockState.trackSelectCount += 1;
+              } else rows = mockState.visitRows;
+              return builder;
+            },
+            // biome-ignore lint/suspicious/noThenProperty: drizzle query builders are awaitable thenables
+            then: (resolve: (value: unknown[]) => void, reject: (error: Error) => void) =>
+              mockState.selectError ? reject(mockState.selectError) : resolve(rows),
+          };
+          for (const method of ["where", "limit", "orderBy", "groupBy"]) {
+            builder[method] = () => builder;
+          }
+          return builder;
         },
-      }),
-    }),
+        insert: () => ({
+          values: (rows: unknown[]) => {
+            mockState.insertedRows = rows;
+            return Promise.resolve();
+          },
+        }),
+        transaction: async (operation: (tx: Record<string, unknown>) => Promise<unknown>) => {
+          mockState.transactionCount += 1;
+          return operation({
+            execute: () => Promise.resolve({ rows: [] }),
+            select: emptySelect,
+            delete: () => ({ where: () => Promise.resolve({ rowCount: 0 }) }),
+            insert: database.insert,
+            update: () => ({
+              set: () => ({ where: () => Promise.resolve({ rowCount: 1 }) }),
+            }),
+          });
+        },
+      };
+      return database;
+    },
   };
 });
 
-import { detectTrips, persistTrips } from "./trip-detector";
+import { detectTrips, persistTrips, regenerateTrips } from "./trip-detector";
 
 const HOME = { lat: 37.5665, lon: 126.978 };
 const NEAR_HOME = { lat: 37.57, lon: 126.98 };
@@ -113,6 +138,8 @@ beforeEach(() => {
   mockState.trackRows = [];
   mockState.insertedRows = [];
   mockState.trackSelectCount = 0;
+  mockState.selectError = null;
+  mockState.transactionCount = 0;
 });
 
 describe("detectTrips", () => {
@@ -397,5 +424,16 @@ describe("persistTrips", () => {
     expect(mockState.insertedRows).toEqual([
       expect.objectContaining({ userId: "user-1", autoDetected: true }),
     ]);
+  });
+
+  it("does not open the replacement transaction when candidate calculation fails", async () => {
+    mockState.selectError = new Error("candidate query failed");
+
+    await expect(regenerateTrips("user-1", "2026-03-01", "2026-03-02")).rejects.toThrow(
+      "candidate query failed"
+    );
+
+    expect(mockState.transactionCount).toBe(0);
+    expect(mockState.insertedRows).toEqual([]);
   });
 });

@@ -633,13 +633,12 @@ export async function processYesterdayLocations(reason: string) {
  * consecutive away-from-home days into trips — so it runs on its own weekly
  * schedule rather than inside the per-day loop.
  *
- * Scans a rolling 120-day window so any recent trip falls fully inside it (a
- * trip clipped by the window edge would get a truncated start/end). The
- * overlap-skip in detectAndPersistTrips makes this idempotent: trips already
- * persisted from a previous run (or the historical backfill) are not duplicated.
- * A single-flight guard prevents overlap with a still-running pass.
+ * Starts from each user's durable successful-through watermark with a two-day
+ * lookbehind so a trip crossing the previous boundary can expand. The detector
+ * advances the watermark in the same advisory-locked transaction as trip
+ * reconciliation; failures therefore leave it unchanged for the next run.
  */
-async function runTripDetection(reason: string) {
+export async function runTripDetection(reason: string) {
   if (isTripDetectionRunning) {
     logger.info("[Cron] Trip detection already running, skipping", { reason });
     return;
@@ -651,7 +650,7 @@ async function runTripDetection(reason: string) {
   try {
     const db = getDb();
     const allUsers = await db
-      .select({ id: users.id })
+      .select({ id: users.id, tripDetectionLastThrough: users.tripDetectionLastThrough })
       .from(users)
       .where(sql`${users.ownTracksApiKey} IS NOT NULL`);
 
@@ -662,25 +661,10 @@ async function runTripDetection(reason: string) {
 
     const { detectAndPersistTrips } = await import("@/modules/location/services/trip-detector");
 
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - 120);
-    const fromStr = toLocalDateString(from);
-    const toStr = toLocalDateString(to);
+    const toStr = toKstCalendarDate(new Date());
 
     for (const user of allUsers) {
-      try {
-        const result = await detectAndPersistTrips(user.id, fromStr, toStr);
-        if (result.inserted > 0) {
-          logger.info(
-            `[Cron] Trip detection for ${user.id}: ${result.inserted} new trip(s) (${result.detected} detected, ${result.skipped} existing)`
-          );
-        }
-      } catch (err) {
-        logger.error(`[Cron] Trip detection failed for user ${user.id}`, {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      await runTripDetectionForUser(user, toStr, detectAndPersistTrips);
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -692,6 +676,78 @@ async function runTripDetection(reason: string) {
     });
   } finally {
     isTripDetectionRunning = false;
+  }
+}
+
+async function runTripDetectionForUser(
+  user: { id: string; tripDetectionLastThrough: string | null },
+  to: string,
+  detectAndPersist: (
+    userId: string,
+    from: string,
+    to: string,
+    options: { watermarkThrough: string }
+  ) => Promise<{ detected: number; inserted: number; replaced: number; skipped: number }>
+): Promise<void> {
+  try {
+    const watermarkStart = user.tripDetectionLastThrough
+      ? addIsoDateDays(user.tripDetectionLastThrough, -2)
+      : "2025-03-08";
+    const from = watermarkStart < "2025-03-08" ? "2025-03-08" : watermarkStart;
+    const result = await detectAndPersist(user.id, from, to, { watermarkThrough: to });
+    if (result.inserted > 0) {
+      logger.info(
+        `[Cron] Trip detection for ${user.id}: ${result.inserted} trip(s) written (${result.detected} detected, ${result.replaced} replaced, ${result.skipped} manual overlap)`
+      );
+    }
+  } catch (error) {
+    logger.error(`[Cron] Trip detection failed for user ${user.id}`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function addIsoDateDays(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+function toKstCalendarDate(date: Date): string {
+  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+interface BootCatchUpJobs {
+  sync: () => Promise<void>;
+  spending: () => Promise<void>;
+  location: () => Promise<void>;
+  trips: () => Promise<void>;
+  subway: () => Promise<void>;
+}
+
+export async function runBootCatchUp(
+  jobs: BootCatchUpJobs = {
+    sync: syncAllUsers,
+    spending: categorizePendingSpending,
+    location: () => processYesterdayLocations("boot-catchup"),
+    trips: () => runTripDetection("boot-catchup"),
+    subway: maybeRunSubwayBootCatchUp,
+  }
+): Promise<void> {
+  const steps: Array<[keyof BootCatchUpJobs, () => Promise<void>]> = [
+    ["sync", jobs.sync],
+    ["spending", jobs.spending],
+    ["location", jobs.location],
+    ["trips", jobs.trips],
+    ["subway", jobs.subway],
+  ];
+  for (const [name, run] of steps) {
+    try {
+      await run();
+    } catch (error) {
+      logger.error(`[Cron] Boot-time ${name} catch-up failed`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 
@@ -894,23 +950,8 @@ export function initializeCron() {
   // regardless of interval.
   if (process.env.RUN_ON_START === "true") {
     logger.info("[Cron] RUN_ON_START=true detected. Running sync immediately...");
-    syncAllUsers().catch((error) => {
-      logger.error("[Cron] Initial sync failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    categorizePendingSpending().catch((error) => {
-      logger.error("[Cron] Initial spending categorization failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    processYesterdayLocations("run-on-start").catch((error) => {
-      logger.error("[Cron] RUN_ON_START location processing failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    maybeRunSubwayBootCatchUp().catch((error) => {
-      logger.error("[Cron] RUN_ON_START subway catch-up failed", {
+    runBootCatchUp().catch((error) => {
+      logger.error("[Cron] RUN_ON_START catch-up failed", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -925,26 +966,7 @@ export function initializeCron() {
       // job's failure stays non-fatal so the chain still continues.
       void (async () => {
         logger.info("[Cron] Running boot-time catch-up");
-        await syncAllUsers().catch((error) => {
-          logger.error("[Cron] Boot-time sync failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-        await categorizePendingSpending().catch((error) => {
-          logger.error("[Cron] Boot-time spending categorization failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-        await processYesterdayLocations("boot-catchup").catch((error) => {
-          logger.error("[Cron] Boot-time location processing failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-        await maybeRunSubwayBootCatchUp().catch((error) => {
-          logger.error("[Cron] Boot-time subway catch-up failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        await runBootCatchUp();
       })();
     }, 10_000);
   }
