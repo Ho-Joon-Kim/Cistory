@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, PieChart, Wallet } from "lucide-react";
+import { LayoutDashboard, PieChart, Plane, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CommitHeatmap } from "@/components/CommitHeatmap";
@@ -20,6 +20,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
   const icons = {
     spending: Wallet,
     portfolio: PieChart,
+    travel: Plane,
     overview: LayoutDashboard,
   };
 
@@ -41,11 +42,12 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
         <div className="flex items-center gap-2 sm:gap-4">
           {HEADER_NAV_ITEMS.map((item) => {
             const Icon = icons[item.id];
-            const active = pathname === item.href;
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (
               <Link
                 key={item.id}
                 href={item.href}
+                aria-current={active ? "page" : undefined}
                 className={`flex items-center gap-1.5 text-sm transition-colors ${
                   active
                     ? "font-medium text-foreground"

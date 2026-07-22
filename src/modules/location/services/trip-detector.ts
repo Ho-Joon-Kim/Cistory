@@ -1,28 +1,38 @@
 /**
  * Trip Auto-Detection Service
  *
- * Detects trips by finding consecutive days away from home.
- * Home = savedPlace with category "home"/"집", or most-visited location.
+ * Detects trips by classifying KST calendar days around a user's home.
+ * Home = savedPlace with category or name "home"/"집", or most-visited location.
  *
  * Rules:
- * - Away = all visits on a day are > 50km from home
- * - Consecutive away days (1-day gap allowed) form a trip
- * - Domestic: must be 2+ days (1+ nights)
- * - Overseas: any duration qualifies
- * - Name auto-generated from primary city/country
+ * - Core day = every visit is > 100km from home
+ * - Boundary day = at least one visit is > 100km from home
+ * - Days spent only inside a trip-excluded place can bridge, but not bound, a trip
+ * - Home and unobserved days always split trips
+ * - Every trip must span at least one calendar night
+ * - Name generated from coordinate-derived countries or allow-listed domestic regions
  */
 
-import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
-import { getDb, savedPlaces, trips, visits } from "@/db";
+import { and, asc, eq, gt, gte, lt } from "drizzle-orm";
+import { getDb, savedPlaces, tracks, visits } from "@/db";
 import { isInKorea } from "@/lib/adapters/geocoding";
+import { shiftDateKey } from "@/lib/date-key";
 import { distanceM } from "@/lib/geo";
-import { toLocalDateString } from "@/lib/utils";
+import { resolveTripHomeLocation, TRIP_HOME_DISTANCE_THRESHOLD_M } from "./trip-home";
+import { createTripName } from "./trip-naming";
+import {
+  createTripExclusionRevision,
+  reconcileDetectedTrips,
+  regenerateDetectedTrips,
+  StaleTripDetectionError,
+} from "./trip-writer";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const HOME_DISTANCE_THRESHOLD_M = 50_000; // 50km — away threshold
-const MAX_GAP_DAYS = 1; // allow 1-day gap between away days
-const MIN_DOMESTIC_DAYS = 2; // domestic trip: at least 2 days
+const DEFAULT_TRIP_EXCLUSION_RADIUS_M = 10_000;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const TRIP_DATA_HORIZON = "2025-03-08";
+const TRIP_DATE_RANGE_FUTURE_HEADROOM_DAYS = 366;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,44 +48,32 @@ export interface DetectedTrip {
 
 // ── Home Location Resolution ─────────────────────────────────────────────────
 
-async function getHomeLocation(userId: string): Promise<{ lat: number; lon: number } | null> {
+interface SavedPlaceLocation {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  category: string | null;
+  excludeFromTrips: boolean;
+  tripExclusionRadiusM: number | null;
+  updatedAt: Date;
+}
+
+async function getSavedPlaceLocations(userId: string): Promise<SavedPlaceLocation[]> {
   const db = getDb();
-
-  // 1. Check savedPlaces for "home" or "집" category
-  const [homePlace] = await db
-    .select({ lat: savedPlaces.lat, lon: savedPlaces.lon })
-    .from(savedPlaces)
-    .where(
-      and(eq(savedPlaces.userId, userId), sql`lower(${savedPlaces.category}) IN ('home', '집')`)
-    )
-    .limit(1);
-
-  if (homePlace) return { lat: homePlace.lat, lon: homePlace.lon };
-
-  // 2. Fallback: most-visited location in last 90 days by total duration
-  const ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
-  const [topVisit] = await db
+  return db
     .select({
-      lat: visits.centerLat,
-      lon: visits.centerLon,
-      totalDuration: sql<number>`sum(${visits.durationSeconds})`,
+      id: savedPlaces.id,
+      name: savedPlaces.name,
+      lat: savedPlaces.lat,
+      lon: savedPlaces.lon,
+      category: savedPlaces.category,
+      excludeFromTrips: savedPlaces.excludeFromTrips,
+      tripExclusionRadiusM: savedPlaces.tripExclusionRadiusM,
+      updatedAt: savedPlaces.updatedAt,
     })
-    .from(visits)
-    .where(and(eq(visits.userId, userId), gte(visits.startTime, ninetyDaysAgo)))
-    .groupBy(
-      sql`round(${visits.centerLat}::numeric, 3)`,
-      sql`round(${visits.centerLon}::numeric, 3)`,
-      visits.centerLat,
-      visits.centerLon
-    )
-    .orderBy(desc(sql`sum(${visits.durationSeconds})`))
-    .limit(1);
-
-  if (topVisit) return { lat: topVisit.lat, lon: topVisit.lon };
-
-  return null;
+    .from(savedPlaces)
+    .where(eq(savedPlaces.userId, userId));
 }
 
 // ── Trip Detection ───────────────────────────────────────────────────────────
@@ -85,16 +83,68 @@ export async function detectTrips(
   from: string,
   to: string
 ): Promise<DetectedTrip[]> {
-  const home = await getHomeLocation(userId);
-  if (!home) return []; // Can't determine home → can't detect trips
+  return (await detectTripsSnapshot(userId, from, to)).trips;
+}
 
+export interface TripDetectionSnapshot {
+  trips: DetectedTrip[];
+  exclusionRevision: string;
+}
+
+export async function detectTripsSnapshot(
+  userId: string,
+  from: string,
+  to: string
+): Promise<TripDetectionSnapshot> {
+  if (!isValidTripDateRange(from, to)) return { trips: [], exclusionRevision: "[]" };
+
+  const placeLocations = await getSavedPlaceLocations(userId);
+  const exclusionRevision = createTripExclusionRevision(placeLocations);
+  const home = await resolveTripHomeLocation(userId, placeLocations);
+  if (!home) return { trips: [], exclusionRevision }; // Can't determine home → can't detect trips
+
+  const excludedPlaces = placeLocations.filter((place) => place.excludeFromTrips);
+  const visitsByDate = groupVisitsByDate(await getVisitsInRange(userId, from, to));
+
+  const classifiedDays = calendarDates(from, to).map((date) =>
+    classifyDay(date, visitsByDate.get(date) ?? [], home, excludedPlaces)
+  );
+  const groups = groupCandidateDays(classifiedDays);
+  if (groups.length === 0) return { trips: [], exclusionRevision };
+
+  const tripTracks = await getTracksInRange(userId, from, to);
+  return {
+    trips: groups.map((group) => toDetectedTrip(group, tripTracks)),
+    exclusionRevision,
+  };
+}
+
+type VisitRow = {
+  centerLat: number;
+  centerLon: number;
+  startTime: Date;
+  city: string | null;
+  countryName: string | null;
+  durationSeconds: number;
+};
+
+type TrackRow = {
+  startTime: Date;
+  endTime: Date;
+  distanceMeters: number;
+};
+
+type DayKind = "core" | "boundary" | "excluded" | "home" | "unknown";
+
+interface ClassifiedDay {
+  date: string;
+  kind: DayKind;
+  destinationVisits: VisitRow[];
+}
+
+async function getVisitsInRange(userId: string, from: string, to: string): Promise<VisitRow[]> {
   const db = getDb();
-  const fromDate = parseLocalDate(from);
-  const toDate = parseLocalDate(to);
-  toDate.setDate(toDate.getDate() + 1); // exclusive end
-
-  // Fetch all visits in range with city/country
-  const allVisits = await db
+  return db
     .select({
       centerLat: visits.centerLat,
       centerLon: visits.centerLon,
@@ -105,142 +155,163 @@ export async function detectTrips(
     })
     .from(visits)
     .where(
-      and(eq(visits.userId, userId), gte(visits.startTime, fromDate), lt(visits.startTime, toDate))
+      and(
+        eq(visits.userId, userId),
+        gte(visits.startTime, parseKstDateStart(from)),
+        lt(visits.startTime, parseKstDateStart(shiftDateKey(to, 1)))
+      )
     )
     .orderBy(asc(visits.startTime));
+}
 
-  // Group visits by date
-  const dateVisits = new Map<
-    string,
-    {
-      cities: Set<string>;
-      countries: Set<string>;
-      allAway: boolean;
-      isOverseas: boolean;
-    }
-  >();
-
-  for (const v of allVisits) {
-    const dateStr = toLocalDateString(v.startTime);
-
-    if (!dateVisits.has(dateStr)) {
-      dateVisits.set(dateStr, {
-        cities: new Set(),
-        countries: new Set(),
-        allAway: true,
-        isOverseas: false,
-      });
-    }
-
-    const day = dateVisits.get(dateStr)!;
-
-    const dist = distanceM(home.lat, home.lon, v.centerLat, v.centerLon);
-    if (dist < HOME_DISTANCE_THRESHOLD_M) {
-      day.allAway = false;
-    }
-
-    if (v.city) day.cities.add(v.city);
-    if (v.countryName) day.countries.add(v.countryName);
-
-    if (!isInKorea(v.centerLat, v.centerLon)) {
-      day.isOverseas = true;
-    }
+function groupVisitsByDate(allVisits: VisitRow[]): Map<string, VisitRow[]> {
+  const visitsByDate = new Map<string, VisitRow[]>();
+  for (const visit of allVisits) {
+    const date = toKstDateString(visit.startTime);
+    const dayVisits = visitsByDate.get(date) ?? [];
+    dayVisits.push(visit);
+    visitsByDate.set(date, dayVisits);
   }
+  return visitsByDate;
+}
 
-  // Find consecutive away days
-  const awayDates = [...dateVisits.entries()]
-    .filter(([, d]) => d.allAway)
-    .sort(([a], [b]) => a.localeCompare(b));
+async function getTracksInRange(userId: string, from: string, to: string): Promise<TrackRow[]> {
+  const rangeStart = parseKstDateStart(from);
+  const rangeEnd = parseKstDateStart(shiftDateKey(to, 1));
+  const db = getDb();
+  return db
+    .select({
+      startTime: tracks.startTime,
+      endTime: tracks.endTime,
+      distanceMeters: tracks.distanceMeters,
+    })
+    .from(tracks)
+    .where(
+      and(eq(tracks.userId, userId), lt(tracks.startTime, rangeEnd), gt(tracks.endTime, rangeStart))
+    )
+    .orderBy(asc(tracks.startTime));
+}
 
-  if (awayDates.length === 0) return [];
+function toDetectedTrip(group: ClassifiedDay[], allTracks: TrackRow[]): DetectedTrip {
+  const destinationVisits = group.flatMap((day) => day.destinationVisits);
+  const visitedCities = uniqueStrings(destinationVisits.map((visit) => visit.city));
+  const visitedCountries = uniqueStrings(destinationVisits.map((visit) => visit.countryName));
+  const isOverseas = destinationVisits.some(
+    (visit) => !isInKorea(visit.centerLat, visit.centerLon)
+  );
 
-  // Group into trips (allow MAX_GAP_DAYS gap)
-  const tripGroups: (typeof awayDates)[] = [];
-  let currentGroup = [awayDates[0]];
+  return {
+    name: createTripName(destinationVisits),
+    startDate: group[0].date,
+    endDate: group[group.length - 1].date,
+    visitedCities,
+    visitedCountries,
+    isOverseas,
+    totalDistanceMeters: sumOverlappingTrackDistance(
+      allTracks,
+      group[0].date,
+      group[group.length - 1].date
+    ),
+  };
+}
 
-  for (let i = 1; i < awayDates.length; i++) {
-    const prevDate = parseLocalDate(currentGroup[currentGroup.length - 1][0]);
-    const currDate = parseLocalDate(awayDates[i][0]);
-    const gapDays = (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
+function uniqueStrings(values: (string | null)[]): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
 
-    if (gapDays <= MAX_GAP_DAYS + 1) {
-      currentGroup.push(awayDates[i]);
+function sumOverlappingTrackDistance(
+  allTracks: TrackRow[],
+  startDate: string,
+  endDate: string
+): number | null {
+  const rangeStart = parseKstDateStart(startDate);
+  const rangeEnd = parseKstDateStart(shiftDateKey(endDate, 1));
+  const overlappingTracks = allTracks.filter(
+    (track) => track.startTime < rangeEnd && track.endTime > rangeStart
+  );
+  if (overlappingTracks.length === 0) return null;
+  return overlappingTracks.reduce((sum, track) => sum + track.distanceMeters, 0);
+}
+
+function classifyDay(
+  date: string,
+  dayVisits: VisitRow[],
+  home: { lat: number; lon: number },
+  excludedPlaces: SavedPlaceLocation[]
+): ClassifiedDay {
+  if (dayVisits.length === 0) return { date, kind: "unknown", destinationVisits: [] };
+
+  const farVisits = dayVisits.filter(
+    (visit) =>
+      distanceM(home.lat, home.lon, visit.centerLat, visit.centerLon) >
+      TRIP_HOME_DISTANCE_THRESHOLD_M
+  );
+  if (farVisits.length === 0) return { date, kind: "home", destinationVisits: [] };
+
+  const destinationVisits = farVisits.filter(
+    (visit) => !isInsideExcludedPlace(visit, excludedPlaces)
+  );
+  if (destinationVisits.length === 0) return { date, kind: "excluded", destinationVisits: [] };
+
+  return {
+    date,
+    kind: farVisits.length === dayVisits.length ? "core" : "boundary",
+    destinationVisits,
+  };
+}
+
+function isInsideExcludedPlace(
+  visit: Pick<VisitRow, "centerLat" | "centerLon">,
+  places: SavedPlaceLocation[]
+): boolean {
+  return places.some(
+    (place) =>
+      distanceM(place.lat, place.lon, visit.centerLat, visit.centerLon) <=
+      (place.tripExclusionRadiusM ?? DEFAULT_TRIP_EXCLUSION_RADIUS_M)
+  );
+}
+
+function groupCandidateDays(days: ClassifiedDay[]): ClassifiedDay[][] {
+  const groups: ClassifiedDay[][] = [];
+  let current: ClassifiedDay[] = [];
+
+  const finishCurrent = () => {
+    while (current[0]?.kind === "excluded") current.shift();
+    while (current.at(-1)?.kind === "excluded") current.pop();
+
+    if (
+      current.some((day) => day.kind === "core") &&
+      current.length > 0 &&
+      calendarDayDifference(current[0].date, current[current.length - 1].date) >= 1
+    ) {
+      groups.push(current);
+    }
+    current = [];
+  };
+
+  for (const day of days) {
+    if (day.kind === "home" || day.kind === "unknown") {
+      finishCurrent();
     } else {
-      tripGroups.push(currentGroup);
-      currentGroup = [awayDates[i]];
+      current.push(day);
     }
   }
-  tripGroups.push(currentGroup);
+  finishCurrent();
 
-  // Build detected trips
-  const detectedTrips: DetectedTrip[] = [];
-
-  for (const group of tripGroups) {
-    const startDate = group[0][0];
-    const endDate = group[group.length - 1][0];
-    const dayCount = group.length;
-
-    const allCities = new Set<string>();
-    const allCountries = new Set<string>();
-    let isOverseas = false;
-
-    for (const [, dayData] of group) {
-      for (const c of dayData.cities) allCities.add(c);
-      for (const c of dayData.countries) allCountries.add(c);
-      if (dayData.isOverseas) isOverseas = true;
-    }
-
-    // Filter: domestic trips need 2+ days, overseas any duration
-    if (!isOverseas && dayCount < MIN_DOMESTIC_DAYS) continue;
-
-    // Auto-generate name
-    const primaryCity = [...allCities][0];
-    const primaryCountry = [...allCountries][0];
-    let name: string;
-    if (isOverseas && primaryCountry) {
-      name = primaryCity ? `${primaryCity} 여행` : `${primaryCountry} 여행`;
-    } else {
-      name = primaryCity ? `${primaryCity} 방문` : "여행";
-    }
-
-    detectedTrips.push({
-      name,
-      startDate,
-      endDate,
-      visitedCities: [...allCities],
-      visitedCountries: [...allCountries],
-      isOverseas,
-      totalDistanceMeters: null, // can be enriched later from dailyDistances
-    });
-  }
-
-  return detectedTrips;
+  return groups;
 }
 
 // ── Trip Persistence ─────────────────────────────────────────────────────────
 
-export async function persistTrips(userId: string, detectedTrips: DetectedTrip[]): Promise<number> {
-  if (detectedTrips.length === 0) return 0;
-
-  const db = getDb();
-  const now = new Date();
-
-  await db.insert(trips).values(
-    detectedTrips.map((t) => ({
-      userId,
-      name: t.name,
-      startDate: t.startDate,
-      endDate: t.endDate,
-      totalDistanceMeters: t.totalDistanceMeters,
-      visitedCities: JSON.stringify(t.visitedCities),
-      visitedCountries: JSON.stringify(t.visitedCountries),
-      isOverseas: t.isOverseas,
-      createdAt: now,
-      updatedAt: now,
-    }))
-  );
-
-  return detectedTrips.length;
+export async function persistTrips(
+  userId: string,
+  detectedTrips: DetectedTrip[],
+  expectedExclusionRevision?: string
+): Promise<number> {
+  const result = await reconcileDetectedTrips(userId, detectedTrips, {
+    expectedExclusionRevision,
+  });
+  return result.inserted;
 }
 
 // ── Idempotent Detect + Persist ──────────────────────────────────────────────
@@ -257,27 +328,83 @@ export async function persistTrips(userId: string, detectedTrips: DetectedTrip[]
 export async function detectAndPersistTrips(
   userId: string,
   from: string,
-  to: string
-): Promise<{ detected: number; inserted: number; skipped: number }> {
-  const detected = await detectTrips(userId, from, to);
-  if (detected.length === 0) return { detected: 0, inserted: 0, skipped: 0 };
-
-  const db = getDb();
-  const existing = await db
-    .select({ startDate: trips.startDate, endDate: trips.endDate })
-    .from(trips)
-    .where(eq(trips.userId, userId));
-
-  // A detected trip is new only if its date range overlaps no existing trip.
-  const fresh = detected.filter(
-    (t) => !existing.some((e) => t.startDate <= e.endDate && e.startDate <= t.endDate)
-  );
-
-  const inserted = await persistTrips(userId, fresh);
-  return { detected: detected.length, inserted, skipped: detected.length - inserted };
+  to: string,
+  options: { watermarkThrough?: string } = {}
+): Promise<{ detected: number; inserted: number; replaced: number; skipped: number }> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const snapshot = await detectTripsSnapshot(userId, from, to);
+    try {
+      const result = await reconcileDetectedTrips(userId, snapshot.trips, {
+        ...options,
+        expectedExclusionRevision: snapshot.exclusionRevision,
+      });
+      return { detected: snapshot.trips.length, ...result };
+    } catch (error) {
+      if (!(error instanceof StaleTripDetectionError) || attempt === 2) throw error;
+    }
+  }
+  throw new Error("여행 후보를 최신 제외 설정으로 계산하지 못했습니다");
 }
 
-function parseLocalDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d);
+export async function regenerateTrips(
+  userId: string,
+  from: string,
+  to: string
+): Promise<{ detected: number; inserted: number; replaced: number; skipped: number }> {
+  if (!isValidTripDateRange(from, to)) {
+    throw new Error("유효하지 않은 여행 재생성 날짜 범위입니다");
+  }
+  // Detection and validation finish before the transaction begins. Existing
+  // rows are untouched if candidate calculation fails.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const snapshot = await detectTripsSnapshot(userId, from, to);
+    try {
+      const result = await regenerateDetectedTrips(userId, snapshot.trips, {
+        database: getDb(),
+        expectedExclusionRevision: snapshot.exclusionRevision,
+      });
+      return { detected: snapshot.trips.length, ...result };
+    } catch (error) {
+      if (!(error instanceof StaleTripDetectionError) || attempt === 2) throw error;
+    }
+  }
+  throw new Error("여행 후보를 최신 제외 설정으로 계산하지 못했습니다");
+}
+
+function parseKstDateStart(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00+09:00`);
+}
+
+function toKstDateString(date: Date): string {
+  return new Date(date.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function calendarDates(from: string, to: string): string[] {
+  const dates: string[] = [];
+  for (let current = from; current <= to; current = shiftDateKey(current, 1)) {
+    dates.push(current);
+  }
+  return dates;
+}
+
+function calendarDayDifference(from: string, to: string): number {
+  const [fromYear, fromMonth, fromDay] = from.split("-").map(Number);
+  const [toYear, toMonth, toDay] = to.split("-").map(Number);
+  return (
+    (Date.UTC(toYear, toMonth - 1, toDay) - Date.UTC(fromYear, fromMonth - 1, fromDay)) / 86_400_000
+  );
+}
+
+export function isValidTripDateRange(from: string, to: string): boolean {
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(from) || !datePattern.test(to) || from > to) return false;
+  if (shiftDateKey(from, 0) !== from || shiftDateKey(to, 0) !== to) return false;
+
+  // Keep calendar materialization bounded while allowing a complete rebuild from
+  // the product's data horizon through today, plus one year of future headroom.
+  const todayKst = toKstDateString(new Date());
+  const productHistoryDays = Math.max(0, calendarDayDifference(TRIP_DATA_HORIZON, todayKst));
+  return (
+    calendarDayDifference(from, to) <= productHistoryDays + TRIP_DATE_RANGE_FUTURE_HEADROOM_DAYS
+  );
 }

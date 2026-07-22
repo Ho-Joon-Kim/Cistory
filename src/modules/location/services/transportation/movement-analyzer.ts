@@ -180,7 +180,7 @@ function buildSegments(
     const avgSpeedKmh = totalDuration > 0 ? (totalDist / totalDuration) * 3.6 : 0;
     const avgAccel = segMetrics.length > 0 ? totalAccel / segMetrics.length : 0;
 
-    const { mode, confidence } = classifyMode(avgSpeedKmh, maxSpeed, avgAccel);
+    const { mode, confidence } = classifyMode(avgSpeedKmh, maxSpeed, avgAccel, totalDist);
 
     // Point indices: startIdx maps to points[startIdx], endIdx+1 maps to points[endIdx+1]
     const startPointIdx = startIdx;

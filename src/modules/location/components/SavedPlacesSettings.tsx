@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { type SavedPlaceData, useSavedPlaces } from "../hooks";
 import { SavedPlaceDialog } from "./SavedPlaceDialog";
 
@@ -30,6 +31,20 @@ export function SavedPlacesSettings() {
       toast.success(`"${place.name}" 장소가 삭제되었습니다`);
     } else {
       toast.error("장소 삭제에 실패했습니다");
+    }
+  };
+
+  const handleTripExclusionChange = async (place: SavedPlaceData, checked: boolean) => {
+    const success = await updatePlace(place.id, {
+      excludeFromTrips: checked,
+      ...(checked && place.tripExclusionRadiusM === null ? { tripExclusionRadiusM: 10_000 } : {}),
+    });
+    if (success) {
+      toast.success(
+        checked ? "여행 감지 제외 장소로 설정했습니다" : "여행 감지 제외를 해제했습니다"
+      );
+    } else {
+      toast.error("여행 감지 제외 설정을 바꾸지 못했습니다");
     }
   };
 
@@ -99,6 +114,28 @@ export function SavedPlacesSettings() {
                           {place.category}
                         </Badge>
                       )}
+                      {place.excludeFromTrips && (
+                        <Badge variant="outline" className="text-xs">
+                          여행 제외 {Math.round((place.tripExclusionRadiusM ?? 10_000) / 1_000)}km
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Switch
+                        id={`trip-exclusion-${place.id}`}
+                        size="sm"
+                        checked={place.excludeFromTrips}
+                        disabled={isSaving}
+                        onCheckedChange={(checked) =>
+                          void handleTripExclusionChange(place, checked)
+                        }
+                      />
+                      <label
+                        htmlFor={`trip-exclusion-${place.id}`}
+                        className="cursor-pointer text-xs text-muted-foreground"
+                      >
+                        여행 감지에서 제외
+                      </label>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 ml-2 shrink-0">

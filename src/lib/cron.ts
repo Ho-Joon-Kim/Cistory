@@ -10,7 +10,7 @@ import * as cron from "node-cron";
 import { getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
-import { toLocalDateString } from "@/lib/utils";
+import { type BootCatchUpJobs, runBootCatchUp, runTripDetection } from "@/lib/trip-detection-cron";
 import { createHealthSyncService } from "@/modules/health/service";
 import { processYesterdayLocations } from "@/modules/location/cron-processing";
 import { registerOverviewPrecomputeTask } from "@/modules/overview/cron";
@@ -32,7 +32,6 @@ let overviewPrecomputeTask: cron.ScheduledTask | null = null;
 let subwayRefreshTask: cron.ScheduledTask | null = null;
 let tripDetectionTask: cron.ScheduledTask | null = null;
 let isSubwayRefreshRunning = false;
-let isTripDetectionRunning = false;
 let isSyncAllRunning = false;
 let isSpendingCategoryRunning = false;
 
@@ -462,73 +461,20 @@ async function _syncAllUsersInner() {
 }
 
 export { processYesterdayLocations };
-/**
- * Detect multi-day trips from visits. Unlike the daily location pipeline (which
- * processes one day at a time), trip detection is a range operation — it groups
- * consecutive away-from-home days into trips — so it runs on its own weekly
- * schedule rather than inside the per-day loop.
- *
- * Scans a rolling 120-day window so any recent trip falls fully inside it (a
- * trip clipped by the window edge would get a truncated start/end). The
- * overlap-skip in detectAndPersistTrips makes this idempotent: trips already
- * persisted from a previous run (or the historical backfill) are not duplicated.
- * A single-flight guard prevents overlap with a still-running pass.
- */
-async function runTripDetection(reason: string) {
-  if (isTripDetectionRunning) {
-    logger.info("[Cron] Trip detection already running, skipping", { reason });
-    return;
-  }
-  isTripDetectionRunning = true;
-  const startTime = Date.now();
-  logger.info("[Cron] Starting trip detection", { reason });
 
-  try {
-    const db = getDb();
-    const allUsers = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(sql`${users.ownTracksApiKey} IS NOT NULL`);
-
-    if (allUsers.length === 0) {
-      logger.info("[Cron] No users with OwnTracks configured. Skipping trip detection.");
-      return;
-    }
-
-    const { detectAndPersistTrips } = await import("@/modules/location/services/trip-detector");
-
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - 120);
-    const fromStr = toLocalDateString(from);
-    const toStr = toLocalDateString(to);
-
-    for (const user of allUsers) {
-      try {
-        const result = await detectAndPersistTrips(user.id, fromStr, toStr);
-        if (result.inserted > 0) {
-          logger.info(
-            `[Cron] Trip detection for ${user.id}: ${result.inserted} new trip(s) (${result.detected} detected, ${result.skipped} existing)`
-          );
-        }
-      } catch (err) {
-        logger.error(`[Cron] Trip detection failed for user ${user.id}`, {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    logger.info(`[Cron] Trip detection completed in ${elapsed}s`, { reason });
-  } catch (error) {
-    logger.error("[Cron] Fatal error during trip detection", {
-      reason,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  } finally {
-    isTripDetectionRunning = false;
-  }
+function createBootCatchUpJobs(): BootCatchUpJobs {
+  return {
+    sync: syncAllUsers,
+    spending: categorizePendingSpending,
+    location: async () => {
+      await processYesterdayLocations("boot-catchup");
+    },
+    trips: () => runTripDetection("boot-catchup"),
+    subway: maybeRunSubwayBootCatchUp,
+  };
 }
+
+export { runBootCatchUp, runTripDetection };
 
 /**
  * Reparse today's Toss notifications for all users
@@ -731,23 +677,8 @@ export function initializeCron() {
   // regardless of interval.
   if (process.env.RUN_ON_START === "true") {
     logger.info("[Cron] RUN_ON_START=true detected. Running sync immediately...");
-    syncAllUsers().catch((error) => {
-      logger.error("[Cron] Initial sync failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    categorizePendingSpending().catch((error) => {
-      logger.error("[Cron] Initial spending categorization failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    processYesterdayLocations("run-on-start").catch((error) => {
-      logger.error("[Cron] RUN_ON_START location processing failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    maybeRunSubwayBootCatchUp().catch((error) => {
-      logger.error("[Cron] RUN_ON_START subway catch-up failed", {
+    runBootCatchUp(createBootCatchUpJobs()).catch((error) => {
+      logger.error("[Cron] RUN_ON_START catch-up failed", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -762,26 +693,7 @@ export function initializeCron() {
       // job's failure stays non-fatal so the chain still continues.
       void (async () => {
         logger.info("[Cron] Running boot-time catch-up");
-        await syncAllUsers().catch((error) => {
-          logger.error("[Cron] Boot-time sync failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-        await categorizePendingSpending().catch((error) => {
-          logger.error("[Cron] Boot-time spending categorization failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-        await processYesterdayLocations("boot-catchup").catch((error) => {
-          logger.error("[Cron] Boot-time location processing failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-        await maybeRunSubwayBootCatchUp().catch((error) => {
-          logger.error("[Cron] Boot-time subway catch-up failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        await runBootCatchUp(createBootCatchUpJobs());
       })();
     }, 10_000);
   }

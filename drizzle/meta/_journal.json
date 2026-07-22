@@ -239,6 +239,13 @@
       "when": 1784707186376,
       "tag": "0033_vengeful_gamma_corps",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1784726339303,
+      "tag": "0034_pretty_makkari",
+      "breakpoints": true
     }
   ]
 }
