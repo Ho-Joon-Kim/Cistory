@@ -11,8 +11,9 @@ import { getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { type BootCatchUpJobs, runBootCatchUp, runTripDetection } from "@/lib/trip-detection-cron";
-import { toLocalDateString } from "@/lib/utils";
 import { createHealthSyncService } from "@/modules/health/service";
+import { processYesterdayLocations } from "@/modules/location/cron-processing";
+import { registerOverviewPrecomputeTask } from "@/modules/overview/cron";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
 import { createExpenseCategoryService } from "@/modules/spending/category-classifier";
 import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/subway/service";
@@ -27,13 +28,14 @@ let dailyReparseTask: cron.ScheduledTask | null = null;
 let spendingCategoryTask: cron.ScheduledTask | null = null;
 let locationProcessingTask: cron.ScheduledTask | null = null;
 let locationCatchUpTask: cron.ScheduledTask | null = null;
+let overviewPrecomputeTask: cron.ScheduledTask | null = null;
 let subwayRefreshTask: cron.ScheduledTask | null = null;
 let tripDetectionTask: cron.ScheduledTask | null = null;
 let isSubwayRefreshRunning = false;
-let isLocationProcessingRunning = false;
 let isSyncAllRunning = false;
 let isSpendingCategoryRunning = false;
 
+export { generateOverviewNarratives, precomputeOverviewSnapshots } from "@/modules/overview/cron";
 export async function categorizePendingSpending(): Promise<void> {
   if (isSpendingCategoryRunning || !process.env.ANTHROPIC_API_KEY) return;
   isSpendingCategoryRunning = true;
@@ -458,180 +460,15 @@ async function _syncAllUsersInner() {
   }
 }
 
-/**
- * Process un-anomaly-scanned days (location pipeline: anomaly → visits →
- * tracks → transportation → subway). Runs daily at 01:00 KST, hourly as a
- * lightweight catch-up tick, and on container boot.
- *
- * Finds every past date for the user that still has location_points with
- * anomaly IS NULL (the signal that the day hasn't been processed yet) and
- * runs the pipeline for each. Cap at 30 days per invocation so a multi-week
- * outage (e.g. the 3/5 → 4/25 cron downtime that left 25 days unprocessed)
- * recovers in a single boot catch-up rather than dragging on across reboots.
- * Subsequent boots still catch the rest if the backlog exceeds 30 days.
- *
- * A single-flight guard skips re-entrant runs — the hourly catch-up tick + the
- * daily 01:00 schedule + boot catch-up can all overlap if a previous run is
- * still in flight (subway discovery probes Overpass and can be slow).
- */
-export async function processYesterdayLocations(reason: string) {
-  if (isLocationProcessingRunning) {
-    logger.info("[Cron] Location processing already running, skipping", { reason });
-    return;
-  }
-  isLocationProcessingRunning = true;
-  const startTime = Date.now();
-  logger.info("[Cron] Starting daily location processing", { reason });
-
-  try {
-    const { runAnomalyDetectionForDay } = await import(
-      "@/modules/location/services/anomaly-filter"
-    );
-
-    const db = getDb();
-    const allUsers = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(sql`${users.ownTracksApiKey} IS NOT NULL`);
-
-    if (allUsers.length === 0) {
-      logger.info("[Cron] No users with OwnTracks configured. Skipping location processing.");
-      return;
-    }
-
-    const { detectAndPersistVisits } = await import("@/modules/location/services/visit-persister");
-    const { detectAndPersistTracks } = await import("@/modules/location/services/track-persister");
-
-    // Always include yesterday. Adding it explicitly covers the case where
-    // yesterday has no points with anomaly IS NULL yet (edge race at 00:00).
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = toLocalDateString(yesterday);
-    const todayStr = toLocalDateString(new Date());
-
-    for (const user of allUsers) {
-      try {
-        // Find unprocessed dates (at most 14, oldest first).
-        // KST day of the UTC-wall timestamp — a bare date(timestamp) is the
-        // UTC day, which misses days whose only points fall in 00:00–09:00 KST
-        // and disagrees with the KST processing window used downstream.
-        // The 45-day timestamp bound keeps this hourly query on the
-        // (user_id, timestamp) index instead of GROUP BY-scanning the user's
-        // entire point history; anything older is the manual backfill's job.
-        const unprocessedResult = await db.execute<{ d: string; [key: string]: unknown }>(sql`
-          SELECT to_char(d, 'YYYY-MM-DD') AS d FROM (
-            SELECT (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d
-            FROM location_points
-            WHERE user_id = ${user.id}
-              AND timestamp >= (now() at time zone 'UTC') - interval '45 days'
-              AND (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date < ${todayStr}::date
-            GROUP BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date
-            HAVING count(*) FILTER (WHERE anomaly IS NULL) > 0
-            ORDER BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date DESC
-            LIMIT 30
-          ) recent
-          ORDER BY d
-        `);
-        const datesToProcess = new Set<string>(unprocessedResult.rows.map((r) => r.d));
-        datesToProcess.add(yesterdayStr);
-        const dateList = Array.from(datesToProcess).sort();
-
-        if (dateList.length > 1) {
-          logger.info(
-            `[Cron] Location catch-up for ${user.id}: ${dateList.length} dates (${dateList[0]} .. ${dateList[dateList.length - 1]})`
-          );
-        }
-
-        for (const dateStr of dateList) {
-          const anomalyResult = await runAnomalyDetectionForDay(user.id, dateStr);
-          if (anomalyResult.total > 0) {
-            logger.info(
-              `[Cron] Anomaly detection for ${user.id} ${dateStr}: ${anomalyResult.total} anomalies marked`
-            );
-          }
-
-          const detectedVisits = await detectAndPersistVisits(user.id, dateStr);
-          if (detectedVisits.length > 0) {
-            logger.info(
-              `[Cron] Visit detection for ${user.id} ${dateStr}: ${detectedVisits.length} visits persisted`
-            );
-          }
-
-          const trackResult = await detectAndPersistTracks(user.id, dateStr);
-          if (trackResult.trackCount > 0 || trackResult.segmentCount > 0) {
-            logger.info(
-              `[Cron] Track detection for ${user.id} ${dateStr}: ${trackResult.trackCount} tracks, ${trackResult.segmentCount} segments persisted`
-            );
-          }
-        }
-
-        // Subway track matching (Phase 2). For each processed date, score the
-        // segments against subway_lines geometry and label trips. Then group
-        // consecutive matches into transfer sessions. Non-fatal — segments
-        // remain in their original mode if matching fails.
-        try {
-          const { matchSubwayTrips } = await import(
-            "@/modules/location/services/subway-match/matcher"
-          );
-          const { groupMatchesIntoSessions } = await import(
-            "@/modules/location/services/subway-match/session-grouper"
-          );
-          for (const dateStr of dateList) {
-            const matchResult = await matchSubwayTrips(user.id, dateStr);
-            if (matchResult.legsInserted > 0) {
-              const sessionResult = await groupMatchesIntoSessions(user.id, dateStr);
-              if (sessionResult.multiLegSessions > 0) {
-                logger.info(
-                  `[Cron] Subway transfers for ${user.id} ${dateStr}: ${sessionResult.multiLegSessions} multi-leg sessions`
-                );
-              }
-            }
-          }
-        } catch (matchErr) {
-          logger.warn("[Cron] Subway matching failed (non-fatal)", {
-            userId: user.id,
-            error: matchErr instanceof Error ? matchErr.message : String(matchErr),
-          });
-        }
-
-        // Subway discovery: scan visits.city for new cities not yet covered by
-        // any subway_systems bbox. Probes Overpass; capped at 3 new cities per
-        // run. Failure is non-fatal — the catch-up will retry tomorrow.
-        try {
-          const { discoverMissingSubwayCities } = await import(
-            "@/modules/location/services/subway-discovery"
-          );
-          await discoverMissingSubwayCities(user.id);
-        } catch (discErr) {
-          logger.warn("[Cron] Subway discovery failed (non-fatal)", {
-            userId: user.id,
-            error: discErr instanceof Error ? discErr.message : String(discErr),
-          });
-        }
-      } catch (err) {
-        logger.error(`[Cron] Location processing failed for user ${user.id}`, {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    logger.info(`[Cron] Daily location processing completed in ${elapsed}s`, { reason });
-  } catch (error) {
-    logger.error("[Cron] Daily location processing failed", {
-      reason,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  } finally {
-    isLocationProcessingRunning = false;
-  }
-}
+export { processYesterdayLocations };
 
 function createBootCatchUpJobs(): BootCatchUpJobs {
   return {
     sync: syncAllUsers,
     spending: categorizePendingSpending,
-    location: () => processYesterdayLocations("boot-catchup"),
+    location: async () => {
+      await processYesterdayLocations("boot-catchup");
+    },
     trips: () => runTripDetection("boot-catchup"),
     subway: maybeRunSubwayBootCatchUp,
   };
@@ -723,6 +560,8 @@ export function initializeCron() {
   // which would silently resolve to UTC and make "0 1 * * *" fire at 10:00 KST
   // (during business hours / deploy windows, easy to miss).
   const TZ = "Asia/Seoul";
+
+  overviewPrecomputeTask = registerOverviewPrecomputeTask(cron.schedule, TZ);
 
   cronTask = cron.schedule(
     CRON_SCHEDULE,
@@ -886,6 +725,10 @@ export async function stopCron() {
   if (locationCatchUpTask) {
     locationCatchUpTask.stop();
     locationCatchUpTask = null;
+  }
+  if (overviewPrecomputeTask) {
+    overviewPrecomputeTask.stop();
+    overviewPrecomputeTask = null;
   }
   if (subwayRefreshTask) {
     subwayRefreshTask.stop();
