@@ -32,6 +32,7 @@ const m = vi.hoisted(() => ({
   discoverMissingSubwayCities: vi.fn(),
   rebuildDailyLocationHeatmap: vi.fn(),
   runOverviewPrecompute: vi.fn(),
+  processNarrativeBatch: vi.fn(),
   // toss reparse collaborator
   reparseNotifications: vi.fn(),
   // db state, set per-test
@@ -117,11 +118,23 @@ vi.mock("@/modules/overview/aggregate/location", () => ({
 vi.mock("@/modules/overview/precompute", () => ({
   runOverviewPrecompute: m.runOverviewPrecompute,
 }));
+vi.mock("@/modules/overview/narrative", () => ({
+  createDatabaseNarrativeStore: vi.fn(() => ({})),
+  createNarrativeService: vi.fn(() => ({ processAutoBatch: m.processNarrativeBatch })),
+}));
+vi.mock("@/lib/adapters/ai/claude", () => ({
+  createClaudeAdapter: vi.fn(() => ({ generateText: vi.fn() })),
+}));
 vi.mock("@/modules/transaction/reparse-service", () => ({
   reparseNotifications: m.reparseNotifications,
 }));
 
-import { processYesterdayLocations, reparseTodayNotifications, syncAllUsers } from "./cron";
+import {
+  generateOverviewNarratives,
+  processYesterdayLocations,
+  reparseTodayNotifications,
+  syncAllUsers,
+} from "./cron";
 
 const DATE_STR = expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -163,6 +176,7 @@ beforeEach(() => {
     published: 0,
     failed: 0,
   });
+  m.processNarrativeBatch.mockResolvedValue({ claimed: 0, generated: 0, failed: 0 });
   m.reparseNotifications.mockResolvedValue({ created: 0, updated: 0, skipped: 0 });
 });
 
@@ -286,6 +300,7 @@ describe("processYesterdayLocations", () => {
     expect(m.runOverviewPrecompute).toHaveBeenCalledWith(expect.anything(), {
       completedLocationWindows: [{ userId: "u1", completedThrough: "2026-07-22" }],
     });
+    expect(m.processNarrativeBatch).toHaveBeenCalledOnce();
     const statements = m.dbExecQueries.map((query) => new PgDialect().sqlToQuery(query).sql);
     expect(statements[0]).toContain("location_processing_days");
     expect(statements.some((statement) => /status.*processing/s.test(statement))).toBe(true);
@@ -350,6 +365,22 @@ describe("processYesterdayLocations", () => {
     expect(result.completedLocationWindows).toEqual([
       { userId: "u1", completedThrough: "2026-07-22" },
     ]);
+  });
+
+  it("does not hold the location pipeline open for narrative AI latency", async () => {
+    let finishNarrative:
+      | ((value: { claimed: number; generated: number; failed: number }) => void)
+      | null = null;
+    m.processNarrativeBatch.mockReturnValue(
+      new Promise((resolve) => {
+        finishNarrative = resolve;
+      })
+    );
+    m.dbUsers = [];
+
+    await expect(processYesterdayLocations("test")).resolves.toMatchObject({ skipped: false });
+    expect(m.processNarrativeBatch).toHaveBeenCalledOnce();
+    finishNarrative?.({ claimed: 0, generated: 0, failed: 0 });
   });
 
   it("includes today in the bounded KST candidate query", async () => {
@@ -443,6 +474,33 @@ describe("processYesterdayLocations", () => {
     ]);
     const candidateSql = new PgDialect().sqlToQuery(m.dbExecQueries[0]).sql;
     expect(candidateSql).toContain("processing.status = 'failed'");
+  });
+});
+
+describe("generateOverviewNarratives", () => {
+  it("runs the bounded catch-up service independently of an exact period boundary", async () => {
+    m.processNarrativeBatch.mockResolvedValue({ claimed: 2, generated: 2, failed: 0 });
+
+    await expect(generateOverviewNarratives()).resolves.toEqual({
+      skipped: false,
+      claimed: 2,
+      generated: 2,
+      failed: 0,
+    });
+    expect(m.processNarrativeBatch).toHaveBeenCalledWith();
+  });
+
+  it("safely skips automatic generation without an API key", async () => {
+    const previous = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    await expect(generateOverviewNarratives()).resolves.toEqual({
+      skipped: true,
+      claimed: 0,
+      generated: 0,
+      failed: 0,
+    });
+    process.env.ANTHROPIC_API_KEY = previous;
+    expect(m.processNarrativeBatch).not.toHaveBeenCalled();
   });
 });
 

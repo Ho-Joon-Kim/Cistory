@@ -16,6 +16,7 @@ import {
 export type PeriodType = "recent" | "week" | "month" | "year";
 export type PeriodSnapshotStatus = "pending" | "computing" | "ready" | "failed";
 export type PeriodDomainStatus = "pending" | "ready" | "failed";
+export type PeriodNarrativeStatus = "pending" | "generating" | "ready" | "failed";
 export type LocationProcessingDayStatus = "processing" | "completed" | "failed";
 
 export interface PeriodDomainEnvelope<T = unknown> {
@@ -527,6 +528,36 @@ export const periodSnapshots = pgTable(
       table.periodType,
       table.periodKey
     ),
+  ]
+);
+
+export const periodNarratives = pgTable(
+  "period_narratives",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodType: text("period_type").$type<Exclude<PeriodType, "recent">>().notNull(),
+    periodKey: text("period_key").notNull(),
+    status: text("status").$type<PeriodNarrativeStatus>().notNull().default("pending"),
+    content: text("content"),
+    generationStartedAt: timestamp("generation_started_at"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    generatedAt: timestamp("generated_at"),
+    model: text("model"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_period_narrative_user_period").on(
+      table.userId,
+      table.periodType,
+      table.periodKey
+    ),
+    index("idx_period_narrative_queue").on(table.status, table.leaseExpiresAt),
   ]
 );
 

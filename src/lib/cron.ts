@@ -8,11 +8,13 @@
 import { lt, sql } from "drizzle-orm";
 import * as cron from "node-cron";
 import { getDb, syncJobs, users } from "@/db";
+import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
 import { createHealthSyncService } from "@/modules/health/service";
 import { rebuildDailyLocationHeatmap } from "@/modules/overview/aggregate/location";
+import { createDatabaseNarrativeStore, createNarrativeService } from "@/modules/overview/narrative";
 import { type LocationCompletedWindow, runOverviewPrecompute } from "@/modules/overview/precompute";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
 import { createExpenseCategoryService } from "@/modules/spending/category-classifier";
@@ -58,6 +60,27 @@ async function precomputeAfterLocation(windows: LocationCompletedWindow[]) {
     logger.error("[Cron] Overview precompute after location failed", {
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+  void generateOverviewNarratives();
+}
+
+export async function generateOverviewNarratives() {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return { skipped: true, claimed: 0, generated: 0, failed: 0 };
+
+  try {
+    const service = createNarrativeService(
+      createDatabaseNarrativeStore(getDb()),
+      createClaudeAdapter(apiKey)
+    );
+    const result = await service.processAutoBatch();
+    if (result.claimed > 0) logger.info("[Cron] Overview narratives processed", { ...result });
+    return { skipped: false, ...result };
+  } catch (error) {
+    logger.error("[Cron] Overview narrative generation failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { skipped: false, claimed: 0, generated: 0, failed: 1 };
   }
 }
 
