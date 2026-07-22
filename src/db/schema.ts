@@ -13,6 +13,18 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+export type PeriodType = "recent" | "week" | "month" | "year";
+export type PeriodSnapshotStatus = "pending" | "computing" | "ready" | "failed";
+export type PeriodDomainStatus = "pending" | "ready" | "failed";
+
+export interface PeriodDomainEnvelope<T = unknown> {
+  data: T | null;
+  status: PeriodDomainStatus;
+  computedAt: string | null;
+  computeVersion: number;
+  errorCode: string | null;
+}
+
 // ============ App Users (Extended) ============
 export const users = pgTable(
   "users",
@@ -435,6 +447,40 @@ export const dataUsageCache = pgTable(
   ]
 );
 
+// ============ Overview Period Snapshots ============
+export const periodSnapshots = pgTable(
+  "period_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodType: text("period_type").$type<PeriodType>().notNull(),
+    periodKey: text("period_key").notNull(),
+    status: text("status").$type<PeriodSnapshotStatus>().notNull().default("pending"),
+    computeStartedAt: timestamp("compute_started_at"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    finalizedAt: timestamp("finalized_at"),
+    computeVersion: integer("compute_version").notNull().default(1),
+    coding: jsonb("coding").$type<PeriodDomainEnvelope>(),
+    location: jsonb("location").$type<PeriodDomainEnvelope>(),
+    health: jsonb("health").$type<PeriodDomainEnvelope>(),
+    spending: jsonb("spending").$type<PeriodDomainEnvelope>(),
+    assets: jsonb("assets").$type<PeriodDomainEnvelope>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_period_snapshot_user_period").on(
+      table.userId,
+      table.periodType,
+      table.periodKey
+    ),
+  ]
+);
+
 // ============ Subway Systems (OSM) ============
 // NOTE: `bbox geometry(Polygon, 4326)` column is managed via raw SQL in migration 0019
 // (not in Drizzle schema) — same pattern as location_points.lonlat.
@@ -572,6 +618,9 @@ export type NewTransaction = typeof transactions.$inferInsert;
 
 export type DataUsageCache = typeof dataUsageCache.$inferSelect;
 export type NewDataUsageCache = typeof dataUsageCache.$inferInsert;
+
+export type PeriodSnapshot = typeof periodSnapshots.$inferSelect;
+export type NewPeriodSnapshot = typeof periodSnapshots.$inferInsert;
 
 export type Visit = typeof visits.$inferSelect;
 export type NewVisit = typeof visits.$inferInsert;

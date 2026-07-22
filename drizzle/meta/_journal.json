@@ -211,6 +211,13 @@
       "when": 1783837616717,
       "tag": "0029_green_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1784703177848,
+      "tag": "0030_safe_rocket_racer",
+      "breakpoints": true
     }
   ]
 }
