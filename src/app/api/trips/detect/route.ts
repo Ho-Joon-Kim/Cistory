@@ -10,7 +10,7 @@ import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import {
   type DetectedTrip,
-  detectTrips,
+  detectTripsSnapshot,
   isValidTripDateRange,
   persistTrips,
 } from "@/modules/location/services/trip-detector";
@@ -31,10 +31,18 @@ export async function POST(request: NextRequest) {
 
     // If confirm mode: persist the provided trips
     if (confirm === true) {
-      if (!Array.isArray(body.trips) || !body.trips.every(isValidDetectedTrip)) {
+      if (
+        !Array.isArray(body.trips) ||
+        !body.trips.every(isValidDetectedTrip) ||
+        typeof body.exclusionRevision !== "string"
+      ) {
         return NextResponse.json({ error: "유효한 여행 후보가 필요합니다" }, { status: 400 });
       }
-      const count = await persistTrips(user.id, body.trips as DetectedTrip[]);
+      const count = await persistTrips(
+        user.id,
+        body.trips as DetectedTrip[],
+        body.exclusionRevision
+      );
       return NextResponse.json({
         message: `${count}개 여행이 저장되었습니다`,
         saved: count,
@@ -49,11 +57,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Default: detect trips (dry run)
-    const detected = await detectTrips(user.id, from, to);
+    const snapshot = await detectTripsSnapshot(user.id, from, to);
 
     return NextResponse.json({
-      trips: detected,
-      total: detected.length,
+      trips: snapshot.trips,
+      total: snapshot.trips.length,
+      exclusionRevision: snapshot.exclusionRevision,
     });
   } catch (error) {
     logger.error("Trip detect error", {

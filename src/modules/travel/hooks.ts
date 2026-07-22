@@ -110,6 +110,8 @@ interface UseTravelTripsReturn {
   hasMore: boolean;
   loadMore: () => void;
   refresh: () => void;
+  markNotTrip: (tripId: string) => Promise<boolean>;
+  markingTripId: string | null;
 }
 
 interface UseTravelDetailReturn {
@@ -325,6 +327,23 @@ export function mergeTravelTrips(
   return [...current, ...additions];
 }
 
+export function removeTravelTrip(
+  current: TravelTripListItem[],
+  tripId: string
+): TravelTripListItem[] {
+  return current.filter((trip) => trip.id !== tripId);
+}
+
+export async function requestMarkNotTrip(tripId: string): Promise<void> {
+  const response = await fetch(`/api/trips/${encodeURIComponent(tripId)}/not-a-trip`, {
+    method: "POST",
+  });
+  if (response.ok) return;
+
+  const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+  throw new Error(typeof body?.error === "string" ? body.error : "여행 제외 처리에 실패했습니다");
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -388,6 +407,7 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
+  const [markingTripId, setMarkingTripId] = useState<string | null>(null);
   const generationRef = useRef(0);
   const inFlightCursorRef = useRef<string | null>(null);
 
@@ -440,6 +460,23 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
     void fetchPage(null, true, generation);
   }, [fetchPage]);
 
+  const markNotTrip = useCallback(async (tripId: string) => {
+    setMarkingTripId(tripId);
+    setError(null);
+    try {
+      await requestMarkNotTrip(tripId);
+      setTrips((current) => removeTravelTrip(current, tripId));
+      return true;
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error ? requestError.message : "여행 제외 처리에 실패했습니다"
+      );
+      return false;
+    } finally {
+      setMarkingTripId(null);
+    }
+  }, []);
+
   return {
     trips,
     isLoading,
@@ -447,6 +484,8 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
     hasMore: nextCursor !== null,
     loadMore,
     refresh,
+    markNotTrip,
+    markingTripId,
   };
 }
 

@@ -1,5 +1,5 @@
 import { eq, inArray, sql } from "drizzle-orm";
-import { type Database, getDb, trips, users } from "@/db";
+import { type Database, getDb, savedPlaces, trips, users } from "@/db";
 import type { DetectedTrip } from "./trip-detector";
 
 type TripWriteTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -19,6 +19,7 @@ interface TripReconciliationPlan {
 
 export interface ReconcileDetectedTripsOptions {
   watermarkThrough?: string;
+  expectedExclusionRevision?: string;
   database?: Database;
 }
 
@@ -26,6 +27,41 @@ export interface TripWriteResult {
   inserted: number;
   replaced: number;
   skipped: number;
+}
+
+interface TripExclusionState {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  category: string | null;
+  excludeFromTrips: boolean;
+  tripExclusionRadiusM: number | null;
+  updatedAt: Date;
+}
+
+export class StaleTripDetectionError extends Error {
+  constructor() {
+    super("여행 제외 설정이 바뀌어 후보를 다시 계산해야 합니다");
+    this.name = "StaleTripDetectionError";
+  }
+}
+
+export function createTripExclusionRevision(states: TripExclusionState[]): string {
+  return JSON.stringify(
+    [...states]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((state) => [
+        state.id,
+        state.name,
+        state.lat,
+        state.lon,
+        state.category,
+        state.excludeFromTrips,
+        state.tripExclusionRadiusM,
+        state.updatedAt instanceof Date ? state.updatedAt.getTime() : String(state.updatedAt),
+      ])
+  );
 }
 
 function rangesOverlap(
@@ -122,6 +158,26 @@ async function readExistingTrips(
     .where(eq(trips.userId, userId));
 }
 
+async function readTripExclusionRevision(
+  tx: TripWriteTransaction,
+  userId: string
+): Promise<string> {
+  const states = await tx
+    .select({
+      id: savedPlaces.id,
+      name: savedPlaces.name,
+      lat: savedPlaces.lat,
+      lon: savedPlaces.lon,
+      category: savedPlaces.category,
+      excludeFromTrips: savedPlaces.excludeFromTrips,
+      tripExclusionRadiusM: savedPlaces.tripExclusionRadiusM,
+      updatedAt: savedPlaces.updatedAt,
+    })
+    .from(savedPlaces)
+    .where(eq(savedPlaces.userId, userId));
+  return createTripExclusionRevision(states);
+}
+
 function detectedTripRows(userId: string, candidates: DetectedTrip[]) {
   const now = new Date();
   return candidates.map((trip) => ({
@@ -144,8 +200,15 @@ async function applyDetectedTrips(
   userId: string,
   candidates: DetectedTrip[],
   replaceAllAuto: boolean,
-  watermarkThrough?: string
+  watermarkThrough?: string,
+  expectedExclusionRevision?: string
 ): Promise<TripWriteResult> {
+  if (
+    expectedExclusionRevision !== undefined &&
+    (await readTripExclusionRevision(tx, userId)) !== expectedExclusionRevision
+  ) {
+    throw new StaleTripDetectionError();
+  }
   // This read deliberately happens after the advisory lock. Every writer sees
   // the state committed by the previous holder before it plans its mutation.
   const existing = await readExistingTrips(tx, userId);
@@ -179,7 +242,15 @@ export async function reconcileDetectedTrips(
   assertValidDetectedTrips(candidates);
   return withTripWriteLock(
     userId,
-    (tx) => applyDetectedTrips(tx, userId, candidates, false, options.watermarkThrough),
+    (tx) =>
+      applyDetectedTrips(
+        tx,
+        userId,
+        candidates,
+        false,
+        options.watermarkThrough,
+        options.expectedExclusionRevision
+      ),
     options.database
   );
 }
@@ -187,12 +258,13 @@ export async function reconcileDetectedTrips(
 export async function regenerateDetectedTrips(
   userId: string,
   candidates: DetectedTrip[],
-  database: Database = getDb()
+  database: Database = getDb(),
+  expectedExclusionRevision?: string
 ): Promise<TripWriteResult> {
   assertValidDetectedTrips(candidates);
   return withTripWriteLock(
     userId,
-    (tx) => applyDetectedTrips(tx, userId, candidates, true),
+    (tx) => applyDetectedTrips(tx, userId, candidates, true, undefined, expectedExclusionRevision),
     database
   );
 }

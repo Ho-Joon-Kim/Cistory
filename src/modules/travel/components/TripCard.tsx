@@ -1,6 +1,11 @@
-import { ArrowRight, CalendarDays, MapPin, Wallet } from "lucide-react";
+"use client";
+
+import { ArrowRight, CalendarDays, Loader2, MapPin, Wallet, X } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TravelTripListItem } from "../hooks";
 
@@ -32,12 +37,43 @@ function formatWon(value: number): string {
   return `${safeValue.toLocaleString("ko-KR")}원`;
 }
 
-export function TripCard({ trip }: { trip: TravelTripListItem }) {
+interface TripCardProps {
+  trip: TravelTripListItem;
+  onMarkNotTrip?: (tripId: string) => Promise<boolean>;
+  isMarkingNotTrip?: boolean;
+}
+
+export function TripCard({ trip, onMarkNotTrip, isMarkingNotTrip = false }: TripCardProps) {
   const duration = getTripDuration(trip.startDate, trip.endDate);
+  const [localPending, setLocalPending] = useState(false);
+  const pending = localPending || isMarkingNotTrip;
+
+  const handleMarkNotTrip = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!onMarkNotTrip || pending) return;
+    if (!window.confirm(`"${trip.name}"을(를) 여행 목록에서 제외할까요?`)) return;
+
+    setLocalPending(true);
+    try {
+      if (await onMarkNotTrip(trip.id)) {
+        toast.success("여행에서 제외하고 정기 방문지로 등록했습니다");
+      } else {
+        toast.error("여행 제외 처리에 실패했습니다");
+      }
+    } finally {
+      setLocalPending(false);
+    }
+  };
 
   return (
-    <Link href={`/travel/${trip.id}`} className="group block h-full">
-      <Card className="h-full gap-4 py-5 transition-colors group-hover:border-foreground/25">
+    <Card className="group relative h-full gap-4 py-5 transition-colors hover:border-foreground/25">
+      <Link
+        href={`/travel/${trip.id}`}
+        aria-label={`${trip.name} 자세히 보기`}
+        className="absolute inset-0 z-0 rounded-xl"
+      />
+      <div className="pointer-events-none relative z-10 flex h-full flex-col gap-4">
         <CardHeader className="gap-3 px-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -69,12 +105,29 @@ export function TripCard({ trip }: { trip: TravelTripListItem }) {
               방문지 {Math.max(0, Math.round(trip.visitCount))}곳
             </span>
           </div>
-          <div className="mt-4 flex items-center justify-end gap-1 text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
-            자세히 보기
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          <div className="mt-4 flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="pointer-events-auto -ml-2 text-xs text-muted-foreground hover:text-destructive"
+              disabled={pending || !onMarkNotTrip}
+              onClick={handleMarkNotTrip}
+            >
+              {pending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              여행 아님
+            </Button>
+            <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+              자세히 보기
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </div>
           </div>
         </CardContent>
-      </Card>
-    </Link>
+      </div>
+    </Card>
   );
 }

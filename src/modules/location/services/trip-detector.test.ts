@@ -4,12 +4,14 @@ process.env.TZ = "Asia/Seoul";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface SavedPlaceRow {
+  id: string;
   name: string;
   lat: number;
   lon: number;
   category: string | null;
   excludeFromTrips: boolean;
   tripExclusionRadiusM: number | null;
+  updatedAt: Date;
 }
 
 interface TrackRow {
@@ -26,14 +28,19 @@ const mockState = vi.hoisted(() => ({
   trackSelectCount: 0,
   selectError: null as Error | null,
   transactionCount: 0,
+  excludeBusanOnFirstTransaction: false,
 }));
 
 vi.mock("@/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/db")>();
   const emptySelect = () => {
+    let rows: unknown[] = [];
     const builder: Record<string, unknown> = {
-      from: () => builder,
-      where: () => Promise.resolve([]),
+      from: (table: unknown) => {
+        if (table === actual.savedPlaces) rows = mockState.savedPlaceRows;
+        return builder;
+      },
+      where: () => Promise.resolve(rows),
     };
     return builder;
   };
@@ -69,6 +76,15 @@ vi.mock("@/db", async (importOriginal) => {
         }),
         transaction: async (operation: (tx: Record<string, unknown>) => Promise<unknown>) => {
           mockState.transactionCount += 1;
+          if (mockState.transactionCount === 1 && mockState.excludeBusanOnFirstTransaction) {
+            mockState.savedPlaceRows.push(
+              savedPlace("부산 생활권", BUSAN, {
+                excludeFromTrips: true,
+                tripExclusionRadiusM: 10_000,
+                updatedAt: new Date("2026-07-22T01:00:00Z"),
+              })
+            );
+          }
           return operation({
             execute: () => Promise.resolve({ rows: [] }),
             select: emptySelect,
@@ -85,7 +101,7 @@ vi.mock("@/db", async (importOriginal) => {
   };
 });
 
-import { detectTrips, persistTrips, regenerateTrips } from "./trip-detector";
+import { detectAndPersistTrips, detectTrips, persistTrips, regenerateTrips } from "./trip-detector";
 
 const HOME = { lat: 37.5665, lon: 126.978 };
 const NEAR_HOME = { lat: 37.57, lon: 126.98 };
@@ -107,11 +123,13 @@ function savedPlace(
   options: Partial<Omit<SavedPlaceRow, "name" | "lat" | "lon">> = {}
 ): SavedPlaceRow {
   return {
+    id: `place-${name}`,
     name,
     ...at,
     category: null,
     excludeFromTrips: false,
     tripExclusionRadiusM: null,
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
     ...options,
   };
 }
@@ -140,6 +158,7 @@ beforeEach(() => {
   mockState.trackSelectCount = 0;
   mockState.selectError = null;
   mockState.transactionCount = 0;
+  mockState.excludeBusanOnFirstTransaction = false;
 });
 
 describe("detectTrips", () => {
@@ -195,6 +214,23 @@ describe("detectTrips", () => {
     ];
 
     expect(await detectTrips("user-1", "2026-02-14", "2026-02-15")).toEqual([]);
+  });
+
+  it("여행 아님 장소 생성 후 재감지는 막고 설정을 끄면 다시 허용한다", async () => {
+    mockState.visitRows = [busanVisit("2026-03-01"), busanVisit("2026-03-02")];
+    expect(await detectTrips("user-1", "2026-03-01", "2026-03-02")).toHaveLength(1);
+
+    const correctionPlace = savedPlace("부산 정기 방문지", BUSAN, {
+      excludeFromTrips: true,
+      tripExclusionRadiusM: 10_000,
+      updatedAt: new Date("2026-07-22T01:00:00Z"),
+    });
+    mockState.savedPlaceRows.push(correctionPlace);
+    expect(await detectTrips("user-1", "2026-03-01", "2026-03-02")).toEqual([]);
+
+    correctionPlace.excludeFromTrips = false;
+    correctionPlace.updatedAt = new Date("2026-07-22T02:00:00Z");
+    expect(await detectTrips("user-1", "2026-03-01", "2026-03-02")).toHaveLength(1);
   });
 
   it("trims leading excluded days and keeps the subsequent one-night trip", async () => {
@@ -408,6 +444,17 @@ describe("detectTrips", () => {
 });
 
 describe("persistTrips", () => {
+  it("정정 완료 뒤 잠금을 얻은 stale 감지는 최신 제외 장소로 재계산한다", async () => {
+    mockState.visitRows = [busanVisit("2026-03-01"), busanVisit("2026-03-02")];
+    mockState.excludeBusanOnFirstTransaction = true;
+
+    const result = await detectAndPersistTrips("user-1", "2026-03-01", "2026-03-02");
+
+    expect(result).toMatchObject({ detected: 0, inserted: 0 });
+    expect(mockState.transactionCount).toBe(2);
+    expect(mockState.insertedRows).toEqual([]);
+  });
+
   it("marks every detected trip as automatically detected", async () => {
     await persistTrips("user-1", [
       {

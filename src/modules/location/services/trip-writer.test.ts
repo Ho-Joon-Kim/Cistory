@@ -5,6 +5,7 @@ import {
   planTripReconciliation,
   reconcileDetectedTrips,
   regenerateDetectedTrips,
+  StaleTripDetectionError,
 } from "./trip-writer";
 
 const candidate = (
@@ -138,6 +139,20 @@ function fakeDatabase(options: { failInsert?: boolean } = {}) {
 }
 
 describe("trip write transaction", () => {
+  it("잠금 대기 중 제외 설정이 바뀐 stale 후보를 쓰지 않는다", async () => {
+    const fake = fakeDatabase();
+
+    await expect(
+      reconcileDetectedTrips("user-1", [candidate("2026-07-15", "2026-07-18")], {
+        database: fake.db,
+        expectedExclusionRevision: "before-correction",
+      })
+    ).rejects.toBeInstanceOf(StaleTripDetectionError);
+
+    expect(fake.events.at(-1)).toBe("rollback");
+    expect(fake.events).not.toContain("insert");
+  });
+
   it("locks before re-reading state and advances the watermark in the same transaction", async () => {
     const fake = fakeDatabase();
 

@@ -33,6 +33,8 @@ function renderContent(trips: TravelTripListItem[]): string {
       hasMore: false,
       loadMore: vi.fn(),
       refresh: vi.fn(),
+      markNotTrip: vi.fn(),
+      markingTripId: null,
     })
   );
 }
@@ -46,5 +48,11 @@ describe("TravelTripsContent", () => {
     const markup = renderContent([trip("recent", "최근 여행"), trip("old", "이전 여행")]);
 
     expect(markup.indexOf("최근 여행")).toBeLessThan(markup.indexOf("이전 여행"));
+  });
+
+  it("각 카드에 여행 아님 동작을 연결한다", () => {
+    const markup = renderContent([trip("recent", "최근 여행")]);
+
+    expect(markup).toContain("여행 아님");
   });
 });

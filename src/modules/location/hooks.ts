@@ -450,6 +450,7 @@ export function useTripDetection() {
   const [isDetecting, setIsDetecting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const detectionRange = useRef<{ from: string; to: string } | null>(null);
+  const exclusionRevision = useRef<string | null>(null);
 
   const detect = useCallback(async (from: string, to: string) => {
     setIsDetecting(true);
@@ -462,6 +463,7 @@ export function useTripDetection() {
       if (!res.ok) throw new Error("Failed to detect");
       const data = await res.json();
       detectionRange.current = { from, to };
+      exclusionRevision.current = data.exclusionRevision;
       setDetected(data.trips);
       return data.trips as DetectedTripData[];
     } catch {
@@ -483,11 +485,13 @@ export function useTripDetection() {
           to: detectionRange.current?.to,
           confirm: true,
           trips,
+          exclusionRevision: exclusionRevision.current,
         }),
       });
       if (!res.ok) throw new Error("Failed to save");
       const data = await res.json();
       detectionRange.current = null;
+      exclusionRevision.current = null;
       setDetected([]);
       return data.saved as number;
     } catch {
@@ -510,6 +514,8 @@ export interface SavedPlaceData {
   radiusM: number;
   category: string | null;
   address: string | null;
+  excludeFromTrips: boolean;
+  tripExclusionRadiusM: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -549,6 +555,8 @@ export function useSavedPlaces() {
       radiusM?: number;
       category?: string;
       address?: string;
+      excludeFromTrips?: boolean;
+      tripExclusionRadiusM?: number | null;
       icon?: string;
       color?: string;
     }) => {

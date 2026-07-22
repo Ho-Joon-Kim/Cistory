@@ -55,4 +55,13 @@ describe("TripCard", () => {
     expect(markup).toContain("방문지 0곳");
     expect(markup).toContain("국내");
   });
+
+  it("상세 링크와 여행 아님 버튼을 중첩하지 않는다", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TripCard, { trip: trip(), onMarkNotTrip: async () => true })
+    );
+
+    expect(markup).toContain("여행 아님");
+    expect(markup).not.toMatch(/<a[^>]*>[\s\S]*<button[^>]*>[\s\S]*<\/button>[\s\S]*<\/a>/);
+  });
 });

@@ -18,7 +18,12 @@ import { getDb, savedPlaces, tracks, visits } from "@/db";
 import { isInKorea } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
 import { createTripName } from "./trip-naming";
-import { reconcileDetectedTrips, regenerateDetectedTrips } from "./trip-writer";
+import {
+  createTripExclusionRevision,
+  reconcileDetectedTrips,
+  regenerateDetectedTrips,
+  StaleTripDetectionError,
+} from "./trip-writer";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -41,12 +46,14 @@ export interface DetectedTrip {
 // ── Home Location Resolution ─────────────────────────────────────────────────
 
 interface SavedPlaceLocation {
+  id: string;
   name: string;
   lat: number;
   lon: number;
   category: string | null;
   excludeFromTrips: boolean;
   tripExclusionRadiusM: number | null;
+  updatedAt: Date;
 }
 
 interface Location {
@@ -58,12 +65,14 @@ async function getSavedPlaceLocations(userId: string): Promise<SavedPlaceLocatio
   const db = getDb();
   return db
     .select({
+      id: savedPlaces.id,
       name: savedPlaces.name,
       lat: savedPlaces.lat,
       lon: savedPlaces.lon,
       category: savedPlaces.category,
       excludeFromTrips: savedPlaces.excludeFromTrips,
       tripExclusionRadiusM: savedPlaces.tripExclusionRadiusM,
+      updatedAt: savedPlaces.updatedAt,
     })
     .from(savedPlaces)
     .where(eq(savedPlaces.userId, userId));
@@ -120,11 +129,25 @@ export async function detectTrips(
   from: string,
   to: string
 ): Promise<DetectedTrip[]> {
-  if (!isValidTripDateRange(from, to)) return [];
+  return (await detectTripsSnapshot(userId, from, to)).trips;
+}
+
+export interface TripDetectionSnapshot {
+  trips: DetectedTrip[];
+  exclusionRevision: string;
+}
+
+export async function detectTripsSnapshot(
+  userId: string,
+  from: string,
+  to: string
+): Promise<TripDetectionSnapshot> {
+  if (!isValidTripDateRange(from, to)) return { trips: [], exclusionRevision: "[]" };
 
   const placeLocations = await getSavedPlaceLocations(userId);
+  const exclusionRevision = createTripExclusionRevision(placeLocations);
   const home = await getHomeLocation(userId, placeLocations);
-  if (!home) return []; // Can't determine home → can't detect trips
+  if (!home) return { trips: [], exclusionRevision }; // Can't determine home → can't detect trips
 
   const excludedPlaces = placeLocations.filter((place) => place.excludeFromTrips);
   const visitsByDate = groupVisitsByDate(await getVisitsInRange(userId, from, to));
@@ -133,10 +156,13 @@ export async function detectTrips(
     classifyDay(date, visitsByDate.get(date) ?? [], home, excludedPlaces)
   );
   const groups = groupCandidateDays(classifiedDays);
-  if (groups.length === 0) return [];
+  if (groups.length === 0) return { trips: [], exclusionRevision };
 
   const tripTracks = await getTracksInRange(userId, from, to);
-  return groups.map((group) => toDetectedTrip(group, tripTracks));
+  return {
+    trips: groups.map((group) => toDetectedTrip(group, tripTracks)),
+    exclusionRevision,
+  };
 }
 
 type VisitRow = {
@@ -322,8 +348,14 @@ function groupCandidateDays(days: ClassifiedDay[]): ClassifiedDay[][] {
 
 // ── Trip Persistence ─────────────────────────────────────────────────────────
 
-export async function persistTrips(userId: string, detectedTrips: DetectedTrip[]): Promise<number> {
-  const result = await reconcileDetectedTrips(userId, detectedTrips);
+export async function persistTrips(
+  userId: string,
+  detectedTrips: DetectedTrip[],
+  expectedExclusionRevision?: string
+): Promise<number> {
+  const result = await reconcileDetectedTrips(userId, detectedTrips, {
+    expectedExclusionRevision,
+  });
   return result.inserted;
 }
 
@@ -344,9 +376,19 @@ export async function detectAndPersistTrips(
   to: string,
   options: { watermarkThrough?: string } = {}
 ): Promise<{ detected: number; inserted: number; replaced: number; skipped: number }> {
-  const detected = await detectTrips(userId, from, to);
-  const result = await reconcileDetectedTrips(userId, detected, options);
-  return { detected: detected.length, ...result };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const snapshot = await detectTripsSnapshot(userId, from, to);
+    try {
+      const result = await reconcileDetectedTrips(userId, snapshot.trips, {
+        ...options,
+        expectedExclusionRevision: snapshot.exclusionRevision,
+      });
+      return { detected: snapshot.trips.length, ...result };
+    } catch (error) {
+      if (!(error instanceof StaleTripDetectionError) || attempt === 2) throw error;
+    }
+  }
+  throw new Error("여행 후보를 최신 제외 설정으로 계산하지 못했습니다");
 }
 
 export async function regenerateTrips(
@@ -359,9 +401,21 @@ export async function regenerateTrips(
   }
   // Detection and validation finish before the transaction begins. Existing
   // rows are untouched if candidate calculation fails.
-  const detected = await detectTrips(userId, from, to);
-  const result = await regenerateDetectedTrips(userId, detected);
-  return { detected: detected.length, ...result };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const snapshot = await detectTripsSnapshot(userId, from, to);
+    try {
+      const result = await regenerateDetectedTrips(
+        userId,
+        snapshot.trips,
+        getDb(),
+        snapshot.exclusionRevision
+      );
+      return { detected: snapshot.trips.length, ...result };
+    } catch (error) {
+      if (!(error instanceof StaleTripDetectionError) || attempt === 2) throw error;
+    }
+  }
+  throw new Error("여행 후보를 최신 제외 설정으로 계산하지 못했습니다");
 }
 
 function parseKstDateStart(dateStr: string): Date {

@@ -25,6 +25,8 @@ interface TravelTripsContentProps {
   hasMore: boolean;
   loadMore: () => void;
   refresh: () => void;
+  markNotTrip: (tripId: string) => Promise<boolean>;
+  markingTripId: string | null;
 }
 
 export function TravelTripsContent({
@@ -34,6 +36,8 @@ export function TravelTripsContent({
   hasMore,
   loadMore,
   refresh,
+  markNotTrip,
+  markingTripId,
 }: TravelTripsContentProps) {
   if (isLoading && trips.length === 0) {
     return (
@@ -78,7 +82,12 @@ export function TravelTripsContent({
       ) : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {trips.map((trip) => (
-          <TripCard key={trip.id} trip={trip} />
+          <TripCard
+            key={trip.id}
+            trip={trip}
+            onMarkNotTrip={markNotTrip}
+            isMarkingNotTrip={markingTripId === trip.id}
+          />
         ))}
       </div>
       {hasMore ? (
@@ -95,7 +104,8 @@ export function TravelTripsContent({
 export default function TravelPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
-  const { trips, isLoading, error, hasMore, loadMore, refresh } = useTravelTrips(isAuthenticated);
+  const { trips, isLoading, error, hasMore, loadMore, refresh, markNotTrip, markingTripId } =
+    useTravelTrips(isAuthenticated);
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) router.replace("/login");
@@ -132,6 +142,8 @@ export default function TravelPage() {
           hasMore={hasMore}
           loadMore={loadMore}
           refresh={refresh}
+          markNotTrip={markNotTrip}
+          markingTripId={markingTripId}
         />
       </main>
     </div>

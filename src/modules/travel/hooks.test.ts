@@ -4,6 +4,8 @@ import {
   parseTravelDetail,
   parseTravelRoute,
   parseTravelTripsPage,
+  removeTravelTrip,
+  requestMarkNotTrip,
   type TravelTripListItem,
 } from "./hooks";
 
@@ -41,6 +43,26 @@ describe("mergeTravelTrips", () => {
       "middle",
       "old",
     ]);
+  });
+});
+
+describe("여행 아님", () => {
+  it("성공한 여행을 현재 목록에서 즉시 제거한다", () => {
+    expect(
+      removeTravelTrip([trip("keep", "2026-07-20"), trip("remove", "2026-07-10")], "remove")
+    ).toEqual([trip("keep", "2026-07-20")]);
+  });
+
+  it("실패 응답의 서버 메시지를 사용자 오류로 전달한다", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: "장소를 만들 수 없습니다" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    await expect(requestMarkNotTrip("trip-1")).rejects.toThrow("장소를 만들 수 없습니다");
+    globalThis.fetch = originalFetch;
   });
 });
 
