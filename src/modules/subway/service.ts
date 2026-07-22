@@ -6,6 +6,11 @@ import type { SubwayFetchResult } from "@/lib/adapters/overpass/interface";
 import { SEED_CITIES } from "@/lib/adapters/overpass/seed-cities";
 import { logger } from "@/lib/logger";
 import { resolveLineColor } from "@/lib/subway-color";
+import {
+  buildStationLineIndex,
+  resolveStationLines,
+  type StationLine,
+} from "@/modules/subway/station-lines";
 
 /**
  * Idempotent seed — inserts any SEED_CITIES entry not already present, matched
@@ -162,6 +167,7 @@ export async function refreshAllSubwaySystems(): Promise<void> {
 
 interface OverlayLineRow {
   id: string;
+  system_id: string;
   name: string | null;
   name_en: string | null;
   ref: string | null;
@@ -173,6 +179,7 @@ interface OverlayLineRow {
 
 interface OverlayStationRow {
   id: string;
+  system_id: string;
   name: string | null;
   name_en: string | null;
   line_refs: unknown;
@@ -218,31 +225,38 @@ export async function getSubwayOverlay(
         ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
       )
     )
-    SELECT id, name, name_en, ref, colour, network, fallback_idx, geom FROM numbered
+    SELECT id, system_id, name, name_en, ref, colour, network, fallback_idx, geom FROM numbered
   `);
 
-  const lineFeatures: GeoJSON.Feature[] = (linesRes.rows as unknown as OverlayLineRow[]).map(
-    (row) => ({
-      type: "Feature",
-      geometry: row.geom,
-      properties: {
-        id: row.id,
-        name: row.name,
-        nameEn: row.name_en,
-        ref: row.ref,
-        color: resolveLineColor({
-          colour: row.colour,
-          network: row.network,
-          ref: row.ref,
-          name: row.name,
-          fallbackIndex: Number(row.fallback_idx) || 0,
-        }),
-      },
-    })
-  );
+  const lineRows = linesRes.rows as unknown as OverlayLineRow[];
+  const stationLines: StationLine[] = lineRows.map((row) => ({
+    id: row.id,
+    systemId: row.system_id,
+    name: row.name,
+    ref: row.ref,
+    color: resolveLineColor({
+      colour: row.colour,
+      network: row.network,
+      ref: row.ref,
+      name: row.name,
+      fallbackIndex: Number(row.fallback_idx) || 0,
+    }),
+  }));
+
+  const lineFeatures: GeoJSON.Feature[] = lineRows.map((row, i) => ({
+    type: "Feature",
+    geometry: row.geom,
+    properties: {
+      id: row.id,
+      name: row.name,
+      nameEn: row.name_en,
+      ref: row.ref,
+      color: stationLines[i].color,
+    },
+  }));
 
   const stationsRes = await db.execute(sql`
-    SELECT id, name, name_en, line_refs,
+    SELECT id, system_id, name, name_en, line_refs,
            ST_X(location) AS lon, ST_Y(location) AS lat
     FROM subway_stations
     WHERE ST_Intersects(
@@ -251,21 +265,37 @@ export async function getSubwayOverlay(
     )
   `);
 
+  // A station always sits on its own line, so any line referenced by a station
+  // inside the bbox also intersects the bbox and is present in `lineRows`.
+  const stationLineIndex = buildStationLineIndex(stationLines);
+
   const stationFeatures: GeoJSON.Feature[] = (
     stationsRes.rows as unknown as OverlayStationRow[]
-  ).map((row) => ({
-    type: "Feature" as const,
-    geometry: {
-      type: "Point" as const,
-      coordinates: [Number(row.lon), Number(row.lat)],
-    },
-    properties: {
-      id: row.id,
-      name: row.name,
-      nameEn: row.name_en,
-      lineRefs: row.line_refs ?? [],
-    },
-  }));
+  ).map((row) => {
+    const lineRefs = (Array.isArray(row.line_refs) ? row.line_refs : []).filter(
+      (ref): ref is string => typeof ref === "string"
+    );
+    const matched = resolveStationLines(stationLineIndex, row.system_id, lineRefs);
+
+    return {
+      type: "Feature" as const,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [Number(row.lon), Number(row.lat)],
+      },
+      properties: {
+        id: row.id,
+        name: row.name,
+        nameEn: row.name_en,
+        lineRefs,
+        lineIds: matched.map((line) => line.id),
+        // Primary line colour (lowest-numbered line) — the map paints the dot
+        // with it. Undefined when no line matched; the client falls back.
+        color: matched[0]?.color,
+        isTransfer: lineRefs.length > 1,
+      },
+    };
+  });
 
   return {
     lines: { type: "FeatureCollection", features: lineFeatures },

@@ -20,17 +20,25 @@ interface SubwayLayerProps {
   highlightLineIds?: string[] | null;
 }
 
+/**
+ * Keep only features belonging to the highlighted lines. A line feature carries
+ * its own id; a station carries the ids of every line serving it (`lineIds`),
+ * so both collections filter against the same set of line ids.
+ */
 function filterFeatures(
   fc: GeoJSON.FeatureCollection,
-  highlightLineIds: string[] | null | undefined
+  highlightLineIds: string[] | null | undefined,
+  key: "id" | "lineIds" = "id"
 ): GeoJSON.FeatureCollection {
   if (!highlightLineIds || highlightLineIds.length === 0) return fc;
   const set = new Set(highlightLineIds);
   return {
     type: "FeatureCollection",
     features: fc.features.filter((f) => {
-      const id = f.properties?.id;
-      return typeof id === "string" && set.has(id);
+      const value = f.properties?.[key];
+      if (typeof value === "string") return set.has(value);
+      if (Array.isArray(value)) return value.some((v) => typeof v === "string" && set.has(v));
+      return false;
     }),
   };
 }
@@ -102,7 +110,7 @@ export function SubwayLayer({
   if (!visible || !data) return null;
 
   const lines = filterFeatures(data.lines, highlightLineIds);
-  const stations = filterFeatures(data.stations, highlightLineIds);
+  const stations = filterFeatures(data.stations, highlightLineIds, "lineIds");
   const isDark = theme === "dark";
 
   return (
@@ -126,10 +134,24 @@ export function SubwayLayer({
           type="circle"
           minzoom={minZoomStations}
           paint={{
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2, 14, 4, 17, 7],
-            "circle-color": isDark ? "#d8dde5" : "#ffffff",
-            "circle-stroke-color": isDark ? "#111827" : "#1f2937",
-            "circle-stroke-width": 1.5,
+            // Transfer stations read as slightly larger dots.
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              11,
+              ["case", ["boolean", ["get", "isTransfer"], false], 2.6, 2],
+              14,
+              ["case", ["boolean", ["get", "isTransfer"], false], 5.2, 4],
+              17,
+              ["case", ["boolean", ["get", "isTransfer"], false], 9, 7],
+            ],
+            // Paint each station with its primary line's colour; fall back to
+            // the old neutral dot when no line matched its OSM line_refs.
+            "circle-color": ["coalesce", ["get", "color"], isDark ? "#d8dde5" : "#ffffff"],
+            // Light halo so a coloured dot stays legible on top of its own line.
+            "circle-stroke-color": isDark ? "#0d1117" : "#ffffff",
+            "circle-stroke-width": ["case", ["boolean", ["get", "isTransfer"], false], 2, 1.5],
           }}
         />
         <Layer
