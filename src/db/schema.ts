@@ -13,6 +13,20 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+export type PeriodType = "recent" | "week" | "month" | "year";
+export type PeriodSnapshotStatus = "pending" | "computing" | "ready" | "failed";
+export type PeriodDomainStatus = "pending" | "ready" | "failed";
+export type PeriodNarrativeStatus = "pending" | "generating" | "ready" | "failed";
+export type LocationProcessingDayStatus = "processing" | "completed" | "failed";
+
+export interface PeriodDomainEnvelope<T = unknown> {
+  data: T | null;
+  status: PeriodDomainStatus;
+  computedAt: string | null;
+  computeVersion: number;
+  errorCode: string | null;
+}
+
 // ============ App Users (Extended) ============
 export const users = pgTable(
   "users",
@@ -180,6 +194,54 @@ export const dailyDistances = pgTable(
     calculatedAt: timestamp("calculated_at").notNull(),
   },
   (table) => [uniqueIndex("idx_daily_distance_user_date").on(table.userId, table.date)]
+);
+
+// ============ Daily Location Heatmap Rollups ============
+export const locationHeatmapDaily = pgTable(
+  "location_heatmap_daily",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(), // KST calendar day, "YYYY-MM-DD"
+    lat: doublePrecision("lat").notNull(), // Rounded to 3 decimal places
+    lon: doublePrecision("lon").notNull(), // Rounded to 3 decimal places
+    count: integer("count").notNull(),
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_location_heatmap_daily_grid").on(
+      table.userId,
+      table.date,
+      table.lat,
+      table.lon
+    ),
+    index("idx_location_heatmap_daily_user_date").on(table.userId, table.date),
+  ]
+);
+
+// Durable core-pipeline marker. Unlike heatmap rows, this records successful
+// empty days and survives a process restart after a post-anomaly stage fails.
+export const locationProcessingDays = pgTable(
+  "location_processing_days",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    status: text("status").$type<LocationProcessingDayStatus>().notNull(),
+    processingStartedAt: timestamp("processing_started_at"),
+    completedAt: timestamp("completed_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_location_processing_day_user_date").on(table.userId, table.date),
+    index("idx_location_processing_day_status_started").on(table.status, table.processingStartedAt),
+  ]
 );
 
 // ============ Coding Sessions (WakaTime) ============
@@ -435,6 +497,70 @@ export const dataUsageCache = pgTable(
   ]
 );
 
+// ============ Overview Period Snapshots ============
+export const periodSnapshots = pgTable(
+  "period_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodType: text("period_type").$type<PeriodType>().notNull(),
+    periodKey: text("period_key").notNull(),
+    status: text("status").$type<PeriodSnapshotStatus>().notNull().default("pending"),
+    computeStartedAt: timestamp("compute_started_at"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    finalizedAt: timestamp("finalized_at"),
+    computeVersion: integer("compute_version").notNull().default(1),
+    coding: jsonb("coding").$type<PeriodDomainEnvelope>(),
+    location: jsonb("location").$type<PeriodDomainEnvelope>(),
+    health: jsonb("health").$type<PeriodDomainEnvelope>(),
+    spending: jsonb("spending").$type<PeriodDomainEnvelope>(),
+    assets: jsonb("assets").$type<PeriodDomainEnvelope>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_period_snapshot_user_period").on(
+      table.userId,
+      table.periodType,
+      table.periodKey
+    ),
+  ]
+);
+
+export const periodNarratives = pgTable(
+  "period_narratives",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodType: text("period_type").$type<Exclude<PeriodType, "recent">>().notNull(),
+    periodKey: text("period_key").notNull(),
+    status: text("status").$type<PeriodNarrativeStatus>().notNull().default("pending"),
+    content: text("content"),
+    generationStartedAt: timestamp("generation_started_at"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    generatedAt: timestamp("generated_at"),
+    model: text("model"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_period_narrative_user_period").on(
+      table.userId,
+      table.periodType,
+      table.periodKey
+    ),
+    index("idx_period_narrative_queue").on(table.status, table.leaseExpiresAt),
+  ]
+);
+
 // ============ Subway Systems (OSM) ============
 // NOTE: `bbox geometry(Polygon, 4326)` column is managed via raw SQL in migration 0019
 // (not in Drizzle schema) — same pattern as location_points.lonlat.
@@ -572,6 +698,9 @@ export type NewTransaction = typeof transactions.$inferInsert;
 
 export type DataUsageCache = typeof dataUsageCache.$inferSelect;
 export type NewDataUsageCache = typeof dataUsageCache.$inferInsert;
+
+export type PeriodSnapshot = typeof periodSnapshots.$inferSelect;
+export type NewPeriodSnapshot = typeof periodSnapshots.$inferInsert;
 
 export type Visit = typeof visits.$inferSelect;
 export type NewVisit = typeof visits.$inferInsert;

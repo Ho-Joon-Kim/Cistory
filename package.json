@@ -16,7 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "spending:backfill-categories": "node scripts/backfill-spending-categories.mjs"
+    "spending:backfill-categories": "node scripts/backfill-spending-categories.mjs",
+    "location:backfill-heatmaps": "yarn dlx tsx@4.20.6 scripts/backfill-location-heatmaps.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

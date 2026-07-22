@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, BarChart3, Lightbulb, PieChart, Wallet } from "lucide-react";
+import { LayoutDashboard, PieChart, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CommitHeatmap } from "@/components/CommitHeatmap";
@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/modules/auth/components/UserMenu";
 import { SyncButton } from "@/modules/sync/components/SyncButton";
 import { SyncStatus } from "@/modules/sync/components/SyncStatus";
+import { HEADER_NAV_ITEMS } from "./header-nav";
 
 interface HeaderProps {
   showSync?: boolean;
@@ -16,11 +17,11 @@ interface HeaderProps {
 
 export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
   const pathname = usePathname();
-  const isReportPage = pathname === "/report";
-  const isSpendingPage = pathname === "/spending";
-  const isInsightsPage = pathname === "/insights";
-  const isPortfolioPage = pathname === "/portfolio";
-  const isHealthPage = pathname === "/health";
+  const icons = {
+    spending: Wallet,
+    portfolio: PieChart,
+    overview: LayoutDashboard,
+  };
 
   return (
     <header className="shrink-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -38,57 +39,24 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
 
         {/* 액션 버튼들 */}
         <div className="flex items-center gap-2 sm:gap-4">
-          <Link
-            href="/spending"
-            className={`flex items-center gap-1.5 text-sm transition-colors ${
-              isSpendingPage
-                ? "text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Wallet className="h-4 w-4" />
-            <span className="hidden lg:inline">소비</span>
-          </Link>
-          <Link
-            href="/portfolio"
-            className={`flex items-center gap-1.5 text-sm transition-colors ${
-              isPortfolioPage
-                ? "text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <PieChart className="h-4 w-4" />
-            <span className="hidden lg:inline">포트폴리오</span>
-          </Link>
-          <Link
-            href="/health"
-            className={`flex items-center gap-1.5 text-sm transition-colors ${
-              isHealthPage
-                ? "text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Activity className="h-4 w-4" />
-            <span className="hidden lg:inline">건강</span>
-          </Link>
-          <Link
-            href="/insights"
-            className={`flex items-center gap-1.5 text-sm transition-colors ${
-              isInsightsPage
-                ? "text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Lightbulb className="h-4 w-4" />
-            <span className="hidden lg:inline">인사이트</span>
-          </Link>
-          <Link
-            href={isReportPage ? "/" : "/report"}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <BarChart3 className="h-4 w-4" />
-            <span className="hidden lg:inline">{isReportPage ? "타임라인" : "보고서"}</span>
-          </Link>
+          {HEADER_NAV_ITEMS.map((item) => {
+            const Icon = icons[item.id];
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.id}
+                href={item.href}
+                className={`flex items-center gap-1.5 text-sm transition-colors ${
+                  active
+                    ? "font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="hidden lg:inline">{item.label}</span>
+              </Link>
+            );
+          })}
           {showSync && (
             <>
               <div className="hidden lg:block">
