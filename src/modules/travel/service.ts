@@ -231,9 +231,8 @@ export class TravelService {
           SELECT coalesce(sum(${transactions.amount}), 0)
           FROM ${transactions}
           LEFT JOIN ${accountRoles}
-            ON ${accountRoles.userId} = ${transactions.userId}
-           AND ${accountRoles.accountName} = ${transactions.accountName}
-          WHERE ${transactions.userId} = ${userId}
+            ON ${accountRolesJoinOn}
+          WHERE ${eq(transactions.userId, userId)}
             AND ${transactions.transactedAt} >= (${trips.startDate}::date - interval '9 hours')
             AND ${transactions.transactedAt} < ((${trips.endDate}::date + interval '1 day') - interval '9 hours')
             AND ${bucket} = 'spending'

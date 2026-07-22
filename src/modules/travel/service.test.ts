@@ -1,14 +1,19 @@
+import type { SQL } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { describe, expect, it } from "vitest";
+import { trips } from "@/db/schema";
 import { getKstDateWindow } from "@/lib/date-key";
 import { classify } from "@/modules/spending/classify";
 import { aggregateSpending, decodeTripCursor, encodeTripCursor, TravelService } from "./service";
 
 function createQueuedDb(results: unknown[][]) {
   const whereCalls: unknown[] = [];
+  const selectedFields: Array<Record<string, unknown> | undefined> = [];
   let queryIndex = 0;
 
-  const select = () => {
+  const select = (fields?: Record<string, unknown>) => {
     const index = queryIndex++;
+    selectedFields.push(fields);
     const builder = {
       from: () => builder,
       leftJoin: () => builder,
@@ -25,7 +30,7 @@ function createQueuedDb(results: unknown[][]) {
     return builder;
   };
 
-  return { db: { select } as never, whereCalls };
+  return { db: { select } as never, selectedFields, whereCalls };
 }
 
 describe("travel date windows and cursors", () => {
@@ -200,7 +205,7 @@ describe("TravelService.listTrips", () => {
       visitCount: 3,
       totalSpending: 100_000,
     };
-    const { db } = createQueuedDb([
+    const { db, selectedFields } = createQueuedDb([
       [{ tossMyName: null }],
       [
         { ...base, id: "trip-3", startDate: "2026-07-15", endDate: "2026-07-18" },
@@ -213,6 +218,15 @@ describe("TravelService.listTrips", () => {
 
     expect(result.trips.map((trip) => trip.id)).toEqual(["trip-3", "trip-2"]);
     expect(result.trips[0]).toMatchObject({ totalSpending: 100_000, visitCount: 3 });
+    const listFields = selectedFields[1] as { totalSpending: SQL.Aliased<number> };
+    const spendingSql = drizzle
+      .mock()
+      .select({ totalSpending: listFields.totalSpending })
+      .from(trips)
+      .toSQL().sql;
+    expect(spendingSql).toContain('"account_roles"."user_id" = "transactions"."user_id"');
+    expect(spendingSql).toContain('"account_roles"."account_name" = "transactions"."account_name"');
+    expect(spendingSql).toContain('WHERE "transactions"."user_id" =');
     expect(decodeTripCursor(result.nextCursor ?? "")).toEqual({
       endDate: "2026-06-12",
       startDate: "2026-06-10",
