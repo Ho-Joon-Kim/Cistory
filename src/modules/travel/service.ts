@@ -11,6 +11,7 @@ import {
   users,
   visits,
 } from "@/db/schema";
+import { getKstDateWindow, shiftDateKey } from "@/lib/date-key";
 import { accountRolesJoinOn, bucketSql } from "@/modules/spending/classify";
 
 export const DEFAULT_TRIP_LIST_LIMIT = 20;
@@ -131,20 +132,6 @@ function normalizeTrip(row: typeof trips.$inferSelect): TravelTrip {
     visitedCities: parseStringArray(row.visitedCities),
     visitedCountries: parseStringArray(row.visitedCountries),
   };
-}
-
-function shiftDateKey(date: string, days: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  const shifted = new Date(Date.UTC(year, month - 1, day + days));
-  return shifted.toISOString().slice(0, 10);
-}
-
-export function getKstDateWindow(startDate: string, endDate: string) {
-  const start = new Date(`${startDate}T00:00:00+09:00`);
-  const endExclusiveDate = shiftDateKey(endDate, 1);
-  const end = new Date(`${endExclusiveDate}T00:00:00+09:00`);
-  const dayCount = Math.round((end.getTime() - start.getTime()) / 86_400_000);
-  return { start, end, endExclusiveDate, dayCount };
 }
 
 export function encodeTripCursor(cursor: TripCursor): string {

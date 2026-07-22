@@ -23,6 +23,11 @@ export interface ReconcileDetectedTripsOptions {
   database?: Database;
 }
 
+export type RegenerateDetectedTripsOptions = Omit<
+  ReconcileDetectedTripsOptions,
+  "watermarkThrough"
+>;
+
 export interface TripWriteResult {
   inserted: number;
   replaced: number;
@@ -199,20 +204,22 @@ async function applyDetectedTrips(
   tx: TripWriteTransaction,
   userId: string,
   candidates: DetectedTrip[],
-  replaceAllAuto: boolean,
-  watermarkThrough?: string,
-  expectedExclusionRevision?: string
+  options: {
+    replaceAllAuto: boolean;
+    watermarkThrough?: string;
+    expectedExclusionRevision?: string;
+  }
 ): Promise<TripWriteResult> {
   if (
-    expectedExclusionRevision !== undefined &&
-    (await readTripExclusionRevision(tx, userId)) !== expectedExclusionRevision
+    options.expectedExclusionRevision !== undefined &&
+    (await readTripExclusionRevision(tx, userId)) !== options.expectedExclusionRevision
   ) {
     throw new StaleTripDetectionError();
   }
   // This read deliberately happens after the advisory lock. Every writer sees
   // the state committed by the previous holder before it plans its mutation.
   const existing = await readExistingTrips(tx, userId);
-  const plan = planTripReconciliation(existing, candidates, replaceAllAuto);
+  const plan = planTripReconciliation(existing, candidates, options.replaceAllAuto);
 
   if (plan.deleteAutoIds.length > 0) {
     await tx.delete(trips).where(inArray(trips.id, plan.deleteAutoIds));
@@ -220,10 +227,10 @@ async function applyDetectedTrips(
   if (plan.acceptedCandidates.length > 0) {
     await tx.insert(trips).values(detectedTripRows(userId, plan.acceptedCandidates));
   }
-  if (watermarkThrough) {
+  if (options.watermarkThrough) {
     await tx
       .update(users)
-      .set({ tripDetectionLastThrough: watermarkThrough, updatedAt: new Date() })
+      .set({ tripDetectionLastThrough: options.watermarkThrough, updatedAt: new Date() })
       .where(eq(users.id, userId));
   }
 
@@ -243,14 +250,11 @@ export async function reconcileDetectedTrips(
   return withTripWriteLock(
     userId,
     (tx) =>
-      applyDetectedTrips(
-        tx,
-        userId,
-        candidates,
-        false,
-        options.watermarkThrough,
-        options.expectedExclusionRevision
-      ),
+      applyDetectedTrips(tx, userId, candidates, {
+        replaceAllAuto: false,
+        watermarkThrough: options.watermarkThrough,
+        expectedExclusionRevision: options.expectedExclusionRevision,
+      }),
     options.database
   );
 }
@@ -258,13 +262,16 @@ export async function reconcileDetectedTrips(
 export async function regenerateDetectedTrips(
   userId: string,
   candidates: DetectedTrip[],
-  database: Database = getDb(),
-  expectedExclusionRevision?: string
+  options: RegenerateDetectedTripsOptions = {}
 ): Promise<TripWriteResult> {
   assertValidDetectedTrips(candidates);
   return withTripWriteLock(
     userId,
-    (tx) => applyDetectedTrips(tx, userId, candidates, true, undefined, expectedExclusionRevision),
-    database
+    (tx) =>
+      applyDetectedTrips(tx, userId, candidates, {
+        replaceAllAuto: true,
+        expectedExclusionRevision: options.expectedExclusionRevision,
+      }),
+    options.database
   );
 }

@@ -449,7 +449,6 @@ export function useTripDetection() {
   const [detected, setDetected] = useState<DetectedTripData[]>([]);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const detectionRange = useRef<{ from: string; to: string } | null>(null);
   const exclusionRevision = useRef<string | null>(null);
 
   const detect = useCallback(async (from: string, to: string) => {
@@ -462,7 +461,6 @@ export function useTripDetection() {
       });
       if (!res.ok) throw new Error("Failed to detect");
       const data = await res.json();
-      detectionRange.current = { from, to };
       exclusionRevision.current = data.exclusionRevision;
       setDetected(data.trips);
       return data.trips as DetectedTripData[];
@@ -481,8 +479,6 @@ export function useTripDetection() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          from: detectionRange.current?.from,
-          to: detectionRange.current?.to,
           confirm: true,
           trips,
           exclusionRevision: exclusionRevision.current,
@@ -490,7 +486,6 @@ export function useTripDetection() {
       });
       if (!res.ok) throw new Error("Failed to save");
       const data = await res.json();
-      detectionRange.current = null;
       exclusionRevision.current = null;
       setDetected([]);
       return data.saved as number;

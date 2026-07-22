@@ -1,5 +1,6 @@
 import { and, eq, gte, lt } from "drizzle-orm";
 import { type Database, getDb, savedPlaces, trips, visits } from "@/db";
+import { getKstDateWindow } from "@/lib/date-key";
 import { distanceM } from "@/lib/geo";
 import { withTripWriteLock } from "@/modules/location/services/trip-writer";
 
@@ -97,15 +98,6 @@ export function findDominantVisitCenter(
   };
 }
 
-function parseKstDateStart(dateKey: string): Date {
-  return new Date(`${dateKey}T00:00:00+09:00`);
-}
-
-function addCalendarDay(dateKey: string): string {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
-}
-
 function exclusionPlaceName(
   tripName: string,
   center: Pick<DominantVisitCenter, "placeName" | "city">
@@ -134,6 +126,8 @@ export async function markTripNotATrip(
         .where(and(eq(trips.id, tripId), eq(trips.userId, userId)));
       if (!trip) throw new TripNotFoundError();
 
+      const window = getKstDateWindow(trip.startDate, trip.endDate);
+
       const tripVisits = await tx
         .select({
           centerLat: visits.centerLat,
@@ -147,8 +141,8 @@ export async function markTripNotATrip(
         .where(
           and(
             eq(visits.userId, userId),
-            gte(visits.startTime, parseKstDateStart(trip.startDate)),
-            lt(visits.startTime, parseKstDateStart(addCalendarDay(trip.endDate)))
+            gte(visits.startTime, window.start),
+            lt(visits.startTime, window.end)
           )
         );
       const center = findDominantVisitCenter(tripVisits);

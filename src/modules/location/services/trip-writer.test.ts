@@ -180,7 +180,9 @@ describe("trip write transaction", () => {
     const fake = fakeDatabase({ failInsert: true });
 
     await expect(
-      regenerateDetectedTrips("user-1", [candidate("2026-07-15", "2026-07-18")], fake.db)
+      regenerateDetectedTrips("user-1", [candidate("2026-07-15", "2026-07-18")], {
+        database: fake.db,
+      })
     ).rejects.toThrow("insert failed");
 
     expect(fake.events.at(-1)).toBe("rollback");

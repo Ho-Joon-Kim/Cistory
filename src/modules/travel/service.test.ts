@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { getKstDateWindow } from "@/lib/date-key";
 import { classify } from "@/modules/spending/classify";
-import {
-  aggregateSpending,
-  decodeTripCursor,
-  encodeTripCursor,
-  getKstDateWindow,
-  TravelService,
-} from "./service";
+import { aggregateSpending, decodeTripCursor, encodeTripCursor, TravelService } from "./service";
 
 function createQueuedDb(results: unknown[][]) {
   const whereCalls: unknown[] = [];

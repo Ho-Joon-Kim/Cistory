@@ -2,9 +2,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, trips } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { getKstDateWindow } from "@/lib/date-key";
 import { distanceM } from "@/lib/geo";
 import { logger } from "@/lib/logger";
-import { getKstDateWindow } from "@/modules/travel/service";
 
 export const MAX_ROUTE_POINTS = 1000;
 const MIN_ROUTE_DISTANCE_M = 50;

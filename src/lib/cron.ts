@@ -9,6 +9,7 @@ import { lt, sql } from "drizzle-orm";
 import * as cron from "node-cron";
 import { getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
+import { shiftDateKey } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
 import { createHealthSyncService } from "@/modules/health/service";
@@ -691,7 +692,7 @@ async function runTripDetectionForUser(
 ): Promise<void> {
   try {
     const watermarkStart = user.tripDetectionLastThrough
-      ? addIsoDateDays(user.tripDetectionLastThrough, -2)
+      ? shiftDateKey(user.tripDetectionLastThrough, -2)
       : "2025-03-08";
     const from = watermarkStart < "2025-03-08" ? "2025-03-08" : watermarkStart;
     const result = await detectAndPersist(user.id, from, to, { watermarkThrough: to });
@@ -705,11 +706,6 @@ async function runTripDetectionForUser(
       error: error instanceof Error ? error.message : String(error),
     });
   }
-}
-
-function addIsoDateDays(date: string, days: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 function toKstCalendarDate(date: Date): string {

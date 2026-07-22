@@ -1,6 +1,7 @@
 import { ReceiptText, Wallet } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isExpenseCategory, SPENDING_CATEGORY_LABELS } from "@/modules/spending/categories";
+import { formatWon } from "../format";
 import type { TravelTripDetail } from "../hooks";
 
 type TripSpending = TravelTripDetail["spending"];
@@ -13,11 +14,6 @@ const KST_TRANSACTION_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
   minute: "2-digit",
   hourCycle: "h23",
 });
-
-function formatWon(value: number): string {
-  const safeValue = Number.isFinite(value) ? Math.round(value) : 0;
-  return `${safeValue.toLocaleString("ko-KR")}원`;
-}
 
 function getCategoryLabel(category: string | null): string {
   if (!category || category === "uncategorized") return SPENDING_CATEGORY_LABELS.uncategorized;

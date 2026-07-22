@@ -16,6 +16,7 @@
 import { and, asc, desc, eq, gt, gte, lt, sql } from "drizzle-orm";
 import { getDb, savedPlaces, tracks, visits } from "@/db";
 import { isInKorea } from "@/lib/adapters/geocoding";
+import { shiftDateKey } from "@/lib/date-key";
 import { distanceM } from "@/lib/geo";
 import { createTripName } from "./trip-naming";
 import {
@@ -204,7 +205,7 @@ async function getVisitsInRange(userId: string, from: string, to: string): Promi
       and(
         eq(visits.userId, userId),
         gte(visits.startTime, parseKstDateStart(from)),
-        lt(visits.startTime, parseKstDateStart(addCalendarDays(to, 1)))
+        lt(visits.startTime, parseKstDateStart(shiftDateKey(to, 1)))
       )
     )
     .orderBy(asc(visits.startTime));
@@ -223,7 +224,7 @@ function groupVisitsByDate(allVisits: VisitRow[]): Map<string, VisitRow[]> {
 
 async function getTracksInRange(userId: string, from: string, to: string): Promise<TrackRow[]> {
   const rangeStart = parseKstDateStart(from);
-  const rangeEnd = parseKstDateStart(addCalendarDays(to, 1));
+  const rangeEnd = parseKstDateStart(shiftDateKey(to, 1));
   const db = getDb();
   return db
     .select({
@@ -271,7 +272,7 @@ function sumOverlappingTrackDistance(
   endDate: string
 ): number | null {
   const rangeStart = parseKstDateStart(startDate);
-  const rangeEnd = parseKstDateStart(addCalendarDays(endDate, 1));
+  const rangeEnd = parseKstDateStart(shiftDateKey(endDate, 1));
   const overlappingTracks = allTracks.filter(
     (track) => track.startTime < rangeEnd && track.endTime > rangeStart
   );
@@ -404,12 +405,10 @@ export async function regenerateTrips(
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const snapshot = await detectTripsSnapshot(userId, from, to);
     try {
-      const result = await regenerateDetectedTrips(
-        userId,
-        snapshot.trips,
-        getDb(),
-        snapshot.exclusionRevision
-      );
+      const result = await regenerateDetectedTrips(userId, snapshot.trips, {
+        database: getDb(),
+        expectedExclusionRevision: snapshot.exclusionRevision,
+      });
       return { detected: snapshot.trips.length, ...result };
     } catch (error) {
       if (!(error instanceof StaleTripDetectionError) || attempt === 2) throw error;
@@ -426,15 +425,9 @@ function toKstDateString(date: Date): string {
   return new Date(date.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
 }
 
-function addCalendarDays(dateStr: string, days: number): string {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return date.toISOString().slice(0, 10);
-}
-
 function calendarDates(from: string, to: string): string[] {
   const dates: string[] = [];
-  for (let current = from; current <= to; current = addCalendarDays(current, 1)) {
+  for (let current = from; current <= to; current = shiftDateKey(current, 1)) {
     dates.push(current);
   }
   return dates;
@@ -451,5 +444,5 @@ function calendarDayDifference(from: string, to: string): number {
 export function isValidTripDateRange(from: string, to: string): boolean {
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   if (!datePattern.test(from) || !datePattern.test(to) || from > to) return false;
-  return addCalendarDays(from, 0) === from && addCalendarDays(to, 0) === to;
+  return shiftDateKey(from, 0) === from && shiftDateKey(to, 0) === to;
 }

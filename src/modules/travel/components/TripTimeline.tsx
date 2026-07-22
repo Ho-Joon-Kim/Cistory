@@ -1,5 +1,6 @@
 import { Clock3, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { dateKeyToUtcMillis } from "@/lib/date-key";
 import type { TravelTripVisit } from "../hooks";
 
 export interface TripTimelineVisit extends TravelTripVisit {
@@ -34,13 +35,6 @@ const DATE_LABEL_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
   day: "numeric",
   weekday: "short",
 });
-
-function dateKeyToUtcMillis(dateKey: string): number | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
-  if (!match) return null;
-  const millis = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return new Date(millis).toISOString().slice(0, 10) === dateKey ? millis : null;
-}
 
 function enumerateDateKeys(startDate: string, endDate: string): string[] {
   const start = dateKeyToUtcMillis(startDate);

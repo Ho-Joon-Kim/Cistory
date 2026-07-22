@@ -2,19 +2,13 @@
 
 import { ArrowRight, CalendarDays, Loader2, MapPin, Wallet, X } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { dateKeyToUtcMillis } from "@/lib/date-key";
+import { formatWon } from "../format";
 import type { TravelTripListItem } from "../hooks";
-
-function dateKeyToUtcMillis(dateKey: string): number | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
-  if (!match) return null;
-  const millis = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return new Date(millis).toISOString().slice(0, 10) === dateKey ? millis : null;
-}
 
 export function getTripDuration(
   startDate: string,
@@ -32,11 +26,6 @@ function formatDateKey(dateKey: string): string {
   return `${year}. ${month}. ${day}.`;
 }
 
-function formatWon(value: number): string {
-  const safeValue = Number.isFinite(value) ? Math.round(value) : 0;
-  return `${safeValue.toLocaleString("ko-KR")}원`;
-}
-
 interface TripCardProps {
   trip: TravelTripListItem;
   onMarkNotTrip?: (tripId: string) => Promise<boolean>;
@@ -45,24 +34,17 @@ interface TripCardProps {
 
 export function TripCard({ trip, onMarkNotTrip, isMarkingNotTrip = false }: TripCardProps) {
   const duration = getTripDuration(trip.startDate, trip.endDate);
-  const [localPending, setLocalPending] = useState(false);
-  const pending = localPending || isMarkingNotTrip;
 
   const handleMarkNotTrip = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (!onMarkNotTrip || pending) return;
+    if (!onMarkNotTrip || isMarkingNotTrip) return;
     if (!window.confirm(`"${trip.name}"을(를) 여행 목록에서 제외할까요?`)) return;
 
-    setLocalPending(true);
-    try {
-      if (await onMarkNotTrip(trip.id)) {
-        toast.success("여행에서 제외하고 정기 방문지로 등록했습니다");
-      } else {
-        toast.error("여행 제외 처리에 실패했습니다");
-      }
-    } finally {
-      setLocalPending(false);
+    if (await onMarkNotTrip(trip.id)) {
+      toast.success("여행에서 제외하고 정기 방문지로 등록했습니다");
+    } else {
+      toast.error("여행 제외 처리에 실패했습니다");
     }
   };
 
@@ -111,10 +93,10 @@ export function TripCard({ trip, onMarkNotTrip, isMarkingNotTrip = false }: Trip
               variant="ghost"
               size="sm"
               className="pointer-events-auto -ml-2 text-xs text-muted-foreground hover:text-destructive"
-              disabled={pending || !onMarkNotTrip}
+              disabled={isMarkingNotTrip || !onMarkNotTrip}
               onClick={handleMarkNotTrip}
             >
-              {pending ? (
+              {isMarkingNotTrip ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
               ) : (
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
