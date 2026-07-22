@@ -36,6 +36,7 @@ export const users = pgTable(
     syncIntervalHours: integer("sync_interval_hours").default(1),
     lastSyncedAt: timestamp("last_synced_at"),
     initialSyncCompleted: boolean("initial_sync_completed").default(false),
+    tripDetectionLastThrough: text("trip_detection_last_through"),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
   },
@@ -238,6 +239,8 @@ export const savedPlaces = pgTable(
     radiusM: integer("radius_m").notNull().default(100),
     category: text("category"),
     address: text("address"),
+    excludeFromTrips: boolean("exclude_from_trips").notNull().default(false),
+    tripExclusionRadiusM: integer("trip_exclusion_radius_m"),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
   },
@@ -338,6 +341,7 @@ export const trips = pgTable(
     visitedCities: text("visited_cities"), // JSON array
     visitedCountries: text("visited_countries"), // JSON array
     isOverseas: boolean("is_overseas").notNull().default(false),
+    autoDetected: boolean("auto_detected").notNull().default(false),
     notes: text("notes"),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
