@@ -41,12 +41,13 @@ export async function aggregateCoding(
 ): Promise<CodingAggregate> {
   const fromDay = toLocalDateString(input.from);
   const toDay = toLocalDateString(input.toExclusive);
+  const localCommitTimestamp = sql`(${commits.committedAt} at time zone 'UTC' at time zone 'Asia/Seoul')`;
   const [commitResult, codingResult, sessionResult] = await Promise.all([
     executor.execute(sql`
       SELECT
         ${localDaySql(commits.committedAt)}::text AS date,
-        EXTRACT(DOW FROM ${commits.committedAt})::int AS weekday,
-        EXTRACT(HOUR FROM (${commits.committedAt} at time zone 'UTC' at time zone 'Asia/Seoul'))::int AS hour,
+        EXTRACT(DOW FROM ${localCommitTimestamp})::int AS weekday,
+        EXTRACT(HOUR FROM ${localCommitTimestamp})::int AS hour,
         ${commits.repoFullName} AS project,
         CASE
           WHEN LOWER(${commits.message}) ~ '^(feat)(\\(.+\\))?:|^(add|implement|새로운|추가|기능)' THEN 'feat'

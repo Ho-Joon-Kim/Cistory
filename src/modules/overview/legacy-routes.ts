@@ -52,14 +52,14 @@ export function legacyOverviewRedirect(
   }
 
   if (route === "report") {
-    const yearly = first(searchParams.type) === "yearly";
+    const type = first(searchParams.type);
+    const legacyMonthly = first(searchParams.period) === "monthly";
+    const yearly = type === "yearly";
+    const month = legacyMonthly
+      ? validMonth(first(searchParams.yearMonth), current.month)
+      : validMonth(type === "monthly" ? first(searchParams.period) : undefined, current.month);
     result.set("periodType", yearly ? "year" : "month");
-    result.set(
-      "periodKey",
-      yearly
-        ? validYear(first(searchParams.period), current.year)
-        : validMonth(first(searchParams.period), current.month)
-    );
+    result.set("periodKey", yearly ? validYear(first(searchParams.period), current.year) : month);
     return target(result);
   }
 

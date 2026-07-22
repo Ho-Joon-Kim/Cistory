@@ -19,8 +19,31 @@ describe("legacy overview redirects", () => {
     expect(legacyOverviewRedirect("report", { type: "monthly", period: "2026-07" }, NOW)).toBe(
       "/overview?periodType=month&periodKey=2026-07"
     );
+    expect(legacyOverviewRedirect("report", { period: "monthly", yearMonth: "2025-11" }, NOW)).toBe(
+      "/overview?periodType=month&periodKey=2025-11"
+    );
     expect(legacyOverviewRedirect("report", { type: "yearly", period: "2025" }, NOW)).toBe(
       "/overview?periodType=year&periodKey=2025"
+    );
+  });
+
+  it("falls back for invalid report periods and ignores unrelated parameters", () => {
+    expect(
+      legacyOverviewRedirect(
+        "report",
+        { type: "monthly", period: "2026-13", yearMonth: "2024-02", next: "/admin" },
+        NOW
+      )
+    ).toBe("/overview?periodType=month&periodKey=2026-07");
+    expect(
+      legacyOverviewRedirect(
+        "report",
+        { period: "monthly", yearMonth: "2026-00", year: "2020" },
+        NOW
+      )
+    ).toBe("/overview?periodType=month&periodKey=2026-07");
+    expect(legacyOverviewRedirect("report", { type: "yearly", period: "20x5" }, NOW)).toBe(
+      "/overview?periodType=year&periodKey=2026"
     );
   });
 

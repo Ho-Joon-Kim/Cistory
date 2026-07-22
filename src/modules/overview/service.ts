@@ -33,6 +33,10 @@ export interface OverviewSnapshotDomains {
   portfolio: PeriodDomainEnvelope<PortfolioAggregate> | null;
 }
 
+export function hasFailedOverviewDomains(domains: OverviewSnapshotDomains): boolean {
+  return Object.values(domains).some((domain) => domain?.status === "failed");
+}
+
 export interface OverviewStoredSnapshot {
   status: PeriodSnapshotStatus;
   updatedAt: Date;

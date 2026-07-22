@@ -22,6 +22,19 @@ export interface OverviewPeriodSelection {
   periodKey: string;
 }
 
+interface OverviewRequestIdentity {
+  requestKey: string;
+  generation: number;
+}
+
+export function isCurrentOverviewRequest(
+  request: OverviewRequestIdentity,
+  currentRequestKey: string,
+  currentGeneration: number
+): boolean {
+  return request.requestKey === currentRequestKey && request.generation === currentGeneration;
+}
+
 function kstWallClock(date: Date): Date {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
@@ -224,12 +237,27 @@ export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, e
   const latest = useRef<OverviewSnapshotResponse | null>(null);
   const requestKey = `${periodType}:${periodKey}`;
   const previousKey = useRef(requestKey);
+  const currentRequestKey = useRef(requestKey);
+  const recomputeGeneration = useRef(0);
+  const recomputeController = useRef<AbortController | null>(null);
+  currentRequestKey.current = requestKey;
+
+  useEffect(() => {
+    return () => {
+      recomputeGeneration.current++;
+      recomputeController.current?.abort();
+      recomputeController.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     void refreshVersion;
     const periodChanged = previousKey.current !== requestKey;
     previousKey.current = requestKey;
     if (periodChanged) {
+      recomputeGeneration.current++;
+      recomputeController.current?.abort();
+      recomputeController.current = null;
       latest.current = null;
       setSnapshot(null);
       setIsLoading(true);
@@ -283,19 +311,45 @@ export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, e
   }, [enabled, periodKey, periodType, refreshVersion, requestKey, visible]);
 
   const recompute = useCallback(async () => {
+    const controller = new AbortController();
+    const request = {
+      requestKey,
+      generation: recomputeGeneration.current + 1,
+    };
+    recomputeGeneration.current = request.generation;
+    recomputeController.current?.abort();
+    recomputeController.current = controller;
+
     try {
       setError(null);
       const response = await fetch("/api/overview/recompute", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ periodType, periodKey }),
+        signal: controller.signal,
       }).then((result) => recomputeResponseJson(result, periodType, periodKey));
+      if (
+        controller.signal.aborted ||
+        !isCurrentOverviewRequest(request, currentRequestKey.current, recomputeGeneration.current)
+      ) {
+        return;
+      }
       enqueued.current.add(requestKey);
       latest.current = response;
       setSnapshot(response);
       setRefreshVersion((version) => version + 1);
     } catch (reason) {
+      if (
+        controller.signal.aborted ||
+        !isCurrentOverviewRequest(request, currentRequestKey.current, recomputeGeneration.current)
+      ) {
+        return;
+      }
       setError(reason instanceof Error ? reason.message : "재계산을 요청하지 못했습니다");
+    } finally {
+      if (recomputeController.current === controller) {
+        recomputeController.current = null;
+      }
     }
   }, [periodKey, periodType, requestKey]);
 

@@ -177,6 +177,50 @@ describe("domain payload contracts", () => {
     expect(dialect.sqlToQuery(executor.queries[0]).sql).toContain(
       "at time zone 'UTC' at time zone 'Asia/Seoul'"
     );
+    expect(dialect.sqlToQuery(executor.queries[0]).sql).toContain(
+      "EXTRACT(DOW FROM (\"commits\".\"committed_at\" at time zone 'UTC' at time zone 'Asia/Seoul'))"
+    );
+  });
+
+  it("uses the KST weekday and hour at the local-midnight boundary", async () => {
+    const batches = [
+      [
+        {
+          date: "2026-07-02",
+          weekday: 4,
+          hour: 0,
+          project: "cistory/app",
+          commitType: "feat",
+          count: 1,
+          additions: 1,
+          deletions: 0,
+          firstCommit: new Date("2026-07-01T15:00:00.000Z"),
+          lastCommit: new Date("2026-07-01T15:00:00.000Z"),
+        },
+      ],
+      [],
+      [],
+    ];
+    const queries: SQL[] = [];
+    const executor = {
+      execute: vi.fn(async (query: SQL) => {
+        queries.push(query);
+        return { rows: batches.shift() ?? [] };
+      }),
+    };
+
+    const result = await aggregateCoding(executor, domainInput);
+    const commitQuery = dialect.sqlToQuery(queries[0]).sql;
+
+    expect(result.dailyCommits).toEqual([{ date: "2026-07-02", count: 1 }]);
+    expect(result.weekdayHour.weekdays[4]).toBe(1);
+    expect(result.weekdayHour.hours[0]).toBe(1);
+    expect(commitQuery).toContain(
+      "EXTRACT(DOW FROM (\"commits\".\"committed_at\" at time zone 'UTC' at time zone 'Asia/Seoul'))"
+    );
+    expect(commitQuery).toContain(
+      "EXTRACT(HOUR FROM (\"commits\".\"committed_at\" at time zone 'UTC' at time zone 'Asia/Seoul'))"
+    );
   });
 
   it("omits yearly report fields for a week", async () => {

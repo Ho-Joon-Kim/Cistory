@@ -7,6 +7,8 @@ import {
   createOverviewPrecomputeRunner,
   getClaimPriority,
   OVERVIEW_COMPUTE_VERSION,
+  PRECOMPUTE_MAX_ATTEMPTS,
+  PRECOMPUTE_USER_BATCH_LIMIT,
   type PrecomputeSnapshot,
   type PrecomputeStore,
   type SnapshotPublication,
@@ -40,6 +42,7 @@ function payload(overrides: Partial<PeriodAggregatePayload> = {}): PeriodAggrega
 interface SnapshotState extends PrecomputeSnapshot {
   leaseExpiresAt: Date | null;
   computedAt: Date | null;
+  updatedAt: Date;
   publication?: SnapshotPublication;
 }
 
@@ -58,8 +61,10 @@ function snapshot(
     attemptCount: 0,
     computeVersion: OVERVIEW_COMPUTE_VERSION,
     finalizedAt: null,
+    computeStartedAt: new Date("2026-07-22T01:00:00.000Z"),
     leaseExpiresAt: null,
     computedAt: new Date("2026-07-22T02:00:00.000Z"),
+    updatedAt: new Date("2026-07-22T02:00:00.000Z"),
     ...overrides,
   };
 }
@@ -68,13 +73,15 @@ class MemoryStore implements PrecomputeStore {
   readonly snapshots: SnapshotState[];
   readonly userIds: string[];
   claimedIds: string[] = [];
+  seedBatchSizes: number[] = [];
+  userPageCalls = 0;
 
   constructor(snapshots: SnapshotState[] = [], userIds: string[] = []) {
     this.snapshots = snapshots;
     this.userIds = userIds;
   }
 
-  async recoverExpiredLeases(now: Date) {
+  async recoverExpiredLeases(now: Date, maxAttempts: number) {
     let recovered = 0;
     for (const item of this.snapshots) {
       if (
@@ -82,7 +89,7 @@ class MemoryStore implements PrecomputeStore {
         item.leaseExpiresAt !== null &&
         item.leaseExpiresAt <= now
       ) {
-        item.status = "pending";
+        item.status = item.attemptCount >= maxAttempts ? "failed" : "pending";
         item.leaseExpiresAt = null;
         recovered += 1;
       }
@@ -90,11 +97,14 @@ class MemoryStore implements PrecomputeStore {
     return recovered;
   }
 
-  async listUserIds() {
-    return this.userIds;
+  async listUserIdsPage(afterUserId: string | null, limit: number) {
+    this.userPageCalls += 1;
+    const start = afterUserId === null ? 0 : this.userIds.indexOf(afterUserId) + 1;
+    return this.userIds.slice(start, start + limit);
   }
 
   async seedActivePeriods(seeds: ActivePeriodSeed[]) {
+    this.seedBatchSizes.push(seeds.length);
     for (const seed of seeds) {
       if (
         this.snapshots.some(
@@ -122,7 +132,7 @@ class MemoryStore implements PrecomputeStore {
       .filter(
         (item) =>
           item.status !== "computing" &&
-          (item.status !== "failed" || item.attemptCount < options.maxAttempts) &&
+          item.attemptCount < options.maxAttempts &&
           (getClaimPriority(item, options.activePeriods, options.computeVersion) < 4 ||
             item.status === "failed")
       )
@@ -130,6 +140,7 @@ class MemoryStore implements PrecomputeStore {
         (a, b) =>
           getClaimPriority(a, options.activePeriods, options.computeVersion) -
             getClaimPriority(b, options.activePeriods, options.computeVersion) ||
+          a.updatedAt.getTime() - b.updatedAt.getTime() ||
           a.id.localeCompare(b.id)
       )
       .slice(0, options.limit);
@@ -137,14 +148,22 @@ class MemoryStore implements PrecomputeStore {
       item.status = "computing";
       item.attemptCount += 1;
       item.leaseExpiresAt = options.leaseExpiresAt;
+      item.computeStartedAt = options.now;
+      item.updatedAt = options.now;
     }
     this.claimedIds = eligible.map((item) => item.id);
-    return eligible;
+    return eligible.map((item) => ({ ...item }));
   }
 
   async publishSnapshot(item: PrecomputeSnapshot, publication: SnapshotPublication) {
     const stored = this.snapshots.find((candidate) => candidate.id === item.id);
     if (!stored) throw new Error("missing snapshot");
+    if (
+      stored.status !== "computing" ||
+      stored.computeStartedAt.getTime() !== item.computeStartedAt.getTime()
+    ) {
+      return false;
+    }
     stored.status = publication.status;
     stored.computedAt = publication.computedAt;
     stored.computeVersion = publication.computeVersion;
@@ -152,21 +171,37 @@ class MemoryStore implements PrecomputeStore {
     stored.attemptCount = publication.status === "ready" ? 0 : stored.attemptCount;
     stored.leaseExpiresAt = null;
     stored.publication = publication;
+    stored.updatedAt = publication.computedAt;
+    return true;
   }
 
   async releaseSnapshot(item: PrecomputeSnapshot) {
     const stored = this.snapshots.find((candidate) => candidate.id === item.id);
     if (!stored) throw new Error("missing snapshot");
+    if (
+      stored.status !== "computing" ||
+      stored.computeStartedAt.getTime() !== item.computeStartedAt.getTime()
+    ) {
+      return false;
+    }
     stored.status = "pending";
     stored.attemptCount = Math.max(0, stored.attemptCount - 1);
     stored.leaseExpiresAt = null;
+    return true;
   }
 
   async failSnapshot(item: PrecomputeSnapshot) {
     const stored = this.snapshots.find((candidate) => candidate.id === item.id);
     if (!stored) throw new Error("missing snapshot");
+    if (
+      stored.status !== "computing" ||
+      stored.computeStartedAt.getTime() !== item.computeStartedAt.getTime()
+    ) {
+      return false;
+    }
     stored.status = "failed";
     stored.leaseExpiresAt = null;
+    return true;
   }
 }
 
@@ -191,7 +226,7 @@ describe("overview precompute", () => {
     expect(aggregate).toHaveBeenCalledTimes(4);
   });
 
-  it("claims at most five in active, pending, unfinalized, version order", async () => {
+  it("claims at most five in pending, active, unfinalized, version order", async () => {
     const store = new MemoryStore([
       snapshot("d-version", "month", "2025-01", {
         finalizedAt: new Date("2025-02-01T00:00:00Z"),
@@ -217,12 +252,43 @@ describe("overview precompute", () => {
     });
 
     expect(store.claimedIds).toEqual([
-      "a-active",
       "b-pending",
+      "a-active",
       "c-unfinalized",
       "d-version",
       "e-version",
     ]);
+  });
+
+  it("moves refreshed active rows behind older due rows so repeated ticks converge", async () => {
+    const activeRows = ["a", "b", "c", "d", "e", "f"].map((id) =>
+      snapshot(id, "month", "2026-07", {
+        userId: `user-${id}`,
+        updatedAt: new Date("2026-07-22T01:00:00.000Z"),
+      })
+    );
+    const store = new MemoryStore(activeRows);
+    const { runner: precompute } = runner(store);
+
+    await precompute.run({ now: NOW });
+    expect(store.claimedIds).toEqual(["a", "b", "c", "d", "e"]);
+
+    await precompute.run({ now: new Date("2026-07-22T03:01:00.000Z") });
+    expect(store.claimedIds[0]).toBe("f");
+  });
+
+  it("seeds users in bounded pages", async () => {
+    const userIds = Array.from(
+      { length: PRECOMPUTE_USER_BATCH_LIMIT + 1 },
+      (_, index) => `user-${String(index).padStart(3, "0")}`
+    );
+    const store = new MemoryStore([], userIds);
+    const { runner: precompute } = runner(store);
+
+    await precompute.run({ now: NOW });
+
+    expect(store.userPageCalls).toBe(2);
+    expect(store.seedBatchSizes).toEqual([PRECOMPUTE_USER_BATCH_LIMIT * 4, 4]);
   });
 
   it("refreshes active periods but leaves finalized current-version periods immutable", async () => {
@@ -308,6 +374,45 @@ describe("overview precompute", () => {
 
     expect(result.recovered).toBe(1);
     expect(expired.status).toBe("ready");
+  });
+
+  it("marks an expired exhausted lease failed instead of reclaiming it", async () => {
+    const exhausted = snapshot("exhausted", "month", "2026-07", {
+      status: "computing",
+      attemptCount: PRECOMPUTE_MAX_ATTEMPTS,
+      leaseExpiresAt: new Date("2026-07-22T02:59:00Z"),
+    });
+    const store = new MemoryStore([exhausted]);
+    const { aggregate, runner: precompute } = runner(store);
+
+    const result = await precompute.run({ now: NOW });
+
+    expect(result).toMatchObject({ recovered: 1, claimed: 0 });
+    expect(exhausted.status).toBe("failed");
+    expect(aggregate).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale worker publish after the row is reclaimed", async () => {
+    let finishAggregate: ((value: PeriodAggregatePayload) => void) | undefined;
+    const aggregateResult = new Promise<PeriodAggregatePayload>((resolve) => {
+      finishAggregate = resolve;
+    });
+    const claimed = snapshot("claimed", "month", "2026-07");
+    const store = new MemoryStore([claimed]);
+    const precompute = createOverviewPrecomputeRunner({
+      store,
+      aggregate: async () => aggregateResult,
+    });
+
+    const running = precompute.run({ now: NOW });
+    await vi.waitFor(() => expect(store.claimedIds).toEqual(["claimed"]));
+    claimed.computeStartedAt = new Date("2026-07-22T03:00:30.000Z");
+    claimed.updatedAt = claimed.computeStartedAt;
+    finishAggregate?.(payload());
+
+    await expect(running).resolves.toMatchObject({ published: 0, failed: 0 });
+    expect(claimed.status).toBe("computing");
+    expect(claimed.publication).toBeUndefined();
   });
 
   it("preserves partial envelopes, maps portfolio to assets, and blocks failed location finalization", async () => {

@@ -20,6 +20,7 @@ import {
 } from "@/modules/overview/hooks";
 import { focusOverviewSection } from "@/modules/overview/section-focus";
 import type { OverviewSnapshotResponse } from "@/modules/overview/service";
+import { shouldShowOverviewFailure } from "@/modules/overview/view-state";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 
 function OverviewResults({
@@ -48,7 +49,7 @@ function OverviewResults({
 
   return (
     <>
-      {snapshot.status === "failed" ? (
+      {shouldShowOverviewFailure(snapshot) ? (
         <ComputingState
           status="failed"
           error="일부 또는 전체 영역 계산에 실패했습니다."
@@ -190,7 +191,7 @@ function OverviewContent() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-mute">
-                Unified dashboard
+                통합 대시보드
               </p>
               <h1 className="mt-1 text-2xl font-bold">내 흐름 한눈에 보기</h1>
             </div>

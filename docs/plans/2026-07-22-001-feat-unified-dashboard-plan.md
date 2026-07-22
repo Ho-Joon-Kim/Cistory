@@ -609,6 +609,53 @@ R18 판정은 아래로 확정한다. 사용 로그가 없으므로 이번 통�
 
 ---
 
+## 배포 전 위치 히트맵 백필 런북
+
+`location_heatmap_daily` 도입 전의 원시 위치 이력은 배포 전에 운영 스크립트로 채운다. 이
+스크립트는 KST 날짜별 원시 포인트가 있지만 롤업 행은 전혀 없는 사용자-날짜만 오래된
+순서로 선택한다. `location_points.lat/lon`은 `NOT NULL`이고 기존 일별 롤업은 모든 원시
+포인트를 반올림된 셀 하나로 그룹화하므로, 정상적인 0셀 완료일을 누락으로 오판하지 않는다.
+성공한 날짜는 후보에서 사라지며 실패 시 해당 날짜는 그대로 남아 다음 실행에서 재개된다.
+첫 실행에는 Yarn이 고정된 `tsx` 실행기를 내려받을 수 있어 네트워크 접근이 필요하다.
+
+```bash
+# 1. 기본은 읽기 전용 미리보기(최대 250 사용자-날짜)
+yarn location:backfill-heatmaps
+
+# 2. 작은 배치로 적용. 한 번에 처리하는 총량과 쿼리 배치를 각각 제한한다.
+yarn location:backfill-heatmaps --apply --limit=250 --batch-size=25
+
+# 선택 범위 제한
+yarn location:backfill-heatmaps --user=<uuid> --from=2025-01-01 --to=2025-12-31
+```
+
+적용 후 아래 읽기 전용 SQL 결과가 0인지 확인한다. 남은 행이 있으면 같은 적용 명령을
+반복한다.
+
+```sql
+WITH raw_days AS (
+  SELECT user_id,
+    (timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date AS date
+  FROM location_points
+  GROUP BY user_id, (timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date
+)
+SELECT count(*) AS missing_user_days
+FROM raw_days
+WHERE NOT EXISTS (
+  SELECT 1 FROM location_heatmap_daily h
+  WHERE h.user_id = raw_days.user_id
+    AND h.date = to_char(raw_days.date, 'YYYY-MM-DD')
+);
+```
+
+롤백이 필요하면 앱 배포를 되돌린 뒤 `location_heatmap_daily`를 삭제하지 말고 그대로 둔다.
+롤업은 원시 데이터에서 재생성 가능한 파생 데이터이고 새 읽기 경로에서만 사용되므로 기존
+화면에는 영향을 주지 않는다. 잘못된 범위가 의심되면 해당 범위의 롤업만 삭제한 뒤 정확한
+`--user`, `--from`, `--to`로 다시 적용한다. 전체 테이블 삭제는 금지하며, 삭제 전에는 같은
+조건의 `SELECT count(*)`로 대상 행 수를 확인한다.
+
+---
+
 ## Open Questions
 
 ### 구현 중 해결

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   abortableDelay,
   adjacentOverviewPeriod,
+  isCurrentOverviewRequest,
   loadNarrativeUntilSettled,
   loadOverviewUntilSettled,
   recomputeResponseJson,
@@ -86,6 +87,14 @@ describe("overview period state", () => {
 });
 
 describe("overview polling controller", () => {
+  it("ignores a manual recompute response after the selected period changes", () => {
+    const oldRequest = { requestKey: "month:2026-06", generation: 1 };
+
+    expect(isCurrentOverviewRequest(oldRequest, "month:2026-07", 2)).toBe(false);
+    expect(isCurrentOverviewRequest(oldRequest, "month:2026-06", 2)).toBe(false);
+    expect(isCurrentOverviewRequest(oldRequest, "month:2026-06", 1)).toBe(true);
+  });
+
   it("enqueues a missing period once and stops when ready", async () => {
     const get = vi
       .fn()
@@ -241,6 +250,41 @@ describe("overview polling controller", () => {
       periodType: "month",
       periodKey: "2026-07",
     });
+  });
+
+  it("returns a successful accepted recompute response", async () => {
+    const response = new Response(
+      JSON.stringify({ status: "pending", periodType: "month", periodKey: "2026-07" }),
+      { status: 202, headers: { "content-type": "application/json" } }
+    );
+
+    await expect(recomputeResponseJson(response, "month", "2026-07")).resolves.toEqual({
+      status: "pending",
+      periodType: "month",
+      periodKey: "2026-07",
+    });
+  });
+
+  it("surfaces an ordinary server error from a recompute response", async () => {
+    const response = new Response(JSON.stringify({ error: "worker unavailable" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
+
+    await expect(recomputeResponseJson(response, "month", "2026-07")).rejects.toThrow(
+      "worker unavailable"
+    );
+  });
+
+  it("uses the fallback message when a recompute error has no message", async () => {
+    const response = new Response(JSON.stringify({}), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+
+    await expect(recomputeResponseJson(response, "month", "2026-07")).rejects.toThrow(
+      "재계산 요청에 실패했습니다"
+    );
   });
 
   it("stops an obsolete period request when aborted", async () => {

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { type PeriodSnapshotStatus, type PeriodType, periodSnapshots, users } from "@/db/schema";
 import { toLocalDateString } from "@/lib/utils";
@@ -10,6 +10,7 @@ import type { PeriodAggregateInput, PeriodAggregatePayload } from "./types";
 export const OVERVIEW_COMPUTE_VERSION = 1;
 export const PRECOMPUTE_CLAIM_LIMIT = 5;
 export const PRECOMPUTE_MAX_ATTEMPTS = 3;
+export const PRECOMPUTE_USER_BATCH_LIMIT = 250;
 const LEASE_DURATION_MS = 10 * 60 * 1000;
 
 export interface PrecomputeSnapshot {
@@ -21,6 +22,7 @@ export interface PrecomputeSnapshot {
   attemptCount: number;
   computeVersion: number;
   finalizedAt: Date | null;
+  computeStartedAt: Date;
 }
 
 export interface ActivePeriodSeed {
@@ -46,8 +48,8 @@ export interface SnapshotPublication {
 }
 
 export interface PrecomputeStore {
-  recoverExpiredLeases(now: Date): Promise<number>;
-  listUserIds(): Promise<string[]>;
+  recoverExpiredLeases(now: Date, maxAttempts: number): Promise<number>;
+  listUserIdsPage(afterUserId: string | null, limit: number): Promise<string[]>;
   seedActivePeriods(seeds: ActivePeriodSeed[], now: Date): Promise<void>;
   claimSnapshots(options: {
     now: Date;
@@ -57,9 +59,9 @@ export interface PrecomputeStore {
     maxAttempts: number;
     limit: number;
   }): Promise<PrecomputeSnapshot[]>;
-  publishSnapshot(snapshot: PrecomputeSnapshot, publication: SnapshotPublication): Promise<void>;
-  releaseSnapshot(snapshot: PrecomputeSnapshot): Promise<void>;
-  failSnapshot(snapshot: PrecomputeSnapshot, error: string, now: Date): Promise<void>;
+  publishSnapshot(snapshot: PrecomputeSnapshot, publication: SnapshotPublication): Promise<boolean>;
+  releaseSnapshot(snapshot: PrecomputeSnapshot): Promise<boolean>;
+  failSnapshot(snapshot: PrecomputeSnapshot, error: string, now: Date): Promise<boolean>;
 }
 
 export interface PrecomputeRunOptions {
@@ -103,15 +105,15 @@ export function getClaimPriority(
   activePeriods: Pick<ActivePeriodSeed, "periodType" | "periodKey">[],
   computeVersion: number
 ): number {
+  if (snapshot.status === "pending") return 0;
   if (
     activePeriods.some(
       (active) =>
         active.periodType === snapshot.periodType && active.periodKey === snapshot.periodKey
     )
   ) {
-    return 0;
+    return 1;
   }
-  if (snapshot.status === "pending") return 1;
   if (snapshot.periodType !== "recent" && snapshot.finalizedAt === null) return 2;
   if (snapshot.computeVersion < computeVersion) return 3;
   return 4;
@@ -152,7 +154,28 @@ export function createOverviewPrecomputeRunner(dependencies: OverviewPrecomputeD
   };
 }
 
-type SnapshotOutcome = "published" | "failed" | "deferred";
+type SnapshotOutcome = "published" | "failed" | "deferred" | "stale";
+
+function createSnapshotPublication(
+  snapshot: PrecomputeSnapshot,
+  payload: PeriodAggregatePayload,
+  now: Date,
+  needsFinalization: boolean
+): SnapshotPublication {
+  const completedLocationFailed = needsFinalization && payload.location.status === "failed";
+  const finalizedAt =
+    snapshot.periodType === "recent"
+      ? null
+      : (snapshot.finalizedAt ?? (needsFinalization && !completedLocationFailed ? now : null));
+  return {
+    status: completedLocationFailed ? "failed" : "ready",
+    payload,
+    computedAt: now,
+    finalizedAt,
+    computeVersion: OVERVIEW_COMPUTE_VERSION,
+    lastError: completedLocationFailed ? "LOCATION_AGGREGATION_FAILED" : null,
+  };
+}
 
 async function processClaimedSnapshot(
   dependencies: OverviewPrecomputeDependencies,
@@ -164,8 +187,7 @@ async function processClaimedSnapshot(
   const needsFinalization =
     snapshot.periodType !== "recent" && !active && snapshot.finalizedAt === null;
   if (needsFinalization && !isCompletedLocationWindow(snapshot, completed)) {
-    await dependencies.store.releaseSnapshot(snapshot);
-    return "deferred";
+    return (await dependencies.store.releaseSnapshot(snapshot)) ? "deferred" : "stale";
   }
 
   try {
@@ -176,26 +198,17 @@ async function processClaimedSnapshot(
       computedAt: now,
       computeVersion: OVERVIEW_COMPUTE_VERSION,
     });
-    const completedLocationFailed = needsFinalization && payload.location.status === "failed";
-    await dependencies.store.publishSnapshot(snapshot, {
-      status: completedLocationFailed ? "failed" : "ready",
-      payload,
-      computedAt: now,
-      finalizedAt:
-        snapshot.periodType === "recent"
-          ? null
-          : (snapshot.finalizedAt ?? (needsFinalization && !completedLocationFailed ? now : null)),
-      computeVersion: OVERVIEW_COMPUTE_VERSION,
-      lastError: completedLocationFailed ? "LOCATION_AGGREGATION_FAILED" : null,
-    });
-    return completedLocationFailed ? "failed" : "published";
+    const publication = createSnapshotPublication(snapshot, payload, now, needsFinalization);
+    const published = await dependencies.store.publishSnapshot(snapshot, publication);
+    if (!published) return "stale";
+    return publication.status === "failed" ? "failed" : "published";
   } catch (error) {
-    await dependencies.store.failSnapshot(
+    const failed = await dependencies.store.failSnapshot(
       snapshot,
       error instanceof Error ? error.message : String(error),
       now
     );
-    return "failed";
+    return failed ? "failed" : "stale";
   }
 }
 
@@ -205,18 +218,27 @@ export async function runPrecomputeTick(
 ): Promise<PrecomputeRunResult> {
   const now = options.now ?? new Date();
   const activePeriods = activePeriodsAt(now);
-  const recovered = await dependencies.store.recoverExpiredLeases(now);
-  const userIds = await dependencies.store.listUserIds();
-  await dependencies.store.seedActivePeriods(
-    userIds.flatMap((userId) =>
-      activePeriods.map((period) => ({
-        userId,
-        ...period,
-        computeVersion: OVERVIEW_COMPUTE_VERSION,
-      }))
-    ),
-    now
-  );
+  const recovered = await dependencies.store.recoverExpiredLeases(now, PRECOMPUTE_MAX_ATTEMPTS);
+  let afterUserId: string | null = null;
+  while (true) {
+    const userIds = await dependencies.store.listUserIdsPage(
+      afterUserId,
+      PRECOMPUTE_USER_BATCH_LIMIT
+    );
+    if (userIds.length === 0) break;
+    await dependencies.store.seedActivePeriods(
+      userIds.flatMap((userId) =>
+        activePeriods.map((period) => ({
+          userId,
+          ...period,
+          computeVersion: OVERVIEW_COMPUTE_VERSION,
+        }))
+      ),
+      now
+    );
+    afterUserId = userIds.at(-1) ?? null;
+    if (userIds.length < PRECOMPUTE_USER_BATCH_LIMIT) break;
+  }
 
   const claimed = await dependencies.store.claimSnapshots({
     now,
@@ -255,12 +277,20 @@ export async function runPrecomputeTick(
 
 export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
   return {
-    async recoverExpiredLeases(now) {
+    async recoverExpiredLeases(now, maxAttempts) {
       const result = await db.execute(sql`
         UPDATE ${periodSnapshots}
-        SET ${periodSnapshots.status} = 'pending',
+        SET ${periodSnapshots.status} = CASE
+            WHEN ${periodSnapshots.attemptCount} >= ${maxAttempts} THEN 'failed'
+            ELSE 'pending'
+          END,
           ${periodSnapshots.computeStartedAt} = NULL,
           ${periodSnapshots.leaseExpiresAt} = NULL,
+          ${periodSnapshots.lastError} = CASE
+            WHEN ${periodSnapshots.attemptCount} >= ${maxAttempts}
+              THEN 'COMPUTE_LEASE_EXPIRED'
+            ELSE ${periodSnapshots.lastError}
+          END,
           ${periodSnapshots.updatedAt} = ${now}
         WHERE ${periodSnapshots.status} = 'computing'
           AND ${periodSnapshots.leaseExpiresAt} <= ${now}
@@ -269,8 +299,11 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
       return resultRows(result).length;
     },
 
-    async listUserIds() {
-      const rows = await db.select({ id: users.id }).from(users);
+    async listUserIdsPage(afterUserId, limit) {
+      const query = db.select({ id: users.id }).from(users);
+      const rows = await (afterUserId ? query.where(gt(users.id, afterUserId)) : query)
+        .orderBy(asc(users.id))
+        .limit(limit);
       return rows.map((user) => user.id);
     },
 
@@ -295,7 +328,7 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
           SELECT ${periodSnapshots.id}
           FROM ${periodSnapshots}
           WHERE ${periodSnapshots.status} <> 'computing'
-            AND (${periodSnapshots.status} <> 'failed' OR ${periodSnapshots.attemptCount} < ${options.maxAttempts})
+            AND ${periodSnapshots.attemptCount} < ${options.maxAttempts}
             AND (
               (${activePredicate})
               OR ${periodSnapshots.status} IN ('pending', 'failed')
@@ -304,13 +337,13 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
             )
           ORDER BY
             CASE
-              WHEN (${activePredicate}) THEN 0
-              WHEN ${periodSnapshots.status} = 'pending' THEN 1
+              WHEN ${periodSnapshots.status} = 'pending' THEN 0
+              WHEN (${activePredicate}) THEN 1
               WHEN ${periodSnapshots.periodType} <> 'recent' AND ${periodSnapshots.finalizedAt} IS NULL THEN 2
               WHEN ${periodSnapshots.computeVersion} < ${options.computeVersion} THEN 3
               ELSE 4
             END,
-            ${periodSnapshots.updatedAt} DESC,
+            ${periodSnapshots.updatedAt} ASC,
             ${periodSnapshots.id}
           FOR UPDATE SKIP LOCKED
           LIMIT ${options.limit}
@@ -329,7 +362,8 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
           ${periodSnapshots.status} AS status,
           ${periodSnapshots.attemptCount} AS "attemptCount",
           ${periodSnapshots.computeVersion} AS "computeVersion",
-          ${periodSnapshots.finalizedAt} AS "finalizedAt"
+          ${periodSnapshots.finalizedAt} AS "finalizedAt",
+          ${periodSnapshots.computeStartedAt} AS "computeStartedAt"
       `);
       return resultRows(result).map((row) => ({
         id: String(row.id),
@@ -340,13 +374,14 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
         attemptCount: Number(row.attemptCount),
         computeVersion: Number(row.computeVersion),
         finalizedAt: row.finalizedAt == null ? null : new Date(row.finalizedAt as string | Date),
+        computeStartedAt: new Date(row.computeStartedAt as string | Date),
       }));
     },
 
     async publishSnapshot(snapshot, publication) {
-      await db.transaction(async (tx) => {
+      return db.transaction(async (tx) => {
         const domains = toSnapshotDomainColumns(publication.payload);
-        await tx
+        const updated = await tx
           .update(periodSnapshots)
           .set({
             status: publication.status,
@@ -359,12 +394,20 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
             computeVersion: publication.computeVersion,
             updatedAt: publication.computedAt,
           })
-          .where(and(eq(periodSnapshots.id, snapshot.id), eq(periodSnapshots.status, "computing")));
+          .where(
+            and(
+              eq(periodSnapshots.id, snapshot.id),
+              eq(periodSnapshots.status, "computing"),
+              eq(periodSnapshots.computeStartedAt, snapshot.computeStartedAt)
+            )
+          )
+          .returning({ id: periodSnapshots.id });
+        return updated.length === 1;
       });
     },
 
     async releaseSnapshot(snapshot) {
-      await db
+      const updated = await db
         .update(periodSnapshots)
         .set({
           status: "pending",
@@ -372,11 +415,19 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
           leaseExpiresAt: null,
           attemptCount: Math.max(0, snapshot.attemptCount - 1),
         })
-        .where(and(eq(periodSnapshots.id, snapshot.id), eq(periodSnapshots.status, "computing")));
+        .where(
+          and(
+            eq(periodSnapshots.id, snapshot.id),
+            eq(periodSnapshots.status, "computing"),
+            eq(periodSnapshots.computeStartedAt, snapshot.computeStartedAt)
+          )
+        )
+        .returning({ id: periodSnapshots.id });
+      return updated.length === 1;
     },
 
     async failSnapshot(snapshot, error, now) {
-      await db
+      const updated = await db
         .update(periodSnapshots)
         .set({
           status: "failed",
@@ -385,7 +436,15 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
           lastError: error.slice(0, 1_000),
           updatedAt: now,
         })
-        .where(and(eq(periodSnapshots.id, snapshot.id), eq(periodSnapshots.status, "computing")));
+        .where(
+          and(
+            eq(periodSnapshots.id, snapshot.id),
+            eq(periodSnapshots.status, "computing"),
+            eq(periodSnapshots.computeStartedAt, snapshot.computeStartedAt)
+          )
+        )
+        .returning({ id: periodSnapshots.id });
+      return updated.length === 1;
     },
   };
 }

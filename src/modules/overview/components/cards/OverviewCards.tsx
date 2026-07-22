@@ -20,6 +20,7 @@ import type {
   SpendingAggregate,
 } from "../../types";
 import { AsOfBadge } from "../AsOfBadge";
+import { formatDuration, formatFallbackLabel, formatTransportMode } from "./format";
 import { overviewCardMetadata } from "./model";
 
 const compact = new Intl.NumberFormat("ko-KR", { notation: "compact", maximumFractionDigits: 1 });
@@ -28,12 +29,6 @@ const currency = new Intl.NumberFormat("ko-KR", {
   currency: "KRW",
   maximumFractionDigits: 0,
 });
-
-function duration(seconds: number) {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.round((seconds % 3600) / 60);
-  return hours > 0 ? `${hours}시간 ${minutes}분` : `${minutes}분`;
-}
 
 function percent(value: number | null) {
   return value == null ? "—" : `${(value * 100).toFixed(1)}%`;
@@ -144,7 +139,7 @@ function CodingCards({ data, periodType }: { data: CodingAggregate; periodType: 
           />
           <RankedList
             title="언어"
-            items={data.languages.map((item) => [item.name, duration(item.seconds)])}
+            items={data.languages.map((item) => [item.name, formatDuration(item.seconds)])}
           />
           <RankedList
             title="커밋 유형"
@@ -165,7 +160,7 @@ function CodingCards({ data, periodType }: { data: CodingAggregate; periodType: 
               key={`${session.date}:${session.project}:${session.durationSeconds}`}
               tone="violet"
             >
-              {session.project ?? "기타"} · {duration(session.durationSeconds)}
+              {session.project ?? "기타"} · {formatDuration(session.durationSeconds)}
             </Pill>
           ))}
         </div>
@@ -208,7 +203,7 @@ function CodingCards({ data, periodType }: { data: CodingAggregate; periodType: 
                   <div className="flex flex-wrap gap-1">
                     {quarter.languages.map((language) => (
                       <Pill key={`${quarter.quarter}:${language.name}`} tone="green">
-                        {language.name} · {duration(language.seconds)}
+                        {language.name} · {formatDuration(language.seconds)}
                       </Pill>
                     ))}
                   </div>
@@ -220,8 +215,8 @@ function CodingCards({ data, periodType }: { data: CodingAggregate; periodType: 
                 <li key={project.name}>
                   <p className="text-sm font-medium">{project.name}</p>
                   <p className="text-xs text-ink-mute">
-                    {project.firstCommit.slice(0, 10)} – {project.lastCommit.slice(0, 10)} ·{" "}
-                    {project.totalCommits} commits
+                    {project.firstCommit.slice(0, 10)} – {project.lastCommit.slice(0, 10)} · 커밋{" "}
+                    {project.totalCommits}개
                   </p>
                 </li>
               ))}
@@ -243,7 +238,7 @@ function RankedList({ title, items }: { title: string; items: Array<[string, str
       <ol className="space-y-1.5">
         {items.slice(0, 6).map(([label, value]) => (
           <li key={label} className="flex items-center justify-between gap-2 text-xs">
-            <span className="truncate">{label}</span>
+            <span className="truncate">{formatFallbackLabel(label)}</span>
             <span className="tabular-mono text-ink-dim">{value}</span>
           </li>
         ))}
@@ -267,7 +262,7 @@ function LocationCards({ data, periodType }: { data: LocationAggregate; periodTy
           title="오래 머문 장소"
           items={derived.visits.places.map((place) => [
             place.placeName,
-            duration(place.durationSeconds),
+            formatDuration(place.durationSeconds),
           ])}
         />
         {data.heatmap.length > 0 ? (
@@ -299,12 +294,12 @@ function LocationCards({ data, periodType }: { data: LocationAggregate; periodTy
         <div className="flex flex-wrap gap-2">
           {derived.transportModes.map((mode) => (
             <Pill key={mode.mode} tone="blue">
-              {mode.mode} · {mode.sharePercent.toFixed(0)}%
+              {formatTransportMode(mode.mode)} · {mode.sharePercent.toFixed(0)}%
             </Pill>
           ))}
           {derived.subway.lines.map((line) => (
             <Pill key={`${line.ref}:${line.name}`} tone="violet">
-              {line.ref ?? line.name} · {line.tripCount}회
+              {formatFallbackLabel(line.ref ?? line.name)} · {line.tripCount}회
             </Pill>
           ))}
         </div>
@@ -321,14 +316,16 @@ function LocationCards({ data, periodType }: { data: LocationAggregate; periodTy
                 className="rounded-lg border border-hairline p-3"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium">{trip.name}</span>
+                  <span className="text-sm font-medium">{formatFallbackLabel(trip.name)}</span>
                   {trip.isOverseas ? <Pill tone="violet">해외</Pill> : <Pill>국내</Pill>}
                 </div>
                 <p className="mt-1 text-xs text-ink-mute">
                   {trip.startDate} – {trip.endDate}
                 </p>
                 <p className="mt-1 text-xs">
-                  {[...trip.visitedCities, ...trip.visitedCountries].join(" · ")}
+                  {[...trip.visitedCities, ...trip.visitedCountries]
+                    .map(formatFallbackLabel)
+                    .join(" · ")}
                 </p>
               </li>
             ))}
@@ -341,7 +338,7 @@ function LocationCards({ data, periodType }: { data: LocationAggregate; periodTy
           title="커밋과 코딩 세션이 겹친 장소"
           items={derived.placeProductivity.map((place) => [
             place.placeName,
-            `${place.productivityScore}점 · ${place.commitCount} commits`,
+            `${place.productivityScore}점 · 커밋 ${place.commitCount}개`,
           ])}
         />
       </InsightCard>
@@ -359,8 +356,8 @@ function LocationCards({ data, periodType }: { data: LocationAggregate; periodTy
                     key={`${region.countryName}:${region.city}`}
                     tone={region.isFirstVisit ? "orange" : "neutral"}
                   >
-                    {region.city}
-                    {region.countryName ? ` · ${region.countryName}` : ""}
+                    {formatFallbackLabel(region.city)}
+                    {region.countryName ? ` · ${formatFallbackLabel(region.countryName)}` : ""}
                     {region.isFirstVisit ? ` · 첫 방문 ${region.firstVisitDate}` : ""}
                   </Pill>
                 ))}
@@ -403,7 +400,7 @@ function RegionPlot({ regions }: { regions: LocationAggregate["derived"]["visite
           }
         >
           <title>
-            {region.city} · {region.firstVisitDate}
+            {formatFallbackLabel(region.city)} · {region.firstVisitDate}
           </title>
         </circle>
       ))}

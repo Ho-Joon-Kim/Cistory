@@ -8,6 +8,7 @@ import {
   aggregatePeriodHeatmap,
   type LocationQueryExecutor,
   type LocationReadExecutor,
+  PERIOD_HEATMAP_CELL_LIMIT,
   rebuildDailyLocationHeatmap,
 } from "./location";
 
@@ -249,6 +250,22 @@ describe("location heatmap rollups", () => {
     expect(statement.sql).not.toContain("location_points");
     expect(statement.params).toContain("2026-07-20");
     expect(statement.params).toContain("2026-07-27");
+    expect(statement.params).toContain(PERIOD_HEATMAP_CELL_LIMIT);
+    expect(statement.sql).toMatch(/ORDER BY weight DESC, lat ASC, lon ASC\s+LIMIT/i);
+  });
+
+  it("caps the heatmap payload at the cells rendered by the overview", async () => {
+    const rows = Array.from({ length: PERIOD_HEATMAP_CELL_LIMIT + 1 }, (_, index) => ({
+      lat: 37.5 + index / 1000,
+      lon: 127.03 + index / 1000,
+      weight: PERIOD_HEATMAP_CELL_LIMIT + 1 - index,
+    }));
+    const { executor } = createReadExecutor([rows]);
+
+    const result = await aggregatePeriodHeatmap(executor, range);
+
+    expect(result).toHaveLength(PERIOD_HEATMAP_CELL_LIMIT);
+    expect(result.at(-1)?.weight).toBe(2);
   });
 
   it("delete-and-rebuilds one KST day on every run, preventing duplicate grids", async () => {
@@ -265,9 +282,12 @@ describe("location heatmap rollups", () => {
       expect(deletion.sql).toMatch(/delete from .*location_heatmap_daily/i);
       expect(insertion.sql).toMatch(/insert into .*location_heatmap_daily/i);
       expect(insertion.sql).toContain("location_points");
-      expect(insertion.sql).toContain("Asia/Seoul");
+      expect(insertion.sql).toMatch(/timestamp[\s\S]*>=[\s\S]*timestamp[\s\S]*</i);
+      expect(insertion.sql).not.toContain("at time zone");
       expect(deletion.params).toContain("2026-07-22");
       expect(insertion.params).toContain("2026-07-22");
+      expect(insertion.params).toContainEqual(new Date("2026-07-21T15:00:00.000Z"));
+      expect(insertion.params).toContainEqual(new Date("2026-07-22T15:00:00.000Z"));
     }
   });
 

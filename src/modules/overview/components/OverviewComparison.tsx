@@ -147,7 +147,7 @@ export function OverviewComparison({
           onNext={() => onYearsChange(String(Number(year1) + 1), year2)}
           nextDisabled={Number(year1) + 1 >= Number(year2)}
         />
-        <span className="font-medium text-muted-foreground">vs</span>
+        <span className="font-medium text-muted-foreground">대</span>
         <YearControl
           year={year2}
           label="두 번째"

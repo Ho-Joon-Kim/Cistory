@@ -11,9 +11,10 @@ import {
   trips,
   visits,
 } from "@/db/schema";
-import { localDaySql } from "@/db/sql";
 import { safeJsonParse, toLocalDateString } from "@/lib/utils";
 import { finiteNumber as numberValue, resultRows as rowsFrom } from "./query-values";
+
+export const PERIOD_HEATMAP_CELL_LIMIT = 40;
 
 export interface LocationReadExecutor {
   execute(query: SQL): Promise<unknown>;
@@ -412,16 +413,19 @@ export async function aggregatePeriodHeatmap(
       AND ${locationHeatmapDaily.date} < ${toDateExclusive}
     GROUP BY ${locationHeatmapDaily.lat}, ${locationHeatmapDaily.lon}
     ORDER BY weight DESC, lat ASC, lon ASC
+    LIMIT ${PERIOD_HEATMAP_CELL_LIMIT}
   `);
 
-  return rowsFrom(result).map((raw) => {
-    const row = raw as Record<string, unknown>;
-    return {
-      lat: numberValue(row.lat),
-      lon: numberValue(row.lon),
-      weight: numberValue(row.weight),
-    };
-  });
+  return rowsFrom(result)
+    .slice(0, PERIOD_HEATMAP_CELL_LIMIT)
+    .map((raw) => {
+      const row = raw as Record<string, unknown>;
+      return {
+        lat: numberValue(row.lat),
+        lon: numberValue(row.lon),
+        weight: numberValue(row.weight),
+      };
+    });
 }
 
 /**
@@ -435,6 +439,8 @@ export async function rebuildDailyLocationHeatmap(
   calculatedAt = new Date()
 ): Promise<void> {
   assertLocalDate(date);
+  const dayStart = new Date(`${date}T00:00:00+09:00`);
+  const nextDayStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
   await executor.transaction(async (tx) => {
     await tx.execute(sql`
@@ -460,7 +466,8 @@ export async function rebuildDailyLocationHeatmap(
         ${calculatedAt}
       FROM ${locationPoints}
       WHERE ${locationPoints.userId} = ${userId}
-        AND ${localDaySql(locationPoints.timestamp)} = ${date}::date
+        AND ${locationPoints.timestamp} >= ${dayStart}
+        AND ${locationPoints.timestamp} < ${nextDayStart}
       GROUP BY
         ROUND(${locationPoints.lat}::numeric, 3),
         ROUND(${locationPoints.lon}::numeric, 3)

@@ -8,6 +8,7 @@ import type { ApiError } from "@/lib/api-handler";
 import {
   createDatabaseOverviewStore,
   createOverviewService,
+  hasFailedOverviewDomains,
   OVERVIEW_OUTSTANDING_LIMIT,
   OVERVIEW_RETENTION_PERIODS,
   type OverviewStore,
@@ -87,6 +88,33 @@ describe("overview service", () => {
       computedAt: updatedAt.toISOString(),
       domains: { coding },
     });
+  });
+
+  it("detects retryable partial failures in otherwise ready snapshots", () => {
+    expect(
+      hasFailedOverviewDomains({
+        coding: {
+          data: null,
+          status: "failed",
+          computedAt: NOW.toISOString(),
+          computeVersion: 1,
+          errorCode: "CODING_AGGREGATION_FAILED",
+        },
+        location: null,
+        health: null,
+        spending: null,
+        portfolio: null,
+      })
+    ).toBe(true);
+    expect(
+      hasFailedOverviewDomains({
+        coding: null,
+        location: null,
+        health: null,
+        spending: null,
+        portfolio: null,
+      })
+    ).toBe(false);
   });
 
   it.each([
