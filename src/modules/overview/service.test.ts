@@ -63,7 +63,7 @@ describe("overview service", () => {
       computedAt: "2026-07-22T01:59:00.000Z",
       computeVersion: 1,
       errorCode: null,
-    };
+    } as never;
     const repository = store({
       findSnapshot: vi.fn(async () => ({
         status: "ready",

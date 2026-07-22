@@ -90,6 +90,10 @@ describe("aggregateDerivedLocation", () => {
       },
       tracks: { count: 2, distanceMeters: 12_500, durationSeconds: 1_800 },
       transportModes: expect.any(Array),
+      subway: { tripCount: 0, sessionCount: 0, lines: [] },
+      trips: [],
+      visitedRegions: [],
+      placeProductivity: [],
     });
     expect(result.transportModes[0]).toMatchObject({
       mode: "walking",
@@ -123,6 +127,10 @@ describe("aggregateDerivedLocation", () => {
       visits: { count: 0, durationSeconds: 0, uniquePlaceCount: 0, places: [] },
       tracks: { count: 0, distanceMeters: 0, durationSeconds: 0 },
       transportModes: [],
+      subway: { tripCount: 0, sessionCount: 0, lines: [] },
+      trips: [],
+      visitedRegions: [],
+      placeProductivity: [],
     });
   });
 
@@ -145,6 +153,69 @@ describe("aggregateDerivedLocation", () => {
         sharePercent: 100,
       },
     ]);
+  });
+
+  it("adds bounded subway, trip, first-visit, and place-productivity data from derived tables", async () => {
+    const firstVisit = new Date("2026-07-20T01:00:00.000Z");
+    const { executor, queries } = createReadExecutor([
+      [],
+      [],
+      [],
+      [
+        {
+          name: "Line 2",
+          ref: "2",
+          tripCount: 2,
+          totalTripCount: 2,
+          totalSessionCount: 1,
+        },
+      ],
+      [
+        {
+          name: "Busan",
+          startDate: "2026-07-20",
+          endDate: "2026-07-22",
+          isOverseas: false,
+          visitedCities: '["Busan"]',
+          visitedCountries: '["South Korea"]',
+        },
+      ],
+      [
+        {
+          city: "Busan",
+          countryName: "South Korea",
+          centerLat: 35.18,
+          centerLon: 129.07,
+          firstVisit,
+          isFirstVisit: true,
+        },
+      ],
+      [{ placeName: "Office", commitCount: 3, codingSeconds: 7200 }],
+    ]);
+
+    const result = await aggregateDerivedLocation(executor, range);
+
+    expect(result.subway).toEqual({
+      tripCount: 2,
+      sessionCount: 1,
+      lines: [{ name: "Line 2", ref: "2", tripCount: 2 }],
+    });
+    expect(result.trips[0]).toMatchObject({ name: "Busan", visitedCities: ["Busan"] });
+    expect(result.visitedRegions[0]).toMatchObject({ city: "Busan", isFirstVisit: true });
+    expect(result.placeProductivity[0]).toEqual({
+      placeName: "Office",
+      commitCount: 3,
+      codingSeconds: 7200,
+      productivityScore: 40,
+    });
+
+    const statements = queries.map((query) => compiled(query).sql).join("\n");
+    expect(statements).toContain("subway_trip_matches");
+    expect(statements).toContain("trips");
+    expect(statements).toContain("commits");
+    expect(statements).toContain("coding_sessions");
+    expect(statements).toContain("LIMIT 5");
+    expect(statements).not.toContain("location_points");
   });
 
   it("filters visits by their start time using KST period boundaries", async () => {

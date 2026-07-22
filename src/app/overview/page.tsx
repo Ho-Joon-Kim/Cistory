@@ -5,10 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Header } from "@/components/Layout/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { PeriodDomainEnvelope } from "@/db/schema";
 import { useAuth } from "@/modules/auth/hooks";
 import { AsOfBadge } from "@/modules/overview/components/AsOfBadge";
 import { ComputingState } from "@/modules/overview/components/ComputingState";
+import { OverviewCards } from "@/modules/overview/components/cards/OverviewCards";
 import { PeriodSwitcher } from "@/modules/overview/components/PeriodSwitcher";
 import {
   type OverviewPeriodSelection,
@@ -18,46 +18,6 @@ import {
 } from "@/modules/overview/hooks";
 import type { OverviewSnapshotResponse } from "@/modules/overview/service";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
-
-const domainLabels = {
-  coding: "코딩",
-  location: "이동과 장소",
-  health: "건강",
-  spending: "소비",
-  portfolio: "자산",
-} as const;
-
-function DomainSection({
-  domain,
-  envelope,
-}: {
-  domain: keyof typeof domainLabels;
-  envelope: PeriodDomainEnvelope | null;
-}) {
-  return (
-    <section
-      id={`overview-${domain}`}
-      data-overview-slot={domain}
-      aria-labelledby={`${domain}-title`}
-    >
-      <Card className="h-full">
-        <CardHeader className="flex-row items-start justify-between gap-3">
-          <CardTitle id={`${domain}-title`} className="text-base">
-            {domainLabels[domain]}
-          </CardTitle>
-          <AsOfBadge computedAt={envelope?.computedAt} />
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          {!envelope
-            ? "이 기간에 표시할 데이터가 없습니다."
-            : envelope.status === "failed"
-              ? "이 영역의 요약을 계산하지 못했습니다."
-              : "요약 데이터가 준비되었습니다. 상세 카드는 다음 단계에서 이 영역에 표시됩니다."}
-        </CardContent>
-      </Card>
-    </section>
-  );
-}
 
 function OverviewResults({
   snapshot,
@@ -92,11 +52,7 @@ function OverviewResults({
           onRecompute={() => void recompute()}
         />
       ) : null}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {(Object.keys(domainLabels) as Array<keyof typeof domainLabels>).map((domain) => (
-          <DomainSection key={domain} domain={domain} envelope={snapshot.domains[domain]} />
-        ))}
-      </div>
+      <OverviewCards payload={snapshot.domains} periodType={snapshot.periodType} />
       {showNarrative && narrative?.content ? (
         <section data-overview-slot="narrative" aria-labelledby="narrative-title">
           <Card>

@@ -8,6 +8,13 @@ import {
 } from "@/db/schema";
 import { ApiError } from "@/lib/api-handler";
 import { getPeriodKey, getPeriodRange, periodTypes } from "./period";
+import type {
+  CodingAggregate,
+  HealthAggregate,
+  LocationAggregate,
+  PortfolioAggregate,
+  SpendingAggregate,
+} from "./types";
 
 export const OVERVIEW_RETENTION_PERIODS = {
   recent: 45,
@@ -18,14 +25,22 @@ export const OVERVIEW_RETENTION_PERIODS = {
 
 export const OVERVIEW_OUTSTANDING_LIMIT = 5;
 
+export interface OverviewSnapshotDomains {
+  coding: PeriodDomainEnvelope<CodingAggregate> | null;
+  location: PeriodDomainEnvelope<LocationAggregate> | null;
+  health: PeriodDomainEnvelope<HealthAggregate> | null;
+  spending: PeriodDomainEnvelope<SpendingAggregate> | null;
+  portfolio: PeriodDomainEnvelope<PortfolioAggregate> | null;
+}
+
 export interface OverviewStoredSnapshot {
   status: PeriodSnapshotStatus;
   updatedAt: Date;
-  coding: PeriodDomainEnvelope | null;
-  location: PeriodDomainEnvelope | null;
-  health: PeriodDomainEnvelope | null;
-  spending: PeriodDomainEnvelope | null;
-  assets: PeriodDomainEnvelope | null;
+  coding: OverviewSnapshotDomains["coding"];
+  location: OverviewSnapshotDomains["location"];
+  health: OverviewSnapshotDomains["health"];
+  spending: OverviewSnapshotDomains["spending"];
+  assets: OverviewSnapshotDomains["portfolio"];
 }
 
 export type EnqueueSnapshotOutcome = "pending" | "computing" | "limit";
@@ -53,13 +68,7 @@ export type OverviewSnapshotResponse =
       periodType: PeriodType;
       periodKey: string;
       computedAt: string;
-      domains: {
-        coding: PeriodDomainEnvelope | null;
-        location: PeriodDomainEnvelope | null;
-        health: PeriodDomainEnvelope | null;
-        spending: PeriodDomainEnvelope | null;
-        portfolio: PeriodDomainEnvelope | null;
-      };
+      domains: OverviewSnapshotDomains;
     };
 
 function parseCanonicalPeriod(periodType: string, periodKey: string): PeriodType {
@@ -193,7 +202,15 @@ export function createDatabaseOverviewStore(db: Database): OverviewStore {
           )
         )
         .limit(1);
-      return snapshot ?? null;
+      if (!snapshot) return null;
+      return {
+        ...snapshot,
+        coding: snapshot.coding as OverviewSnapshotDomains["coding"],
+        location: snapshot.location as OverviewSnapshotDomains["location"],
+        health: snapshot.health as OverviewSnapshotDomains["health"],
+        spending: snapshot.spending as OverviewSnapshotDomains["spending"],
+        assets: snapshot.assets as OverviewSnapshotDomains["portfolio"],
+      };
     },
 
     async enqueueSnapshot({ userId, periodType, periodKey, now, outstandingLimit }) {
