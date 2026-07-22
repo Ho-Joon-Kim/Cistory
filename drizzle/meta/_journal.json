@@ -218,6 +218,13 @@
       "when": 1784703177848,
       "tag": "0030_safe_rocket_racer",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1784703569454,
+      "tag": "0031_flashy_husk",
+      "breakpoints": true
     }
   ]
 }

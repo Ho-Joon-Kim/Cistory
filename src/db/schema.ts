@@ -194,6 +194,31 @@ export const dailyDistances = pgTable(
   (table) => [uniqueIndex("idx_daily_distance_user_date").on(table.userId, table.date)]
 );
 
+// ============ Daily Location Heatmap Rollups ============
+export const locationHeatmapDaily = pgTable(
+  "location_heatmap_daily",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(), // KST calendar day, "YYYY-MM-DD"
+    lat: doublePrecision("lat").notNull(), // Rounded to 3 decimal places
+    lon: doublePrecision("lon").notNull(), // Rounded to 3 decimal places
+    count: integer("count").notNull(),
+    calculatedAt: timestamp("calculated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_location_heatmap_daily_grid").on(
+      table.userId,
+      table.date,
+      table.lat,
+      table.lon
+    ),
+    index("idx_location_heatmap_daily_user_date").on(table.userId, table.date),
+  ]
+);
+
 // ============ Coding Sessions (WakaTime) ============
 export const codingSessions = pgTable(
   "coding_sessions",
