@@ -12,6 +12,7 @@ import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
 import { createHealthSyncService } from "@/modules/health/service";
+import { type LocationCompletedWindow, runOverviewPrecompute } from "@/modules/overview/precompute";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
 import { createExpenseCategoryService } from "@/modules/spending/category-classifier";
 import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/subway/service";
@@ -26,6 +27,7 @@ let dailyReparseTask: cron.ScheduledTask | null = null;
 let spendingCategoryTask: cron.ScheduledTask | null = null;
 let locationProcessingTask: cron.ScheduledTask | null = null;
 let locationCatchUpTask: cron.ScheduledTask | null = null;
+let overviewPrecomputeTask: cron.ScheduledTask | null = null;
 let subwayRefreshTask: cron.ScheduledTask | null = null;
 let tripDetectionTask: cron.ScheduledTask | null = null;
 let isSubwayRefreshRunning = false;
@@ -33,6 +35,21 @@ let isLocationProcessingRunning = false;
 let isTripDetectionRunning = false;
 let isSyncAllRunning = false;
 let isSpendingCategoryRunning = false;
+
+/**
+ * U5 can pass the location pipeline's completed-through watermarks here once
+ * that pipeline exposes them. Without a completed window, active periods are
+ * refreshed but ended periods are deliberately not finalized.
+ */
+export async function precomputeOverviewSnapshots(
+  completedLocationWindows: LocationCompletedWindow[] = []
+) {
+  const result = await runOverviewPrecompute(getDb(), { completedLocationWindows });
+  if (!result.skipped && (result.published > 0 || result.failed > 0)) {
+    logger.info("[Cron] Overview precompute completed", result);
+  }
+  return result;
+}
 
 export async function categorizePendingSpending(): Promise<void> {
   if (isSpendingCategoryRunning || !process.env.ANTHROPIC_API_KEY) return;
@@ -848,6 +865,22 @@ export function initializeCron() {
     { timezone: TZ, name: "location-catchup" }
   );
 
+  // Run after the hourly location catch-up. Finalization remains gated on the
+  // explicit completed-through windows that U5 will return; this tick safely
+  // refreshes active periods even before that integration is connected.
+  const OVERVIEW_PRECOMPUTE_SCHEDULE = "25 * * * *";
+  overviewPrecomputeTask = cron.schedule(
+    OVERVIEW_PRECOMPUTE_SCHEDULE,
+    () => {
+      precomputeOverviewSnapshots().catch((error) => {
+        logger.error("[Cron] Unhandled error in overview precompute", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    { timezone: TZ, name: "overview-precompute" }
+  );
+
   // Yearly subway data refresh — Jan 1, 03:00 KST. OSM subway data is near-static
   // (new lines/stations open occasionally; line colors and geometry rarely
   // change). The boot catch-up below also re-fetches anything older than 350
@@ -976,6 +1009,10 @@ export async function stopCron() {
   if (locationCatchUpTask) {
     locationCatchUpTask.stop();
     locationCatchUpTask = null;
+  }
+  if (overviewPrecomputeTask) {
+    overviewPrecomputeTask.stop();
+    overviewPrecomputeTask = null;
   }
   if (subwayRefreshTask) {
     subwayRefreshTask.stop();
