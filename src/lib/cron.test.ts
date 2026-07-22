@@ -135,6 +135,7 @@ vi.mock("@/modules/transaction/reparse-service", () => ({
 }));
 
 import {
+  createBootCatchUpJobs,
   generateOverviewNarratives,
   processYesterdayLocations,
   reparseTodayNotifications,
@@ -270,10 +271,21 @@ describe("runTripDetection", () => {
 });
 
 describe("runBootCatchUp", () => {
-  it("runs location before trip detection and continues after an earlier failure", async () => {
+  it("wires overview precompute into the production boot jobs", async () => {
+    await createBootCatchUpJobs().overview();
+
+    expect(m.runOverviewPrecompute).toHaveBeenCalledWith(expect.anything(), {
+      completedLocationWindows: [],
+    });
+  });
+
+  it("runs an overview batch before slower catch-up jobs and continues after a failure", async () => {
     const calls: string[] = [];
 
     await runBootCatchUp({
+      overview: async () => {
+        calls.push("overview");
+      },
       sync: async () => {
         calls.push("sync");
         throw new Error("sync failed");
@@ -292,7 +304,7 @@ describe("runBootCatchUp", () => {
       },
     });
 
-    expect(calls).toEqual(["sync", "spending", "location", "trips", "subway"]);
+    expect(calls).toEqual(["overview", "sync", "spending", "location", "trips", "subway"]);
   });
 });
 
