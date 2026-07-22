@@ -34,6 +34,7 @@ const m = vi.hoisted(() => ({
   // db state, set per-test
   dbUsers: [] as Record<string, unknown>[],
   dbExecRows: [] as Record<string, unknown>[],
+  dbExecRowBatches: [] as Record<string, unknown>[][],
 }));
 
 vi.mock("@/db", async (importOriginal) => {
@@ -43,7 +44,7 @@ vi.mock("@/db", async (importOriginal) => {
     getDb: () => ({
       select: () => ({ from: () => ({ where: () => Promise.resolve(m.dbUsers) }) }),
       delete: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }),
-      execute: () => Promise.resolve({ rows: m.dbExecRows }),
+      execute: () => Promise.resolve({ rows: m.dbExecRowBatches.shift() ?? m.dbExecRows }),
     }),
   };
 });
@@ -138,6 +139,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.dbUsers = [];
   m.dbExecRows = [];
+  m.dbExecRowBatches = [];
   m.getGitHubToken.mockResolvedValue("gh-token");
   m.processPendingSummaries.mockResolvedValue(0);
   m.hasActiveAccounts.mockResolvedValue(false);
@@ -203,6 +205,36 @@ describe("runTripDetection", () => {
     expect(m.detectAndPersistTrips).toHaveBeenCalledOnce();
     release?.();
     await first;
+  });
+
+  it("keeps a long ongoing auto trip whole across consecutive runs", async () => {
+    m.dbUsers = [{ id: "u1", tripDetectionLastThrough: "2026-06-30" }];
+    m.dbExecRowBatches = [
+      [{ start_date: "2026-06-24" }],
+      [{ start_date: "2026-06-20" }],
+      [],
+      [{ start_date: "2026-06-20" }],
+      [],
+    ];
+
+    await runTripDetection("first-week");
+    m.dbUsers = [{ id: "u1", tripDetectionLastThrough: "2026-07-07" }];
+    await runTripDetection("second-week");
+
+    expect(m.detectAndPersistTrips).toHaveBeenNthCalledWith(
+      1,
+      "u1",
+      "2026-06-20",
+      DATE_STR,
+      expect.objectContaining({ watermarkThrough: expect.any(String) })
+    );
+    expect(m.detectAndPersistTrips).toHaveBeenNthCalledWith(
+      2,
+      "u1",
+      "2026-06-20",
+      DATE_STR,
+      expect.objectContaining({ watermarkThrough: expect.any(String) })
+    );
   });
 });
 

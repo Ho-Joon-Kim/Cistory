@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { TripDetectDialog } from "@/modules/location/components/TripDetectDialog";
-import { useTripDetection } from "@/modules/location/hooks";
+import { TripConfirmationError, useTripDetection } from "@/modules/location/hooks";
+
+export function getTripConfirmationErrorMessage(error: unknown): string {
+  if (error instanceof TripConfirmationError && error.code === "STALE_DETECTION") {
+    return "여행 후보가 만료되었습니다. 취소한 뒤 여행을 다시 감지해 주세요.";
+  }
+  return error instanceof Error ? error.message : "여행 저장에 실패했습니다";
+}
 
 function TripRegenerationSection() {
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -91,6 +98,7 @@ function TripRegenerationSection() {
 export function TripDetectionCard() {
   const { detected, isDetecting, isSaving, detect, confirmTrips } = useTripDetection();
   const [showDialog, setShowDialog] = useState(false);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
 
   const currentYear = new Date().getFullYear();
   const [reclassifyFrom, setReclassifyFrom] = useState(`${currentYear}-01-01`);
@@ -102,6 +110,7 @@ export function TripDetectionCard() {
   } | null>(null);
 
   const handleDetect = async () => {
+    setConfirmationError(null);
     const from = `${currentYear}-01-01`;
     const to = `${currentYear}-12-31`;
     const results = await detect(from, to);
@@ -113,11 +122,18 @@ export function TripDetectionCard() {
   };
 
   const handleConfirm = async (trips: typeof detected) => {
-    const saved = await confirmTrips(trips);
-    if (saved > 0) {
-      toast.success(`${saved}건의 여행이 저장되었습니다`);
+    setConfirmationError(null);
+    try {
+      const saved = await confirmTrips(trips);
+      if (saved > 0) {
+        toast.success(`${saved}건의 여행이 저장되었습니다`);
+      }
+      setShowDialog(false);
+    } catch (error) {
+      const message = getTripConfirmationErrorMessage(error);
+      setConfirmationError(message);
+      toast.error(message);
     }
-    setShowDialog(false);
   };
 
   const handleReclassify = async () => {
@@ -185,12 +201,22 @@ export function TripDetectionCard() {
             </Button>
           </>
         ) : (
-          <TripDetectDialog
-            trips={detected}
-            isSaving={isSaving}
-            onConfirm={handleConfirm}
-            onCancel={() => setShowDialog(false)}
-          />
+          <div className="space-y-3">
+            <TripDetectDialog
+              trips={detected}
+              isSaving={isSaving}
+              onConfirm={handleConfirm}
+              onCancel={() => {
+                setConfirmationError(null);
+                setShowDialog(false);
+              }}
+            />
+            {confirmationError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {confirmationError}
+              </p>
+            ) : null}
+          </div>
         )}
 
         <TripRegenerationSection />

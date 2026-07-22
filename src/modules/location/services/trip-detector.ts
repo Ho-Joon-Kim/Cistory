@@ -13,11 +13,12 @@
  * - Name generated from coordinate-derived countries or allow-listed domestic regions
  */
 
-import { and, asc, desc, eq, gt, gte, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt } from "drizzle-orm";
 import { getDb, savedPlaces, tracks, visits } from "@/db";
 import { isInKorea } from "@/lib/adapters/geocoding";
 import { shiftDateKey } from "@/lib/date-key";
 import { distanceM } from "@/lib/geo";
+import { resolveTripHomeLocation, TRIP_HOME_DISTANCE_THRESHOLD_M } from "./trip-home";
 import { createTripName } from "./trip-naming";
 import {
   createTripExclusionRevision,
@@ -28,9 +29,10 @@ import {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const HOME_DISTANCE_THRESHOLD_M = 100_000;
 const DEFAULT_TRIP_EXCLUSION_RADIUS_M = 10_000;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const TRIP_DATA_HORIZON = "2025-03-08";
+const TRIP_DATE_RANGE_FUTURE_HEADROOM_DAYS = 366;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,11 +59,6 @@ interface SavedPlaceLocation {
   updatedAt: Date;
 }
 
-interface Location {
-  lat: number;
-  lon: number;
-}
-
 async function getSavedPlaceLocations(userId: string): Promise<SavedPlaceLocation[]> {
   const db = getDb();
   return db
@@ -77,50 +74,6 @@ async function getSavedPlaceLocations(userId: string): Promise<SavedPlaceLocatio
     })
     .from(savedPlaces)
     .where(eq(savedPlaces.userId, userId));
-}
-
-async function getHomeLocation(
-  userId: string,
-  places: SavedPlaceLocation[]
-): Promise<Location | null> {
-  const db = getDb();
-
-  const homePlace = places.find((place) => isHomeLabel(place.category) || isHomeLabel(place.name));
-
-  if (homePlace) return { lat: homePlace.lat, lon: homePlace.lon };
-
-  // 2. Fallback: most-visited location in last 90 days by total duration
-  const ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
-  const [topVisit] = await db
-    .select({
-      lat: visits.centerLat,
-      lon: visits.centerLon,
-      totalDuration: sql<number>`sum(${visits.durationSeconds})`,
-    })
-    .from(visits)
-    .where(and(eq(visits.userId, userId), gte(visits.startTime, ninetyDaysAgo)))
-    .groupBy(
-      sql`round(${visits.centerLat}::numeric, 3)`,
-      sql`round(${visits.centerLon}::numeric, 3)`,
-      visits.centerLat,
-      visits.centerLon
-    )
-    .orderBy(desc(sql`sum(${visits.durationSeconds})`))
-    .limit(1);
-
-  if (topVisit && Number.isFinite(topVisit.lat) && Number.isFinite(topVisit.lon)) {
-    return { lat: topVisit.lat, lon: topVisit.lon };
-  }
-
-  return null;
-}
-
-function isHomeLabel(value: string | null): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLocaleLowerCase("en-US");
-  return normalized === "home" || normalized === "집";
 }
 
 // ── Trip Detection ───────────────────────────────────────────────────────────
@@ -147,7 +100,7 @@ export async function detectTripsSnapshot(
 
   const placeLocations = await getSavedPlaceLocations(userId);
   const exclusionRevision = createTripExclusionRevision(placeLocations);
-  const home = await getHomeLocation(userId, placeLocations);
+  const home = await resolveTripHomeLocation(userId, placeLocations);
   if (!home) return { trips: [], exclusionRevision }; // Can't determine home → can't detect trips
 
   const excludedPlaces = placeLocations.filter((place) => place.excludeFromTrips);
@@ -283,14 +236,15 @@ function sumOverlappingTrackDistance(
 function classifyDay(
   date: string,
   dayVisits: VisitRow[],
-  home: Location,
+  home: { lat: number; lon: number },
   excludedPlaces: SavedPlaceLocation[]
 ): ClassifiedDay {
   if (dayVisits.length === 0) return { date, kind: "unknown", destinationVisits: [] };
 
   const farVisits = dayVisits.filter(
     (visit) =>
-      distanceM(home.lat, home.lon, visit.centerLat, visit.centerLon) > HOME_DISTANCE_THRESHOLD_M
+      distanceM(home.lat, home.lon, visit.centerLat, visit.centerLon) >
+      TRIP_HOME_DISTANCE_THRESHOLD_M
   );
   if (farVisits.length === 0) return { date, kind: "home", destinationVisits: [] };
 
@@ -444,5 +398,13 @@ function calendarDayDifference(from: string, to: string): number {
 export function isValidTripDateRange(from: string, to: string): boolean {
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   if (!datePattern.test(from) || !datePattern.test(to) || from > to) return false;
-  return shiftDateKey(from, 0) === from && shiftDateKey(to, 0) === to;
+  if (shiftDateKey(from, 0) !== from || shiftDateKey(to, 0) !== to) return false;
+
+  // Keep calendar materialization bounded while allowing a complete rebuild from
+  // the product's data horizon through today, plus one year of future headroom.
+  const todayKst = toKstDateString(new Date());
+  const productHistoryDays = Math.max(0, calendarDayDifference(TRIP_DATA_HORIZON, todayKst));
+  return (
+    calendarDayDifference(from, to) <= productHistoryDays + TRIP_DATE_RANGE_FUTURE_HEADROOM_DAYS
+  );
 }

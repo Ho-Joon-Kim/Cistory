@@ -111,7 +111,7 @@ interface UseTravelTripsReturn {
   loadMore: () => void;
   refresh: () => void;
   markNotTrip: (tripId: string) => Promise<boolean>;
-  markingTripId: string | null;
+  markingTripIds: ReadonlySet<string>;
 }
 
 interface UseTravelDetailReturn {
@@ -334,6 +334,18 @@ export function removeTravelTrip(
   return current.filter((trip) => trip.id !== tripId);
 }
 
+export function addPendingTripId(current: ReadonlySet<string>, tripId: string): Set<string> {
+  const next = new Set(current);
+  next.add(tripId);
+  return next;
+}
+
+export function removePendingTripId(current: ReadonlySet<string>, tripId: string): Set<string> {
+  const next = new Set(current);
+  next.delete(tripId);
+  return next;
+}
+
 export async function requestMarkNotTrip(tripId: string): Promise<void> {
   const response = await fetch(`/api/trips/${encodeURIComponent(tripId)}/not-a-trip`, {
     method: "POST",
@@ -357,6 +369,54 @@ async function requestTravelTripsPage(
   const response = await fetch(`/api/trips?${params.toString()}`, { signal });
   if (!response.ok) throw new Error("여행 목록을 불러오지 못했습니다");
   return parseTravelTripsPage(await response.json());
+}
+
+export class TravelTripsRequestCoordinator {
+  private generation = 0;
+  private readonly controllers = new Set<AbortController>();
+
+  currentGeneration(): number {
+    return this.generation;
+  }
+
+  invalidate(): number {
+    for (const controller of this.controllers) controller.abort();
+    this.controllers.clear();
+    this.generation += 1;
+    return this.generation;
+  }
+
+  createRequest(generation: number): AbortController | null {
+    if (generation !== this.generation) return null;
+    const controller = new AbortController();
+    this.controllers.add(controller);
+    return controller;
+  }
+
+  finishRequest(controller: AbortController): void {
+    this.controllers.delete(controller);
+  }
+
+  isCurrent(generation: number): boolean {
+    return generation === this.generation;
+  }
+}
+
+export async function requestCurrentTravelTripsPage(
+  coordinator: TravelTripsRequestCoordinator,
+  generation: number,
+  cursor: string | null,
+  request: (signal: AbortSignal) => Promise<TravelTripsPage> = (signal) =>
+    requestTravelTripsPage(cursor, signal)
+): Promise<TravelTripsPage | null> {
+  const controller = coordinator.createRequest(generation);
+  if (!controller) return null;
+  try {
+    const page = await request(controller.signal);
+    return coordinator.isCurrent(generation) && !controller.signal.aborted ? page : null;
+  } finally {
+    coordinator.finishRequest(controller);
+  }
 }
 
 function fetchErrorMessage(error: unknown): string {
@@ -407,26 +467,32 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
-  const [markingTripId, setMarkingTripId] = useState<string | null>(null);
-  const generationRef = useRef(0);
+  const [markingTripIds, setMarkingTripIds] = useState<Set<string>>(() => new Set());
+  const markingTripIdsRef = useRef(new Set<string>());
+  const requestCoordinatorRef = useRef(new TravelTripsRequestCoordinator());
   const inFlightCursorRef = useRef<string | null>(null);
 
   const fetchPage = useCallback(
-    async (cursor: string | null, replace: boolean, generation: number, signal?: AbortSignal) => {
+    async (cursor: string | null, replace: boolean, generation: number) => {
       setIsLoading(true);
       setError(null);
 
       try {
-        const page = await requestTravelTripsPage(cursor, signal);
-        if (generationRef.current !== generation) return;
+        const page = await requestCurrentTravelTripsPage(
+          requestCoordinatorRef.current,
+          generation,
+          cursor
+        );
+        if (!page) return;
 
         setTrips((current) => (replace ? page.trips : mergeTravelTrips(current, page.trips)));
         setNextCursor(page.nextCursor === cursor ? null : page.nextCursor);
       } catch (fetchError) {
-        if (isAbortError(fetchError) || generationRef.current !== generation) return;
+        if (isAbortError(fetchError) || !requestCoordinatorRef.current.isCurrent(generation))
+          return;
         setError(fetchErrorMessage(fetchError));
       } finally {
-        if (generationRef.current === generation) setIsLoading(false);
+        if (requestCoordinatorRef.current.isCurrent(generation)) setIsLoading(false);
         if (inFlightCursorRef.current === cursor) inFlightCursorRef.current = null;
       }
     },
@@ -439,43 +505,51 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
       return;
     }
 
-    const controller = new AbortController();
-    const generation = ++generationRef.current;
-    void fetchPage(null, true, generation, controller.signal);
+    const generation = requestCoordinatorRef.current.invalidate();
+    void fetchPage(null, true, generation);
     return () => {
-      controller.abort();
-      generationRef.current += 1;
+      requestCoordinatorRef.current.invalidate();
     };
   }, [enabled, fetchPage]);
 
   const loadMore = useCallback(() => {
     if (!nextCursor || isLoading || inFlightCursorRef.current === nextCursor) return;
     inFlightCursorRef.current = nextCursor;
-    void fetchPage(nextCursor, false, generationRef.current);
+    void fetchPage(nextCursor, false, requestCoordinatorRef.current.currentGeneration());
   }, [fetchPage, isLoading, nextCursor]);
 
   const refresh = useCallback(() => {
     inFlightCursorRef.current = null;
-    const generation = ++generationRef.current;
+    const generation = requestCoordinatorRef.current.invalidate();
     void fetchPage(null, true, generation);
   }, [fetchPage]);
 
-  const markNotTrip = useCallback(async (tripId: string) => {
-    setMarkingTripId(tripId);
-    setError(null);
-    try {
-      await requestMarkNotTrip(tripId);
-      setTrips((current) => removeTravelTrip(current, tripId));
-      return true;
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error ? requestError.message : "여행 제외 처리에 실패했습니다"
-      );
-      return false;
-    } finally {
-      setMarkingTripId(null);
-    }
-  }, []);
+  const markNotTrip = useCallback(
+    async (tripId: string) => {
+      if (markingTripIdsRef.current.has(tripId)) return false;
+      markingTripIdsRef.current.add(tripId);
+      setMarkingTripIds((current) => addPendingTripId(current, tripId));
+      setError(null);
+      try {
+        await requestMarkNotTrip(tripId);
+        inFlightCursorRef.current = null;
+        const generation = requestCoordinatorRef.current.invalidate();
+        setTrips((current) => removeTravelTrip(current, tripId));
+        setNextCursor(null);
+        void fetchPage(null, true, generation);
+        return true;
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error ? requestError.message : "여행 제외 처리에 실패했습니다"
+        );
+        return false;
+      } finally {
+        markingTripIdsRef.current.delete(tripId);
+        setMarkingTripIds((current) => removePendingTripId(current, tripId));
+      }
+    },
+    [fetchPage]
+  );
 
   return {
     trips,
@@ -485,7 +559,7 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
     loadMore,
     refresh,
     markNotTrip,
-    markingTripId,
+    markingTripIds,
   };
 }
 

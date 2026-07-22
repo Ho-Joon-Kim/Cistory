@@ -14,7 +14,10 @@ import {
   isValidTripDateRange,
   persistTrips,
 } from "@/modules/location/services/trip-detector";
-import { isValidDetectedTrip } from "@/modules/location/services/trip-writer";
+import {
+  isValidDetectedTrip,
+  StaleTripDetectionError,
+} from "@/modules/location/services/trip-writer";
 
 export async function POST(request: NextRequest) {
   try {
@@ -65,6 +68,9 @@ export async function POST(request: NextRequest) {
       exclusionRevision: snapshot.exclusionRevision,
     });
   } catch (error) {
+    if (error instanceof StaleTripDetectionError) {
+      return NextResponse.json({ error: error.message, code: "STALE_DETECTION" }, { status: 409 });
+    }
     logger.error("Trip detect error", {
       error: error instanceof Error ? error.message : String(error),
     });

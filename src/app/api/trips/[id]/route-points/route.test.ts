@@ -13,7 +13,12 @@ vi.mock("@/db", async (importOriginal) => {
 });
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn() } }));
 
-import { GET, getSampledRowNumbers, MAX_ROUTE_POINTS, simplifyRoutePoints } from "./route";
+import {
+  getSampledRowNumbers,
+  MAX_ROUTE_POINTS,
+  simplifyRoutePoints,
+} from "@/modules/travel/route-points";
+import { GET } from "./route";
 
 function context(id = "trip-1") {
   return { params: Promise.resolve({ id }) };

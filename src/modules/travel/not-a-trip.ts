@@ -2,6 +2,10 @@ import { and, eq, gte, lt } from "drizzle-orm";
 import { type Database, getDb, savedPlaces, trips, visits } from "@/db";
 import { getKstDateWindow } from "@/lib/date-key";
 import { distanceM } from "@/lib/geo";
+import {
+  resolveTripHomeLocation,
+  TRIP_HOME_DISTANCE_THRESHOLD_M,
+} from "@/modules/location/services/trip-home";
 import { withTripWriteLock } from "@/modules/location/services/trip-writer";
 
 const DEFAULT_EXCLUSION_RADIUS_M = 10_000;
@@ -128,6 +132,9 @@ export async function markTripNotATrip(
 
       const window = getKstDateWindow(trip.startDate, trip.endDate);
 
+      const userPlaces = await tx.select().from(savedPlaces).where(eq(savedPlaces.userId, userId));
+      const home = await resolveTripHomeLocation(userId, userPlaces, tx);
+
       const tripVisits = await tx
         .select({
           centerLat: visits.centerLat,
@@ -145,10 +152,16 @@ export async function markTripNotATrip(
             lt(visits.startTime, window.end)
           )
         );
-      const center = findDominantVisitCenter(tripVisits);
+      const destinationVisits = home
+        ? tripVisits.filter(
+            (visit) =>
+              distanceM(home.lat, home.lon, visit.centerLat, visit.centerLon) >
+              TRIP_HOME_DISTANCE_THRESHOLD_M
+          )
+        : [];
+      const center = findDominantVisitCenter(destinationVisits);
       if (!center) throw new TripHasNoVisitsError();
 
-      const userPlaces = await tx.select().from(savedPlaces).where(eq(savedPlaces.userId, userId));
       const existingPlace = userPlaces
         .map((place) => ({
           place,

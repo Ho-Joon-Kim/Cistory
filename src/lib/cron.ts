@@ -9,8 +9,8 @@ import { lt, sql } from "drizzle-orm";
 import * as cron from "node-cron";
 import { getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
-import { shiftDateKey } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
+import { type BootCatchUpJobs, runBootCatchUp, runTripDetection } from "@/lib/trip-detection-cron";
 import { toLocalDateString } from "@/lib/utils";
 import { createHealthSyncService } from "@/modules/health/service";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
@@ -31,7 +31,6 @@ let subwayRefreshTask: cron.ScheduledTask | null = null;
 let tripDetectionTask: cron.ScheduledTask | null = null;
 let isSubwayRefreshRunning = false;
 let isLocationProcessingRunning = false;
-let isTripDetectionRunning = false;
 let isSyncAllRunning = false;
 let isSpendingCategoryRunning = false;
 
@@ -628,124 +627,17 @@ export async function processYesterdayLocations(reason: string) {
   }
 }
 
-/**
- * Detect multi-day trips from visits. Unlike the daily location pipeline (which
- * processes one day at a time), trip detection is a range operation — it groups
- * consecutive away-from-home days into trips — so it runs on its own weekly
- * schedule rather than inside the per-day loop.
- *
- * Starts from each user's durable successful-through watermark with a two-day
- * lookbehind so a trip crossing the previous boundary can expand. The detector
- * advances the watermark in the same advisory-locked transaction as trip
- * reconciliation; failures therefore leave it unchanged for the next run.
- */
-export async function runTripDetection(reason: string) {
-  if (isTripDetectionRunning) {
-    logger.info("[Cron] Trip detection already running, skipping", { reason });
-    return;
-  }
-  isTripDetectionRunning = true;
-  const startTime = Date.now();
-  logger.info("[Cron] Starting trip detection", { reason });
-
-  try {
-    const db = getDb();
-    const allUsers = await db
-      .select({ id: users.id, tripDetectionLastThrough: users.tripDetectionLastThrough })
-      .from(users)
-      .where(sql`${users.ownTracksApiKey} IS NOT NULL`);
-
-    if (allUsers.length === 0) {
-      logger.info("[Cron] No users with OwnTracks configured. Skipping trip detection.");
-      return;
-    }
-
-    const { detectAndPersistTrips } = await import("@/modules/location/services/trip-detector");
-
-    const toStr = toKstCalendarDate(new Date());
-
-    for (const user of allUsers) {
-      await runTripDetectionForUser(user, toStr, detectAndPersistTrips);
-    }
-
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    logger.info(`[Cron] Trip detection completed in ${elapsed}s`, { reason });
-  } catch (error) {
-    logger.error("[Cron] Fatal error during trip detection", {
-      reason,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  } finally {
-    isTripDetectionRunning = false;
-  }
-}
-
-async function runTripDetectionForUser(
-  user: { id: string; tripDetectionLastThrough: string | null },
-  to: string,
-  detectAndPersist: (
-    userId: string,
-    from: string,
-    to: string,
-    options: { watermarkThrough: string }
-  ) => Promise<{ detected: number; inserted: number; replaced: number; skipped: number }>
-): Promise<void> {
-  try {
-    const watermarkStart = user.tripDetectionLastThrough
-      ? shiftDateKey(user.tripDetectionLastThrough, -2)
-      : "2025-03-08";
-    const from = watermarkStart < "2025-03-08" ? "2025-03-08" : watermarkStart;
-    const result = await detectAndPersist(user.id, from, to, { watermarkThrough: to });
-    if (result.inserted > 0) {
-      logger.info(
-        `[Cron] Trip detection for ${user.id}: ${result.inserted} trip(s) written (${result.detected} detected, ${result.replaced} replaced, ${result.skipped} manual overlap)`
-      );
-    }
-  } catch (error) {
-    logger.error(`[Cron] Trip detection failed for user ${user.id}`, {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-function toKstCalendarDate(date: Date): string {
-  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-interface BootCatchUpJobs {
-  sync: () => Promise<void>;
-  spending: () => Promise<void>;
-  location: () => Promise<void>;
-  trips: () => Promise<void>;
-  subway: () => Promise<void>;
-}
-
-export async function runBootCatchUp(
-  jobs: BootCatchUpJobs = {
+function createBootCatchUpJobs(): BootCatchUpJobs {
+  return {
     sync: syncAllUsers,
     spending: categorizePendingSpending,
     location: () => processYesterdayLocations("boot-catchup"),
     trips: () => runTripDetection("boot-catchup"),
     subway: maybeRunSubwayBootCatchUp,
-  }
-): Promise<void> {
-  const steps: Array<[keyof BootCatchUpJobs, () => Promise<void>]> = [
-    ["sync", jobs.sync],
-    ["spending", jobs.spending],
-    ["location", jobs.location],
-    ["trips", jobs.trips],
-    ["subway", jobs.subway],
-  ];
-  for (const [name, run] of steps) {
-    try {
-      await run();
-    } catch (error) {
-      logger.error(`[Cron] Boot-time ${name} catch-up failed`, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+  };
 }
+
+export { runBootCatchUp, runTripDetection };
 
 /**
  * Reparse today's Toss notifications for all users
@@ -946,7 +838,7 @@ export function initializeCron() {
   // regardless of interval.
   if (process.env.RUN_ON_START === "true") {
     logger.info("[Cron] RUN_ON_START=true detected. Running sync immediately...");
-    runBootCatchUp().catch((error) => {
+    runBootCatchUp(createBootCatchUpJobs()).catch((error) => {
       logger.error("[Cron] RUN_ON_START catch-up failed", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -962,7 +854,7 @@ export function initializeCron() {
       // job's failure stays non-fatal so the chain still continues.
       void (async () => {
         logger.info("[Cron] Running boot-time catch-up");
-        await runBootCatchUp();
+        await runBootCatchUp(createBootCatchUpJobs());
       })();
     }, 10_000);
   }

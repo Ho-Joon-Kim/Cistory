@@ -445,6 +445,53 @@ export interface DetectedTripData {
   totalDistanceMeters: number | null;
 }
 
+export type TripConfirmationErrorCode = "STALE_DETECTION";
+
+export class TripConfirmationError extends Error {
+  constructor(
+    message: string,
+    readonly code?: TripConfirmationErrorCode
+  ) {
+    super(message);
+    this.name = "TripConfirmationError";
+  }
+}
+
+interface TripConfirmationResponse {
+  saved?: number;
+  error?: string;
+  code?: string;
+}
+
+export async function requestTripConfirmation(
+  trips: DetectedTripData[],
+  exclusionRevision: string | null
+): Promise<number> {
+  try {
+    const res = await fetch("/api/trips/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true, trips, exclusionRevision }),
+    });
+    const data = (await res.json().catch(() => ({}))) as TripConfirmationResponse;
+    if (!res.ok) {
+      throw new TripConfirmationError(
+        data.error ?? "여행 저장에 실패했습니다",
+        data.code === "STALE_DETECTION" ? data.code : undefined
+      );
+    }
+    if (typeof data.saved !== "number") {
+      throw new TripConfirmationError("여행 저장 응답 형식이 올바르지 않습니다");
+    }
+    return data.saved;
+  } catch (error) {
+    if (error instanceof TripConfirmationError) throw error;
+    throw new TripConfirmationError(
+      error instanceof Error ? error.message : "여행 저장에 실패했습니다"
+    );
+  }
+}
+
 export function useTripDetection() {
   const [detected, setDetected] = useState<DetectedTripData[]>([]);
   const [isDetecting, setIsDetecting] = useState(false);
@@ -475,22 +522,10 @@ export function useTripDetection() {
   const confirmTrips = useCallback(async (trips: DetectedTripData[]) => {
     setIsSaving(true);
     try {
-      const res = await fetch("/api/trips/detect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          confirm: true,
-          trips,
-          exclusionRevision: exclusionRevision.current,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      const data = await res.json();
+      const saved = await requestTripConfirmation(trips, exclusionRevision.current);
       exclusionRevision.current = null;
       setDetected([]);
-      return data.saved as number;
-    } catch {
-      return 0;
+      return saved;
     } finally {
       setIsSaving(false);
     }

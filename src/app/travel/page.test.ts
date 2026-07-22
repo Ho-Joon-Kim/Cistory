@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { TravelTripsContent } from "@/modules/travel/components/TravelTripsContent";
 import type { TravelTripListItem } from "@/modules/travel/hooks";
-import { TravelTripsContent } from "./page";
 
 function trip(id: string, name: string): TravelTripListItem {
   return {
@@ -34,7 +34,7 @@ function renderContent(trips: TravelTripListItem[]): string {
       loadMore: vi.fn(),
       refresh: vi.fn(),
       markNotTrip: vi.fn(),
-      markingTripId: null,
+      markingTripIds: new Set(),
     })
   );
 }

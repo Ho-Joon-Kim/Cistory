@@ -101,7 +101,13 @@ vi.mock("@/db", async (importOriginal) => {
   };
 });
 
-import { detectAndPersistTrips, detectTrips, persistTrips, regenerateTrips } from "./trip-detector";
+import {
+  detectAndPersistTrips,
+  detectTrips,
+  isValidTripDateRange,
+  persistTrips,
+  regenerateTrips,
+} from "./trip-detector";
 
 const HOME = { lat: 37.5665, lon: 126.978 };
 const NEAR_HOME = { lat: 37.57, lon: 126.98 };
@@ -162,6 +168,15 @@ beforeEach(() => {
 });
 
 describe("detectTrips", () => {
+  it("rejects oversized ranges while preserving full regeneration from the data horizon", async () => {
+    const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    expect(isValidTripDateRange("2025-03-08", todayKst)).toBe(true);
+    expect(isValidTripDateRange("2025-03-08", "9999-12-31")).toBe(false);
+    await expect(detectTrips("user-1", "2025-03-08", "9999-12-31")).resolves.toEqual([]);
+    expect(mockState.trackSelectCount).toBe(0);
+  });
+
   it("includes mixed departure and arrival boundary days around consecutive core days", async () => {
     mockState.visitRows = [
       homeVisit("2026-07-15", 8),

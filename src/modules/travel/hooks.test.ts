@@ -1,13 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
+  addPendingTripId,
   mergeTravelTrips,
   parseTravelDetail,
   parseTravelRoute,
   parseTravelTripsPage,
+  removePendingTripId,
   removeTravelTrip,
+  requestCurrentTravelTripsPage,
   requestMarkNotTrip,
   type TravelTripListItem,
+  type TravelTripsPage,
+  TravelTripsRequestCoordinator,
 } from "./hooks";
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
 
 function trip(id: string, endDate: string): TravelTripListItem {
   return {
@@ -63,6 +79,54 @@ describe("여행 아님", () => {
 
     await expect(requestMarkNotTrip("trip-1")).rejects.toThrow("장소를 만들 수 없습니다");
     globalThis.fetch = originalFetch;
+  });
+
+  it("교정 전에 시작된 목록 응답이 늦게 도착해도 삭제한 여행을 되살리지 않는다", async () => {
+    const coordinator = new TravelTripsRequestCoordinator();
+    const stalePage = deferred<TravelTripsPage>();
+    const beforeCorrection = coordinator.invalidate();
+    let staleSignal: AbortSignal | null = null;
+    const staleRequest = requestCurrentTravelTripsPage(
+      coordinator,
+      beforeCorrection,
+      null,
+      (signal) => {
+        staleSignal = signal;
+        return stalePage.promise;
+      }
+    );
+
+    const afterCorrection = coordinator.invalidate();
+    expect(staleSignal?.aborted).toBe(true);
+    stalePage.resolve({ trips: [trip("removed", "2026-07-10")], nextCursor: "old-cursor" });
+
+    await expect(staleRequest).resolves.toBeNull();
+    await expect(
+      requestCurrentTravelTripsPage(coordinator, afterCorrection, null, async () => ({
+        trips: [trip("keep", "2026-07-20")],
+        nextCursor: null,
+      }))
+    ).resolves.toEqual({ trips: [trip("keep", "2026-07-20")], nextCursor: null });
+  });
+
+  it("겹친 교정 중 첫 요청이 끝나도 나머지 여행의 pending 상태를 유지한다", async () => {
+    const first = deferred<void>();
+    const second = deferred<void>();
+    let pending = addPendingTripId(addPendingTripId(new Set(), "trip-1"), "trip-2");
+    const finish = async (tripId: string, request: Promise<void>) => {
+      await request;
+      pending = removePendingTripId(pending, tripId);
+    };
+    const firstRequest = finish("trip-1", first.promise);
+    const secondRequest = finish("trip-2", second.promise);
+
+    first.resolve();
+    await firstRequest;
+    expect(pending).toEqual(new Set(["trip-2"]));
+
+    second.resolve();
+    await secondRequest;
+    expect(pending).toEqual(new Set());
   });
 });
 

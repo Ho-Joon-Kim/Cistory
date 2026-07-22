@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "@/db";
+import { distanceM } from "@/lib/geo";
 import {
   findDominantVisitCenter,
   markTripNotATrip,
@@ -52,6 +53,21 @@ interface FakeOptions {
   failDelete?: boolean;
 }
 
+const homePlace = {
+  id: "place-home",
+  userId: "user-1",
+  name: "집",
+  lat: 37.5,
+  lon: 127,
+  radiusM: 100,
+  category: "home",
+  address: null,
+  excludeFromTrips: false,
+  tripExclusionRadiusM: null,
+  createdAt: new Date("2026-01-01T00:00:00Z"),
+  updatedAt: new Date("2026-01-01T00:00:00Z"),
+};
+
 function fakeDatabase(options: FakeOptions = {}) {
   const events: string[] = [];
   const trip =
@@ -60,6 +76,7 @@ function fakeDatabase(options: FakeOptions = {}) {
       : options.trip;
   const tripVisits = options.visits ?? [visit(36.19, 127.1, 7_200, { city: "논산" })];
   const places = options.places ?? [];
+  const userPlaces = [...places, homePlace];
   const createdPlaces: Array<Record<string, unknown>> = [];
   const updatedPlaces: Array<Record<string, unknown>> = [];
   let selectCall = 0;
@@ -71,12 +88,13 @@ function fakeDatabase(options: FakeOptions = {}) {
     }),
     select: vi.fn(() => {
       selectCall += 1;
-      const rows = selectCall === 1 ? (trip ? [trip] : []) : selectCall === 2 ? tripVisits : places;
+      const rows =
+        selectCall === 1 ? (trip ? [trip] : []) : selectCall === 2 ? userPlaces : tripVisits;
       const builder: Record<string, unknown> = {};
       for (const method of ["from", "where", "orderBy"]) builder[method] = () => builder;
       // biome-ignore lint/suspicious/noThenProperty: Drizzle query builders are awaitable thenables.
       builder.then = (resolve: (value: unknown) => void) => {
-        events.push(selectCall === 1 ? "trip" : selectCall === 2 ? "visits" : "places");
+        events.push(selectCall === 1 ? "trip" : selectCall === 2 ? "places" : "visits");
         resolve(rows);
       };
       return builder;
@@ -147,8 +165,8 @@ describe("markTripNotATrip", () => {
       "begin",
       "lock",
       "trip",
-      "visits",
       "places",
+      "visits",
       "create-place",
       "delete-trip",
       "commit",
@@ -182,6 +200,32 @@ describe("markTripNotATrip", () => {
     });
   });
 
+  it("경계일의 집 체류가 더 길어도 목적지에 제외 장소를 만든다", async () => {
+    const fake = fakeDatabase({
+      visits: [
+        visit(37.5, 127, 18 * 60 * 60, { placeName: "집", city: "서울" }),
+        visit(35.18, 129.08, 4 * 60 * 60, {
+          placeName: "부산역",
+          address: "부산광역시 동구",
+          city: "부산",
+        }),
+      ],
+    });
+
+    const result = await markTripNotATrip("user-1", "trip-1", fake.db);
+
+    expect(result.place).toMatchObject({
+      name: "부산역",
+      lat: 35.18,
+      lon: 129.08,
+      address: "부산광역시 동구",
+      excludeFromTrips: true,
+    });
+    expect(
+      distanceM(homePlace.lat, homePlace.lon, result.place.lat, result.place.lon)
+    ).toBeGreaterThan(100_000);
+  });
+
   it("여행 삭제가 실패하면 장소 생성까지 rollback한다", async () => {
     const fake = fakeDatabase({ failDelete: true });
 
@@ -207,6 +251,18 @@ describe("markTripNotATrip", () => {
     await expect(markTripNotATrip("user-1", "trip-1", fake.db)).rejects.toBeInstanceOf(
       TripHasNoVisitsError
     );
+    expect(fake.events).not.toContain("delete-trip");
+    expect(fake.events.at(-1)).toBe("rollback");
+  });
+
+  it("집 방문만 남으면 여행을 삭제하지 않는다", async () => {
+    const fake = fakeDatabase({ visits: [visit(37.5, 127, 7_200, { placeName: "집" })] });
+
+    await expect(markTripNotATrip("user-1", "trip-1", fake.db)).rejects.toBeInstanceOf(
+      TripHasNoVisitsError
+    );
+
+    expect(fake.events).not.toContain("create-place");
     expect(fake.events).not.toContain("delete-trip");
     expect(fake.events.at(-1)).toBe("rollback");
   });

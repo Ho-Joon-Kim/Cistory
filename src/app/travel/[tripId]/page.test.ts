@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { TravelDetailContent } from "@/modules/travel/components/TravelDetailContent";
 import type { TravelRoute, TravelTripDetail } from "@/modules/travel/hooks";
-import { TravelDetailContent } from "./page";
 
 function detail(health: TravelTripDetail["health"] = []): TravelTripDetail {
   return {
