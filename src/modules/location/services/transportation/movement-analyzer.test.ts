@@ -83,3 +83,34 @@ describe("analyzeMovement time-gap handling", () => {
     expect(segments[0].durationSeconds).toBe(300);
   });
 });
+
+describe("analyzeMovement flight-distance classification", () => {
+  function highSpeedCluster(
+    totalLatitudeDegrees: number,
+    durationSeconds: number,
+    maxSpeedKmh: number
+  ): Point[] {
+    const steps = 11;
+    return Array.from({ length: steps + 1 }, (_, i) => ({
+      lat: 37 + (totalLatitudeDegrees * i) / steps,
+      lon: 127,
+      velocity: maxSpeedKmh,
+      timestamp: new Date((durationSeconds * i * 1000) / steps),
+    }));
+  }
+
+  it("does not label a short 52km GPS jump as flying", () => {
+    const [segment] = analyzeMovement(highSpeedCluster(0.468, 660, 1_901));
+
+    expect(segment.distanceMeters).toBeGreaterThan(50_000);
+    expect(segment.avgSpeedKmh).toBeGreaterThan(270);
+    expect(segment.mode).not.toBe("flying");
+  });
+
+  it("keeps a sparse 172km real flight segment as flying", () => {
+    const [segment] = analyzeMovement(highSpeedCluster(1.548, 1_800, 920));
+
+    expect(segment.distanceMeters).toBeGreaterThan(170_000);
+    expect(segment.mode).toBe("flying");
+  });
+});

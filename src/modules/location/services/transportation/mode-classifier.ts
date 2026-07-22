@@ -2,8 +2,10 @@
  * Transportation Mode Classifier
  *
  * Ported from Dawarich: app/services/transportation_modes/classifier.rb
- * Classifies a movement segment by average speed and acceleration.
+ * Classifies a movement segment by speed, acceleration, and traveled distance.
  */
+
+import { isLikelyFlight } from "./flight-calibration";
 
 export type TransportMode =
   | "stationary"
@@ -34,7 +36,6 @@ const CYCLING_MAX = 45;
 const _DRIVING_MAX = 220;
 const TRAIN_MIN = 80;
 const TRAIN_MAX = 350;
-const FLYING_MIN = 150;
 const FLYING_THRESHOLD = 200;
 const HIGH_SPEED_BOUNDARY = 130;
 const CYCLING_MAX_LIKELY = 35;
@@ -51,7 +52,8 @@ const BUS_ACCEL_MAX = 0.4;
 export function classifyMode(
   avgSpeedKmh: number,
   maxSpeedKmh: number,
-  avgAcceleration: number
+  avgAcceleration: number,
+  distanceMeters: number
 ): ClassificationResult {
   // Stationary
   if (avgSpeedKmh <= STATIONARY_MAX) {
@@ -59,7 +61,13 @@ export function classifyMode(
   }
 
   // Flying
-  if (avgSpeedKmh >= FLYING_MIN && maxSpeedKmh >= FLYING_THRESHOLD) {
+  if (
+    isLikelyFlight({
+      averageSpeedKmh: avgSpeedKmh,
+      maxSpeedKmh,
+      distanceMeters,
+    })
+  ) {
     return { mode: "flying", confidence: "high" };
   }
 
