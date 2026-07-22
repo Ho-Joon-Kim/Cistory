@@ -13,7 +13,10 @@ import { logger } from "@/lib/logger";
 import { type BootCatchUpJobs, runBootCatchUp, runTripDetection } from "@/lib/trip-detection-cron";
 import { createHealthSyncService } from "@/modules/health/service";
 import { processYesterdayLocations } from "@/modules/location/cron-processing";
-import { registerOverviewPrecomputeTask } from "@/modules/overview/cron";
+import {
+  precomputeOverviewSnapshots,
+  registerOverviewPrecomputeTask,
+} from "@/modules/overview/cron";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
 import { createExpenseCategoryService } from "@/modules/spending/category-classifier";
 import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/subway/service";
@@ -35,7 +38,8 @@ let isSubwayRefreshRunning = false;
 let isSyncAllRunning = false;
 let isSpendingCategoryRunning = false;
 
-export { generateOverviewNarratives, precomputeOverviewSnapshots } from "@/modules/overview/cron";
+export { generateOverviewNarratives } from "@/modules/overview/cron";
+export { precomputeOverviewSnapshots };
 export async function categorizePendingSpending(): Promise<void> {
   if (isSpendingCategoryRunning || !process.env.ANTHROPIC_API_KEY) return;
   isSpendingCategoryRunning = true;
@@ -462,8 +466,11 @@ async function _syncAllUsersInner() {
 
 export { processYesterdayLocations };
 
-function createBootCatchUpJobs(): BootCatchUpJobs {
+export function createBootCatchUpJobs(): BootCatchUpJobs {
   return {
+    overview: async () => {
+      await precomputeOverviewSnapshots();
+    },
     sync: syncAllUsers,
     spending: categorizePendingSpending,
     location: async () => {
@@ -686,7 +693,7 @@ export function initializeCron() {
     // Short delay so the HTTP listener binds first (health checks shouldn't
     // compete with DB-heavy startup work).
     setTimeout(() => {
-      // Run the three catch-up jobs SEQUENTIALLY, not concurrently. Firing them
+      // Run boot-time catch-up jobs SEQUENTIALLY, not concurrently. Firing them
       // all at once saturated the shared DB pool for ~25s on every boot (= every
       // deploy), stalling foreground requests like Better Auth session reads
       // ("get-session" infinite loading). Sequencing spreads the burst out; each

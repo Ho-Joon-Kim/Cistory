@@ -80,4 +80,4 @@ ENV HOSTNAME=0.0.0.0
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw r.status;process.exit(0)}).catch(()=>process.exit(1))"
 
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "rm -f /tmp/cistory-cron-ready && exec node server.js"]

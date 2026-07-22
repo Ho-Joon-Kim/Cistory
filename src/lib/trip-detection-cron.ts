@@ -15,6 +15,7 @@ type DetectAndPersistTrips = (
 ) => Promise<{ detected: number; inserted: number; replaced: number; skipped: number }>;
 
 export interface BootCatchUpJobs {
+  overview: () => Promise<void>;
   sync: () => Promise<void>;
   spending: () => Promise<void>;
   location: () => Promise<void>;
@@ -28,6 +29,7 @@ export interface BootCatchUpJobs {
  */
 export async function runBootCatchUp(jobs: BootCatchUpJobs): Promise<void> {
   const steps: Array<[keyof BootCatchUpJobs, () => Promise<void>]> = [
+    ["overview", jobs.overview],
     ["sync", jobs.sync],
     ["spending", jobs.spending],
     ["location", jobs.location],

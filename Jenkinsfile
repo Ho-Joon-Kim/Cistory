@@ -162,6 +162,26 @@ pipeline {
                         sh "docker logs ${CONTAINER_NAME} --tail 50"
                         error("Health check failed after 15 attempts")
                     }
+
+                    def cronHealthy = false
+                    for (int i = 0; i < 15; i++) {
+                        def exitCode = sh(
+                            script: "docker inspect -f '{{.State.Running}}' ${CONTAINER_NAME}-cron | grep -q true && docker exec ${CONTAINER_NAME}-cron test -f /tmp/cistory-cron-ready",
+                            returnStatus: true
+                        )
+                        if (exitCode == 0) {
+                            cronHealthy = true
+                            echo "Cron health check passed (attempt ${i + 1})"
+                            break
+                        }
+                        echo "Cron health check attempt ${i + 1}/15 - exit code: ${exitCode}"
+                        sleep 5
+                    }
+                    if (!cronHealthy) {
+                        echo "Cron container logs:"
+                        sh "docker logs ${CONTAINER_NAME}-cron --tail 100 || true"
+                        error("Cron health check failed after 15 attempts")
+                    }
                 }
             }
         }

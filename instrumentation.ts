@@ -26,6 +26,8 @@ export async function register() {
 
       // Initialize cron service
       initializeCron();
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile("/tmp/cistory-cron-ready", "ready\n", "utf8");
 
       // Graceful shutdown handlers
       process.on("SIGINT", async () => {
