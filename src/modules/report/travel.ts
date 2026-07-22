@@ -28,8 +28,9 @@ const COUNTRY_BOUNDS: Record<
   이탈리아: { minLat: 36.6, maxLat: 47.1, minLon: 6.6, maxLon: 18.5 },
   스페인: { minLat: 36.0, maxLat: 43.8, minLon: -9.3, maxLon: 3.3 },
   호주: { minLat: -43.6, maxLat: -10.7, minLon: 113.2, maxLon: 153.6 },
-  중국: { minLat: 18.2, maxLat: 53.6, minLon: 73.5, maxLon: 135.1 },
+  // Keep specific regions before broader overlapping country bounds.
   홍콩: { minLat: 22.15, maxLat: 22.56, minLon: 113.83, maxLon: 114.41 },
+  중국: { minLat: 18.2, maxLat: 53.6, minLon: 73.5, maxLon: 135.1 },
   터키: { minLat: 35.8, maxLat: 42.1, minLon: 26.0, maxLon: 44.8 },
   스위스: { minLat: 45.8, maxLat: 47.8, minLon: 5.9, maxLon: 10.5 },
 };

@@ -10,13 +10,14 @@
  * - Days spent only inside a trip-excluded place can bridge, but not bound, a trip
  * - Home and unobserved days always split trips
  * - Every trip must span at least one calendar night
- * - Name auto-generated from primary city/country
+ * - Name generated from coordinate-derived countries or allow-listed domestic regions
  */
 
-import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
-import { getDb, savedPlaces, trips, visits } from "@/db";
+import { and, asc, desc, eq, gt, gte, lt, sql } from "drizzle-orm";
+import { getDb, savedPlaces, tracks, trips, visits } from "@/db";
 import { isInKorea } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
+import { createTripName } from "./trip-naming";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -130,7 +131,11 @@ export async function detectTrips(
   const classifiedDays = calendarDates(from, to).map((date) =>
     classifyDay(date, visitsByDate.get(date) ?? [], home, excludedPlaces)
   );
-  return groupCandidateDays(classifiedDays).map(toDetectedTrip);
+  const groups = groupCandidateDays(classifiedDays);
+  if (groups.length === 0) return [];
+
+  const tripTracks = await getTracksInRange(userId, from, to);
+  return groups.map((group) => toDetectedTrip(group, tripTracks));
 }
 
 type VisitRow = {
@@ -140,6 +145,12 @@ type VisitRow = {
   city: string | null;
   countryName: string | null;
   durationSeconds: number;
+};
+
+type TrackRow = {
+  startTime: Date;
+  endTime: Date;
+  distanceMeters: number;
 };
 
 type DayKind = "core" | "boundary" | "excluded" | "home" | "unknown";
@@ -183,7 +194,24 @@ function groupVisitsByDate(allVisits: VisitRow[]): Map<string, VisitRow[]> {
   return visitsByDate;
 }
 
-function toDetectedTrip(group: ClassifiedDay[]): DetectedTrip {
+async function getTracksInRange(userId: string, from: string, to: string): Promise<TrackRow[]> {
+  const rangeStart = parseKstDateStart(from);
+  const rangeEnd = parseKstDateStart(addCalendarDays(to, 1));
+  const db = getDb();
+  return db
+    .select({
+      startTime: tracks.startTime,
+      endTime: tracks.endTime,
+      distanceMeters: tracks.distanceMeters,
+    })
+    .from(tracks)
+    .where(
+      and(eq(tracks.userId, userId), lt(tracks.startTime, rangeEnd), gt(tracks.endTime, rangeStart))
+    )
+    .orderBy(asc(tracks.startTime));
+}
+
+function toDetectedTrip(group: ClassifiedDay[], allTracks: TrackRow[]): DetectedTrip {
   const destinationVisits = group.flatMap((day) => day.destinationVisits);
   const visitedCities = uniqueStrings(destinationVisits.map((visit) => visit.city));
   const visitedCountries = uniqueStrings(destinationVisits.map((visit) => visit.countryName));
@@ -192,13 +220,17 @@ function toDetectedTrip(group: ClassifiedDay[]): DetectedTrip {
   );
 
   return {
-    name: createCompatibleTripName(visitedCities, visitedCountries, isOverseas),
+    name: createTripName(destinationVisits),
     startDate: group[0].date,
     endDate: group[group.length - 1].date,
     visitedCities,
     visitedCountries,
     isOverseas,
-    totalDistanceMeters: null,
+    totalDistanceMeters: sumOverlappingTrackDistance(
+      allTracks,
+      group[0].date,
+      group[group.length - 1].date
+    ),
   };
 }
 
@@ -206,17 +238,18 @@ function uniqueStrings(values: (string | null)[]): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
-function createCompatibleTripName(
-  visitedCities: string[],
-  visitedCountries: string[],
-  isOverseas: boolean
-): string {
-  const primaryCity = visitedCities[0];
-  const primaryCountry = visitedCountries[0];
-  if (isOverseas && primaryCountry) {
-    return primaryCity ? `${primaryCity} 여행` : `${primaryCountry} 여행`;
-  }
-  return primaryCity ? `${primaryCity} 방문` : "여행";
+function sumOverlappingTrackDistance(
+  allTracks: TrackRow[],
+  startDate: string,
+  endDate: string
+): number | null {
+  const rangeStart = parseKstDateStart(startDate);
+  const rangeEnd = parseKstDateStart(addCalendarDays(endDate, 1));
+  const overlappingTracks = allTracks.filter(
+    (track) => track.startTime < rangeEnd && track.endTime > rangeStart
+  );
+  if (overlappingTracks.length === 0) return null;
+  return overlappingTracks.reduce((sum, track) => sum + track.distanceMeters, 0);
 }
 
 function classifyDay(

@@ -12,10 +12,18 @@ interface SavedPlaceRow {
   tripExclusionRadiusM: number | null;
 }
 
+interface TrackRow {
+  startTime: Date;
+  endTime: Date;
+  distanceMeters: number;
+}
+
 const mockState = vi.hoisted(() => ({
   savedPlaceRows: [] as SavedPlaceRow[],
   visitRows: [] as unknown[],
+  trackRows: [] as TrackRow[],
   insertedRows: [] as unknown[],
+  trackSelectCount: 0,
 }));
 
 vi.mock("@/db", async (importOriginal) => {
@@ -27,7 +35,11 @@ vi.mock("@/db", async (importOriginal) => {
         let rows: unknown[] = [];
         const builder: Record<string, unknown> = {
           from: (table: unknown) => {
-            rows = table === actual.savedPlaces ? mockState.savedPlaceRows : mockState.visitRows;
+            if (table === actual.savedPlaces) rows = mockState.savedPlaceRows;
+            else if (table === actual.tracks) {
+              rows = mockState.trackRows;
+              mockState.trackSelectCount += 1;
+            } else rows = mockState.visitRows;
             return builder;
           },
           // biome-ignore lint/suspicious/noThenProperty: drizzle query builders are awaitable thenables
@@ -98,7 +110,9 @@ const busanVisit = (date: string, hour = 12) =>
 beforeEach(() => {
   mockState.savedPlaceRows = [savedPlace("집", HOME)];
   mockState.visitRows = [];
+  mockState.trackRows = [];
   mockState.insertedRows = [];
+  mockState.trackSelectCount = 0;
 });
 
 describe("detectTrips", () => {
@@ -311,6 +325,58 @@ describe("detectTrips", () => {
     mockState.visitRows = [];
 
     expect(await detectTrips("user-1", "2026-03-01", "2026-03-31")).toEqual([]);
+  });
+
+  it("sums overlapping user tracks for each trip using one range query", async () => {
+    mockState.visitRows = [
+      busanVisit("2026-03-01"),
+      busanVisit("2026-03-02"),
+      homeVisit("2026-03-03"),
+      busanVisit("2026-03-04"),
+      busanVisit("2026-03-05"),
+    ];
+    mockState.trackRows = [
+      {
+        startTime: new Date("2026-03-01T23:00:00+09:00"),
+        endTime: new Date("2026-03-02T01:00:00+09:00"),
+        distanceMeters: 12_000,
+      },
+      {
+        startTime: new Date("2026-03-03T23:30:00+09:00"),
+        endTime: new Date("2026-03-04T00:30:00+09:00"),
+        distanceMeters: 8_000,
+      },
+      {
+        startTime: new Date("2026-03-05T10:00:00+09:00"),
+        endTime: new Date("2026-03-05T11:00:00+09:00"),
+        distanceMeters: 5_000,
+      },
+    ];
+
+    const result = await detectTrips("user-1", "2026-03-01", "2026-03-05");
+
+    expect(result.map((trip) => trip.totalDistanceMeters)).toEqual([12_000, 13_000]);
+    expect(mockState.trackSelectCount).toBe(1);
+  });
+
+  it("returns null distance when no track overlaps the trip", async () => {
+    mockState.visitRows = [busanVisit("2026-03-01"), busanVisit("2026-03-02")];
+    mockState.trackRows = [
+      {
+        startTime: new Date("2026-02-28T23:00:00+09:00"),
+        endTime: new Date("2026-03-01T00:00:00+09:00"),
+        distanceMeters: 99_000,
+      },
+      {
+        startTime: new Date("2026-03-03T00:00:00+09:00"),
+        endTime: new Date("2026-03-03T01:00:00+09:00"),
+        distanceMeters: 88_000,
+      },
+    ];
+
+    const result = await detectTrips("user-1", "2026-03-01", "2026-03-02");
+
+    expect(result[0].totalDistanceMeters).toBeNull();
   });
 });
 
