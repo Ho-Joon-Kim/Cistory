@@ -4,13 +4,9 @@ import { localDaySql } from "@/db/sql";
 import { toLocalDateString } from "@/lib/utils";
 import type { HealthAggregate, HealthMetricAggregate, PeriodAggregateInput } from "../types";
 import type { LocationReadExecutor } from "./location";
+import { resultRows as rows } from "./query-values";
 
 const metricNames = ["steps", "sleep", "heart_rate", "vo2_max"] as const;
-
-function rows(result: unknown): Record<string, unknown>[] {
-  const value = result as { rows?: unknown[] } | null;
-  return Array.isArray(value?.rows) ? (value.rows as Record<string, unknown>[]) : [];
-}
 
 function nullableNumber(value: unknown): number | null {
   if (value == null) return null;

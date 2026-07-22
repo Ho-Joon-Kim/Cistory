@@ -3,6 +3,7 @@ import type { Database } from "@/db";
 import { type PeriodSnapshotStatus, type PeriodType, periodSnapshots, users } from "@/db/schema";
 import { toLocalDateString } from "@/lib/utils";
 import { aggregatePeriod } from "./aggregate";
+import { resultRows } from "./aggregate/query-values";
 import { getPeriodKey, getPeriodRange, isPeriodActive, periodTypes } from "./period";
 import type { PeriodAggregateInput, PeriodAggregatePayload } from "./types";
 
@@ -250,11 +251,6 @@ export async function runPrecomputeTick(
     failed,
     deferredForLocation,
   };
-}
-
-function resultRows(result: unknown): Record<string, unknown>[] {
-  const value = result as { rows?: unknown[] } | null;
-  return Array.isArray(value?.rows) ? (value.rows as Record<string, unknown>[]) : [];
 }
 
 export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {

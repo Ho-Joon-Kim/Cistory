@@ -2,6 +2,7 @@ process.env.TZ = "Asia/Seoul";
 
 import { describe, expect, it, vi } from "vitest";
 import {
+  abortableDelay,
   adjacentOverviewPeriod,
   loadNarrativeUntilSettled,
   loadOverviewUntilSettled,
@@ -10,6 +11,32 @@ import {
 } from "./hooks";
 
 const NOW = new Date("2026-07-21T15:30:00.000Z"); // 2026-07-22 00:30 KST
+
+describe("abortableDelay", () => {
+  it("removes the abort listener after the timer resolves", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { setTimeout, clearTimeout });
+    const controller = new AbortController();
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener");
+
+    const pending = abortableDelay(controller.signal, 100);
+    await vi.advanceTimersByTimeAsync(100);
+    await pending;
+
+    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("rejects immediately when already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(abortableDelay(controller.signal, 100)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+});
 
 describe("overview period state", () => {
   it("defaults to a 14-day recent window using the KST calendar day", () => {

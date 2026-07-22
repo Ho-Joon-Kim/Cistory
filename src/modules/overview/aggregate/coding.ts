@@ -1,26 +1,15 @@
 import { sql } from "drizzle-orm";
 import { codingDailyStats, codingSessions, commits } from "@/db/schema";
 import { localDaySql } from "@/db/sql";
-import { toLocalDateString } from "@/lib/utils";
+import { safeJsonParse, toLocalDateString } from "@/lib/utils";
 import type { CodingAggregate, NamedSeconds, PeriodAggregateInput } from "../types";
 import type { LocationReadExecutor } from "./location";
-
-type QueryResult = { rows?: unknown[] };
-
-function rows(result: unknown): Record<string, unknown>[] {
-  const value = result as QueryResult | null;
-  return Array.isArray(value?.rows) ? (value.rows as Record<string, unknown>[]) : [];
-}
-
-function numberValue(value: unknown): number {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+import { finiteNumber as numberValue, resultRows as rows } from "./query-values";
 
 function parseNamedSeconds(value: unknown): NamedSeconds[] {
   if (value == null || value === "") return [];
   try {
-    const parsed = (typeof value === "string" ? JSON.parse(value) : value) as {
+    const parsed = (typeof value === "string" ? safeJsonParse(value, []) : value) as {
       name?: unknown;
       totalSeconds?: unknown;
     }[];

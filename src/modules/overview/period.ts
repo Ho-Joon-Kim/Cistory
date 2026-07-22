@@ -131,6 +131,17 @@ export function getPeriodRange(periodType: PeriodType, periodKey: string): Perio
   }
 }
 
+export function isCanonicalPeriodKey(periodType: PeriodType, periodKey: string): boolean {
+  try {
+    const range = getPeriodRange(periodType, periodKey);
+    const reference =
+      periodType === "recent" ? new Date(range.toExclusive.getTime() - 1) : range.from;
+    return getPeriodKey(periodType, reference) === periodKey;
+  } catch {
+    return false;
+  }
+}
+
 export function isPeriodActive(
   periodType: PeriodType,
   periodKey: string,

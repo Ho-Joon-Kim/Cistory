@@ -11,7 +11,7 @@ import {
 import type { ClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { DEFAULT_CLAUDE_MODEL } from "@/lib/adapters/ai/claude";
 import { ApiError } from "@/lib/api-handler";
-import { getPeriodKey, getPeriodRange } from "./period";
+import { isCanonicalPeriodKey } from "./period";
 
 export type NarrativePeriodType = Exclude<PeriodType, "recent">;
 
@@ -73,10 +73,7 @@ function parseNarrativePeriod(periodType: string, periodKey: string): NarrativeP
     throw new ApiError(400, "회고문을 지원하지 않는 기간입니다", "INVALID_PERIOD");
   }
 
-  try {
-    const range = getPeriodRange(periodType, periodKey);
-    if (getPeriodKey(periodType, range.from) !== periodKey) throw new Error("noncanonical");
-  } catch {
+  if (!isCanonicalPeriodKey(periodType, periodKey)) {
     throw new ApiError(400, "유효하지 않은 기간입니다", "INVALID_PERIOD");
   }
   return periodType;

@@ -38,11 +38,6 @@ let isTripDetectionRunning = false;
 let isSyncAllRunning = false;
 let isSpendingCategoryRunning = false;
 
-/**
- * U5 can pass the location pipeline's completed-through watermarks here once
- * that pipeline exposes them. Without a completed window, active periods are
- * refreshed but ended periods are deliberately not finalized.
- */
 export async function precomputeOverviewSnapshots(
   completedLocationWindows: LocationCompletedWindow[] = []
 ) {

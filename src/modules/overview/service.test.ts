@@ -45,7 +45,7 @@ describe("overview service", () => {
     const repository = store();
     const service = createOverviewService(repository);
 
-    await expect(service.getSnapshot("user-1", "month", "2026-07", NOW)).resolves.toEqual({
+    await expect(service.getSnapshot("user-1", "month", "2026-07")).resolves.toEqual({
       status: "missing",
       periodType: "month",
       periodKey: "2026-07",
@@ -79,8 +79,7 @@ describe("overview service", () => {
     const result = await createOverviewService(repository).getSnapshot(
       "user-1",
       "month",
-      "2026-07",
-      NOW
+      "2026-07"
     );
 
     expect(result).toMatchObject({
@@ -98,7 +97,7 @@ describe("overview service", () => {
   ])("rejects noncanonical period %s/%s", async (periodType, periodKey) => {
     const service = createOverviewService(store());
 
-    await expect(service.getSnapshot("user-1", periodType, periodKey, NOW)).rejects.toMatchObject({
+    await expect(service.getSnapshot("user-1", periodType, periodKey)).rejects.toMatchObject({
       status: 400,
       code: "INVALID_PERIOD",
     } satisfies Partial<ApiError>);

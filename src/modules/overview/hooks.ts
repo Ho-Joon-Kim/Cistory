@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
 import { toLocalDateString } from "@/lib/utils";
-import { getPeriodKey, getPeriodRange, type PeriodType, periodTypes } from "./period";
+import {
+  getPeriodKey,
+  getPeriodRange,
+  isCanonicalPeriodKey,
+  type PeriodType,
+  periodTypes,
+} from "./period";
 import type { OverviewSnapshotResponse } from "./service";
 
 export const OVERVIEW_POLL_INTERVAL_MS = 3_000;
@@ -46,17 +52,6 @@ export function currentOverviewPeriodKey(periodType: PeriodType, now: Date = new
   return getPeriodKey(periodType, kstWallClock(now));
 }
 
-function isCanonicalPeriod(periodType: PeriodType, periodKey: string): boolean {
-  try {
-    const range = getPeriodRange(periodType, periodKey);
-    const reference =
-      periodType === "recent" ? new Date(range.toExclusive.getTime() - 1) : range.from;
-    return getPeriodKey(periodType, reference) === periodKey;
-  } catch {
-    return false;
-  }
-}
-
 export function resolveOverviewPeriod(
   rawPeriodType: string | null,
   rawPeriodKey: string | null,
@@ -66,7 +61,11 @@ export function resolveOverviewPeriod(
     ? (rawPeriodType as PeriodType)
     : "recent";
   const currentKey = currentOverviewPeriodKey(periodType, now);
-  if (!rawPeriodKey || !isCanonicalPeriod(periodType, rawPeriodKey) || rawPeriodKey > currentKey) {
+  if (
+    !rawPeriodKey ||
+    !isCanonicalPeriodKey(periodType, rawPeriodKey) ||
+    rawPeriodKey > currentKey
+  ) {
     return { periodType, periodKey: currentKey };
   }
   return { periodType, periodKey: rawPeriodKey };
@@ -193,19 +192,27 @@ export async function recomputeResponseJson(
   return body;
 }
 
-function delay(signal: AbortSignal) {
+export function abortableDelay(signal: AbortSignal, intervalMs: number) {
   return new Promise<void>((resolve, reject) => {
-    const timeout = window.setTimeout(resolve, OVERVIEW_POLL_INTERVAL_MS);
-    signal.addEventListener(
-      "abort",
-      () => {
-        window.clearTimeout(timeout);
-        reject(new DOMException("Aborted", "AbortError"));
-      },
-      { once: true }
-    );
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, intervalMs);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
+
+const snapshotDelay: Wait = (signal) => abortableDelay(signal, OVERVIEW_POLL_INTERVAL_MS);
+const narrativeDelay: Wait = (signal) => abortableDelay(signal, NARRATIVE_POLL_INTERVAL_MS);
 
 export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, enabled = true) {
   const visible = usePageVisible();
@@ -251,7 +258,7 @@ export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, e
     loadOverviewUntilSettled({
       get,
       enqueue,
-      wait: delay,
+      wait: snapshotDelay,
       isVisible: () => visible,
       enqueued: enqueued.current,
       periodType,
@@ -328,20 +335,6 @@ export async function loadNarrativeUntilSettled(input: NarrativePollingInput) {
     polls++;
   }
   return response;
-}
-
-function narrativeDelay(signal: AbortSignal) {
-  return new Promise<void>((resolve, reject) => {
-    const timeout = window.setTimeout(resolve, NARRATIVE_POLL_INTERVAL_MS);
-    signal.addEventListener(
-      "abort",
-      () => {
-        window.clearTimeout(timeout);
-        reject(new DOMException("Aborted", "AbortError"));
-      },
-      { once: true }
-    );
-  });
 }
 
 export function useOverviewNarrative(periodType: PeriodType, periodKey: string, enabled: boolean) {

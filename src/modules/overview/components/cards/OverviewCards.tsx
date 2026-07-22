@@ -254,6 +254,7 @@ function RankedList({ title, items }: { title: string; items: Array<[string, str
 
 function LocationCards({ data, periodType }: { data: LocationAggregate; periodType: PeriodType }) {
   const { derived } = data;
+  const maxHeatmapWeight = Math.max(...data.heatmap.map((item) => item.weight), 1);
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <InsightCard schema="location" title="장소와 위치 히트맵">
@@ -276,9 +277,7 @@ function LocationCards({ data, periodType }: { data: LocationAggregate; periodTy
                 key={`${point.lat}:${point.lon}`}
                 className="aspect-square rounded-sm bg-[hsl(var(--accent-orange))]"
                 style={{
-                  opacity:
-                    0.15 +
-                    (point.weight / Math.max(...data.heatmap.map((item) => item.weight), 1)) * 0.85,
+                  opacity: 0.15 + (point.weight / maxHeatmapWeight) * 0.85,
                 }}
                 title={`${point.lat.toFixed(3)}, ${point.lon.toFixed(3)} · ${point.weight}`}
               />
@@ -475,6 +474,7 @@ function SpendingCards({ data }: { data: SpendingAggregate }) {
 
 function PortfolioCards({ data }: { data: PortfolioAggregate }) {
   const latest = data.evaluationTrend.at(-1)?.value ?? null;
+  const maxEvaluationValue = Math.max(...data.evaluationTrend.map((item) => item.value), 1);
   return (
     <InsightCard schema="cross" title="자산 요약" right={<DestinationLink href="/portfolio" />}>
       {!data.hasAccounts ? (
@@ -496,17 +496,14 @@ function PortfolioCards({ data }: { data: PortfolioAggregate }) {
             />
           </div>
           <div role="img" className="mt-5 flex h-20 items-end gap-1" aria-label="평가액 추이">
-            {data.evaluationTrend.map((point) => {
-              const max = Math.max(...data.evaluationTrend.map((item) => item.value), 1);
-              return (
-                <span
-                  key={point.date}
-                  className="min-w-1 flex-1 rounded-t bg-[hsl(var(--accent-blue)/0.65)]"
-                  style={{ height: `${Math.max(4, (point.value / max) * 80)}px` }}
-                  title={`${point.date}: ${currency.format(point.value)}`}
-                />
-              );
-            })}
+            {data.evaluationTrend.map((point) => (
+              <span
+                key={point.date}
+                className="min-w-1 flex-1 rounded-t bg-[hsl(var(--accent-blue)/0.65)]"
+                style={{ height: `${Math.max(4, (point.value / maxEvaluationValue) * 80)}px` }}
+                title={`${point.date}: ${currency.format(point.value)}`}
+              />
+            ))}
           </div>
         </>
       )}

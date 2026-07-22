@@ -12,7 +12,8 @@ import {
   visits,
 } from "@/db/schema";
 import { localDaySql } from "@/db/sql";
-import { toLocalDateString } from "@/lib/utils";
+import { safeJsonParse, toLocalDateString } from "@/lib/utils";
+import { finiteNumber as numberValue, resultRows as rowsFrom } from "./query-values";
 
 export interface LocationReadExecutor {
   execute(query: SQL): Promise<unknown>;
@@ -92,28 +93,11 @@ export interface LocationHeatmapPoint {
   weight: number;
 }
 
-type QueryRows = { rows: unknown[] };
-
-function rowsFrom(result: unknown): unknown[] {
-  if (!result || typeof result !== "object" || !("rows" in result)) return [];
-  const rows = (result as QueryRows).rows;
-  return Array.isArray(rows) ? rows : [];
-}
-
-function numberValue(value: unknown): number {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 function stringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String);
   if (typeof value !== "string") return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
-  }
+  const parsed = safeJsonParse<unknown>(value, []);
+  return Array.isArray(parsed) ? parsed.map(String) : [];
 }
 
 function assertRange({ from, toExclusive }: LocationPeriodRange) {

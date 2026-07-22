@@ -4,7 +4,11 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { buildOverviewComparison, type OverviewComparisonMetric } from "../comparison";
+import {
+  buildOverviewComparison,
+  currentKstYear,
+  type OverviewComparisonMetric,
+} from "../comparison";
 import { useStoredOverviewComparison } from "../comparison-hooks";
 import { ComputingState } from "./ComputingState";
 
@@ -77,9 +81,7 @@ export function OverviewComparison({
   onYearsChange,
 }: OverviewComparisonProps) {
   const { snapshots, error, isLoading } = useStoredOverviewComparison(year1, year2, enabled);
-  const currentYear = Number(
-    new Intl.DateTimeFormat("en", { timeZone: "Asia/Seoul", year: "numeric" }).format(new Date())
-  );
+  const currentYear = Number(currentKstYear());
 
   let content: ReactNode;
   if (error) {

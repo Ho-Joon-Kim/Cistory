@@ -1,6 +1,6 @@
 import type { OverviewSnapshotResponse } from "./service";
 
-function currentKstYear(now: Date) {
+export function currentKstYear(now: Date = new Date()) {
   return new Intl.DateTimeFormat("en", { timeZone: "Asia/Seoul", year: "numeric" }).format(now);
 }
 

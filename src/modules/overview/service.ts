@@ -7,7 +7,7 @@ import {
   periodSnapshots,
 } from "@/db/schema";
 import { ApiError } from "@/lib/api-handler";
-import { getPeriodKey, getPeriodRange, periodTypes } from "./period";
+import { getPeriodKey, isCanonicalPeriodKey, periodTypes } from "./period";
 import type {
   CodingAggregate,
   HealthAggregate,
@@ -77,13 +77,7 @@ function parseCanonicalPeriod(periodType: string, periodKey: string): PeriodType
   }
 
   const type = periodType as PeriodType;
-  try {
-    const range = getPeriodRange(type, periodKey);
-    const reference = type === "recent" ? new Date(range.toExclusive.getTime() - 1) : range.from;
-    if (getPeriodKey(type, reference) !== periodKey) {
-      throw new Error("Noncanonical period key");
-    }
-  } catch {
+  if (!isCanonicalPeriodKey(type, periodKey)) {
     throw new ApiError(400, "유효하지 않은 기간입니다", "INVALID_PERIOD");
   }
 
@@ -126,8 +120,7 @@ export function createOverviewService(store: OverviewStore) {
     async getSnapshot(
       userId: string,
       rawPeriodType: string,
-      periodKey: string,
-      _now: Date = new Date()
+      periodKey: string
     ): Promise<OverviewSnapshotResponse> {
       const periodType = parseCanonicalPeriod(rawPeriodType, periodKey);
       const snapshot = await store.findSnapshot(userId, periodType, periodKey);

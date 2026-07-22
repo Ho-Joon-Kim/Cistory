@@ -8,16 +8,7 @@ import {
 } from "@/modules/portfolio/returns";
 import type { PeriodAggregateInput, PortfolioAggregate } from "../types";
 import type { LocationReadExecutor } from "./location";
-
-function rows(result: unknown): Record<string, unknown>[] {
-  const value = result as { rows?: unknown[] } | null;
-  return Array.isArray(value?.rows) ? (value.rows as Record<string, unknown>[]) : [];
-}
-
-function numberValue(value: unknown): number {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+import { finiteNumber as numberValue, resultRows as rows } from "./query-values";
 
 export async function aggregatePortfolio(
   executor: LocationReadExecutor,
