@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { type PeriodSnapshotStatus, type PeriodType, periodSnapshots, users } from "@/db/schema";
 import { toLocalDateString } from "@/lib/utils";
@@ -275,28 +275,41 @@ export async function runPrecomputeTick(
   };
 }
 
+/**
+ * Postgres rejects `UPDATE t SET "t"."col" = ...` ("SET target columns cannot be
+ * qualified with the relation name"), but Drizzle renders an interpolated Column
+ * inside a sql`` template as `"table"."column"`. Raw UPDATE statements must use
+ * the bare column identifier on the left side of SET. Reading a column on the
+ * right side, in WHERE, or in RETURNING is fine qualified.
+ */
+function setTarget(column: { name: string }) {
+  return sql.identifier(column.name);
+}
+
 export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
   return {
     async recoverExpiredLeases(now, maxAttempts) {
-      const result = await db.execute(sql`
-        UPDATE ${periodSnapshots}
-        SET ${periodSnapshots.status} = CASE
+      const recovered = await db
+        .update(periodSnapshots)
+        .set({
+          status: sql`CASE
             WHEN ${periodSnapshots.attemptCount} >= ${maxAttempts} THEN 'failed'
             ELSE 'pending'
-          END,
-          ${periodSnapshots.computeStartedAt} = NULL,
-          ${periodSnapshots.leaseExpiresAt} = NULL,
-          ${periodSnapshots.lastError} = CASE
+          END`,
+          computeStartedAt: null,
+          leaseExpiresAt: null,
+          lastError: sql`CASE
             WHEN ${periodSnapshots.attemptCount} >= ${maxAttempts}
               THEN 'COMPUTE_LEASE_EXPIRED'
             ELSE ${periodSnapshots.lastError}
-          END,
-          ${periodSnapshots.updatedAt} = ${now}
-        WHERE ${periodSnapshots.status} = 'computing'
-          AND ${periodSnapshots.leaseExpiresAt} <= ${now}
-        RETURNING ${periodSnapshots.id}
-      `);
-      return resultRows(result).length;
+          END`,
+          updatedAt: now,
+        })
+        .where(
+          and(eq(periodSnapshots.status, "computing"), lte(periodSnapshots.leaseExpiresAt, now))
+        )
+        .returning({ id: periodSnapshots.id });
+      return recovered.length;
     },
 
     async listUserIdsPage(afterUserId, limit) {
@@ -349,11 +362,11 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
           LIMIT ${options.limit}
         )
         UPDATE ${periodSnapshots}
-        SET ${periodSnapshots.status} = 'computing',
-          ${periodSnapshots.computeStartedAt} = ${options.now},
-          ${periodSnapshots.leaseExpiresAt} = ${options.leaseExpiresAt},
-          ${periodSnapshots.attemptCount} = ${periodSnapshots.attemptCount} + 1,
-          ${periodSnapshots.updatedAt} = ${options.now}
+        SET ${setTarget(periodSnapshots.status)} = 'computing',
+          ${setTarget(periodSnapshots.computeStartedAt)} = ${options.now},
+          ${setTarget(periodSnapshots.leaseExpiresAt)} = ${options.leaseExpiresAt},
+          ${setTarget(periodSnapshots.attemptCount)} = ${periodSnapshots.attemptCount} + 1,
+          ${setTarget(periodSnapshots.updatedAt)} = ${options.now}
         FROM candidates
         WHERE ${periodSnapshots.id} = candidates.id
         RETURNING ${periodSnapshots.id} AS id, ${periodSnapshots.userId} AS "userId",

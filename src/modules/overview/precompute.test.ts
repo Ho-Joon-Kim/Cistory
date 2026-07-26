@@ -1,9 +1,12 @@
 process.env.TZ = "Asia/Seoul";
 
+import { drizzle } from "drizzle-orm/pg-proxy";
 import { describe, expect, it, vi } from "vitest";
+import type { Database } from "@/db";
 import type { PeriodType } from "@/db/schema";
 import {
   type ActivePeriodSeed,
+  createDatabasePrecomputeStore,
   createOverviewPrecomputeRunner,
   getClaimPriority,
   OVERVIEW_COMPUTE_VERSION,
@@ -491,5 +494,49 @@ describe("overview precompute", () => {
     await expect(precompute.run({ now: NOW })).resolves.toMatchObject({ skipped: true });
     release?.();
     await first;
+  });
+});
+
+describe("database precompute store SQL", () => {
+  // Postgres rejects `UPDATE t SET "t"."col" = ...` ("SET target columns cannot
+  // be qualified with the relation name"). Drizzle renders a Column inside a
+  // sql`` template as "table"."column", so interpolating one on the left side
+  // of SET produces a statement that fails at runtime on every call.
+  const QUALIFIED_SET_TARGET = /(?:set|,)\s*"period_snapshots"\."[a-z_]+"\s*=/i;
+
+  // pg-proxy renders statements through the real Postgres dialect without
+  // opening a connection, so it exercises both raw sql`` and query-builder paths.
+  function renderExecutedSql(run: (db: Database) => Promise<unknown>) {
+    const statements: string[] = [];
+    const db = drizzle(async (statement: string) => {
+      statements.push(statement);
+      return { rows: [] };
+    }) as unknown as Database;
+    return run(db).then(() => statements);
+  }
+
+  it("does not qualify SET targets when recovering expired leases", async () => {
+    const [statement] = await renderExecutedSql((db) =>
+      createDatabasePrecomputeStore(db).recoverExpiredLeases(NOW, PRECOMPUTE_MAX_ATTEMPTS)
+    );
+
+    expect(statement).toMatch(/update\s+"period_snapshots"/i);
+    expect(statement).not.toMatch(QUALIFIED_SET_TARGET);
+  });
+
+  it("does not qualify SET targets when claiming snapshots", async () => {
+    const [statement] = await renderExecutedSql((db) =>
+      createDatabasePrecomputeStore(db).claimSnapshots({
+        now: NOW,
+        leaseExpiresAt: new Date(NOW.getTime() + 60_000),
+        activePeriods: [{ periodType: "recent", periodKey: "2026-07-22" }],
+        computeVersion: OVERVIEW_COMPUTE_VERSION,
+        maxAttempts: PRECOMPUTE_MAX_ATTEMPTS,
+        limit: 5,
+      })
+    );
+
+    expect(statement).toMatch(/update\s+"period_snapshots"/i);
+    expect(statement).not.toMatch(QUALIFIED_SET_TARGET);
   });
 });
