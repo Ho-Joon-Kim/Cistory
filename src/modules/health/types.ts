@@ -61,6 +61,8 @@ export interface HealthSleepSession {
   stages: SleepStages | null;
   /** ordered stage spans for a hypnogram, or null when the record carries no stages */
   segments: SleepStageSegment[] | null;
+  /** the device flagged this as a nap rather than a main sleep session */
+  nap: boolean;
 }
 
 /** One day of the 건강 × 활동 cross: steps vs places-visited vs coding minutes. */

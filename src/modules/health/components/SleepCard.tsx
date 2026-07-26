@@ -154,7 +154,7 @@ function RecordedNights({
                   background: bg,
                   filter: featured ? "drop-shadow(0 0 5px hsl(235 66% 60% / 0.7))" : undefined,
                 }}
-                title={`${DATE_FMT.format(new Date(s.start))} · ${duration(s.minutes)}${hasStages ? " · 단계기록" : " · 시간만"}`}
+                title={`${DATE_FMT.format(new Date(s.start))} · ${duration(s.minutes)}${hasStages ? " · 단계기록" : " · 시간만"}${s.nap ? " · 낮잠" : ""}`}
               />
               <span className="tabular-mono text-[8.5px] text-ink-mute">
                 {DATE_FMT.format(new Date(s.start))}
@@ -184,8 +184,8 @@ function RecordedNights({
 }
 
 /** Full sleep card — hypnogram of the latest staged night, its composition, and a
- *  recorded-nights strip. Sleep arrives only via the on-device Health Connect import,
- *  so history is intentionally sparse until that's enabled. */
+ *  recorded-nights strip. Sleep comes from the Google Health cloud sync (Fitbit) and,
+ *  historically, the on-device Health Connect import. */
 /** A staged sleep of at least this long counts as a "real night" worth featuring —
  *  keeps the hero off short, fragmented naps. */
 const REAL_NIGHT_MIN = 180;
@@ -193,19 +193,20 @@ const REAL_NIGHT_MIN = 180;
 export function SleepCard({ sessions }: { sessions: HealthSleepSession[] }) {
   // sessions arrive newest-first; feature the most recent real night, falling back
   // to the most recent staged record (then the latest night updates the hero once
-  // a full night is tracked).
+  // a full night is tracked). Naps never take the hero — a 20-minute doze would
+  // otherwise displace the night whose stages the card exists to show.
   const staged = sessions.filter((s) => s.segments && s.segments.length > 0);
-  const featured = staged.find((s) => s.minutes >= REAL_NIGHT_MIN) ?? staged[0] ?? null;
+  const featured =
+    staged.find((s) => !s.nap && s.minutes >= REAL_NIGHT_MIN) ??
+    staged.find((s) => !s.nap) ??
+    staged[0] ??
+    null;
 
   return (
-    <InsightCard
-      schema="cross"
-      title="수면"
-      subtitle="단계별 하룻밤 · Samsung Health / Health Connect"
-    >
+    <InsightCard schema="cross" title="수면" subtitle="단계별 하룻밤 · Fitbit / Health Connect">
       {sessions.length === 0 ? (
         <div className="flex h-28 items-center justify-center text-xs text-ink-mute">
-          수면 기록이 아직 없습니다 · 온디바이스 Health Connect 연동 시 채워집니다
+          수면 기록이 아직 없습니다 · 동기화 후 채워집니다
         </div>
       ) : (
         <>
@@ -217,10 +218,6 @@ export function SleepCard({ sessions }: { sessions: HealthSleepSession[] }) {
             </div>
           )}
           <RecordedNights sessions={sessions} featuredStart={featured?.start ?? null} />
-          <p className="mt-3.5 rounded-lg border border-hairline bg-white/[0.02] px-3 py-2.5 text-[11.5px] leading-relaxed text-ink-mute">
-            수면은 <b className="font-medium text-foreground">온디바이스 Health Connect 연동</b>
-            으로만 들어와 기록이 띄엄띄엄합니다. 연동을 켜면 매일 밤이 단계까지 채워집니다.
-          </p>
         </>
       )}
     </InsightCard>

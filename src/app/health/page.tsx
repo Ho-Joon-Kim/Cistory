@@ -169,21 +169,24 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
 
           <HealthHero summary={summary} body={body.data} />
 
-          <Section dot="hsl(153 70% 53%)" title="움직임" note="걸음 · 이동 · 운동">
+          <Section dot="hsl(153 70% 53%)" title="움직임" note="걸음 · 이동 · 운동 · 칼로리">
             <div className={METRIC_GRID}>
               <HealthTrendCard series={seriesFor("steps")} />
               <HealthTrendCard series={seriesFor("distance")} />
               <HealthTrendCard series={seriesFor("exercise")} />
+              <HealthTrendCard series={seriesFor("active_energy")} />
+              <HealthTrendCard series={seriesFor("active_zone_minutes")} />
             </div>
             <div className="mt-3.5">
               <WorkoutList workouts={summary.workouts} />
             </div>
           </Section>
 
-          <Section dot="hsl(0 72% 62%)" title="심혈관" note="심박 · 안정시 · VO₂max">
+          <Section dot="hsl(0 72% 62%)" title="심혈관" note="심박 · 안정시 · HRV · VO₂max">
             <div className={METRIC_GRID}>
               <HealthTrendCard series={seriesFor("heart_rate")} />
               <HealthTrendCard series={seriesFor("resting_heart_rate")} />
+              <HealthTrendCard series={seriesFor("hrv")} />
               <HealthTrendCard series={seriesFor("vo2_max")} />
             </div>
           </Section>
@@ -199,9 +202,15 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
             <CorrelationCard days={correlation.days} isLoading={correlation.isLoading} />
           </div>
 
-          <Section dot="hsl(0 0% 45%)" title="기타 지표" note="데이터가 쌓이면 승격">
+          <Section
+            dot="hsl(263 72% 72%)"
+            title="회복 지표"
+            note="수면 중 측정 · 산소 · 호흡 · 체온"
+          >
             <div className={METRIC_GRID}>
               <HealthTrendCard series={seriesFor("spo2")} />
+              <HealthTrendCard series={seriesFor("respiratory_rate")} />
+              <HealthTrendCard series={seriesFor("skin_temperature")} />
             </div>
           </Section>
         </>

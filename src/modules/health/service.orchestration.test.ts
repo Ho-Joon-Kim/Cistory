@@ -19,7 +19,7 @@ import {
   GoogleHealthApiError,
   GoogleHealthAuthError,
 } from "@/lib/adapters/google-health/interface";
-import { HealthSyncService } from "./service";
+import { HealthSyncService, SESSION_CONFIGS } from "./service";
 
 // ── Fake DB ──────────────────────────────────────────────────────────────────
 // A minimal drizzle stand-in: select() resolves table-keyed fixture rows;
@@ -229,7 +229,15 @@ describe("backfill — all-time walk, gap-proof stop (presence probe)", () => {
   });
 });
 
-describe("syncExercise — unfiltered structured workout upsert", () => {
+describe("syncSessions — unfiltered structured session upsert", () => {
+  const runSession = (svc: HealthSyncService, key: string) =>
+    (
+      svc as unknown as { syncSessions: (c: unknown, cfg: unknown) => Promise<number> }
+    ).syncSessions(
+      activeConn(),
+      SESSION_CONFIGS.find((c) => c.key === key)
+    );
+
   it("parses workouts and upserts them into health_samples", async () => {
     const { db, rec } = fakeDb({ connectionRows: [activeConn()] });
     const point = {
@@ -244,16 +252,39 @@ describe("syncExercise — unfiltered structured workout upsert", () => {
     const svc = withAdapter(new HealthSyncService(db), {
       listDataPoints: vi.fn().mockResolvedValue({ dataPoints: [point] }), // no nextPageToken → one page
     });
-    const n = await (
-      svc as unknown as { syncExercise: (c: unknown) => Promise<number> }
-    ).syncExercise(activeConn());
-    expect(n).toBe(1);
+    expect(await runSession(svc, "exercise")).toBe(1);
     const ins = rec.inserts.find((i) => i.table === healthSamples);
     expect(ins).toBeDefined();
     const row = (ins?.values as Array<Record<string, unknown>>)[0];
     expect(row.metric).toBe("exercise");
     expect(row.value).toBe(11); // 660s → 11 min
     expect((row.valueJson as { displayName?: string }).displayName).toBe("자전거");
+  });
+
+  // Sleep rides the same unfiltered path (its `list` filter 400s like exercise's),
+  // but its duration comes from the interval and its stages must survive intact.
+  it("parses sleep nights, keeping stages in valueJson", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()] });
+    const point = {
+      dataSource: { platform: "FITBIT" },
+      sleep: {
+        interval: { startTime: "2026-07-26T07:24:00Z", endTime: "2026-07-26T10:16:00Z" },
+        type: "STAGES",
+        stages: [
+          { startTime: "2026-07-26T07:24:00Z", endTime: "2026-07-26T07:38:30Z", type: "AWAKE" },
+        ],
+      },
+    };
+    const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [point] });
+    const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
+    expect(await runSession(svc, "sleep")).toBe(1);
+    // Unfiltered read: sleep rejects every time filter, so none may be sent.
+    expect(listDataPoints.mock.calls[0][0].filter).toBe("");
+    const ins = rec.inserts.find((i) => i.table === healthSamples);
+    const row = (ins?.values as Array<Record<string, unknown>>)[0];
+    expect(row.metric).toBe("sleep");
+    expect(row.value).toBe(172);
+    expect((row.valueJson as { stages?: unknown[] }).stages).toHaveLength(1);
   });
 });
 

@@ -76,6 +76,8 @@ Health Connect): `sleep`, `daily-resting-heart-rate`, `heart-rate-variability`,
 `daily-heart-rate-variability`, `active-zone-minutes`, `active-energy-burned`,
 `run-vo2-max`, `core-body-temperature`, `daily-sleep-temperature-derivations`.
 These are why U7 needs a distinct "connected, no data" state (R12).
+**Superseded — all but `run-vo2-max` / `core-body-temperature` now carry real
+Fitbit data; see §6.**
 
 **`total-calories`**: `list` unsupported (`UNSUPPORTED_DATA_TYPE_ACTION`) — rollup /
 dailyRollUp only.
@@ -109,3 +111,76 @@ real overlapping multi-source data exists to calibrate against.
   `value`; structured (exercise, and later sleep) → `valueJson`.
 - **Backfill floor**: no hard retention number surfaced; seed `backfillFloor` at
   now − 90d (idempotent — empty windows still advance the watermark).
+
+## 6. Re-probe 2026-07-26 — the Fitbit Air pipe opened
+
+The Fitbit Air now writes to Health Connect, so everything §3 listed as
+"empty-but-valid" carries data. Every one of these points arrives with
+`dataSource.platform: "FITBIT"` and **no `application.packageName`**, so they land
+under the `"unknown"` source bucket — that is expected, not a parse failure.
+
+Enabled in `HEALTH_METRICS` as a result:
+
+| metric key | dataType | wrapper | time shape | value key | agg |
+|---|---|---|---|---|---|
+| active_energy | `active-energy-burned` | `activeEnergyBurned` | interval | `kcal` | sum |
+| active_zone_minutes | `active-zone-minutes` | `activeZoneMinutes` | interval | `activeZoneMinutes` | sum |
+| hrv | `heart-rate-variability` | `heartRateVariability` | sampleTime | `rootMeanSquareOfSuccessiveDifferencesMilliseconds` | avg |
+| resting_heart_rate | `daily-resting-heart-rate` | `dailyRestingHeartRate` | **date** | `beatsPerMinute` | avg |
+| daily_hrv | `daily-heart-rate-variability` | `dailyHeartRateVariability` | **date** | `averageHeartRateVariabilityMilliseconds` | avg |
+| daily_spo2 | `daily-oxygen-saturation` | `dailyOxygenSaturation` | **date** | `averagePercentage` | avg |
+| respiratory_rate | `daily-respiratory-rate` | `dailyRespiratoryRate` | **date** | `breathsPerMinute` | avg |
+| skin_temperature | `daily-sleep-temperature-derivations` | `dailySleepTemperatureDerivations` | **date** | `nightlyTemperatureCelsius` | avg |
+
+### The `date` time shape (new)
+
+Every `daily-*` dataType is keyed by a **civil date** (`{year, month, day}`), not a
+timestamp. Two consequences:
+
+- The filter compares against a bare day string — `daily_spo2.date >= "2026-07-25"`,
+  closed-open windows work (`AND … < "…"`). The `.year` sub-field is rejected 400.
+- Parsed points are anchored at **12:00 KST (03:00Z)** of that date, so `localDaySql`
+  buckets them back into their own KST day from either edge.
+
+These rollups are **revised until their day closes**, so their samples upsert with
+DO UPDATE (`MetricConfig.revisable`) instead of DO NOTHING — otherwise the day's
+first (partial) reading would stick forever.
+
+### `sleep` — structured, still unfilterable
+
+`sleep` has real data back to 2025-07 (18 sessions), but **every `list` filter
+variant is still rejected 400** (`INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER`;
+`sleep.interval.start_time` and `sleep.sleep_session.interval.start_time` both
+verified). So it rides the same unfiltered full-history re-read as `exercise`
+(`syncSessions`) — cheap at one row per night, and idempotent.
+
+Its wrapper: `interval.{startTime,endTime}`, `type: "STAGES"`, `metadata.nap`, and
+`stages[]` of `{startTime, endTime, type}` where type ∈ AWAKE/LIGHT/DEEP/REM. Note
+this is a **different shape from the on-device Health Connect import** (epoch-millis
+times, numeric `stage` codes) — `src/modules/health/sleep.ts` normalizes both, since
+health_samples holds rows from each.
+
+### Deliberately not synced
+
+- **`weight` / `body-fat` / `height`** — populated, but from
+  `com.withings.wiscale2`. The dedicated Withings integration already owns body
+  composition in `body_measurements` with far richer fields (muscle/bone mass,
+  visceral fat, BMR), so pulling them here would just double-render the same scale.
+- **`total-calories`** — `list` unsupported (`UNSUPPORTED_DATA_TYPE_ACTION`);
+  rollup-only, so it needs the deferred `dailyRollUp` path.
+- **`run-vo2-max`, `core-body-temperature`, `blood-glucose`** — valid dataTypes,
+  still genuinely empty for this account.
+- Rejected as invalid dataType IDs (do not retry): `floors-climbed`,
+  `elevation-gained`, `basal-metabolic-rate`, `daily-heart-rate`,
+  `respiratory-rate` (only the `daily-` form exists), `skin-temperature`,
+  `body-temperature`, `blood-pressure`, `nutrition`, `hydration`, `daily-readiness`,
+  `menstruation`, `mindfulness`, `steps-cadence`, `speed`, `power`, `lean-body-mass`.
+
+### Backfill completion is per-metric
+
+Adding metrics to `HEALTH_METRICS` after a connection finished its first backfill
+used to strand them with no history: `backfillPendingConnections` returned early on
+the connection-level `backfillCompletedAt` flag. Completion is now tracked per
+metric (`health_sync_state.backfilledFrom <= backfillFloor`, stamped at the floor
+when the presence probe proves history ended), so new metrics backfill on their own
+and the flag survives purely as the UI's "first backfill done" hint.

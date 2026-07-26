@@ -42,8 +42,9 @@ export function HealthImportSettings({ hasKey }: HealthImportSettingsProps) {
           건강 데이터 가져오기 (Health Connect)
         </CardTitle>
         <CardDescription>
-          Google 클라우드로 안 넘어오는 수면·운동을 폰의 Health Connect에서 직접 읽어 백필합니다
-          (MacroDroid/Tasker → POST)
+          Google 클라우드로 안 넘어오는 기록을 폰의 Health Connect에서 직접 읽어 백필합니다
+          (MacroDroid/Tasker → POST). 수면·운동·심박은 이제 클라우드 동기화로 들어오므로 보조
+          수단입니다
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

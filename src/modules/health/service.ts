@@ -38,14 +38,18 @@ const BACKFILL_CHUNKS_PER_RUN = 4;
 // ── Metric config (ground-truthed by the U1 live spike) ──────────────────────
 // The Google Health `list` payload wraps each point under a camelCase key
 // (`heart-rate` → `heartRate`), carries its timestamp under `interval.startTime`
-// (accumulating metrics) or `sampleTime.physicalTime` (instantaneous metrics),
-// and the `list` `filter` param addresses those fields in snake_case
-// (`heart_rate.sample_time.physical_time`). Values arrive as strings OR numbers.
-// Only metrics whose exact shape the spike verified are enabled; sleep / resting
-// HR / HRV are valid dataTypes that return empty today (they populate once Fitbit
-// writes to Health Connect) and are added when their value shape is ground-truthed.
+// (accumulating metrics), `sampleTime.physicalTime` (instantaneous metrics), or a
+// civil `date` (the pre-aggregated `daily-*` metrics), and the `list` `filter` param
+// addresses those fields in snake_case (`heart_rate.sample_time.physical_time`).
+// Values arrive as strings OR numbers.
+//
+// Only metrics whose exact shape a live probe verified are enabled. The original
+// U1 spike ran before the Fitbit Air wrote to Health Connect, so sleep / resting HR
+// / HRV / AZM / active energy / the daily-* family were all empty then; the
+// 2026-07-26 re-probe ground-truthed them and they are enabled below (see
+// docs/health/google-health-spike-findings.md §6).
 export type MetricAgg = "sum" | "avg";
-type MetricTimeShape = "interval" | "sampleTime";
+type MetricTimeShape = "interval" | "sampleTime" | "date";
 
 export interface MetricConfig {
   /** internal key stored in health_samples.metric */
@@ -62,6 +66,13 @@ export interface MetricConfig {
   valueKey: string | null;
   /** daily-summary aggregation: sum (accumulating) → valueSum; avg (instant) → null */
   agg: MetricAgg;
+  /**
+   * The API revises this point after we first read it (true for every `daily-*`
+   * metric: today's rollup keeps changing until the day closes). Such samples
+   * upsert with DO UPDATE instead of DO NOTHING, since their identity
+   * (user, metric, sampleAt, source) is stable while the value is not.
+   */
+  revisable?: boolean;
 }
 
 export const HEALTH_METRICS: MetricConfig[] = [
@@ -110,14 +121,105 @@ export const HEALTH_METRICS: MetricConfig[] = [
     valueKey: "vo2Max",
     agg: "avg",
   },
-  // `exercise` (workout sessions) is synced SEPARATELY (syncExercise), not here:
-  // it's structured (not a scalar) and — like sleep — its `list` filter is rejected
-  // 400 (INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER), so it can't be time-windowed.
+  {
+    key: "active_energy",
+    dataType: "active-energy-burned",
+    wrapper: "activeEnergyBurned",
+    timeShape: "interval",
+    filterField: "active_energy_burned.interval.start_time",
+    valueKey: "kcal",
+    agg: "sum",
+  },
+  {
+    // One point per minute spent in a heart-rate zone; `heartRateZone` (FAT_BURN /
+    // CARDIO / PEAK) rides along in the raw page, the scalar is the minute count.
+    key: "active_zone_minutes",
+    dataType: "active-zone-minutes",
+    wrapper: "activeZoneMinutes",
+    timeShape: "interval",
+    filterField: "active_zone_minutes.interval.start_time",
+    valueKey: "activeZoneMinutes",
+    agg: "sum",
+  },
+  {
+    // Intraday RMSSD samples (Fitbit emits these through the night).
+    key: "hrv",
+    dataType: "heart-rate-variability",
+    wrapper: "heartRateVariability",
+    timeShape: "sampleTime",
+    filterField: "heart_rate_variability.sample_time.physical_time",
+    valueKey: "rootMeanSquareOfSuccessiveDifferencesMilliseconds",
+    agg: "avg",
+  },
+  // ── daily-* : server-side rollups keyed by a civil date, not a timestamp ────
+  // Same key space as the on-device import writes (resting_heart_rate / hrv), so
+  // cloud and imported rows coexist under one metric and dedup by source.
+  {
+    key: "resting_heart_rate",
+    dataType: "daily-resting-heart-rate",
+    wrapper: "dailyRestingHeartRate",
+    timeShape: "date",
+    filterField: "daily_resting_heart_rate.date",
+    valueKey: "beatsPerMinute",
+    agg: "avg",
+    revisable: true,
+  },
+  {
+    key: "daily_hrv",
+    dataType: "daily-heart-rate-variability",
+    wrapper: "dailyHeartRateVariability",
+    timeShape: "date",
+    filterField: "daily_heart_rate_variability.date",
+    valueKey: "averageHeartRateVariabilityMilliseconds",
+    agg: "avg",
+    revisable: true,
+  },
+  {
+    key: "daily_spo2",
+    dataType: "daily-oxygen-saturation",
+    wrapper: "dailyOxygenSaturation",
+    timeShape: "date",
+    filterField: "daily_oxygen_saturation.date",
+    valueKey: "averagePercentage",
+    agg: "avg",
+    revisable: true,
+  },
+  {
+    key: "respiratory_rate",
+    dataType: "daily-respiratory-rate",
+    wrapper: "dailyRespiratoryRate",
+    timeShape: "date",
+    filterField: "daily_respiratory_rate.date",
+    valueKey: "breathsPerMinute",
+    agg: "avg",
+    revisable: true,
+  },
+  {
+    // Nightly skin temperature. `baselineTemperatureCelsius` /
+    // `relativeNightlyStddev30dCelsius` arrive as the STRING "NaN" until Fitbit has
+    // 30 nights of baseline, so the absolute nightly reading is the scalar.
+    key: "skin_temperature",
+    dataType: "daily-sleep-temperature-derivations",
+    wrapper: "dailySleepTemperatureDerivations",
+    timeShape: "date",
+    filterField: "daily_sleep_temperature_derivations.date",
+    valueKey: "nightlyTemperatureCelsius",
+    agg: "avg",
+    revisable: true,
+  },
+  // `exercise` and `sleep` are synced SEPARATELY (syncSessions), not here: both are
+  // structured (not scalars) and both have their `list` filter rejected 400
+  // (INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER), so they can't be time-windowed.
 ];
 
-// ── Exercise (structured workouts, synced unfiltered) ────────────────────────
+// ── Sessions (structured, synced unfiltered) ─────────────────────────────────
+// Both `exercise` and `sleep` reject every `list` filter variant, so they can't be
+// time-windowed. Both are low-volume (one row per workout / per night), so each run
+// re-fetches the whole history newest-first under a page cap and upserts — no
+// watermark needed, and idempotent because the identity is stable.
 export const EXERCISE_METRIC = "exercise";
-const EXERCISE_MAX_PAGES = 10; // low volume; a full unfiltered re-fetch is cheap
+export const SLEEP_METRIC = "sleep";
+const SESSION_MAX_PAGES = 10; // low volume; a full unfiltered re-fetch is cheap
 const EXERCISE_CONFIG: MetricConfig = {
   key: EXERCISE_METRIC,
   dataType: "exercise",
@@ -127,6 +229,16 @@ const EXERCISE_CONFIG: MetricConfig = {
   valueKey: null,
   agg: "sum",
 };
+const SLEEP_CONFIG: MetricConfig = {
+  key: SLEEP_METRIC,
+  dataType: "sleep",
+  wrapper: "sleep",
+  timeShape: "interval",
+  filterField: "sleep.interval.start_time",
+  valueKey: null,
+  agg: "sum",
+};
+export const SESSION_CONFIGS: MetricConfig[] = [EXERCISE_CONFIG, SLEEP_CONFIG];
 
 export interface ParsedWorkout {
   sampleAt: Date;
@@ -161,6 +273,30 @@ export function parseExerciseWorkout(point: GoogleHealthDataPoint): ParsedWorkou
   return { sampleAt, source, activeMinutes: durationToMinutes(wrapper.activeDuration), wrapper };
 }
 
+/**
+ * Normalize one raw `sleep` data point into a session row, or null if unusable.
+ * Unlike exercise there is no `activeDuration` field — the session length is the
+ * interval itself. Stored with `value` = duration minutes and `valueJson` = the
+ * whole wrapper, whose `stages[]` drives the hypnogram (see modules/health/sleep.ts).
+ */
+export function parseSleepSession(point: GoogleHealthDataPoint): ParsedWorkout | null {
+  const wrapper = point.sleep as Record<string, unknown> | undefined;
+  if (!wrapper || typeof wrapper !== "object") return null;
+  const interval = wrapper.interval as { startTime?: string; endTime?: string } | undefined;
+  if (!interval?.startTime) return null;
+  const sampleAt = new Date(interval.startTime);
+  if (Number.isNaN(sampleAt.getTime())) return null;
+  const end = interval.endTime ? new Date(interval.endTime) : null;
+  const minutes =
+    end && !Number.isNaN(end.getTime())
+      ? Math.max(0, (end.getTime() - sampleAt.getTime()) / 60_000)
+      : 0;
+  const source =
+    (point.dataSource as { application?: { packageName?: string } } | undefined)?.application
+      ?.packageName ?? "unknown";
+  return { sampleAt, source, activeMinutes: minutes, wrapper };
+}
+
 // ── Pure helpers (exported for unit tests) ───────────────────────────────────
 
 /** Cached access token is usable if present and not within the refresh grace window. */
@@ -188,6 +324,45 @@ export interface ParsedSample {
   valueJson: unknown | null;
 }
 
+function parseIso(iso: string | undefined): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * `daily-*` points are keyed by a civil date (`{year, month, day}`) with no time —
+ * a KST calendar day, since the account's every point carries a +9h offset. Anchor
+ * it at 12:00 KST (03:00Z) rather than midnight so the stored UTC instant lands
+ * unambiguously inside its own KST day when localDaySql buckets it back
+ * ((sample_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date).
+ */
+function civilDateToInstant(raw: unknown): Date | null {
+  const d = raw as { year?: number; month?: number; day?: number } | undefined;
+  if (
+    !d ||
+    typeof d.year !== "number" ||
+    typeof d.month !== "number" ||
+    typeof d.day !== "number"
+  ) {
+    return null;
+  }
+  const ms = Date.UTC(d.year, d.month - 1, d.day, 12 - KST_OFFSET_HOURS, 0, 0);
+  return Number.isNaN(ms) ? null : new Date(ms);
+}
+
+const KST_OFFSET_HOURS = 9;
+const KST_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Seoul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+/** KST calendar day ('YYYY-MM-DD') of a UTC instant — the `date` filter's key space. */
+function kstDay(d: Date): string {
+  return KST_DAY_FMT.format(d);
+}
+
 /**
  * Normalize one raw Google Health data point into a health_samples row shape, or
  * null when the point is unusable (missing wrapper/timestamp, or a scalar metric
@@ -202,13 +377,15 @@ export function parseSample(
   const wrapper = point[config.wrapper] as Record<string, unknown> | undefined;
   if (!wrapper || typeof wrapper !== "object") return null;
 
-  const iso =
-    config.timeShape === "interval"
-      ? (wrapper.interval as { startTime?: string } | undefined)?.startTime
-      : (wrapper.sampleTime as { physicalTime?: string } | undefined)?.physicalTime;
-  if (!iso) return null;
-  const sampleAt = new Date(iso);
-  if (Number.isNaN(sampleAt.getTime())) return null;
+  const sampleAt =
+    config.timeShape === "date"
+      ? civilDateToInstant(wrapper.date)
+      : parseIso(
+          config.timeShape === "interval"
+            ? (wrapper.interval as { startTime?: string } | undefined)?.startTime
+            : (wrapper.sampleTime as { physicalTime?: string } | undefined)?.physicalTime
+        );
+  if (!sampleAt) return null;
 
   const dataSource = point.dataSource as { application?: { packageName?: string } } | undefined;
   const source = dataSource?.application?.packageName ?? "unknown";
@@ -228,8 +405,21 @@ export function parseSample(
  * Build the AIP-160 `filter` for a `list` call. `since` is a required lower bound;
  * `until` (backfill windows) adds a closed-open upper bound. Field names are the
  * spike-verified snake_case form — camelCase / hyphenated variants are rejected.
+ *
+ * `date`-shaped metrics compare against a bare KST calendar day, not an instant
+ * (`… >= "2026-07-26"`; the `.year` sub-field is rejected 400). The window is
+ * widened to whole days — floor the lower bound, ceil the upper — so a partial day
+ * at either edge is never silently dropped. Re-reading a day is free: those metrics
+ * are `revisable`, so the upsert refreshes the value in place.
  */
 export function buildTimeFilter(config: MetricConfig, since: Date, until?: Date): string {
+  if (config.timeShape === "date") {
+    const lower = `${config.filterField} >= "${kstDay(since)}"`;
+    if (!until) return lower;
+    // Ceil: the upper bound is exclusive, so include the day `until` falls in.
+    const end = kstDay(new Date(until.getTime() + 86_400_000));
+    return `${lower} AND ${config.filterField} < "${end}"`;
+  }
   const lower = `${config.filterField} >= "${since.toISOString()}"`;
   if (!until) return lower;
   return `${lower} AND ${config.filterField} < "${until.toISOString()}"`;
@@ -416,40 +606,35 @@ export class HealthSyncService {
     }
 
     const now = new Date();
-    let total = 0;
-    let attempts = 0;
     const errors: string[] = [];
-    for (const config of HEALTH_METRICS) {
-      attempts++;
+    // Scalar metrics take the incremental filtered path; `exercise` / `sleep` are
+    // structured and unfilterable, so they re-read unfiltered. Each unit is
+    // isolated (AE4) so one failure never drops the rest.
+    const units = [
+      ...HEALTH_METRICS.map((c) => ({
+        key: c.key,
+        run: () => this.syncMetricForward(connection, c, now),
+      })),
+      ...SESSION_CONFIGS.map((c) => ({ key: c.key, run: () => this.syncSessions(connection, c) })),
+    ];
+    let total = 0;
+    for (const unit of units) {
       try {
-        total += await this.syncMetricForward(connection, config, now);
+        total += await unit.run();
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        errors.push(`${config.key}: ${message}`);
+        errors.push(`${unit.key}: ${err instanceof Error ? err.message : String(err)}`);
         logger.warn("[Health] metric sync failed (skipping)", {
           userId,
-          metric: config.key,
+          metric: unit.key,
           status: err instanceof GoogleHealthApiError ? err.status : undefined,
         });
       }
-    }
-    // Exercise: structured workouts, synced unfiltered (its `list` filter 400s).
-    attempts++;
-    try {
-      total += await this.syncExercise(connection);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      errors.push(`exercise: ${message}`);
-      logger.warn("[Health] exercise sync failed (skipping)", {
-        userId,
-        status: err instanceof GoogleHealthApiError ? err.status : undefined,
-      });
     }
 
     // Advance the sync clock only when at least one unit succeeded. A TOTAL
     // failure (dead token, network down) leaves lastSyncedAt untouched so the
     // skipIfSyncedWithinMs gate doesn't suppress the retry for a full interval.
-    const allFailed = errors.length === attempts;
+    const allFailed = errors.length === units.length;
     await this.db
       .update(healthConnections)
       .set({
@@ -487,35 +672,39 @@ export class HealthSyncService {
   }
 
   /**
-   * Sync workout sessions. `exercise` can't be time-filtered (its `list` filter
-   * 400s), so it's fetched unfiltered newest-first, bounded to EXERCISE_MAX_PAGES,
-   * and upserted (onConflictDoNothing dedups by (userId, metric, sampleAt, source)).
-   * Low volume makes a full re-fetch per run cheap + idempotent — no watermark. Each
-   * row carries `value` = active minutes (daily rollups) + `valueJson` = the workout.
+   * Sync structured session metrics (`exercise`, `sleep`). Neither can be
+   * time-filtered (their `list` filters 400), so each is fetched unfiltered
+   * newest-first, bounded to SESSION_MAX_PAGES, and upserted (onConflictDoNothing
+   * dedups by (userId, metric, sampleAt, source)). Low volume — one row per workout
+   * / per night — makes a full re-fetch per run cheap + idempotent, so no watermark
+   * and no separate backfill: the unfiltered read already reaches all history. Each
+   * row carries `value` = duration minutes (daily rollups) + `valueJson` = the
+   * wrapper (workout type / sleep stages).
    */
-  private async syncExercise(connection: HealthConnection): Promise<number> {
+  private async syncSessions(connection: HealthConnection, config: MetricConfig): Promise<number> {
+    const parse = config.key === SLEEP_METRIC ? parseSleepSession : parseExerciseWorkout;
     let pageToken: string | undefined;
     let pages = 0;
     const rows: NewHealthSample[] = [];
     do {
       // Empty filter → the adapter omits it → unfiltered (most recent first).
-      const page = await this.listPageWithAuth(connection, EXERCISE_CONFIG, "", pageToken);
+      const page = await this.listPageWithAuth(connection, config, "", pageToken);
       for (const point of page.dataPoints) {
-        const w = parseExerciseWorkout(point);
-        if (!w) continue;
+        const s = parse(point);
+        if (!s) continue;
         rows.push({
           userId: connection.userId,
-          metric: EXERCISE_METRIC,
-          sampleAt: w.sampleAt,
-          source: w.source,
-          value: w.activeMinutes,
-          valueJson: w.wrapper,
+          metric: config.key,
+          sampleAt: s.sampleAt,
+          source: s.source,
+          value: s.activeMinutes,
+          valueJson: s.wrapper,
         });
       }
       pageToken = page.nextPageToken;
       pages++;
       await new Promise((resolve) => setImmediate(resolve)); // event-loop yield
-    } while (pageToken && pages < EXERCISE_MAX_PAGES);
+    } while (pageToken && pages < SESSION_MAX_PAGES);
 
     if (rows.length === 0) return 0;
     await this.db.insert(healthSamples).values(rows).onConflictDoNothing();
@@ -530,17 +719,26 @@ export class HealthSyncService {
    * unbounded history. Resumable + idempotent (samples upsert DO NOTHING). Once
    * every metric is done, stamp `backfillCompletedAt` so the UI can leave the
    * "동기화 중" state (R12).
+   *
+   * Completion is tracked PER METRIC (`backfilledFrom <= floor`), not by the
+   * connection-level `backfillCompletedAt` flag — otherwise a metric added to
+   * HEALTH_METRICS after a connection finished (sleep, HRV, the daily-* family)
+   * would never get its history, since the flag was already stamped. The flag stays
+   * as the UI's "first backfill done" hint and is never cleared.
    */
   async backfillPendingConnections(userId: string): Promise<HealthSyncResult> {
     const connection = await this.getConnection(userId);
-    if (!connection || connection.status !== "active" || connection.backfillCompletedAt) {
+    if (!connection || connection.status !== "active") {
       return { userId, samplesUpserted: 0, skipped: true };
     }
 
     const floor = connection.backfillFloor ?? (await this.seedBackfillFloor(connection));
+    const pending = await this.pendingBackfillMetrics(userId, floor);
+    if (pending.length === 0) return { userId, samplesUpserted: 0, skipped: true };
+
     let total = 0;
     let allComplete = true;
-    for (const config of HEALTH_METRICS) {
+    for (const config of pending) {
       try {
         const done = await this.backfillMetric(connection, config, floor);
         total += done.upserted;
@@ -555,7 +753,7 @@ export class HealthSyncService {
       }
     }
 
-    if (allComplete) {
+    if (allComplete && !connection.backfillCompletedAt) {
       await this.db
         .update(healthConnections)
         .set({ backfillCompletedAt: new Date(), updatedAt: new Date() })
@@ -563,6 +761,24 @@ export class HealthSyncService {
       logger.info("[Health] Backfill complete", { userId });
     }
     return { userId, samplesUpserted: total, skipped: false };
+  }
+
+  /**
+   * Metrics whose backward walk hasn't reached the floor yet. A metric is done once
+   * its `backfilledFrom` is stamped AT the floor — backfillMetric stamps it there
+   * both when the walk runs out of history (presence probe) and when it hits the
+   * floor, so "done" survives a restart without a dedicated column.
+   */
+  private async pendingBackfillMetrics(userId: string, floor: Date): Promise<MetricConfig[]> {
+    const states = await this.db
+      .select()
+      .from(healthSyncState)
+      .where(eq(healthSyncState.userId, userId));
+    const byMetric = new Map(states.map((s) => [s.metric, s]));
+    return HEALTH_METRICS.filter((config) => {
+      const from = byMetric.get(config.key)?.backfilledFrom;
+      return !from || from.getTime() > floor.getTime();
+    });
   }
 
   private async backfillMetric(
@@ -601,6 +817,10 @@ export class HealthSyncService {
       // NO data remains anywhere below the cursor — one presence probe over the whole
       // remaining range, so it's gap-proof regardless of gap length.
       if (got === 0 && !(await this.hasDataBefore(connection, config, cursor, floor))) {
+        // Stamp the cursor AT the floor: nothing exists below it, so this metric is
+        // done for good. That's what makes completion durable per metric (see
+        // pendingBackfillMetrics) rather than only in the connection-level flag.
+        await this.setSyncState(connection.userId, config.key, { backfilledFrom: floor });
         return { upserted, reachedFloor: true };
       }
     }
@@ -737,7 +957,24 @@ export class HealthSyncService {
       });
     }
     if (rows.length === 0) return 0;
-    await this.db.insert(healthSamples).values(rows).onConflictDoNothing();
+    if (config.revisable) {
+      // `daily-*` rollups are revised until their day closes (and the current day is
+      // re-read every run), so the value must overwrite rather than be discarded.
+      await this.db
+        .insert(healthSamples)
+        .values(rows)
+        .onConflictDoUpdate({
+          target: [
+            healthSamples.userId,
+            healthSamples.metric,
+            healthSamples.sampleAt,
+            healthSamples.source,
+          ],
+          set: { value: sql`excluded.value`, valueJson: sql`excluded.value_json` },
+        });
+    } else {
+      await this.db.insert(healthSamples).values(rows).onConflictDoNothing();
+    }
     return rows.length;
   }
 
