@@ -3,7 +3,7 @@ process.env.TZ = "Asia/Seoul";
 import { drizzle } from "drizzle-orm/pg-proxy";
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "@/db";
-import type { PeriodType } from "@/db/schema";
+import { type PeriodType, periodSnapshots } from "@/db/schema";
 import {
   type ActivePeriodSeed,
   createDatabasePrecomputeStore,
@@ -20,6 +20,7 @@ import {
 import type { PeriodAggregatePayload, PeriodDomainEnvelope } from "./types";
 
 const NOW = new Date("2026-07-22T03:00:00.000Z");
+const LEASE_EXPIRES_AT = new Date("2026-07-22T03:10:00.000Z");
 
 function ready<T>(data: T): PeriodDomainEnvelope<T> {
   return {
@@ -508,35 +509,55 @@ describe("database precompute store SQL", () => {
   // opening a connection, so it exercises both raw sql`` and query-builder paths.
   function renderExecutedSql(run: (db: Database) => Promise<unknown>) {
     const statements: string[] = [];
-    const db = drizzle(async (statement: string) => {
+    const params: unknown[][] = [];
+    const db = drizzle(async (statement: string, values: unknown[]) => {
       statements.push(statement);
+      params.push(values);
       return { rows: [] };
     }) as unknown as Database;
-    return run(db).then(() => statements);
+    return run(db).then(() => ({ statements, params }));
   }
 
+  const claim = (db: Database) =>
+    createDatabasePrecomputeStore(db).claimSnapshots({
+      now: NOW,
+      leaseExpiresAt: LEASE_EXPIRES_AT,
+      activePeriods: [{ periodType: "recent", periodKey: "2026-07-22" }],
+      computeVersion: OVERVIEW_COMPUTE_VERSION,
+      maxAttempts: PRECOMPUTE_MAX_ATTEMPTS,
+      limit: 5,
+    });
+
   it("does not qualify SET targets when recovering expired leases", async () => {
-    const [statement] = await renderExecutedSql((db) =>
+    const { statements } = await renderExecutedSql((db) =>
       createDatabasePrecomputeStore(db).recoverExpiredLeases(NOW, PRECOMPUTE_MAX_ATTEMPTS)
     );
 
-    expect(statement).toMatch(/update\s+"period_snapshots"/i);
-    expect(statement).not.toMatch(QUALIFIED_SET_TARGET);
+    expect(statements[0]).toMatch(/update\s+"period_snapshots"/i);
+    expect(statements[0]).not.toMatch(QUALIFIED_SET_TARGET);
   });
 
   it("does not qualify SET targets when claiming snapshots", async () => {
-    const [statement] = await renderExecutedSql((db) =>
-      createDatabasePrecomputeStore(db).claimSnapshots({
-        now: NOW,
-        leaseExpiresAt: new Date(NOW.getTime() + 60_000),
-        activePeriods: [{ periodType: "recent", periodKey: "2026-07-22" }],
-        computeVersion: OVERVIEW_COMPUTE_VERSION,
-        maxAttempts: PRECOMPUTE_MAX_ATTEMPTS,
-        limit: 5,
-      })
-    );
+    const { statements } = await renderExecutedSql(claim);
 
-    expect(statement).toMatch(/update\s+"period_snapshots"/i);
-    expect(statement).not.toMatch(QUALIFIED_SET_TARGET);
+    expect(statements[0]).toMatch(/update\s+"period_snapshots"/i);
+    expect(statements[0]).not.toMatch(QUALIFIED_SET_TARGET);
+  });
+
+  // A Date interpolated into a raw sql`` template reaches node-postgres as a
+  // Date and serializes in the process timezone (KST in production), while the
+  // query builder writes UTC wall time. Claiming wrote KST timestamps that the
+  // builder-based publish/release/fail guards then failed to match, so claimed
+  // snapshots never published and leases never looked expired.
+  it("writes claim timestamps in the same UTC wall time the query builder uses", async () => {
+    const { params } = await renderExecutedSql(claim);
+
+    for (const value of [NOW, LEASE_EXPIRES_AT]) {
+      const mapped = periodSnapshots.computeStartedAt.mapToDriverValue(value) as string;
+      expect(mapped).toBe(value.toISOString());
+      expect(params[0]).toContain(mapped);
+      // A bare Date would reach the driver and serialize in the process timezone.
+      expect(params[0]).not.toContainEqual(value);
+    }
   });
 });

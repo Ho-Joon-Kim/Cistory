@@ -31,6 +31,24 @@ export function localDayRawSql(columnRef: string): string {
 }
 
 /**
+ * Serialize a JS `Date` for a raw `sql` template the same way the query builder
+ * would for that column.
+ *
+ * A Date interpolated directly into a `sql` template bypasses Drizzle's column
+ * mapping and reaches node-postgres as a Date object, which serializes it in
+ * the **process timezone** (`TZ=Asia/Seoul` in production). The query builder
+ * instead maps it to UTC wall time. Mixing the two writes KST and UTC values
+ * into the same column nine hours apart, which silently breaks equality guards
+ * and `<=` lease comparisons across the two code paths.
+ *
+ * Always wrap Dates going into raw SQL:
+ *   sql`... SET lease_expires_at = ${timestampParam(table.leaseExpiresAt, at)}`
+ */
+export function timestampParam(column: PgColumn, value: Date): string {
+  return column.mapToDriverValue(value) as string;
+}
+
+/**
  * Parse a Drizzle `numeric` column (serialized to a string on read) into a
  * number, preserving null. Integer columns already arrive as numbers and don't
  * need this.

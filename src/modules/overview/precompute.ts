@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { type PeriodSnapshotStatus, type PeriodType, periodSnapshots, users } from "@/db/schema";
+import { timestampParam } from "@/db/sql";
 import { toLocalDateString } from "@/lib/utils";
 import { aggregatePeriod } from "./aggregate";
 import { resultRows } from "./aggregate/query-values";
@@ -363,10 +364,10 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
         )
         UPDATE ${periodSnapshots}
         SET ${setTarget(periodSnapshots.status)} = 'computing',
-          ${setTarget(periodSnapshots.computeStartedAt)} = ${options.now},
-          ${setTarget(periodSnapshots.leaseExpiresAt)} = ${options.leaseExpiresAt},
+          ${setTarget(periodSnapshots.computeStartedAt)} = ${timestampParam(periodSnapshots.computeStartedAt, options.now)},
+          ${setTarget(periodSnapshots.leaseExpiresAt)} = ${timestampParam(periodSnapshots.leaseExpiresAt, options.leaseExpiresAt)},
           ${setTarget(periodSnapshots.attemptCount)} = ${periodSnapshots.attemptCount} + 1,
-          ${setTarget(periodSnapshots.updatedAt)} = ${options.now}
+          ${setTarget(periodSnapshots.updatedAt)} = ${timestampParam(periodSnapshots.updatedAt, options.now)}
         FROM candidates
         WHERE ${periodSnapshots.id} = candidates.id
         RETURNING ${periodSnapshots.id} AS id, ${periodSnapshots.userId} AS "userId",

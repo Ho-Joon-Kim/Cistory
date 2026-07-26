@@ -6,6 +6,7 @@ import {
   type PeriodType,
   periodSnapshots,
 } from "@/db/schema";
+import { timestampParam } from "@/db/sql";
 import { ApiError } from "@/lib/api-handler";
 import { getPeriodKey, isCanonicalPeriodKey, periodTypes } from "./period";
 import type {
@@ -238,7 +239,7 @@ export function createDatabaseOverviewStore(db: Database): OverviewStore {
           INSERT INTO period_snapshots (
             user_id, period_type, period_key, status, updated_at
           )
-          VALUES (${userId}, ${periodType}, ${periodKey}, 'pending', ${now})
+          VALUES (${userId}, ${periodType}, ${periodKey}, 'pending', ${timestampParam(periodSnapshots.updatedAt, now)})
           ON CONFLICT (user_id, period_type, period_key) DO UPDATE SET
             status = 'pending',
             compute_started_at = NULL,
