@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { type PeriodSnapshotStatus, type PeriodType, periodSnapshots, users } from "@/db/schema";
-import { timestampParam } from "@/db/sql";
+import { timestampFromDriver, timestampParam } from "@/db/sql";
 import { toLocalDateString } from "@/lib/utils";
 import { aggregatePeriod } from "./aggregate";
 import { resultRows } from "./aggregate/query-values";
@@ -387,8 +387,14 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
         status: row.status as PeriodSnapshotStatus,
         attemptCount: Number(row.attemptCount),
         computeVersion: Number(row.computeVersion),
-        finalizedAt: row.finalizedAt == null ? null : new Date(row.finalizedAt as string | Date),
-        computeStartedAt: new Date(row.computeStartedAt as string | Date),
+        finalizedAt:
+          row.finalizedAt == null
+            ? null
+            : timestampFromDriver(periodSnapshots.finalizedAt, row.finalizedAt),
+        computeStartedAt: timestampFromDriver(
+          periodSnapshots.computeStartedAt,
+          row.computeStartedAt
+        ),
       }));
     },
 

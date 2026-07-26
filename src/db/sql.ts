@@ -49,6 +49,21 @@ export function timestampParam(column: PgColumn, value: Date): string {
 }
 
 /**
+ * Read a timestamp back out of a raw `sql` result the same way the query
+ * builder would for that column.
+ *
+ * The mirror of {@link timestampParam}: a raw `RETURNING`/`SELECT` bypasses
+ * Drizzle's read mapping too, and node-postgres parses a naive `timestamp` in
+ * the **process timezone**. Since the column holds UTC wall time, `new
+ * Date(value)` yields an instant shifted by the local offset (9h under
+ * `TZ=Asia/Seoul`). Feeding that Date back into a builder comparison then
+ * never matches the stored row.
+ */
+export function timestampFromDriver(column: PgColumn, value: unknown): Date {
+  return column.mapFromDriverValue(value) as Date;
+}
+
+/**
  * Parse a Drizzle `numeric` column (serialized to a string on read) into a
  * number, preserving null. Integer columns already arrive as numbers and don't
  * need this.

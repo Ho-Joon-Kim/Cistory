@@ -549,6 +549,36 @@ describe("database precompute store SQL", () => {
   // query builder writes UTC wall time. Claiming wrote KST timestamps that the
   // builder-based publish/release/fail guards then failed to match, so claimed
   // snapshots never published and leases never looked expired.
+  // The mirror of the write path: a raw RETURNING bypasses Drizzle's read
+  // mapping, so node-postgres parses the naive timestamp in the process
+  // timezone. The resulting Date fed back into publishSnapshot's optimistic
+  // lock then missed the stored row by the local offset and every claimed
+  // snapshot was discarded as stale.
+  it("reads claim timestamps back as the UTC wall time they were stored in", async () => {
+    // node-postgres hands back { rows }, with naive timestamps as raw strings.
+    const db = {
+      execute: async () => ({
+        rows: [
+          {
+            id: "snapshot-1",
+            userId: "user-1",
+            periodType: "recent",
+            periodKey: "2026-07-22",
+            status: "computing",
+            attemptCount: 1,
+            computeVersion: OVERVIEW_COMPUTE_VERSION,
+            finalizedAt: null,
+            computeStartedAt: "2026-07-26 16:40:00.083",
+          },
+        ],
+      }),
+    } as unknown as Database;
+
+    const [claimed] = await claim(db);
+
+    expect(claimed.computeStartedAt.toISOString()).toBe("2026-07-26T16:40:00.083Z");
+  });
+
   it("writes claim timestamps in the same UTC wall time the query builder uses", async () => {
     const { params } = await renderExecutedSql(claim);
 
