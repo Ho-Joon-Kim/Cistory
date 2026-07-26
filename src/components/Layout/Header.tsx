@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, PieChart, Plane, Wallet } from "lucide-react";
+import { Activity, LayoutDashboard, PieChart, Plane, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CommitHeatmap } from "@/components/CommitHeatmap";
@@ -21,6 +21,7 @@ export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
     spending: Wallet,
     portfolio: PieChart,
     travel: Plane,
+    health: Activity,
     overview: LayoutDashboard,
   };
 

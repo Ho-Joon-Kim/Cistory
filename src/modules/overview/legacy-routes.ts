@@ -1,4 +1,4 @@
-export type LegacyOverviewRoute = "insights" | "report" | "comparison" | "health";
+export type LegacyOverviewRoute = "insights" | "report" | "comparison";
 export type LegacySearchParams = Record<string, string | string[] | undefined>;
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -63,19 +63,12 @@ export function legacyOverviewRedirect(
     return target(result);
   }
 
-  if (route === "comparison") {
-    const year2 = validYear(first(searchParams.year2), current.year);
-    const year1 = validYear(first(searchParams.year1), String(Number(year2) - 1));
-    result.set("mode", "comparison");
-    result.set("periodType", "year");
-    result.set("periodKey", year2);
-    result.set("year1", year1);
-    result.set("year2", year2);
-    return target(result);
-  }
-
-  result.set("section", "health");
-  result.set("periodType", "recent");
-  result.set("periodKey", current.recent);
+  const year2 = validYear(first(searchParams.year2), current.year);
+  const year1 = validYear(first(searchParams.year1), String(Number(year2) - 1));
+  result.set("mode", "comparison");
+  result.set("periodType", "year");
+  result.set("periodKey", year2);
+  result.set("year1", year1);
+  result.set("year2", year2);
   return target(result);
 }

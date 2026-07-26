@@ -7,11 +7,17 @@ describe("header navigation", () => {
       "/spending",
       "/portfolio",
       "/travel",
+      "/health",
       "/overview",
     ]);
     expect(HEADER_NAV_ITEMS.filter((item) => item.href === "/overview")).toHaveLength(1);
-    expect(
-      HEADER_NAV_ITEMS.some((item) => ["/insights", "/report", "/health"].includes(item.href))
-    ).toBe(false);
+  });
+
+  // /insights and /report stayed folded into /overview; /health kept its own
+  // page because the overview only carries a five-number summary of it.
+  it("keeps insights and report folded into the overview link", () => {
+    expect(HEADER_NAV_ITEMS.some((item) => ["/insights", "/report"].includes(item.href))).toBe(
+      false
+    );
   });
 });

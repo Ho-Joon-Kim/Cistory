@@ -52,10 +52,4 @@ describe("legacy overview redirects", () => {
       "/overview?mode=comparison&periodType=year&periodKey=2025&year1=2023&year2=2025"
     );
   });
-
-  it("maps health to a canonical recent overview section", () => {
-    expect(legacyOverviewRedirect("health", {}, NOW)).toBe(
-      "/overview?section=health&periodType=recent&periodKey=2026-07-22"
-    );
-  });
 });
