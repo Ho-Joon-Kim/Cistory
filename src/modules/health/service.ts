@@ -3,12 +3,13 @@ import type { Database } from "@/db";
 import {
   type HealthConnection,
   healthConnections,
+  healthDailySummaries,
   healthRawPages,
   healthSamples,
   healthSyncState,
   type NewHealthSample,
 } from "@/db/schema";
-import { localDayRawSql } from "@/db/sql";
+import { localDayRawSql, timestampParam } from "@/db/sql";
 import {
   createGoogleHealthAdapter,
   type GoogleHealthAdapter,
@@ -1071,6 +1072,12 @@ export class HealthSyncService {
     const rankCol = config.agg === "sum" ? sql.raw("s_sum") : sql.raw("s_count");
     // value_sum is populated only for accumulating metrics; instantaneous leave it null.
     const valueSum = config.agg === "sum" ? sql.raw("s_sum") : sql`NULL::double precision`;
+    // NOT a bare `now()`: this is raw SQL, so `now()` would be cast to the column's
+    // naive `timestamp` using the SESSION timezone — Asia/Seoul on this server — and
+    // store KST wall time, while every timestamp Drizzle writes is UTC wall time.
+    // `timestampParam` binds a JS Date through the column's own driver mapping, which
+    // is the one thing guaranteed to match the builder. Same fix as 7790bb5.
+    const stamp = timestampParam(healthDailySummaries.updatedAt, new Date());
     await this.db.execute(sql`
       WITH per_source AS (
         -- A row is either a raw sample or a compacted minute bucket carrying
@@ -1110,7 +1117,7 @@ export class HealthSyncService {
       )
       INSERT INTO health_daily_summaries
         (user_id, metric, day, value_avg, value_min, value_max, value_sum, count, updated_at)
-      SELECT user_id, metric, day::text, s_avg, s_min, s_max, ${valueSum}, s_count, now()
+      SELECT user_id, metric, day::text, s_avg, s_min, s_max, ${valueSum}, s_count, ${stamp}
       FROM picked
       ON CONFLICT (user_id, metric, day) DO UPDATE SET
         value_avg = EXCLUDED.value_avg,
@@ -1118,7 +1125,7 @@ export class HealthSyncService {
         value_max = EXCLUDED.value_max,
         value_sum = EXCLUDED.value_sum,
         count = EXCLUDED.count,
-        updated_at = now()
+        updated_at = EXCLUDED.updated_at
     `);
   }
 

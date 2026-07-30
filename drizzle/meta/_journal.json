@@ -260,6 +260,13 @@
       "when": 1785375978958,
       "tag": "0036_widen_data_usage_estimated_bytes",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785379991931,
+      "tag": "0037_tune_location_points_autovacuum",
+      "breakpoints": true
     }
   ]
 }
