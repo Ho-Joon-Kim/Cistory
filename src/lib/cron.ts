@@ -11,6 +11,7 @@ import { getDb, syncJobs, users } from "@/db";
 import { maybeRefreshDataUsage } from "@/lib/data-usage";
 import { logger } from "@/lib/logger";
 import { type BootCatchUpJobs, runBootCatchUp, runTripDetection } from "@/lib/trip-detection-cron";
+import { compactPendingSamples } from "@/modules/health/compaction";
 import { createHealthSyncService } from "@/modules/health/service";
 import { processYesterdayLocations } from "@/modules/location/cron-processing";
 import {
@@ -34,6 +35,8 @@ let locationCatchUpTask: cron.ScheduledTask | null = null;
 let overviewPrecomputeTask: cron.ScheduledTask | null = null;
 let subwayRefreshTask: cron.ScheduledTask | null = null;
 let tripDetectionTask: cron.ScheduledTask | null = null;
+let healthCompactionTask: cron.ScheduledTask | null = null;
+let isHealthCompactionRunning = false;
 let isSubwayRefreshRunning = false;
 let isSyncAllRunning = false;
 let isSpendingCategoryRunning = false;
@@ -62,6 +65,38 @@ export async function categorizePendingSpending(): Promise<void> {
     }
   } finally {
     isSpendingCategoryRunning = false;
+  }
+}
+
+/**
+ * Compact settled high-frequency health samples into per-minute buckets.
+ *
+ * The Fitbit's ~2.3s heart-rate cadence was 98.7% of health_samples and projected to
+ * ~3.2 GB/yr; bucketing cuts that ~26x with no loss to any aggregate the app computes
+ * (bounds and sample counts ride along — see modules/health/compaction.ts). Verbatim
+ * payloads stay in health_raw_pages regardless.
+ *
+ * Daily rather than in the 10-minute loop: it only ever touches ranges older than the
+ * raw-retention window, so there is nothing new to do between days.
+ */
+export async function compactHealthSamples(): Promise<void> {
+  if (isHealthCompactionRunning) return;
+  isHealthCompactionRunning = true;
+  try {
+    const db = getDb();
+    const allUsers = await db.select({ id: users.id }).from(users);
+    for (const user of allUsers) {
+      try {
+        await compactPendingSamples(db, user.id);
+      } catch (error) {
+        logger.error("[Cron] Health sample compaction failed", {
+          userId: user.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  } finally {
+    isHealthCompactionRunning = false;
   }
 }
 
@@ -606,6 +641,21 @@ export function initializeCron() {
     { timezone: TZ, name: "toss-reparse" }
   );
 
+  // 04:00 KST — after the 01:00 location pipeline and 03:00 subway window, so the
+  // heavy DELETE/INSERT doesn't contend with them for the same DB.
+  const HEALTH_COMPACTION_SCHEDULE = "0 4 * * *";
+  healthCompactionTask = cron.schedule(
+    HEALTH_COMPACTION_SCHEDULE,
+    () => {
+      compactHealthSamples().catch((error) => {
+        logger.error("[Cron] Unhandled error in health sample compaction", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    { timezone: TZ, name: "health-compaction" }
+  );
+
   const LOCATION_PROCESSING_SCHEDULE = "0 1 * * *";
   locationProcessingTask = cron.schedule(
     LOCATION_PROCESSING_SCHEDULE,
@@ -744,6 +794,10 @@ export async function stopCron() {
   if (tripDetectionTask) {
     tripDetectionTask.stop();
     tripDetectionTask = null;
+  }
+  if (healthCompactionTask) {
+    healthCompactionTask.stop();
+    healthCompactionTask = null;
   }
   if (isInitialized) {
     await logger.flush();

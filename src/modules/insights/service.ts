@@ -1069,8 +1069,12 @@ export class InsightsService {
     const rows = await db
       .select({
         category: dataUsageCache.category,
-        bytes: sql<number>`SUM(${dataUsageCache.estimatedBytes})::int`,
-        rows: sql<number>`SUM(${dataUsageCache.rowCount})::int`,
+        // ::bigint, not ::int — a category's summed footprint passes int4's 2 GB
+        // ceiling (location was at 1.5 GB here), which would throw "integer out of
+        // range" and take out the whole data-usage section. Read back through
+        // Number() below, since pg returns bigint as a string.
+        bytes: sql<number>`SUM(${dataUsageCache.estimatedBytes})::bigint`,
+        rows: sql<number>`SUM(${dataUsageCache.rowCount})::bigint`,
       })
       .from(dataUsageCache)
       .where(eq(dataUsageCache.userId, userId))

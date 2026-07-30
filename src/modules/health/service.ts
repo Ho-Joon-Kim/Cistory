@@ -247,6 +247,33 @@ export interface ParsedWorkout {
   wrapper: Record<string, unknown>;
 }
 
+/**
+ * Resolve a data point's `source` — the writing app's package name, else the
+ * measuring platform, else "unknown".
+ *
+ * This is a storage contract, not a label: `source` is part of the sample identity
+ * `(userId, metric, sampleAt, source)` and it is what the daily-summary
+ * dominant-source dedup and the /health session read paths discriminate on.
+ * Fitbit-native points carry NO `application.packageName` (only `platform` +
+ * `recordingMethod`), so without the platform fallback every wrist-measured row
+ * collapses into one opaque "unknown" bucket shared with genuinely unattributable
+ * data — and readers can no longer tell the measuring platform from an aggregator
+ * app that re-publishes the same session (com.withings.wiscale2 does exactly this).
+ *
+ * Non-string attribution is ignored rather than coerced, since `source` is a text
+ * column and a stringified object would silently become a distinct identity.
+ */
+export function sampleSource(point: GoogleHealthDataPoint): string {
+  const ds = point.dataSource as
+    | { application?: { packageName?: unknown }; platform?: unknown }
+    | undefined;
+  const pkg = ds?.application?.packageName;
+  if (typeof pkg === "string" && pkg !== "") return pkg;
+  const platform = ds?.platform;
+  if (typeof platform === "string" && platform !== "") return platform;
+  return "unknown";
+}
+
 /** Parse a protobuf Duration string ("660s", "660.5s") — or raw seconds — to minutes. */
 export function durationToMinutes(raw: unknown): number {
   if (typeof raw === "number") return raw / 60;
@@ -267,9 +294,7 @@ export function parseExerciseWorkout(point: GoogleHealthDataPoint): ParsedWorkou
   if (!start) return null;
   const sampleAt = new Date(start);
   if (Number.isNaN(sampleAt.getTime())) return null;
-  const source =
-    (point.dataSource as { application?: { packageName?: string } } | undefined)?.application
-      ?.packageName ?? "unknown";
+  const source = sampleSource(point);
   return { sampleAt, source, activeMinutes: durationToMinutes(wrapper.activeDuration), wrapper };
 }
 
@@ -291,9 +316,7 @@ export function parseSleepSession(point: GoogleHealthDataPoint): ParsedWorkout |
     end && !Number.isNaN(end.getTime())
       ? Math.max(0, (end.getTime() - sampleAt.getTime()) / 60_000)
       : 0;
-  const source =
-    (point.dataSource as { application?: { packageName?: string } } | undefined)?.application
-      ?.packageName ?? "unknown";
+  const source = sampleSource(point);
   return { sampleAt, source, activeMinutes: minutes, wrapper };
 }
 
@@ -366,9 +389,9 @@ function kstDay(d: Date): string {
 /**
  * Normalize one raw Google Health data point into a health_samples row shape, or
  * null when the point is unusable (missing wrapper/timestamp, or a scalar metric
- * whose value is absent/non-numeric). `source` is the writing app's package name
- * — "unknown" when the payload omits it — and is part of the sample identity so
- * multiple Health Connect sources for one metric coexist rather than collide.
+ * whose value is absent/non-numeric). `source` is resolved by `sampleSource` and is
+ * part of the sample identity, so multiple Health Connect sources for one metric
+ * coexist rather than collide.
  */
 export function parseSample(
   config: MetricConfig,
@@ -387,8 +410,7 @@ export function parseSample(
         );
   if (!sampleAt) return null;
 
-  const dataSource = point.dataSource as { application?: { packageName?: string } } | undefined;
-  const source = dataSource?.application?.packageName ?? "unknown";
+  const source = sampleSource(point);
 
   // Structured metric: keep the whole wrapper, no scalar.
   if (config.valueKey == null) {
@@ -1051,9 +1073,23 @@ export class HealthSyncService {
     const valueSum = config.agg === "sum" ? sql.raw("s_sum") : sql`NULL::double precision`;
     await this.db.execute(sql`
       WITH per_source AS (
+        -- A row is either a raw sample or a compacted minute bucket carrying
+        -- { min, max, n } in value_json (see modules/health/compaction.ts). Weighting
+        -- by n makes the daily mean identical to the mean over the raw samples, and
+        -- reading the stored bounds keeps daily min/max exact — the /health trend card
+        -- draws a per-day range bar, which bucket means alone would visibly shrink.
+        -- For every uncompacted metric value_json has no 'n'/'min'/'max', so each
+        -- COALESCE falls through and this reduces to plain avg/min/max/count.
         SELECT user_id, metric, ${kstDay} AS day, source,
-               avg(value) AS s_avg, min(value) AS s_min, max(value) AS s_max,
-               sum(value) AS s_sum, count(*)::int AS s_count
+               (sum(value * COALESCE((value_json->>'n')::double precision, 1))
+                 / NULLIF(sum(COALESCE((value_json->>'n')::double precision, 1)), 0)
+               )::double precision AS s_avg,
+               min(LEAST(value, COALESCE((value_json->>'min')::double precision, value))) AS s_min,
+               max(GREATEST(value, COALESCE((value_json->>'max')::double precision, value))) AS s_max,
+               -- mean * n reconstructs a bucket's true total, so an accumulating
+               -- metric would stay correct if it were ever compacted too.
+               sum(value * COALESCE((value_json->>'n')::double precision, 1)) AS s_sum,
+               sum(COALESCE((value_json->>'n')::int, 1))::int AS s_count
         FROM health_samples
         WHERE user_id = ${userId} AND metric = ${config.key}
           AND sample_at >= ${scanStart}::timestamp

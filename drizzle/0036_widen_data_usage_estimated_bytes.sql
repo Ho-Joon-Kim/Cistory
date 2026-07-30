@@ -1,0 +1,1 @@
+ALTER TABLE "data_usage_cache" ALTER COLUMN "estimated_bytes" SET DATA TYPE bigint;

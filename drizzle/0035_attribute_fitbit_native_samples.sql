@@ -1,0 +1,23 @@
+-- Data migration: relabel Fitbit-native health samples from 'unknown' to 'FITBIT'.
+--
+-- Google Health points written by a Health Connect *app* carry
+-- `dataSource.application.packageName`, but Fitbit-native points carry only
+-- `dataSource.platform` ("FITBIT") + `recordingMethod`. The parser previously read
+-- just the package name and fell back to the literal 'unknown', so every
+-- wrist-measured row landed in one opaque bucket. `sampleSource()` now falls back to
+-- the platform, and this backfill moves the already-stored rows to the new identity.
+--
+-- It MUST ship with that parser change: `source` is part of the sample identity
+-- `(user_id, metric, sample_at, source)`, so leaving old rows as 'unknown' would let
+-- the next sync re-insert all ~175k of them under 'FITBIT' as brand-new rows.
+--
+-- Scope is exactly `source = 'unknown'`, which is safe because nothing else can
+-- produce that value: the on-device importer (modules/health/import.ts `pickSource`)
+-- falls back to 'healthconnect', and every other row carries a real package name.
+-- Verified before writing this migration: all 174,561 'unknown' rows had
+-- `sample_at >= 2026-07-25` (the Fitbit Air's first day), none carried the importer's
+-- Health-Connect-shaped `value_json`, and no 'FITBIT' row existed yet to collide with.
+--
+-- Rows that still cannot be attributed after the parser change keep 'unknown', which
+-- is now its true meaning: no package name AND no platform in the payload.
+UPDATE "health_samples" SET "source" = 'FITBIT' WHERE "source" = 'unknown';

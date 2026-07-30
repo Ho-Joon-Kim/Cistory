@@ -201,8 +201,8 @@ describe("parseSample — date-shaped daily rollups", () => {
     expect(p?.value).toBe(62);
     // 12:00 KST on 2026-07-27 == 03:00Z — safely inside the day from either side.
     expect(p?.sampleAt.toISOString()).toBe("2026-07-27T03:00:00.000Z");
-    // No packageName on Fitbit-platform points → the "unknown" source bucket.
-    expect(p?.source).toBe("unknown");
+    // No packageName on Fitbit-platform points → the platform identifies them.
+    expect(p?.source).toBe("FITBIT");
   });
 
   it("reads the daily SpO2 average, HRV average and respiratory rate", () => {
@@ -357,7 +357,7 @@ describe("parseSleepSession", () => {
     const s = parseSleepSession(point);
     expect(s?.sampleAt.toISOString()).toBe("2026-07-26T07:24:00.000Z");
     expect(s?.activeMinutes).toBe(172); // 07:24 → 10:16
-    expect(s?.source).toBe("unknown"); // Fitbit points carry no packageName
+    expect(s?.source).toBe("FITBIT"); // no packageName → the platform identifies it
     expect((s?.wrapper as { stages?: unknown[] }).stages).toHaveLength(2);
   });
 
@@ -374,6 +374,59 @@ describe("parseSleepSession", () => {
       parseSleepSession({ sleep: { interval: { startTime: "2026-07-26T07:24:00Z" } } })
         ?.activeMinutes
     ).toBe(0);
+  });
+});
+
+// `source` is part of the sample identity (user, metric, sampleAt, source), so what
+// we resolve it to is a storage contract, not a label. Fitbit-native points carry NO
+// `application.packageName` — only `platform` + `recordingMethod` — so without the
+// platform fallback every wrist-measured row lands in one opaque "unknown" bucket
+// shared with genuinely unattributable data, and the /health read paths can't tell
+// the measuring platform from a re-publishing aggregator app (com.withings.wiscale2).
+describe("sample source resolution", () => {
+  const at = { interval: { startTime: "2026-07-10T12:00:00Z" }, count: "5" };
+
+  it("prefers the writing app's package name when present", () => {
+    const p = parseSample(byKey("steps"), {
+      dataSource: { application: { packageName: "com.withings.wiscale2" }, platform: "FITBIT" },
+      steps: at,
+    });
+    expect(p?.source).toBe("com.withings.wiscale2");
+  });
+
+  it("falls back to the platform when no package name is present", () => {
+    const p = parseSample(byKey("steps"), {
+      dataSource: { platform: "FITBIT", recordingMethod: "PASSIVELY_MEASURED" },
+      steps: at,
+    });
+    expect(p?.source).toBe("FITBIT");
+  });
+
+  it("applies the same precedence to sleep and exercise sessions", () => {
+    const sleep = parseSleepSession({
+      dataSource: { platform: "FITBIT" },
+      sleep: { interval: { startTime: "2026-07-26T07:24:00Z", endTime: "2026-07-26T10:16:00Z" } },
+    });
+    expect(sleep?.source).toBe("FITBIT");
+
+    const ex = parseExerciseWorkout({
+      dataSource: { platform: "FITBIT" },
+      exercise: { interval: { startTime: "2026-07-26T09:00:00Z" }, activeDuration: "600s" },
+    });
+    expect(ex?.source).toBe("FITBIT");
+  });
+
+  it("stays 'unknown' when the payload carries no attribution at all", () => {
+    expect(parseSample(byKey("steps"), { steps: at })?.source).toBe("unknown");
+    expect(parseSample(byKey("steps"), { dataSource: {}, steps: at })?.source).toBe("unknown");
+  });
+
+  it("ignores non-string attribution rather than stringifying it", () => {
+    const p = parseSample(byKey("steps"), {
+      dataSource: { application: { packageName: 42 }, platform: { name: "FITBIT" } },
+      steps: at,
+    });
+    expect(p?.source).toBe("unknown");
   });
 });
 
