@@ -267,6 +267,13 @@
       "when": 1785379991931,
       "tag": "0037_tune_location_points_autovacuum",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785380911613,
+      "tag": "0038_drop_unused_location_lonlat_gist",
+      "breakpoints": true
     }
   ]
 }
