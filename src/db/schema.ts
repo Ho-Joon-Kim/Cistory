@@ -492,7 +492,9 @@ export const dataUsageCache = pgTable(
     category: text("category").notNull(), // 'commits' | 'location' | 'coding' | 'spending' | 'system'
     tableName: text("table_name").notNull(),
     rowCount: integer("row_count").notNull().default(0),
-    estimatedBytes: integer("estimated_bytes").notNull().default(0),
+    // bigint, not integer: a single table's footprint outgrows int4's 2 GB ceiling.
+    // location_points alone was already at 1.6 GB when this was widened.
+    estimatedBytes: bigint("estimated_bytes", { mode: "number" }).notNull().default(0),
     calculatedAt: timestamp("calculated_at").notNull(),
   },
   (table) => [
@@ -1042,7 +1044,13 @@ export const healthSamples = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     metric: text("metric").notNull(),
     sampleAt: timestamp("sample_at").notNull(),
-    // Health Connect source app package; "unknown" when the payload omits it.
+    // Who wrote the sample: the Health Connect app package ("com.sec.android.app.shealth"),
+    // else the measuring platform ("FITBIT" — Fitbit-native points carry no package),
+    // else "unknown". Resolved by `sampleSource()` in modules/health/service.ts, and part
+    // of the unique key below, so multiple sources for one metric coexist. Note that some
+    // sources are re-publishing aggregators rather than sensors: com.withings.wiscale2
+    // rewrites sessions it read from Health Connect, so read paths must dedup by session
+    // identity and prefer the measuring platform.
     source: text("source").notNull().default("unknown"),
     value: doublePrecision("value"),
     valueJson: jsonb("value_json"),

@@ -2,12 +2,23 @@ import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, healthConnections, healthDailySummaries, healthSamples } from "@/db";
 import { withAuth } from "@/lib/api-handler";
+import { bucketStats } from "@/modules/health/compaction";
 import { CURATED_METRIC_KEYS, CURATED_METRICS } from "@/modules/health/metrics-meta";
 import { EXERCISE_METRIC, SLEEP_METRIC } from "@/modules/health/service";
+import { dedupeSessions } from "@/modules/health/sessions";
 import { isNap, stageBreakdown, stageSegments } from "@/modules/health/sleep";
 import type { HealthDayPoint, HealthSleepSession, HealthWorkout } from "@/modules/health/types";
 
 const TREND_WINDOW_DAYS = 30;
+/** How many recent nights the sleep list shows. */
+const SLEEP_SESSION_LIMIT = 10;
+/**
+ * Rows fetched before dedup. One night is stored once per writing source, so
+ * fetching exactly SLEEP_SESSION_LIMIT rows would yield fewer distinct nights (with
+ * two sources live it returned 7). Over-fetching absorbs that; the dedup, not this
+ * number, decides what the page shows.
+ */
+const SLEEP_ROW_FETCH_LIMIT = SLEEP_SESSION_LIMIT * 4;
 
 const KST_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Seoul",
@@ -91,6 +102,7 @@ export const GET = withAuth(async ({ user }) => {
         metric: healthSamples.metric,
         sampleAt: healthSamples.sampleAt,
         value: healthSamples.value,
+        valueJson: healthSamples.valueJson,
       })
       .from(healthSamples)
       .where(
@@ -106,13 +118,18 @@ export const GET = withAuth(async ({ user }) => {
     >();
     for (const r of sampleRows) {
       if (r.value == null) continue;
+      // A row is either a raw sample or a compacted minute bucket carrying
+      // { min, max, n } (modules/health/compaction.ts). Weighting by n keeps the mean
+      // equal to the mean over raw samples, and reading the stored bounds keeps the
+      // day's range bar honest — bucket means alone would narrow it.
+      const b = bucketStats(r.valueJson, r.value);
       const days = acc.get(r.metric) ?? new Map();
       const day = kstDay(r.sampleAt);
-      const cur = days.get(day) ?? { sum: 0, n: 0, min: r.value, max: r.value };
-      cur.sum += r.value;
-      cur.n++;
-      cur.min = Math.min(cur.min, r.value);
-      cur.max = Math.max(cur.max, r.value);
+      const cur = days.get(day) ?? { sum: 0, n: 0, min: b.min, max: b.max };
+      cur.sum += r.value * b.n;
+      cur.n += b.n;
+      cur.min = Math.min(cur.min, b.min);
+      cur.max = Math.max(cur.max, b.max);
       days.set(day, cur);
       acc.set(r.metric, days);
     }
@@ -138,6 +155,7 @@ export const GET = withAuth(async ({ user }) => {
   const exRows = await db
     .select({
       sampleAt: healthSamples.sampleAt,
+      source: healthSamples.source,
       value: healthSamples.value,
       valueJson: healthSamples.valueJson,
     })
@@ -151,26 +169,16 @@ export const GET = withAuth(async ({ user }) => {
     )
     .orderBy(desc(healthSamples.sampleAt));
 
-  // Same workout from two sources (Samsung + Google Fit) → dedup by exact start,
-  // keeping the longer-duration copy, so daily totals aren't double-counted.
-  const byStart = new Map<
-    string,
-    { sampleAt: Date; minutes: number; wrapper: Record<string, unknown> }
-  >();
-  for (const r of exRows) {
-    const key = r.sampleAt.toISOString();
-    const minutes = r.value ?? 0;
-    const existing = byStart.get(key);
-    if (!existing || minutes > existing.minutes) {
-      byStart.set(key, {
-        sampleAt: r.sampleAt,
-        minutes,
-        wrapper: (r.valueJson as Record<string, unknown>) ?? {},
-      });
-    }
-  }
-  const dedupedWorkouts = [...byStart.values()].sort(
-    (a, b) => b.sampleAt.getTime() - a.sampleAt.getTime()
+  // One workout lands as several rows (several writing apps, and one of them
+  // republishing the same start a few hundred ms apart) — dedup before ANY total is
+  // computed, or a single workout is counted twice. See modules/health/sessions.ts.
+  const dedupedWorkouts = dedupeSessions(
+    exRows.map((r) => ({
+      sampleAt: r.sampleAt,
+      source: r.source,
+      minutes: r.value ?? 0,
+      wrapper: (r.valueJson as Record<string, unknown>) ?? {},
+    }))
   );
 
   const dayTotals = new Map<string, number>();
@@ -208,20 +216,32 @@ export const GET = withAuth(async ({ user }) => {
   const sleepRows = await db
     .select({
       sampleAt: healthSamples.sampleAt,
+      source: healthSamples.source,
       minutes: healthSamples.value,
       valueJson: healthSamples.valueJson,
     })
     .from(healthSamples)
     .where(and(eq(healthSamples.userId, user.id), eq(healthSamples.metric, SLEEP_METRIC)))
     .orderBy(desc(healthSamples.sampleAt))
-    .limit(10);
-  const sleepSessions: HealthSleepSession[] = sleepRows.map((r) => ({
-    start: r.sampleAt.toISOString(),
-    minutes: Math.round(r.minutes ?? 0),
-    stages: stageBreakdown(r.valueJson),
-    segments: stageSegments(r.valueJson),
-    nap: isNap(r.valueJson),
-  }));
+    .limit(SLEEP_ROW_FETCH_LIMIT);
+  // A night is stored once per writing source, so dedup by session — otherwise the
+  // same night renders twice at different stage granularity and eats a list slot.
+  const sleepSessions: HealthSleepSession[] = dedupeSessions(
+    sleepRows.map((r) => ({
+      sampleAt: r.sampleAt,
+      source: r.source,
+      minutes: r.minutes ?? 0,
+      valueJson: r.valueJson,
+    }))
+  )
+    .slice(0, SLEEP_SESSION_LIMIT)
+    .map((r) => ({
+      start: r.sampleAt.toISOString(),
+      minutes: Math.round(r.minutes),
+      stages: stageBreakdown(r.valueJson),
+      segments: stageSegments(r.valueJson),
+      nap: isNap(r.valueJson),
+    }));
 
   return NextResponse.json({
     hasConnection: !!conn,
