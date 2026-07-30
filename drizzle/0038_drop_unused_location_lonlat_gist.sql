@@ -1,0 +1,30 @@
+-- Drop the GiST index on location_points.lonlat. It has never been used.
+--
+-- Created by 0013_postgis_setup.sql alongside the `lonlat` column. Measured
+-- 2026-07-30, with `pg_stat_database.stats_reset` NULL — i.e. counters covering the
+-- whole life of the database:
+--
+--   idx_location_unique              1,075,707 scans   261 MB
+--   location_points_pkey              721,159 scans   116 MB
+--   idx_location_points_not_anomaly     6,858 scans   174 MB
+--   idx_location_user_timestamp         5,931 scans   176 MB
+--   idx_location_points_lonlat              0 scans   350 MB   <-- largest, never read
+--
+-- Zero scans is not an accident of workload. `lonlat` is read only as
+-- `ST_Distance(lonlat, LAG(lonlat) OVER w)` and `lonlat IS NOT NULL`
+-- (anomaly-filter.ts, timeline/locations/distances), which compute distance between
+-- consecutive rows. A GiST index can only serve spatial *predicates* — ST_DWithin,
+-- &&, ST_Contains, nearest-neighbour ORDER BY — so no query in the codebase is able
+-- to use it.
+--
+-- Dropping it is worth more than the 350 MB it returns to the OS. The location
+-- pipeline rewrites `anomaly` across every point daily, and `anomaly` sits in the
+-- predicate of the partial index idx_location_points_not_anomaly, so those updates
+-- can never be heap-only (25 HOT out of 778,620). Every one of them was inserting a
+-- fresh entry into this GiST index too, which is the most expensive index here to
+-- maintain and the only one nothing reads.
+--
+-- The column and its populating trigger (`set_lonlat`) stay. If a spatial query is
+-- ever added — "points near here", radius search — recreate the index then:
+--   CREATE INDEX idx_location_points_lonlat ON location_points USING gist (lonlat);
+DROP INDEX IF EXISTS "idx_location_points_lonlat";
