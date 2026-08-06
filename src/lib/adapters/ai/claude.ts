@@ -1,7 +1,32 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "@/lib/logger";
 
-export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
+/** 워크로드별 모델. 문자열에 날짜 접미사를 붙이지 않는다. */
+export const CLAUDE_MODELS = {
+  COMMIT_SUMMARY: "claude-sonnet-5",
+  NARRATIVE: "claude-opus-5",
+  EXPENSE_CLASSIFIER: "claude-haiku-4-5",
+} as const;
+
+export type ClaudeModel = (typeof CLAUDE_MODELS)[keyof typeof CLAUDE_MODELS];
+
+export const DEFAULT_CLAUDE_MODEL: ClaudeModel = CLAUDE_MODELS.COMMIT_SUMMARY;
+
+interface ModelCapabilities {
+  /** temperature/top_p/top_k. Sonnet 5·Opus 5는 400으로 거부한다. */
+  sampling: boolean;
+  /** thinking 파라미터. */
+  thinking: boolean;
+  /** output_config.effort. Haiku 4.5는 오류를 낸다. */
+  effort: boolean;
+}
+
+// Record<ClaudeModel, …>라 모델을 추가하면 컴파일러가 항목 누락을 잡는다.
+const MODEL_CAPABILITIES: Record<ClaudeModel, ModelCapabilities> = {
+  "claude-sonnet-5": { sampling: false, thinking: true, effort: true },
+  "claude-opus-5": { sampling: false, thinking: true, effort: true },
+  "claude-haiku-4-5": { sampling: true, thinking: false, effort: false },
+};
 
 export interface AIGenerateOptions {
   /** System prompt to set context */
@@ -10,10 +35,14 @@ export interface AIGenerateOptions {
   prompt: string;
   /** Maximum tokens to generate */
   maxTokens?: number;
-  /** Temperature for randomness (0-1) */
-  temperature?: number;
   /** Stop sequences */
   stopSequences?: string[];
+  /** 구세대 모델(Haiku 4.5)만 수용. Sonnet 5 / Opus 5에 보내면 400이므로 제외된다. */
+  temperature?: number;
+  thinking?: "adaptive" | "disabled";
+  effort?: "low" | "medium" | "high";
+  /** JSON Schema. 지정하면 응답이 그 스키마를 따르도록 API가 강제한다. */
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface AIGenerateResult {
@@ -22,34 +51,76 @@ export interface AIGenerateResult {
     inputTokens: number;
     outputTokens: number;
   };
-  stopReason: "end_turn" | "max_tokens" | "stop_sequence";
+  // 알려진 네 값 외에는 원문 문자열을 그대로 통과시킨다(예: pause_turn,
+  // model_context_window_exceeded, API가 나중에 추가할 값). `string & {}`는
+  // 리터럴 자동완성을 유지하면서도 임의 문자열을 허용하는 TS 관용구다.
+  stopReason: "end_turn" | "max_tokens" | "stop_sequence" | "refusal" | (string & {});
 }
 
 export class ClaudeAdapter {
   private client: Anthropic;
-  private model: string;
+  private model: ClaudeModel;
 
-  constructor(apiKey: string, model: string = DEFAULT_CLAUDE_MODEL) {
-    // 60s per-request ceiling so a slow Anthropic response can't outrun the
-    // 10-min cron tick; SDK retries idempotent failures (5xx, 429, network).
-    this.client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 });
+  constructor(apiKey: string, model: ClaudeModel = DEFAULT_CLAUDE_MODEL, timeoutMs = 60_000) {
+    // 기본 60s는 요청 한 건이 걸릴 수 있는 시간의 상한일 뿐이다 — 배치 전체
+    // 소요를 보장하지 않는다. processPendingSummaries는 유저당 커밋 20건을
+    // 요청 사이 sleep과 함께 순차 처리하므로, 10분 동기화 틱을 지키는 것은
+    // 이 값의 역할이 아니다. thinking을 켜는 워크로드는 호출부가 더 큰 값을
+    // 넘긴다.
+    this.client = new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 2 });
     this.model = model;
   }
 
   async generateText(options: AIGenerateOptions): Promise<AIGenerateResult> {
-    const { system, prompt, maxTokens = 1024, temperature = 0.7 } = options;
+    const { system, prompt, maxTokens = 1024, stopSequences } = options;
+    const caps = MODEL_CAPABILITIES[this.model];
 
-    try {
-      const response = await this.client.messages.create({
+    // 지원하지 않는 파라미터는 요청에서 빼되 조용히 버리지 않는다. 호출부의
+    // 의도(예: temperature 0의 결정성)가 사라진 것을 운영자가 알아야 한다.
+    const drop = (name: string) =>
+      logger.warn("Claude option dropped — model does not accept it", {
         model: this.model,
-        max_tokens: maxTokens,
-        temperature,
-        system: system ?? undefined,
-        messages: [{ role: "user", content: prompt }],
+        option: name,
       });
 
-      const content = response.content[0];
-      const text = content.type === "text" ? content.text : "";
+    const body: Anthropic.MessageCreateParamsNonStreaming = {
+      model: this.model,
+      max_tokens: maxTokens,
+      system: system ?? undefined,
+      messages: [{ role: "user", content: prompt }],
+    };
+    if (stopSequences?.length) body.stop_sequences = stopSequences;
+
+    if (options.temperature !== undefined) {
+      if (caps.sampling) body.temperature = options.temperature;
+      else drop("temperature");
+    }
+    if (options.thinking !== undefined) {
+      if (caps.thinking) body.thinking = { type: options.thinking };
+      else drop("thinking");
+    }
+    // effort와 outputSchema는 둘 다 output_config 아래 들어간다. 따로
+    // `body.output_config = {...}`로 대입하면 서로를 덮어쓰므로 하나의
+    // 객체에 모아 한 번만 대입한다.
+    const outputConfig: Anthropic.OutputConfig = {};
+    if (options.effort !== undefined) {
+      if (caps.effort) outputConfig.effort = options.effort;
+      else drop("effort");
+    }
+    if (options.outputSchema !== undefined) {
+      outputConfig.format = { type: "json_schema", schema: options.outputSchema };
+    }
+    if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig;
+
+    try {
+      const response = await this.client.messages.create(body);
+
+      // content[0]이 아니라 text 블록을 찾는다 — adaptive thinking이 켜진
+      // 모델은 첫 블록이 thinking이라 content[0]만 읽으면 빈 문자열이 된다.
+      const text =
+        response.content.find(
+          (block): block is Extract<typeof block, { type: "text" }> => block.type === "text"
+        )?.text ?? "";
 
       return {
         content: text,
@@ -69,7 +140,7 @@ export class ClaudeAdapter {
   }
 }
 
-function mapStopReason(reason: string | null): "end_turn" | "max_tokens" | "stop_sequence" {
+function mapStopReason(reason: string | null): AIGenerateResult["stopReason"] {
   switch (reason) {
     case "end_turn":
       return "end_turn";
@@ -77,11 +148,20 @@ function mapStopReason(reason: string | null): "end_turn" | "max_tokens" | "stop
       return "max_tokens";
     case "stop_sequence":
       return "stop_sequence";
+    case "refusal":
+      return "refusal";
     default:
-      return "end_turn";
+      // Surface the unrecognized reason instead of laundering it into
+      // "end_turn" — pause_turn, model_context_window_exceeded, or anything
+      // the API adds later must stay distinguishable from a clean finish.
+      return reason ?? "end_turn";
   }
 }
 
-export function createClaudeAdapter(apiKey: string, model?: string): ClaudeAdapter {
-  return new ClaudeAdapter(apiKey, model);
+export function createClaudeAdapter(
+  apiKey: string,
+  model?: ClaudeModel,
+  timeoutMs?: number
+): ClaudeAdapter {
+  return new ClaudeAdapter(apiKey, model, timeoutMs);
 }

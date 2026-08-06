@@ -129,6 +129,7 @@ vi.mock("@/modules/overview/narrative", () => ({
 }));
 vi.mock("@/lib/adapters/ai/claude", () => ({
   createClaudeAdapter: vi.fn(() => ({ generateText: vi.fn() })),
+  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5", NARRATIVE: "claude-opus-5" },
 }));
 vi.mock("@/modules/transaction/reparse-service", () => ({
   reparseNotifications: m.reparseNotifications,

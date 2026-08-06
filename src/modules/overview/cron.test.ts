@@ -20,7 +20,10 @@ vi.mock("./narrative", () => ({
   createDatabaseNarrativeStore: vi.fn(),
   createNarrativeService: vi.fn(() => ({ processAutoBatch: m.processAutoBatch })),
 }));
-vi.mock("@/lib/adapters/ai/claude", () => ({ createClaudeAdapter: vi.fn() }));
+vi.mock("@/lib/adapters/ai/claude", () => ({
+  createClaudeAdapter: vi.fn(),
+  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5", NARRATIVE: "claude-opus-5" },
+}));
 
 describe("overview cron", () => {
   it("keeps the worker cadence below the UI's ten-minute polling window", () => {

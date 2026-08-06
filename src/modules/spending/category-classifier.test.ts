@@ -29,6 +29,18 @@ describe("expense category classifier", () => {
     expect(prompt).toContain("tx-1");
   });
 
+  it("passes a JSON schema to the adapter so the API enforces the response shape", async () => {
+    const ai = mockAi('{"classifications":[{"id":"tx-1","category":"transport","confidence":98}]}');
+
+    await classifyExpenses(ai, input);
+
+    const options = (ai.generateText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(options.outputSchema).toMatchObject({
+      required: ["classifications"],
+      additionalProperties: false,
+    });
+  });
+
   it("parses a valid JSON response", async () => {
     const result = await classifyExpenses(
       mockAi('{"classifications":[{"id":"tx-1","category":"transport","confidence":98}]}'),

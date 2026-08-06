@@ -7,7 +7,7 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
-import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
+import { CLAUDE_MODELS, createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
 import { logger } from "@/lib/logger";
 import { now, parseRepoFullName, truncateDiff } from "@/lib/utils";
@@ -43,7 +43,7 @@ export class SummaryService {
   }
 
   private get aiAdapter() {
-    return createClaudeAdapter(this.anthropicApiKey);
+    return createClaudeAdapter(this.anthropicApiKey, CLAUDE_MODELS.COMMIT_SUMMARY);
   }
 
   private get vcsAdapter() {
@@ -144,8 +144,21 @@ export class SummaryService {
         system: systemPrompt,
         prompt: buildSummaryPrompt(commitContext, recentContext),
         maxTokens: 300,
-        temperature: 0.5,
+        // 짧은 정형 출력이라 사고가 필요 없어 thinking을 껐다. 그 덕에
+        // maxTokens 300 전부가 응답 몫으로 남는다. effort low는 (thinking과
+        // 별개로) 추론에 쓰는 연산량 자체의 상한이다.
+        thinking: "disabled",
+        effort: "low",
       });
+
+      // 빈 응답을 completed로 저장하면 그 요약은 cron의 pending/failed 재스캔
+      // 대상에서 영구히 빠진다. 거절(HTTP 200, 텍스트 블록 없음), thinking이
+      // max_tokens를 다 써버린 truncation, 앞으로 생길 응답 형태 변화까지
+      // stopReason 종류를 가리지 않고 "비어 있으면" 실패로 던져 아래 catch가
+      // failed 처리·재시도를 맡게 한다.
+      if (!summaryResult.content.trim()) {
+        throw new Error(`AI returned an empty summary (stopReason: ${summaryResult.stopReason})`);
+      }
 
       const result: SummaryResult = {
         summary: summaryResult.content,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
+import { CLAUDE_MODELS, createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { checkSameOrigin } from "@/lib/api-auth";
 import { ApiError, withAuth, withValidation } from "@/lib/api-handler";
 import { createDatabaseNarrativeStore, createNarrativeService } from "@/modules/overview/narrative";
@@ -28,7 +28,8 @@ export const POST = withValidation(NarrativeBody, async ({ user, request, body }
   if (!apiKey) throw new ApiError(503, "회고문 생성이 설정되지 않았습니다", "AI_NOT_CONFIGURED");
   const service = createNarrativeService(
     createDatabaseNarrativeStore(getDb()),
-    createClaudeAdapter(apiKey)
+    createClaudeAdapter(apiKey, CLAUDE_MODELS.NARRATIVE, 120_000),
+    CLAUDE_MODELS.NARRATIVE
   );
   return NextResponse.json(await service.regenerate(user.id, body.periodType, body.periodKey), {
     status: 200,
