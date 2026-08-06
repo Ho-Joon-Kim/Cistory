@@ -64,6 +64,16 @@ export interface NarrativeStore {
     now: Date;
   }): Promise<ManualClaimOutcome>;
   claimAutoBatch(now: Date, limit: number): Promise<NarrativeClaim[]>;
+  /**
+   * Extends a claimed row's lease without touching generationStartedAt (the
+   * identity `complete`/`fail` match on). Called immediately before each
+   * row's `generate()` call in a batch so the lease measures "time since
+   * this row started" instead of "time since the whole batch started" — a
+   * slow earlier row must not let the next cron tick reclaim (and re-pay
+   * for) a row still legitimately in flight. A no-op if the row was already
+   * reclaimed by another worker.
+   */
+  renewLease(claim: NarrativeClaim, now: Date): Promise<void>;
   complete(claim: NarrativeClaim, content: string, model: string, now: Date): Promise<boolean>;
   fail(claim: NarrativeClaim, error: string, now: Date): Promise<void>;
 }
@@ -201,6 +211,13 @@ export function createNarrativeService(
       const claims = await store.claimAutoBatch(now, limit);
       let generated = 0;
       for (const claim of claims) {
+        // Re-stamp the lease right before this row's AI call. claimAutoBatch
+        // stamps one lease_expires_at across the whole batch, but rows
+        // generate sequentially — without this, a slow earlier row can push
+        // a later row's lease past NARRATIVE_LEASE_MS, and the next cron
+        // tick's claimAutoBatch resets the still-in-flight row to pending
+        // and re-claims it, running a second paid call concurrently.
+        await store.renewLease(claim, new Date());
         if (await generate(claim, new Date())) generated++;
       }
       return { claimed: claims.length, generated, failed: claims.length - generated };
@@ -367,6 +384,20 @@ export function createDatabaseNarrativeStore(db: Database): NarrativeStore {
         `);
         return claimed.rows.map(claimFromRow);
       });
+    },
+
+    async renewLease(claim, now) {
+      // Same UTC-wall-time pattern as claimAutoBatch's leaseExpiresAt: bind a
+      // JS Date, never a bare `now()` — a raw SQL now() resolves against the
+      // session timezone (KST here), a 9h gap from every Drizzle-written
+      // timestamp column.
+      const leaseExpiresAt = new Date(now.getTime() + NARRATIVE_LEASE_MS);
+      await db.execute(sql`
+        UPDATE period_narratives SET lease_expires_at = ${leaseExpiresAt}, updated_at = ${now}
+        WHERE user_id = ${claim.userId} AND period_type = ${claim.periodType}
+          AND period_key = ${claim.periodKey} AND status = 'generating'
+          AND generation_started_at = ${claim.generationStartedAt}
+      `);
     },
 
     async complete(claim, content, model, now) {

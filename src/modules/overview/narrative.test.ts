@@ -31,6 +31,7 @@ function store(overrides: Partial<NarrativeStore> = {}): NarrativeStore {
     find: vi.fn(async () => null),
     acquireManual: vi.fn(async () => ({ status: "acquired", claim })),
     claimAutoBatch: vi.fn(async () => []),
+    renewLease: vi.fn(async () => undefined),
     complete: vi.fn(async () => true),
     fail: vi.fn(async () => undefined),
     ...overrides,
@@ -181,6 +182,47 @@ describe("narrative service", () => {
     });
     expect(repository.claimAutoBatch).toHaveBeenCalledWith(NOW, 2);
   });
+
+  it("renews each row's lease immediately before generating it, not once for the whole batch", async () => {
+    // claimAutoBatch stamps one lease across all claimed rows, but rows
+    // generate sequentially. Without a per-row renewal, a slow earlier row
+    // can push a later row's lease past NARRATIVE_LEASE_MS and the next
+    // cron tick reclaims it mid-flight (duplicate paid call). Pin the fix:
+    // renewLease must fire for claim N right before generate() for claim N,
+    // not batched before or after the loop.
+    const claimTwo: NarrativeClaim = { ...claim, periodKey: "2026-07" };
+    const repository = store({
+      claimAutoBatch: vi.fn(async () => [claim, claimTwo]),
+    });
+    const calls: string[] = [];
+    (repository.renewLease as ReturnType<typeof vi.fn>).mockImplementation(
+      async (c: NarrativeClaim) => {
+        calls.push(`renew:${c.periodKey}`);
+      }
+    );
+    const adapter = {
+      generateText: vi.fn(async (options: { prompt: string }) => {
+        const periodKey = /기간: \w+ (\S+)/.exec(options.prompt)?.[1];
+        calls.push(`generate:${periodKey}`);
+        return {
+          content: "ok",
+          usage: { inputTokens: 1, outputTokens: 1 },
+          stopReason: "end_turn",
+        };
+      }),
+    };
+
+    await createNarrativeService(repository, adapter).processAutoBatch(NOW, 2);
+
+    expect(calls).toEqual([
+      "renew:2026-06",
+      "generate:2026-06",
+      "renew:2026-07",
+      "generate:2026-07",
+    ]);
+    expect(repository.renewLease).toHaveBeenCalledWith(claim, expect.any(Date));
+    expect(repository.renewLease).toHaveBeenCalledWith(claimTwo, expect.any(Date));
+  });
 });
 
 describe("database narrative queue", () => {
@@ -240,5 +282,28 @@ describe("database narrative queue", () => {
     expect(statements[3]).toContain("FOR UPDATE OF n SKIP LOCKED");
     expect(statements[3]).toContain(`n.attempt_count < $1`);
     expect(NARRATIVE_MAX_ATTEMPTS).toBe(3);
+  });
+
+  it("renewLease binds a JS Date for the new lease instead of a bare now()", async () => {
+    // This repo's live trap: `timestamp` columns hold UTC wall time via
+    // Drizzle, but a bare now() in raw SQL resolves against the session
+    // timezone (KST here) — a 9h gap. renewLease must bind a computed Date
+    // as a query parameter, matching claimAutoBatch's leaseExpiresAt, not
+    // call now() in the SQL text.
+    const statements: string[] = [];
+    const dialect = new PgDialect();
+    const execute = vi.fn(async (query: SQL) => {
+      statements.push(dialect.sqlToQuery(query).sql.replace(/\s+/g, " ").trim());
+      return { rows: [] };
+    });
+    const db = { execute } as unknown as Database;
+
+    await createDatabaseNarrativeStore(db).renewLease(claim, NOW);
+
+    expect(statements[0]).toContain("UPDATE period_narratives");
+    expect(statements[0]).not.toMatch(/now\(\)/i);
+    expect(statements[0]).toContain("status = 'generating'");
+    expect(statements[0]).toContain("generation_started_at = ");
+    expect(statements[0]).toContain("lease_expires_at = $1");
   });
 });
