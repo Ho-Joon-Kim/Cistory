@@ -145,4 +145,21 @@ describe("ClaudeAdapter model capabilities", () => {
       format: { type: "json_schema", schema: { type: "object" } },
     });
   });
+
+  it("sends outputSchema without effort for a model that rejects effort — the classifier's actual path", async () => {
+    // Haiku 4.5 (the expense classifier) never sends effort — caps.effort is
+    // false for it — but it does send outputSchema. The outputSchema branch
+    // must not live inside `if (caps.effort)`, or structured outputs would be
+    // silently disabled on exactly the model that uses them.
+    createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
+
+    await createClaudeAdapter("k", CLAUDE_MODELS.EXPENSE_CLASSIFIER).generateText({
+      prompt: "p",
+      outputSchema: { type: "object" },
+    });
+
+    expect(lastRequest().output_config).toEqual({
+      format: { type: "json_schema", schema: { type: "object" } },
+    });
+  });
 });
