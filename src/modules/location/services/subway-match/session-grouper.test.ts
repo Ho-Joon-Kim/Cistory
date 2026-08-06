@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { planSessionAssignments, type SessionAssignment } from "./session-grouper";
 
@@ -139,5 +141,19 @@ describe("planSessionAssignments", () => {
     // is genuinely the "different sessions" shape, not a same-session no-op.
     const byId = new Map(assignments.map((a) => [a.id, a]));
     expect(byId.get("legS0")?.sessionId).not.toBe(byId.get("legS1")?.sessionId);
+  });
+});
+
+describe("session-grouper.ts source guard", () => {
+  it("the DB write path never sets legOrder — nothing else stops it from being re-added to .set({...}) and reintroducing the collision, even with every unit test above green", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("./session-grouper.ts", import.meta.url)),
+      "utf-8"
+    );
+    const setCalls = source.match(/\.set\(\{[^}]*\}\)/g) ?? [];
+    expect(setCalls.length).toBeGreaterThan(0);
+    for (const call of setCalls) {
+      expect(call).not.toMatch(/legOrder/);
+    }
   });
 });
