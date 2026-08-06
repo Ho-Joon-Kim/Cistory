@@ -53,7 +53,7 @@ Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `y
 - **TypeScript 5** (strict mode)
 - **Better Auth** - Authentication (GitHub OAuth) with cookie-based sessions
 - **Drizzle ORM** - Type-safe PostgreSQL access via `pg.Pool` singleton (PostGIS-enabled PostgreSQL in production)
-- **Anthropic SDK** - Claude for commit summaries (`claude-sonnet-4-5`, `src/lib/adapters/ai/claude.ts`) and expense categorization (`claude-haiku-4-5`, `src/modules/spending/category-classifier.ts`)
+- **Anthropic SDK** - Claude for commit summaries, period narratives, and expense categorization. `src/lib/adapters/ai/claude.ts` holds a per-model capability table (which params each model accepts) behind a single adapter; `CLAUDE_MODELS` there names the three workload models — `claude-sonnet-5` for commit summaries, `claude-opus-5` for narratives (`src/modules/overview/narrative.ts`), `claude-haiku-4-5` for expense categorization (`src/modules/spending/category-classifier.ts`)
 - **shadcn/ui** + **Tailwind CSS v4** - UI components and styling
 - **Biome** - Linter and formatter (replaces ESLint + Prettier)
 - **Vitest** - Test runner (colocated `*.test.ts` files, node environment)

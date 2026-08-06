@@ -111,8 +111,12 @@ const text = response.content.find((block) => block.type === "text")?.text ?? ""
 수천 토큰을 쓰면 8,000 한도가 빠듯해진다. `medium`은 사고 예산을 묶어 응답 공간을 보장한다.
 
 maxTokens 8,000은 thinking과 응답이 한도를 나눠 쓰기 때문이며, 비스트리밍 권장 상한(~16,000)
-안이라 스트리밍 도입이 필요 없다. timeout 120s는 크론 10분 틱 안쪽이라 기존 주석의 의도
-("느린 응답이 크론 틱을 넘지 못하게")를 유지한다.
+안이라 스트리밍 도입이 필요 없다. timeout 120s가 실제로 걸리는 크론 틱은 10분이 아니라
+내러티브 배치를 도는 5분 오버뷰 프리컴퓨트 틱(`precomputeOverviewSnapshots` →
+`generateOverviewNarratives`)이고, 120s × 3회 시도(maxRetries: 2)만으로 이미 6분이라
+5분 틱을 넘는다. 이 타임아웃 값 자체는 그 틱을 지켜주지 못한다 — 배치를 실제로 안전하게
+만드는 것은 `claimAutoBatch`가 배치 전체에 한 번만 찍던 리스를 각 행의 `generate()` 호출
+직전에 재-스탬프하도록 바꾼 조치다(`narrative.ts`의 `renewLease`, 구현 시점 후속 커밋).
 
 **배포 후 확인할 것**: 내러티브 응답의 `stop_reason`이 `max_tokens`로 오는지 본다. 그렇다면
 사고가 한도를 먹은 것이므로 maxTokens를 올리거나 `effort`를 `low`로 내린다.
