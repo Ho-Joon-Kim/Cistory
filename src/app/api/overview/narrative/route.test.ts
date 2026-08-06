@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/db", () => ({ getDb: vi.fn(() => ({})) }));
 vi.mock("@/lib/auth-helpers", () => ({ getAuthenticatedUser: mocks.getAuthenticatedUser }));
 vi.mock("@/lib/api-auth", () => ({ checkSameOrigin: mocks.checkSameOrigin }));
-vi.mock("@/lib/adapters/ai/claude", () => ({ createClaudeAdapter: mocks.createClaudeAdapter }));
+vi.mock("@/lib/adapters/ai/claude", () => ({
+  createClaudeAdapter: mocks.createClaudeAdapter,
+  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5", NARRATIVE: "claude-opus-5" },
+}));
 vi.mock("@/modules/overview/narrative", () => ({
   createDatabaseNarrativeStore: vi.fn(() => ({})),
   createNarrativeService: vi.fn(() => ({ get: mocks.get, regenerate: mocks.regenerate })),

@@ -21,7 +21,7 @@ import {
   trips,
 } from "@/db/schema";
 import { localDaySql, numericToNumber } from "@/db/sql";
-import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
+import { CLAUDE_MODELS, createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { KOREA_BOUNDS } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
 import { safeJsonParse, toLocalDateString } from "@/lib/utils";
@@ -1465,11 +1465,12 @@ export class ReportService {
   private async _generateNarrative(prompt: string): Promise<string> {
     if (!this.anthropicApiKey) return "";
 
-    const ai = createClaudeAdapter(this.anthropicApiKey);
+    const ai = createClaudeAdapter(this.anthropicApiKey, CLAUDE_MODELS.NARRATIVE, 120_000);
     const result = await ai.generateText({
       prompt,
-      maxTokens: 2000,
-      temperature: 0.7,
+      maxTokens: 8000,
+      thinking: "adaptive",
+      effort: "medium",
     });
 
     return result.content;

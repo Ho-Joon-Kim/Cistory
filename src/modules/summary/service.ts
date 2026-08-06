@@ -7,7 +7,7 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
-import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
+import { CLAUDE_MODELS, createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { createGitHubAdapter } from "@/lib/adapters/vcs/github";
 import { logger } from "@/lib/logger";
 import { now, parseRepoFullName, truncateDiff } from "@/lib/utils";
@@ -43,7 +43,7 @@ export class SummaryService {
   }
 
   private get aiAdapter() {
-    return createClaudeAdapter(this.anthropicApiKey);
+    return createClaudeAdapter(this.anthropicApiKey, CLAUDE_MODELS.COMMIT_SUMMARY);
   }
 
   private get vcsAdapter() {
@@ -144,7 +144,11 @@ export class SummaryService {
         system: systemPrompt,
         prompt: buildSummaryPrompt(commitContext, recentContext),
         maxTokens: 300,
-        temperature: 0.5,
+        // 짧은 정형 출력이라 사고가 필요 없다. thinking을 끄면 maxTokens 300이
+        // 전부 요약 몫이 되고, effort low가 이전 샘플링 파라미터(0.5) 자리의
+        // 결정성을 대신한다.
+        thinking: "disabled",
+        effort: "low",
       });
 
       const result: SummaryResult = {

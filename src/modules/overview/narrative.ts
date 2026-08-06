@@ -155,7 +155,12 @@ export function createNarrativeService(
     try {
       if (!ai) throw new Error("Narrative AI is not configured");
       const prompt = buildNarrativePrompt(claim.periodType, claim.periodKey, claim.snapshot);
-      const result = await ai.generateText({ ...prompt, maxTokens: 1600, temperature: 0.6 });
+      const result = await ai.generateText({
+        ...prompt,
+        maxTokens: 8000,
+        thinking: "adaptive",
+        effort: "medium",
+      });
       const content = result.content.trim();
       if (!content) throw new Error("AI returned an empty narrative");
       return store.complete(claim, content, model, now);

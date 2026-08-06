@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { ScheduledTask } from "node-cron";
 import { getDb } from "@/db";
-import { createClaudeAdapter } from "@/lib/adapters/ai/claude";
+import { CLAUDE_MODELS, createClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { logger } from "@/lib/logger";
 import { toLocalDateString } from "@/lib/utils";
 import { createDatabaseNarrativeStore, createNarrativeService } from "./narrative";
@@ -63,7 +63,8 @@ export async function generateOverviewNarratives() {
   try {
     const service = createNarrativeService(
       createDatabaseNarrativeStore(getDb()),
-      createClaudeAdapter(apiKey)
+      createClaudeAdapter(apiKey, CLAUDE_MODELS.NARRATIVE, 120_000),
+      CLAUDE_MODELS.NARRATIVE
     );
     const result = await service.processAutoBatch();
     if (result.claimed > 0) logger.info("[Cron] Overview narratives processed", { ...result });
