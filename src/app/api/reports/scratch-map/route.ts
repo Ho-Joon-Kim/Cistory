@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       );
 
     // P3: bbox-bounded placeCache lookup instead of full table scan.
-    const addressMap = new Map<string, string>();
+    const placeMap = new Map<string, { address: string | null; region: string | null }>();
     if (cells.length > 0) {
       let minLat = Number.POSITIVE_INFINITY;
       let maxLat = Number.NEGATIVE_INFINITY;
@@ -60,13 +60,14 @@ export async function GET(request: NextRequest) {
         if (lon < minLon) minLon = lon;
         if (lon > maxLon) maxLon = lon;
       }
-      const margin = 0.05; // ~5km — ample for findNearestAddress's 0.05 step
+      const margin = 0.05; // ~5km — ample for findNearestPlace's 0.05 step
 
       const placeResults = await db
         .select({
           latKey: placeCache.latKey,
           lonKey: placeCache.lonKey,
           address: placeCache.address,
+          region: placeCache.region,
         })
         .from(placeCache)
         .where(
@@ -79,8 +80,11 @@ export async function GET(request: NextRequest) {
         );
 
       for (const p of placeResults) {
-        if (p.address) {
-          addressMap.set(`${p.latKey.toFixed(4)}:${p.lonKey.toFixed(4)}`, p.address);
+        if (p.address || p.region) {
+          placeMap.set(`${p.latKey.toFixed(4)}:${p.lonKey.toFixed(4)}`, {
+            address: p.address,
+            region: p.region,
+          });
         }
       }
     }
@@ -104,8 +108,16 @@ export async function GET(request: NextRequest) {
       const lon = Number(cell.cellLon);
       const visits = Number(cell.pointCount);
 
-      const address = findNearestAddress(addressMap, lat, lon);
-      const regionName = extractRegion(address) || `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+      const place = findNearestPlace(placeMap, lat, lon);
+      // place_cache.region now holds the real 시/도 from the geocoding
+      // adapters' structured fields. Fall back to splitting the cached
+      // address only when region hasn't been backfilled for that row yet,
+      // so an unpopulated row still degrades gracefully instead of losing
+      // its label outright.
+      const regionName =
+        place?.region ||
+        extractRegion(place?.address ?? null) ||
+        `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
 
       const existing = regionMap.get(regionName);
       if (existing) {
@@ -139,23 +151,29 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function findNearestAddress(
-  addressMap: Map<string, string>,
+function findNearestPlace(
+  placeMap: Map<string, { address: string | null; region: string | null }>,
   lat: number,
   lon: number
-): string | null {
+): { address: string | null; region: string | null } | null {
   // Try nearby keys within ~0.01 degree of the cell center
   // placeCache uses latKey/lonKey rounded to 4 decimal places
   for (let dLat = -0.005; dLat <= 0.005; dLat += 0.001) {
     for (let dLon = -0.005; dLon <= 0.005; dLon += 0.001) {
       const tryKey = `${(lat + dLat).toFixed(4)}:${(lon + dLon).toFixed(4)}`;
-      const addr = addressMap.get(tryKey);
-      if (addr) return addr;
+      const place = placeMap.get(tryKey);
+      if (place) return place;
     }
   }
   return null;
 }
 
+/**
+ * Fallback only: splits the cached address string into a 시도+시군구 label
+ * for `place_cache` rows whose `region` column hasn't been backfilled.
+ * `place_cache.region` is the real 시/도 and should be preferred wherever
+ * it's populated — see the call site.
+ */
 function extractRegion(address: string | null): string | null {
   if (!address) return null;
   // Korean address format: "서울특별시 강남구 ..." or "경기도 성남시 분당구 ..."
