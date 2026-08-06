@@ -19,6 +19,32 @@ function mockKakao(addressPayload: unknown) {
   for (let i = 0; i < 6; i++) fetchMock.mockResolvedValueOnce(jsonResponse({ documents: [] }));
 }
 
+/**
+ * coord2address 응답 + 카테고리 검색: poiIndex 번째만 POI를 반환하고 나머지는 빈 결과
+ * @param addressPayload - address/road_address 응답
+ * @param poiIndex - POI를 반환할 카테고리 검색의 인덱스 (0-5)
+ * @param poi - 반환할 POI 데이터
+ */
+function mockKakaoWithPoi(
+  addressPayload: unknown,
+  poiIndex: number,
+  poi: {
+    place_name: string;
+    address_name: string;
+    category_group_name: string;
+    distance: string;
+  }
+) {
+  fetchMock.mockResolvedValueOnce(jsonResponse(addressPayload));
+  for (let i = 0; i < 6; i++) {
+    if (i === poiIndex) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ documents: [poi] }));
+    } else {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ documents: [] }));
+    }
+  }
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
@@ -70,6 +96,38 @@ describe("KakaoGeocodingAdapter region/country", () => {
     const result = await new KakaoGeocodingAdapter().reverseGeocode(37.5, 127.0);
 
     expect(result?.region).toBeNull();
+    expect(result?.country).toBe("대한민국");
+  });
+
+  it("exercises POI branch: returns region/country when POI is found", async () => {
+    mockKakaoWithPoi(
+      {
+        documents: [
+          {
+            address: {
+              address_name: "서울 강남구 역삼동 123",
+              region_1depth_name: "서울",
+              region_2depth_name: "강남구",
+              region_3depth_name: "역삼동",
+            },
+            road_address: { address_name: "서울 강남구 테헤란로 1", building_name: "테스트빌딩" },
+          },
+        ],
+      },
+      0, // First category search returns POI
+      {
+        place_name: "스타벅스 강남R점",
+        address_name: "서울 강남구 역삼동 123",
+        category_group_name: "카페",
+        distance: "42",
+      }
+    );
+
+    const result = await new KakaoGeocodingAdapter().reverseGeocode(37.5, 127.0);
+
+    // placeName proves this took the POI branch, not the fallback
+    expect(result?.placeName).toBe("스타벅스 강남R점");
+    expect(result?.region).toBe("서울");
     expect(result?.country).toBe("대한민국");
   });
 });
