@@ -25,9 +25,16 @@ const CATEGORY_CODES = [
   "SC4", // 학교
 ];
 
+interface KakaoRegion {
+  address_name: string;
+  region_1depth_name?: string;
+  region_2depth_name?: string;
+  region_3depth_name?: string;
+}
+
 interface KakaoAddressDoc {
-  address?: { address_name: string };
-  road_address?: { address_name: string; building_name?: string };
+  address?: KakaoRegion;
+  road_address?: KakaoRegion & { building_name?: string };
 }
 
 interface KakaoCategoryDoc {
@@ -65,6 +72,13 @@ export class KakaoGeocodingAdapter implements GeocodingAdapter {
     const address =
       addressDoc?.road_address?.address_name ?? addressDoc?.address?.address_name ?? "";
 
+    // Kakao already returns the administrative region in this same response —
+    // read it instead of splitting the display address on whitespace.
+    const region =
+      addressDoc?.address?.region_1depth_name ??
+      addressDoc?.road_address?.region_1depth_name ??
+      null;
+
     // 2. 카테고리 검색으로 반경 내 가장 가까운 POI 탐색
     const poiResults = await Promise.all(
       CATEGORY_CODES.map(async (code) => {
@@ -90,9 +104,8 @@ export class KakaoGeocodingAdapter implements GeocodingAdapter {
         address: address || closestPoi.address_name,
         category: closestPoi.category_group_name || undefined,
         provider: "kakao",
-        // TODO(task-2/3): fill from the provider response.
-        region: null,
-        country: null,
+        region,
+        country: "대한민국",
       };
     }
 
@@ -103,9 +116,8 @@ export class KakaoGeocodingAdapter implements GeocodingAdapter {
         placeName: buildingName || address,
         address,
         provider: "kakao",
-        // TODO(task-2/3): fill from the provider response.
-        region: null,
-        country: null,
+        region,
+        country: "대한민국",
       };
     }
 
