@@ -80,15 +80,30 @@ export interface GeocodingResult {
 - [ ] **Step 4: 타입 오류로 미구현 어댑터가 드러나는지 확인**
 
 Run: `npx tsc --noEmit`
-Expected: FAIL — `kakao.ts`, `google.ts`, `mapbox.ts` 세 곳에서 `region`/`country` 누락 오류. 이 오류가 Task 2·3의 작업 목록이다. 세 곳 모두에서 오류가 나지 않으면 인터페이스 수정이 반영되지 않은 것이다.
+Expected: FAIL — `kakao.ts`, `google.ts`, `mapbox.ts` 세 곳에서 `region`/`country` 누락 오류. **이 오류 목록이 Task 2·3의 작업 목록이다.** 세 곳 모두에서 오류가 나지 않으면 인터페이스 수정이 반영되지 않은 것이니 멈추고 확인한다.
 
-- [ ] **Step 5: 커밋**
+- [ ] **Step 5: 세 어댑터에 스텁을 넣어 트리를 다시 컴파일 가능하게 만든다**
 
-이 시점에는 타입 오류가 남아 있다. 어댑터가 아직 필드를 채우지 않기 때문이며, Task 2·3에서 해소된다.
+각 어댑터의 **모든** `return` 문(`kakao.ts`는 2개, `google.ts`는 2개, `mapbox.ts`는 1개)에 아래 두 줄을 그대로 추가한다. 값을 채우는 것은 Task 2·3의 일이다:
+
+```ts
+      // TODO(task-2/3): fill from the provider response.
+      region: null,
+      country: null,
+```
+
+**응답에서 값을 읽으려 시도하지 않는다.** 이 스텁의 목적은 오직 트리가 컴파일되게 하는 것이고, 실제 추출은 Task 2·3에서 테스트가 이끌어낸다. 여기서 미리 구현하면 그 테스트들이 처음부터 통과해 버려 TDD가 무력화된다.
+
+- [ ] **Step 6: 컴파일과 기존 테스트 확인**
+
+Run: `npx tsc --noEmit && yarn test`
+Expected: 둘 다 통과. 커밋되는 트리는 항상 컴파일 가능해야 한다.
+
+- [ ] **Step 7: 커밋**
 
 ```bash
-npx biome check --write src/db/schema.ts src/lib/adapters/geocoding/interface.ts
-git add src/db/schema.ts src/lib/adapters/geocoding/interface.ts drizzle/
+npx biome check --write src/db/schema.ts src/lib/adapters/geocoding/interface.ts src/lib/adapters/geocoding/kakao.ts src/lib/adapters/geocoding/google.ts src/lib/adapters/geocoding/mapbox.ts
+git add src/db/schema.ts src/lib/adapters/geocoding/ drizzle/
 git commit -m "feat(geocoding): add region/country to GeocodingResult and place_cache"
 ```
 
@@ -548,10 +563,10 @@ function pickComponent(
 Run: `yarn test src/lib/adapters/geocoding/`
 Expected: PASS (8 tests — Task 2의 5개 + 이번 3개)
 
-- [ ] **Step 5: 타입 오류 해소 확인**
+- [ ] **Step 5: 스텁이 모두 제거되었는지 확인**
 
-Run: `npx tsc --noEmit`
-Expected: 통과. Task 1에서 생긴 세 어댑터의 오류가 모두 사라져야 한다. 남아 있다면 어느 어댑터가 아직 필드를 안 채운 것이다.
+Run: `npx tsc --noEmit && grep -rn "TODO(task-2/3)" src/lib/adapters/geocoding/`
+Expected: `tsc`는 통과하고 `grep`은 **아무것도 찾지 못해야 한다**(종료 코드 1). Task 1이 넣은 `region: null, country: null` 스텁이 세 어댑터에서 모두 실제 추출로 대체되었다는 뜻이다. grep이 무언가 출력하면 그 어댑터가 아직 스텁 상태다.
 
 - [ ] **Step 6: 커밋**
 
