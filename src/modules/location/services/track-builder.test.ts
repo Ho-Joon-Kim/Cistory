@@ -153,6 +153,36 @@ describe("buildTracks", () => {
     expect(buildTracks(points)).toEqual([]);
   });
 
+  it("pins the exact moving-range boundary around a stay (still → move → still)", () => {
+    // Explicit stay options, not DEFAULT_STAY_OPTIONS: radiusM 50m, minDurationSec 300s.
+    //
+    // By hand, with findStays' fixed-anchor rule:
+    //   idx 0-6   t=0..360s,   north=0m    -> stay A (duration 360s >= 300s)
+    //   idx 7-9   t=420..540s, north=500/1000/1500m -> movement (500m legs,
+    //             each far outside the 50m radius, so no micro-stay forms
+    //             and none of these anchors ever reach minDurationSec)
+    //   idx 10-16 t=600..960s, north=2000m -> stay B (duration 360s >= 300s)
+    //
+    // findStays therefore returns exactly two stays, [0,6] and [10,16], so the
+    // only moving range is [7,9] -- 3 points, indices 7 through 9 inclusive.
+    // A cursor/end-index off-by-one here would leak idx6 or idx10 into the
+    // track, changing its pointCount/startTime/endTime but not its length or
+    // distance-range, which is why only exact equality catches it.
+    const stayOptions = { radiusM: 50, minDurationSec: 300 };
+    const points: TrackPoint[] = [];
+    for (let s = 0; s <= 360; s += 60) points.push(tp(s, 0)); // idx 0-6, stay A
+    points.push(tp(420, 500)); // idx 7, movement
+    points.push(tp(480, 1000)); // idx 8, movement
+    points.push(tp(540, 1500)); // idx 9, movement
+    for (let s = 600; s <= 960; s += 60) points.push(tp(s, 2000)); // idx 10-16, stay B
+
+    const tracks = buildTracks(points, { stay: stayOptions });
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].pointCount).toBe(3);
+    expect(tracks[0].startTime).toEqual(at(420));
+    expect(tracks[0].endTime).toEqual(at(540));
+  });
+
   it("keeps the 30-minute gap split for low-frequency historical data", () => {
     // 12-minute sampling, as OwnTracks produced before 2026-02. Consecutive
     // points are 300m apart, so no stay is ever detected and the gap rule still

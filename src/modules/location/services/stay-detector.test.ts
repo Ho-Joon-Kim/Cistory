@@ -2,6 +2,7 @@
 process.env.TZ = "Asia/Seoul";
 
 import { describe, expect, it } from "vitest";
+import { distanceM } from "@/lib/geo";
 import { findStays, type StayPoint } from "./stay-detector";
 
 // Same conversion the track-builder tests use: for points sharing a longitude,
@@ -73,6 +74,34 @@ describe("findStays", () => {
     wait(30); // 3 min
     walk(60);
     expect(findStays(points, OPTS)).toEqual([]);
+  });
+
+  it("includes a point exactly at radiusM in the stay (boundary: <=, not <)", () => {
+    // radiusM is derived from the actual distance between these two points, so
+    // the `<= radiusM` check inside findStays is an exact floating-point tie
+    // rather than a hand-picked value that could land on either side of the
+    // real boundary due to haversine rounding.
+    const anchor = sp(0, 0);
+    const boundary = sp(300, 80);
+    const radiusM = distanceM(anchor.lat, anchor.lon, boundary.lat, boundary.lon);
+    const opts = { radiusM, minDurationSec: 100 };
+
+    const stays = findStays([anchor, boundary], opts);
+    expect(stays).toHaveLength(1);
+    expect(stays[0].startIndex).toBe(0);
+    expect(stays[0].endIndex).toBe(1);
+    expect(stays[0].durationSeconds).toBe(300);
+  });
+
+  it("treats a stay lasting exactly minDurationSec as a stay (boundary: >=, not >)", () => {
+    const points = [sp(0, 0), sp(300, 0)];
+    const opts = { radiusM: 50, minDurationSec: 300 };
+
+    const stays = findStays(points, opts);
+    expect(stays).toHaveLength(1);
+    expect(stays[0].startIndex).toBe(0);
+    expect(stays[0].endIndex).toBe(1);
+    expect(stays[0].durationSeconds).toBe(300);
   });
 
   it("returns two stays around a movement in the middle", () => {
