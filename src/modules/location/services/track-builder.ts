@@ -9,6 +9,12 @@
  */
 
 import { distanceM } from "@/lib/geo";
+import {
+  DEFAULT_STAY_OPTIONS,
+  findStays,
+  type StayInterval,
+  type StayOptions,
+} from "./stay-detector";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -37,6 +43,11 @@ export interface BuiltTrack {
   points: TrackPoint[];
 }
 
+export interface BuildTracksOptions {
+  /** Overrides for stay detection; defaults to DEFAULT_STAY_OPTIONS. */
+  stay?: StayOptions;
+}
+
 // ── Elevation Calculation (Dawarich: track_builder.rb L105-139) ──────────────
 
 function calculateElevation(points: TrackPoint[]): {
@@ -61,14 +72,23 @@ function calculateElevation(points: TrackPoint[]): {
 
 // ── Track Builder ────────────────────────────────────────────────────────────
 
-/**
- * Split sorted location points into tracks by time gap threshold.
- *
- * Points within 30 minutes of each other belong to the same track.
- * Short tracks (< 3 points or < 100m) are discarded.
- */
-export function buildTracks(points: TrackPoint[]): BuiltTrack[] {
-  if (points.length < MIN_TRACK_POINTS) return [];
+/** Index ranges (inclusive) that no stay covers — i.e. the moving parts. */
+function movingRanges(total: number, stays: StayInterval[]): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let cursor = 0;
+
+  for (const stay of stays) {
+    if (stay.startIndex > cursor) ranges.push([cursor, stay.startIndex - 1]);
+    cursor = stay.endIndex + 1;
+  }
+  if (cursor < total) ranges.push([cursor, total - 1]);
+
+  return ranges;
+}
+
+/** Split a run of points wherever the sampling gap exceeds TRACK_GAP_SEC. */
+function splitByGap(points: TrackPoint[]): TrackPoint[][] {
+  if (points.length === 0) return [];
 
   const groups: TrackPoint[][] = [];
   let current: TrackPoint[] = [points[0]];
@@ -86,36 +106,54 @@ export function buildTracks(points: TrackPoint[]): BuiltTrack[] {
   }
   groups.push(current);
 
-  // Build tracks from groups, filtering by min constraints
+  return groups;
+}
+
+/** Turn a point group into a track, or null when it fails the min filters. */
+function finalizeTrack(group: TrackPoint[]): BuiltTrack | null {
+  if (group.length < MIN_TRACK_POINTS) return null;
+
+  let distance = 0;
+  for (let i = 1; i < group.length; i++) {
+    distance += distanceM(group[i - 1].lat, group[i - 1].lon, group[i].lat, group[i].lon);
+  }
+  if (distance < MIN_TRACK_DISTANCE_M) return null;
+
+  const startTime = group[0].timestamp;
+  const endTime = group[group.length - 1].timestamp;
+  const { gain, loss } = calculateElevation(group);
+
+  return {
+    startTime,
+    endTime,
+    distanceMeters: Math.round(distance),
+    durationSeconds: Math.round((endTime.getTime() - startTime.getTime()) / 1000),
+    pointCount: group.length,
+    elevationGain: gain,
+    elevationLoss: loss,
+    points: group,
+  };
+}
+
+/**
+ * Split sorted location points into movement tracks.
+ *
+ * Points inside a detected stay are excluded — a track is movement. What is
+ * left is split further wherever the sampling gap exceeds 30 minutes, which is
+ * what carries the low-frequency historical data (one point every ~12 minutes)
+ * where stays never register.
+ */
+export function buildTracks(points: TrackPoint[], options?: BuildTracksOptions): BuiltTrack[] {
+  if (points.length < MIN_TRACK_POINTS) return [];
+
+  const stays = findStays(points, options?.stay ?? DEFAULT_STAY_OPTIONS);
   const tracks: BuiltTrack[] = [];
 
-  for (const group of groups) {
-    if (group.length < MIN_TRACK_POINTS) continue;
-
-    // Calculate total distance via Haversine summation
-    let distance = 0;
-    for (let i = 1; i < group.length; i++) {
-      distance += distanceM(group[i - 1].lat, group[i - 1].lon, group[i].lat, group[i].lon);
+  for (const [from, to] of movingRanges(points.length, stays)) {
+    for (const group of splitByGap(points.slice(from, to + 1))) {
+      const track = finalizeTrack(group);
+      if (track) tracks.push(track);
     }
-
-    if (distance < MIN_TRACK_DISTANCE_M) continue;
-
-    const startTime = group[0].timestamp;
-    const endTime = group[group.length - 1].timestamp;
-    const durationSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
-
-    const { gain, loss } = calculateElevation(group);
-
-    tracks.push({
-      startTime,
-      endTime,
-      distanceMeters: Math.round(distance),
-      durationSeconds,
-      pointCount: group.length,
-      elevationGain: gain,
-      elevationLoss: loss,
-      points: group,
-    });
   }
 
   return tracks;

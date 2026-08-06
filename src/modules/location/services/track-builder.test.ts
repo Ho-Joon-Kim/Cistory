@@ -112,4 +112,59 @@ describe("buildTracks", () => {
     expect(tracks[0].elevationGain).toBe(20);
     expect(tracks[0].elevationLoss).toBe(5);
   });
+
+  it("splits a full day of 6-second samples into per-journey tracks", () => {
+    // The regression this whole change exists for: with 6-second sampling no
+    // 30-minute gap ever occurs, so the old gap-only split produced exactly one
+    // 24-hour track per day with dominantMode "stationary".
+    const points: TrackPoint[] = [];
+    let t = 0;
+    const still = (metres: number, seconds: number) => {
+      for (let s = 0; s < seconds; s += 6) {
+        points.push(tp(t, metres));
+        t += 6;
+      }
+    };
+    const move = (fromM: number, toM: number, seconds: number) => {
+      const steps = seconds / 6;
+      for (let i = 1; i <= steps; i++) {
+        points.push(tp(t, fromM + ((toM - fromM) * i) / steps));
+        t += 6;
+      }
+    };
+
+    still(0, 8 * 3600); // home
+    move(0, 10_000, 40 * 60); // commute out
+    still(10_000, 8 * 3600); // office
+    move(10_000, 0, 40 * 60); // commute back
+    still(0, 6 * 3600); // home
+
+    const tracks = buildTracks(points);
+    expect(tracks).toHaveLength(2);
+    for (const track of tracks) {
+      expect(track.distanceMeters).toBeGreaterThan(9_000);
+      expect(track.durationSeconds).toBeLessThan(3 * 3600);
+    }
+  });
+
+  it("returns no track for a day spent entirely inside the stay radius", () => {
+    const points: TrackPoint[] = [];
+    for (let s = 0; s < 3 * 3600; s += 6) points.push(tp(s, (s / 6) % 2 === 0 ? 0 : 20));
+    expect(buildTracks(points)).toEqual([]);
+  });
+
+  it("keeps the 30-minute gap split for low-frequency historical data", () => {
+    // 12-minute sampling, as OwnTracks produced before 2026-02. Consecutive
+    // points are 300m apart, so no stay is ever detected and the gap rule still
+    // governs: the 2560s gap splits the run in two.
+    const tracks = buildTracks([
+      tp(0, 0),
+      tp(720, 300),
+      tp(1440, 600),
+      tp(4000, 900),
+      tp(4720, 1200),
+      tp(5440, 1500),
+    ]);
+    expect(tracks).toHaveLength(2);
+  });
 });
