@@ -63,6 +63,9 @@ export class MapboxGeocodingAdapter implements GeocodingAdapter {
       address,
       category: props.feature_type === "poi" ? "POI" : undefined,
       provider: "mapbox",
+      // TODO(task-2/3): fill from the provider response.
+      region: null,
+      country: null,
     };
   }
 }

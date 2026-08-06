@@ -90,6 +90,9 @@ export class KakaoGeocodingAdapter implements GeocodingAdapter {
         address: address || closestPoi.address_name,
         category: closestPoi.category_group_name || undefined,
         provider: "kakao",
+        // TODO(task-2/3): fill from the provider response.
+        region: null,
+        country: null,
       };
     }
 
@@ -100,6 +103,9 @@ export class KakaoGeocodingAdapter implements GeocodingAdapter {
         placeName: buildingName || address,
         address,
         provider: "kakao",
+        // TODO(task-2/3): fill from the provider response.
+        region: null,
+        country: null,
       };
     }
 

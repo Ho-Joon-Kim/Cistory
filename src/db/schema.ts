@@ -176,7 +176,11 @@ export const placeCache = pgTable(
     placeName: text("place_name").notNull(),
     address: text("address").notNull(),
     category: text("category"),
-    provider: text("provider").notNull(), // 'kakao' | 'mapbox'
+    provider: text("provider").notNull(), // 'kakao' | 'mapbox' | 'google'
+    /** 시/도 또는 administrative_area_level_1. visits.city로 복사된다. */
+    region: text("region"),
+    /** 국가명. visits.country_name으로 복사된다. */
+    country: text("country"),
     resolvedAt: timestamp("resolved_at").notNull(),
   },
   (table) => [uniqueIndex("idx_place_cache_lat_lon").on(table.latKey, table.lonKey)]

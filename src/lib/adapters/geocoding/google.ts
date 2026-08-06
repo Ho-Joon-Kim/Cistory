@@ -48,6 +48,9 @@ export class GooglePlacesAdapter implements GeocodingAdapter {
         address: poi.formattedAddress || address || "",
         category: poi.primaryTypeDisplayName?.text || undefined,
         provider: "google",
+        // TODO(task-2/3): fill from the provider response.
+        region: null,
+        country: null,
       };
     }
 
@@ -57,6 +60,9 @@ export class GooglePlacesAdapter implements GeocodingAdapter {
         placeName: address,
         address,
         provider: "google",
+        // TODO(task-2/3): fill from the provider response.
+        region: null,
+        country: null,
       };
     }
 
