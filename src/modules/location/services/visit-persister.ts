@@ -13,6 +13,41 @@ import { distanceM, placeCacheCoordKey } from "@/lib/geo";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { detectAndMergeVisits } from "./visit-detector";
 
+// A place_cache row where the provider found no POI (placeName falls back to
+// the address string, category is null) is worth re-checking eventually — a
+// provider can add a POI to a coordinate later. But retrying on every visit
+// that lands there again never converges: measured on the dev DB, 19/521
+// place_cache rows fit this shape (all Kakao, POI-less spots like airports),
+// spanning 36 visits, and their resolved_at values are spread across five
+// months rather than clustered at "today" — proof the unbounded rule really
+// was re-deleting and re-geocoding the same rows every time a visit landed
+// on them again. Bounding the retry by age keeps the "maybe the provider
+// knows more now" intent while making it periodic instead of perpetual.
+const STALE_POI_LESS_CACHE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+interface StaleCacheRowCandidate {
+  placeName: string;
+  address: string;
+  category: string | null;
+  // The schema marks resolved_at NOT NULL, so a real row never has a null
+  // here — but this decision is written defensively rather than trusting
+  // that invariant. A row we can't date can't be judged fresh, so an absent
+  // resolvedAt is treated as past the bound (stale, eligible for retry)
+  // rather than silently exempted from the age check forever.
+  resolvedAt: Date | null;
+}
+
+/**
+ * The pure staleness decision for a place_cache row. `now` is passed in
+ * (rather than read internally) so callers reuse one point in time across a
+ * whole persist run instead of drifting between checks.
+ */
+export function isStaleCacheRow(cached: StaleCacheRowCandidate | undefined, now: Date): boolean {
+  if (!cached || cached.placeName !== cached.address || cached.category) return false;
+  if (!cached.resolvedAt) return true;
+  return now.getTime() - cached.resolvedAt.getTime() > STALE_POI_LESS_CACHE_MAX_AGE_MS;
+}
+
 export interface EnrichedVisit {
   centerLat: number;
   centerLon: number;
@@ -161,8 +196,9 @@ export async function detectAndPersistVisits(
     // both columns null — were a one-time backfill target, not an ongoing
     // case: scripts/backfill-visit-regions.ts already repaired every one of
     // them (521/521, zero failures), so there is nothing left predating the
-    // migration for this clause to heal.
-    const isStale = cached && cached.placeName === cached.address && !cached.category;
+    // migration for this clause to heal. See isStaleCacheRow above for the
+    // POI-less staleness rule itself and why it's bounded by age.
+    const isStale = isStaleCacheRow(cached, now);
     if (cached && !isStale) {
       visitEnrichments.set(v.idx, {
         placeName: cached.placeName,

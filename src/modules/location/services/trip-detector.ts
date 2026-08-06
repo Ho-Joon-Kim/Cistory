@@ -31,7 +31,11 @@ import {
 
 const DEFAULT_TRIP_EXCLUSION_RADIUS_M = 10_000;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-const TRIP_DATA_HORIZON = "2025-03-08";
+// Earliest visit in the data. Exported so callers building a full-history
+// range (e.g. scripts/detect-trips.ts) can default `from` to it directly —
+// starting any earlier loses nothing and only makes isValidTripDateRange
+// reject the request.
+export const TRIP_DATA_HORIZON = "2025-03-08";
 const TRIP_DATE_RANGE_FUTURE_HEADROOM_DAYS = 366;
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -96,10 +100,21 @@ export async function detectTripsSnapshot(
   from: string,
   to: string
 ): Promise<TripDetectionSnapshot> {
-  if (!isValidTripDateRange(from, to)) return { trips: [], exclusionRevision: "[]" };
-
+  // The exclusion revision is computed unconditionally, before the range is
+  // even validated. Both real callers (detectAndPersistTrips, regenerateTrips)
+  // now validate the range up front and never reach this function with a bad
+  // one — but this used to short-circuit with a fabricated exclusionRevision
+  // of "[]" instead, which can never equal the real revision once the user has
+  // any saved place. A caller that skipped validation would pass that
+  // fabricated value into the optimistic-concurrency check in trip-writer.ts,
+  // get a guaranteed StaleTripDetectionError, and retry three times against a
+  // problem retrying can't fix. Computing the real revision here — the same
+  // thing the "home can't be resolved" branch below already does — means any
+  // future caller gets a value that's simply correct, never a trap.
   const placeLocations = await getSavedPlaceLocations(userId);
   const exclusionRevision = createTripExclusionRevision(placeLocations);
+  if (!isValidTripDateRange(from, to)) return { trips: [], exclusionRevision };
+
   const home = await resolveTripHomeLocation(userId, placeLocations);
   if (!home) return { trips: [], exclusionRevision }; // Can't determine home → can't detect trips
 
@@ -331,6 +346,13 @@ export async function detectAndPersistTrips(
   to: string,
   options: { watermarkThrough?: string } = {}
 ): Promise<{ detected: number; inserted: number; replaced: number; skipped: number }> {
+  // Mirrors regenerateTrips' up-front check. Without this, an invalid range
+  // fell through to detectTripsSnapshot's early return, which used to hand
+  // back a fabricated exclusionRevision that could never match — surfacing as
+  // StaleTripDetectionError after three retries instead of the real problem.
+  if (!isValidTripDateRange(from, to)) {
+    throw new Error("유효하지 않은 여행 감지 날짜 범위입니다");
+  }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const snapshot = await detectTripsSnapshot(userId, from, to);
     try {

@@ -104,6 +104,7 @@ vi.mock("@/db", async (importOriginal) => {
 import {
   detectAndPersistTrips,
   detectTrips,
+  detectTripsSnapshot,
   isValidTripDateRange,
   persistTrips,
   regenerateTrips,
@@ -497,5 +498,42 @@ describe("persistTrips", () => {
 
     expect(mockState.transactionCount).toBe(0);
     expect(mockState.insertedRows).toEqual([]);
+  });
+
+  it("fails fast with an invalid-range error on an out-of-range request, instead of retrying as a stale detection", async () => {
+    // Before this fix, an invalid range slipped past detectAndPersistTrips
+    // and hit detectTripsSnapshot's early return, which handed back a
+    // fabricated exclusionRevision of "[]". Since a saved place is seeded in
+    // beforeEach, the real revision here is never "[]", so the reconcile
+    // step below would have thrown StaleTripDetectionError and retried the
+    // (unfixable) mismatch three times before giving up — reporting the
+    // wrong problem entirely.
+    await expect(detectAndPersistTrips("user-1", "2025-03-08", "9999-12-31")).rejects.toThrow(
+      "유효하지 않은 여행 감지 날짜 범위입니다"
+    );
+
+    // Fails before ever opening the write transaction — no retry loop, no
+    // StaleTripDetectionError.
+    expect(mockState.transactionCount).toBe(0);
+    expect(mockState.insertedRows).toEqual([]);
+  });
+});
+
+describe("detectTripsSnapshot", () => {
+  it("computes the real exclusion revision even for an invalid range, instead of a fabricated value guaranteed to mismatch", async () => {
+    mockState.savedPlaceRows.push(
+      savedPlace("부산 생활권", BUSAN, { excludeFromTrips: true, tripExclusionRadiusM: 10_000 })
+    );
+
+    const validSnapshot = await detectTripsSnapshot("user-1", "2025-03-08", "2025-03-09");
+    const invalidSnapshot = await detectTripsSnapshot("user-1", "2025-03-08", "9999-12-31");
+
+    expect(invalidSnapshot.trips).toEqual([]);
+    // Same saved-place state, so the honestly-computed revision must match
+    // the valid request's — the old code returned the literal string "[]"
+    // here instead, which can never equal a revision computed from a
+    // non-empty saved-place list.
+    expect(invalidSnapshot.exclusionRevision).toBe(validSnapshot.exclusionRevision);
+    expect(invalidSnapshot.exclusionRevision).not.toBe("[]");
   });
 });

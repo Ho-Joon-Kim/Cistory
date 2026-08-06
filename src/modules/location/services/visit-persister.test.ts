@@ -80,7 +80,7 @@ vi.mock("@/lib/adapters/geocoding", async (importOriginal) => {
   };
 });
 
-import { detectAndPersistVisits } from "./visit-persister";
+import { detectAndPersistVisits, isStaleCacheRow } from "./visit-persister";
 
 beforeEach(() => {
   state.points = [];
@@ -175,12 +175,15 @@ describe("visit-persister region/country enrichment", () => {
     expect(result[0].countryName).toBeNull();
   });
 
-  it("treats a cache row with placeName === address and no category as stale and re-geocodes", async () => {
+  it("treats a cache row with placeName === address and no category, older than the 90-day retry bound, as stale and re-geocodes", async () => {
     seedVisitPoints();
-    // The one surviving staleness signal: a row where placeName and address
-    // are identical and there's no category — a geocode that never really
+    // The surviving staleness signal: a row where placeName and address are
+    // identical and there's no category — a geocode that never really
     // resolved to anything more than the raw address. This must re-geocode
-    // regardless of what region/country happen to hold.
+    // regardless of what region/country happen to hold, but only once it's
+    // old enough (isStaleCacheRow's 90-day bound in visit-persister.ts) —
+    // resolvedAt is computed relative to "now" rather than a fixed calendar
+    // date so this test keeps pinning "old enough" as real time passes.
     state.placeCacheRows = [
       {
         latKey: 37.522,
@@ -191,7 +194,7 @@ describe("visit-persister region/country enrichment", () => {
         provider: "kakao",
         region: "서울",
         country: "대한민국",
-        resolvedAt: new Date("2026-07-01T00:00:00.000Z"),
+        resolvedAt: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000),
       },
     ];
     state.reverseGeocode.mockResolvedValue({
@@ -212,6 +215,35 @@ describe("visit-persister region/country enrichment", () => {
 
     // The stale cache row must have been deleted before re-geocoding.
     expect(state.deletedStaleKeys).toEqual([{ latKey: 37.522, lonKey: 127 }]);
+  });
+
+  it("reuses a fresh POI-less cache row instead of re-geocoding it every time a visit lands there again", async () => {
+    seedVisitPoints();
+    // Same placeName === address, no-category shape as the test above, but
+    // resolved recently. Before the 90-day age bound, this row would have
+    // been deleted and re-geocoded on every visit that ever touched this
+    // coordinate again — the exact non-convergence this fix removes.
+    state.placeCacheRows = [
+      {
+        latKey: 37.522,
+        lonKey: 127,
+        placeName: "Incheon Airport Rd",
+        address: "Incheon Airport Rd",
+        category: null,
+        provider: "kakao",
+        region: "인천",
+        country: "대한민국",
+        resolvedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      },
+    ];
+
+    const result = await detectAndPersistVisits("user-1", "2026-07-22");
+
+    expect(state.reverseGeocode).not.toHaveBeenCalled();
+    expect(state.deletedStaleKeys).toEqual([]);
+    expect(result).toHaveLength(1);
+    expect(result[0].placeName).toBe("Incheon Airport Rd");
+    expect(result[0].city).toBe("인천");
   });
 
   it("treats a cache row with region: null but a resolved country as a hit, not stale", async () => {
@@ -293,5 +325,71 @@ describe("visit-persister region/country enrichment", () => {
     expect(state.insertedVisits[0].savedPlaceId).toBe("sp-1");
     expect(state.insertedVisits[0].city).toBe("서울");
     expect(state.insertedVisits[0].countryName).toBe("대한민국");
+  });
+});
+
+// The pure staleness decision, tested directly rather than through
+// detectAndPersistVisits + the DB mock — no visit/geocode plumbing needed to
+// pin the rule itself.
+describe("isStaleCacheRow", () => {
+  const now = new Date("2026-07-22T00:00:00.000Z");
+  const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+
+  const poiLessRow = (resolvedAt: Date | null) => ({
+    placeName: "Incheon Airport Rd",
+    address: "Incheon Airport Rd",
+    category: null,
+    resolvedAt,
+  });
+
+  it("does not treat a fresh POI-less row as stale", () => {
+    const resolvedAt = new Date(now.getTime() - 1_000);
+    expect(isStaleCacheRow(poiLessRow(resolvedAt), now)).toBe(false);
+  });
+
+  it("treats a POI-less row older than the 90-day bound as stale", () => {
+    const resolvedAt = new Date(now.getTime() - NINETY_DAYS_MS - 1_000);
+    expect(isStaleCacheRow(poiLessRow(resolvedAt), now)).toBe(true);
+  });
+
+  it("does not treat a POI-less row exactly at the 90-day bound as stale (strictly greater-than)", () => {
+    const resolvedAt = new Date(now.getTime() - NINETY_DAYS_MS);
+    expect(isStaleCacheRow(poiLessRow(resolvedAt), now)).toBe(false);
+  });
+
+  it("never treats a row with a real POI name as stale, regardless of age", () => {
+    const ancient = new Date(now.getTime() - 10 * NINETY_DAYS_MS);
+    expect(
+      isStaleCacheRow(
+        {
+          placeName: "강남역",
+          address: "서울 강남구 역삼동",
+          category: "지하철역",
+          resolvedAt: ancient,
+        },
+        now
+      )
+    ).toBe(false);
+    // placeName differs from address (even with no category) → never the
+    // POI-less shape at all.
+    expect(
+      isStaleCacheRow(
+        {
+          placeName: "Some POI",
+          address: "Some Address, Hong Kong",
+          category: null,
+          resolvedAt: ancient,
+        },
+        now
+      )
+    ).toBe(false);
+  });
+
+  it("treats a POI-less row with a null resolvedAt as stale — an undated row can't be judged fresh", () => {
+    expect(isStaleCacheRow(poiLessRow(null), now)).toBe(true);
+  });
+
+  it("returns false when there is no cached row at all", () => {
+    expect(isStaleCacheRow(undefined, now)).toBe(false);
   });
 });
