@@ -62,8 +62,11 @@ export class ClaudeAdapter {
   private model: ClaudeModel;
 
   constructor(apiKey: string, model: ClaudeModel = DEFAULT_CLAUDE_MODEL, timeoutMs = 60_000) {
-    // 기본 60s는 느린 응답이 10분 크론 틱을 넘지 못하게 하는 상한이다.
-    // thinking을 켜는 워크로드는 호출부가 더 큰 값을 넘긴다.
+    // 기본 60s는 요청 한 건이 걸릴 수 있는 시간의 상한일 뿐이다 — 배치 전체
+    // 소요를 보장하지 않는다. processPendingSummaries는 유저당 커밋 20건을
+    // 요청 사이 sleep과 함께 순차 처리하므로, 10분 동기화 틱을 지키는 것은
+    // 이 값의 역할이 아니다. thinking을 켜는 워크로드는 호출부가 더 큰 값을
+    // 넘긴다.
     this.client = new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 2 });
     this.model = model;
   }

@@ -115,8 +115,13 @@ maxTokens 8,000은 thinking과 응답이 한도를 나눠 쓰기 때문이며, �
 내러티브 배치를 도는 5분 오버뷰 프리컴퓨트 틱(`precomputeOverviewSnapshots` →
 `generateOverviewNarratives`)이고, 120s × 3회 시도(maxRetries: 2)만으로 이미 6분이라
 5분 틱을 넘는다. 이 타임아웃 값 자체는 그 틱을 지켜주지 못한다 — 배치를 실제로 안전하게
-만드는 것은 `claimAutoBatch`가 배치 전체에 한 번만 찍던 리스를 각 행의 `generate()` 호출
-직전에 재-스탬프하도록 바꾼 조치다(`narrative.ts`의 `renewLease`, 구현 시점 후속 커밋).
+만드는 것은 `claimAutoBatch`가 배치 전체에 한 번만 찍던 리스를, 매 행 차례마다 그 행뿐
+아니라 아직 처리하지 않은 나머지 claim까지 함께 재-스탬프하고, 자신이 이미 다른 워커에
+넘어갔다고 재-스탬프가 알리면 그 행의 `generate()` 호출 자체를 건너뛰도록 바꾼 조치다
+(`narrative.ts`의 `renewLease`/`renewPendingLeases`, 구현 시점 후속 커밋). 재-스탬프만으로는
+부족했다 — 현재 행 하나만 갱신하면 그보다 뒤에 대기 중인 행은 여전히 오래된 리스에 머물러
+있었고, 그 결과를 확인하지 않고 무조건 `generate()`를 호출하면 이미 다른 워커가 가져간
+행에 대해 유료 호출을 한 번 더 실행하게 됐다.
 
 **배포 후 확인할 것**: 내러티브 응답의 `stop_reason`이 `max_tokens`로 오는지 본다. 그렇다면
 사고가 한도를 먹은 것이므로 maxTokens를 올리거나 `effort`를 `low`로 내린다.
