@@ -330,16 +330,42 @@ export interface AIGenerateOptions {
 Run: `yarn test src/lib/adapters/ai/claude.test.ts`
 Expected: PASS (7 tests)
 
-- [ ] **Step 5: 전체 확인**
+- [ ] **Step 5: 좁아진 시그니처가 깨뜨리는 호출부를 이 태스크에서 고친다**
+
+`createClaudeAdapter`의 2번째 인자를 `ClaudeModel`로 좁히면 **딱 한 곳**이 깨진다.
+`src/modules/spending/category-classifier.ts:93,99`가 `model: string`을 넘긴다:
+
+```ts
+export class ExpenseCategoryService {
+  private ai: ClaudeAdapter;
+  private model: string;                       // ← ClaudeModel로
+  constructor(
+    private db: Database,
+    anthropicApiKey: string,
+    model: string = EXPENSE_CLASSIFIER_MODEL   // ← ClaudeModel로
+  ) {
+```
+
+두 `string`을 `ClaudeModel`로 바꾼다. 같은 파일의 `createExpenseCategoryService` 팩토리에도
+`model?: string` 파라미터가 있으면 함께 좁힌다. **분류기의 다른 부분(프롬프트, 파싱, 배치 로직)은
+건드리지 않는다** — 그것은 Task 4의 일이다.
+
+나머지 4개 호출부(`api/overview/narrative/route.ts:31`, `report/service.ts:1468`,
+`overview/cron.ts:66`, `summary/service.ts:46`)는 모델 인자 없이 부르므로 이 태스크에서는
+바뀌지 않는다. 모델을 명시하는 것은 Task 3의 일이다.
+
+이유: 타입 오류가 남은 커밋을 만들지 않기 위해서다. 커밋되는 트리는 항상 컴파일되어야 한다.
+
+- [ ] **Step 6: 전체 확인**
 
 Run: `yarn test && npx tsc --noEmit`
-Expected: 둘 다 통과. `createClaudeAdapter`를 `string` 모델로 부르던 호출부에서 타입 오류가 나면 그 호출부는 Task 3·4에서 고친다 — 여기서는 오류 목록만 보고한다.
+Expected: 둘 다 통과. 오류가 남아 있으면 좁힌 시그니처가 예상보다 넓게 퍼진 것이므로 멈추고 보고한다.
 
-- [ ] **Step 6: 커밋**
+- [ ] **Step 7: 커밋**
 
 ```bash
-npx biome check --write src/lib/adapters/ai/claude.ts src/lib/adapters/ai/claude.test.ts
-git add src/lib/adapters/ai/
+npx biome check --write src/lib/adapters/ai/claude.ts src/lib/adapters/ai/claude.test.ts src/modules/spending/category-classifier.ts
+git add src/lib/adapters/ai/ src/modules/spending/category-classifier.ts
 git commit -m "fix(ai): read the text block, not content[0], and gate params by model"
 ```
 
