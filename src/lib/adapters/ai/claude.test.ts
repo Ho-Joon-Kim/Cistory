@@ -74,6 +74,21 @@ describe("ClaudeAdapter response parsing", () => {
 
     expect(result.stopReason).toBe("refusal");
   });
+
+  it("surfaces an unrecognized stop reason instead of laundering it into end_turn", async () => {
+    // pause_turn, model_context_window_exceeded, or any value the API adds
+    // later must stay distinguishable from a clean finish — the old default
+    // branch collapsed all of these into "end_turn".
+    createMock.mockResolvedValueOnce(
+      reply([{ type: "text", text: "ok" }], "model_context_window_exceeded")
+    );
+
+    const result = await createClaudeAdapter("k", CLAUDE_MODELS.NARRATIVE).generateText({
+      prompt: "p",
+    });
+
+    expect(result.stopReason).toBe("model_context_window_exceeded");
+  });
 });
 
 describe("ClaudeAdapter model capabilities", () => {

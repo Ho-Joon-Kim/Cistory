@@ -51,7 +51,10 @@ export interface AIGenerateResult {
     inputTokens: number;
     outputTokens: number;
   };
-  stopReason: "end_turn" | "max_tokens" | "stop_sequence" | "refusal";
+  // 알려진 네 값 외에는 원문 문자열을 그대로 통과시킨다(예: pause_turn,
+  // model_context_window_exceeded, API가 나중에 추가할 값). `string & {}`는
+  // 리터럴 자동완성을 유지하면서도 임의 문자열을 허용하는 TS 관용구다.
+  stopReason: "end_turn" | "max_tokens" | "stop_sequence" | "refusal" | (string & {});
 }
 
 export class ClaudeAdapter {
@@ -134,9 +137,7 @@ export class ClaudeAdapter {
   }
 }
 
-function mapStopReason(
-  reason: string | null
-): "end_turn" | "max_tokens" | "stop_sequence" | "refusal" {
+function mapStopReason(reason: string | null): AIGenerateResult["stopReason"] {
   switch (reason) {
     case "end_turn":
       return "end_turn";
@@ -147,7 +148,10 @@ function mapStopReason(
     case "refusal":
       return "refusal";
     default:
-      return "end_turn";
+      // Surface the unrecognized reason instead of laundering it into
+      // "end_turn" — pause_turn, model_context_window_exceeded, or anything
+      // the API adds later must stay distinguishable from a clean finish.
+      return reason ?? "end_turn";
   }
 }
 
