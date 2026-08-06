@@ -78,7 +78,7 @@ if (parts.length >= 2) {
 
 ## 설계
 
-### 1. `place_cache`에 컬럼 2개 추가 (마이그레이션 0039)
+### 1. `place_cache`에 컬럼 2개 추가 (마이그레이션 0040)
 
 `region` (text, nullable), `country` (text, nullable). 기존 컬럼은 건드리지 않는다.
 
