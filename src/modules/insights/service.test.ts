@@ -1,5 +1,8 @@
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
-import { aggregateBody, type BodyMeasurementPoint } from "./service";
+import type { Database } from "@/db";
+import { aggregateBody, type BodyMeasurementPoint, InsightsService } from "./service";
 
 function pt(
   day: string,
@@ -103,5 +106,47 @@ describe("aggregateBody", () => {
     expect(r.weight.latest).toBe(70.6);
     expect(r.weight.previous).toBe(71);
     expect(r.weight.delta).toBeCloseTo(-0.4, 5);
+  });
+});
+
+// ── getCommuteReliability ────────────────────────────────────────────────────
+
+/**
+ * getCommuteReliability queries `tracks` directly with `db.select().from().where()`.
+ * Rather than reimplementing Postgres semantics in a mock, capture the compiled
+ * WHERE clause via drizzle-orm's PgDialect (no live connection needed) and assert
+ * on the emitted SQL/params — the same technique used in
+ * src/modules/overview/service.test.ts for its raw-SQL statements.
+ */
+function databaseCapturingTracksWhere() {
+  const dialect = new PgDialect();
+  let compiled: { sql: string; params: unknown[] } | null = null;
+  const db = {
+    select: () => ({
+      from: () => ({
+        where: (condition: SQL) => {
+          const result = dialect.sqlToQuery(condition);
+          compiled = { sql: result.sql, params: result.params as unknown[] };
+          return Promise.resolve([]);
+        },
+      }),
+    }),
+  } as unknown as Database;
+  return { db, getCompiledWhere: () => compiled };
+}
+
+describe("getCommuteReliability", () => {
+  it("filters candidate tracks to a minimum 180-second duration", async () => {
+    const { db, getCompiledWhere } = databaseCapturingTracksWhere();
+
+    await InsightsService.getCommuteReliability(db, "user-1", 2026);
+
+    const compiled = getCompiledWhere();
+    expect(compiled).not.toBeNull();
+    // Sub-3-minute tracks are GPS jitter/micro-walks, not commutes (see the
+    // MIN_COMMUTE_DURATION_SEC comment in service.ts) — the floor must be
+    // pushed into the query's WHERE clause, not filtered in JS afterward.
+    expect(compiled?.sql).toContain('"tracks"."duration_seconds" >=');
+    expect(compiled?.params).toContain(180);
   });
 });
