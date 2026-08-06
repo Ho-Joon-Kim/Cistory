@@ -20,8 +20,24 @@ interface GooglePlace {
   primaryTypeDisplayName?: { text: string };
 }
 
+interface GoogleAddressComponent {
+  long_name: string;
+  short_name: string;
+  types: string[];
+}
+
 interface GoogleGeocodingResult {
   formatted_address: string;
+  address_components?: GoogleAddressComponent[];
+}
+
+/** Google returns the admin hierarchy as typed components — pick by type, never by position. */
+function pickComponent(
+  components: GoogleAddressComponent[] | undefined,
+  type: string
+): string | null {
+  if (!components) return null;
+  return components.find((c) => c.types.includes(type))?.long_name ?? null;
 }
 
 export class GooglePlacesAdapter implements GeocodingAdapter {
@@ -37,32 +53,30 @@ export class GooglePlacesAdapter implements GeocodingAdapter {
 
   async reverseGeocode(lat: number, lon: number): Promise<GeocodingResult | null> {
     // 1. Nearby Search로 가장 가까운 POI 검색
-    const [poi, address] = await Promise.all([
+    const [poi, geo] = await Promise.all([
       this.searchNearbyPoi(lat, lon),
       this.getAddress(lat, lon),
     ]);
 
     if (poi) {
       return {
-        placeName: poi.displayName?.text || address || "",
-        address: poi.formattedAddress || address || "",
+        placeName: poi.displayName?.text || geo.address || "",
+        address: poi.formattedAddress || geo.address || "",
         category: poi.primaryTypeDisplayName?.text || undefined,
         provider: "google",
-        // TODO(task-2/3): fill from the provider response.
-        region: null,
-        country: null,
+        region: geo.region,
+        country: geo.country,
       };
     }
 
     // POI가 없으면 주소만 반환
-    if (address) {
+    if (geo.address) {
       return {
-        placeName: address,
-        address,
+        placeName: geo.address,
+        address: geo.address,
         provider: "google",
-        // TODO(task-2/3): fill from the provider response.
-        region: null,
-        country: null,
+        region: geo.region,
+        country: geo.country,
       };
     }
 
@@ -104,18 +118,28 @@ export class GooglePlacesAdapter implements GeocodingAdapter {
     }
   }
 
-  private async getAddress(lat: number, lon: number): Promise<string | null> {
+  private async getAddress(
+    lat: number,
+    lon: number
+  ): Promise<{ address: string | null; region: string | null; country: string | null }> {
+    const empty = { address: null, region: null, country: null };
     try {
       const url = `${GEOCODING_API_BASE}?latlng=${lat},${lon}&key=${this.apiKey}&result_type=street_address|premise&language=en`;
       const res = await fetch(url);
 
-      if (!res.ok) return null;
+      if (!res.ok) return empty;
 
       const data = await res.json();
       const result: GoogleGeocodingResult | undefined = data.results?.[0];
-      return result?.formatted_address ?? null;
+      if (!result) return empty;
+
+      return {
+        address: result.formatted_address ?? null,
+        region: pickComponent(result.address_components, "administrative_area_level_1"),
+        country: pickComponent(result.address_components, "country"),
+      };
     } catch {
-      return null;
+      return empty;
     }
   }
 }
