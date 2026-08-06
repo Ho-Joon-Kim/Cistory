@@ -144,9 +144,9 @@ export class SummaryService {
         system: systemPrompt,
         prompt: buildSummaryPrompt(commitContext, recentContext),
         maxTokens: 300,
-        // 짧은 정형 출력이라 사고가 필요 없다. thinking을 끄면 maxTokens 300이
-        // 전부 요약 몫이 되고, effort low가 이전 샘플링 파라미터(0.5) 자리의
-        // 결정성을 대신한다.
+        // 짧은 정형 출력이라 사고가 필요 없어 thinking을 껐다. 그 덕에
+        // maxTokens 300 전부가 응답 몫으로 남는다. effort low는 (thinking과
+        // 별개로) 추론에 쓰는 연산량 자체의 상한이다.
         thinking: "disabled",
         effort: "low",
       });
