@@ -8,7 +8,7 @@
 import { and, asc, eq, gte, inArray, isNull, lt, lte, or } from "drizzle-orm";
 import type { SavedPlace } from "@/db";
 import { getDb, locationPoints, placeCache, savedPlaces, visits } from "@/db";
-import { getGeocodingAdapter, isInKorea } from "@/lib/adapters/geocoding";
+import { getGeocodingAdapter } from "@/lib/adapters/geocoding";
 import { distanceM } from "@/lib/geo";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { detectAndMergeVisits } from "./visit-detector";
@@ -31,32 +31,6 @@ export interface EnrichedVisit {
   city: string | null;
   countryName: string | null;
   savedPlaceId?: string;
-}
-
-/**
- * Extract city and country from address string.
- * For Kakao: address is like "서울특별시 강남구 역삼동 123"
- * For Mapbox/Google: address varies, but city is usually in the result
- */
-function extractCityCountry(
-  lat: number,
-  lon: number,
-  address: string | null
-): { city: string | null; countryName: string | null } {
-  if (!address) return { city: null, countryName: null };
-
-  if (isInKorea(lat, lon)) {
-    // Korean address: "서울특별시 강남구 ..." → city = first token
-    const parts = address.split(" ");
-    return { city: parts[0] || null, countryName: "대한민국" };
-  }
-
-  // International: best-effort extraction from address
-  const parts = address.split(", ");
-  if (parts.length >= 2) {
-    return { city: parts[parts.length - 2] || null, countryName: parts[parts.length - 1] || null };
-  }
-  return { city: null, countryName: null };
 }
 
 /**
@@ -122,6 +96,8 @@ export async function detectAndPersistVisits(
     placeName: string | null;
     address: string | null;
     category: string | null;
+    region: string | null;
+    country: string | null;
     savedPlaceId?: string;
   }
 
@@ -133,10 +109,14 @@ export async function detectAndPersistVisits(
       (p) => distanceM(visit.centerLat, visit.centerLon, p.lat, p.lon) <= p.radiusM
     );
     if (matched) {
+      // Saved places carry no structured region/country — leave them null
+      // rather than parsing the user-entered address string.
       visitEnrichments.set(idx, {
         placeName: matched.name,
         address: matched.address,
         category: matched.category,
+        region: null,
+        country: null,
         savedPlaceId: matched.id,
       });
     } else {
@@ -167,12 +147,18 @@ export async function detectAndPersistVisits(
 
   for (const v of visitsNeedingCache) {
     const cached = cacheByKey.get(`${v.latKey}:${v.lonKey}`);
-    const isStale = cached && cached.placeName === cached.address && !cached.category;
+    // A cache row written before region/country existed carries no admin region;
+    // treat it as stale so it refills on next touch instead of yielding a null city.
+    const isStale =
+      cached &&
+      ((cached.placeName === cached.address && !cached.category) || cached.region === null);
     if (cached && !isStale) {
       visitEnrichments.set(v.idx, {
         placeName: cached.placeName,
         address: cached.address,
         category: cached.category,
+        region: cached.region,
+        country: cached.country,
       });
     } else {
       if (isStale) staleKeys.push({ latKey: v.latKey, lonKey: v.lonKey });
@@ -208,6 +194,8 @@ export async function detectAndPersistVisits(
               placeName: result.placeName,
               address: result.address,
               category: result.category ?? null,
+              region: result.region,
+              country: result.country,
             });
             geocodeRows.push({
               latKey,
@@ -216,6 +204,8 @@ export async function detectAndPersistVisits(
               address: result.address,
               category: result.category ?? null,
               provider: result.provider,
+              region: result.region,
+              country: result.country,
               resolvedAt: now,
             });
           }
@@ -239,9 +229,12 @@ export async function detectAndPersistVisits(
       placeName: null,
       address: null,
       category: null,
+      region: null,
+      country: null,
     };
-    const { placeName, address, category, savedPlaceId } = e;
-    const { city, countryName } = extractCityCountry(visit.centerLat, visit.centerLon, address);
+    const { placeName, address, category, region, country, savedPlaceId } = e;
+    const city = region;
+    const countryName = country;
 
     enrichedVisits.push({
       centerLat: visit.centerLat,
