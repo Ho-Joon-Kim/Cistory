@@ -11,12 +11,16 @@
  *   npx tsx scripts/backfill-visit-regions.ts 033ddddc-... --dry-run
  *
  * Steps:
- *   1. Load `place_cache` (`region IS NULL` = this run's re-geocode target).
+ *   1. Load `place_cache`. A row is this run's re-geocode target when BOTH
+ *      `region` AND `country` are null — matches visit-persister.ts's
+ *      `isStale` rule (see `isCacheRowUnresolved` below for why region
+ *      alone is the wrong test).
  *      `place_cache` has no `userId` column — it's a single cache shared by
  *      every user — so this step is necessarily global, not scoped to the
  *      userId argument.
  *   2. Re-geocode each target row via the same adapter selection
- *      (`getGeocodingAdapter`) and concurrency (5) as visit-persister.ts.
+ *      (`getGeocodingAdapter`) as visit-persister.ts, throttled per
+ *      provider (see "Throttling" below — NOT flat concurrency 5).
  *      UPDATEs only `region`/`country` on `place_cache` — never placeName/
  *      address/category/provider, so a re-geocode (possibly via a different
  *      provider than the one that originally wrote the row) never clobbers
@@ -25,31 +29,48 @@
  *      `userId`, for every visit whose rounded (center_lat, center_lon) —
  *      via `placeCacheCoordKey`, the SAME 3-decimal grid key
  *      visit-persister.ts uses to read the cache — joins a place_cache row
- *      that is "resolved": either it already had a non-null region before
- *      this run, or it was freshly and successfully re-geocoded in step 2.
- *      A place_cache row that failed to re-geocode this run stays
- *      unresolved and its visits are left alone (see "Row-failure
- *      isolation" below).
+ *      that is "resolved": either it already had a non-null region/country
+ *      before this run, or this run both successfully re-geocoded it AND
+ *      successfully persisted that result to `place_cache` (see
+ *      "Row-failure isolation" below — resolution is gated on the write,
+ *      not just the geocode).
  *   4. A visit with no matching place_cache row at all is left untouched.
  *
  * Row-failure isolation (spec step 6): failures are per-row, not per-day —
- * a failed re-geocode is logged and skipped, the run continues, and the
- * final failure count sets the exit code. Critically, a failed place_cache
- * row must NOT cascade into visits: `place_cache` starts this run 100% null
- * (region AND country — see the task brief's measured baseline), so if step
- * 3 blindly joined the full cache table regardless of resolution state, a
- * row that failed re-geocoding this run would still read back as null and
- * step 3 would overwrite its visits' CURRENT (possibly perfectly healthy,
- * e.g. "서울") city with null — a silent regression. The `resolved` flag on
- * each `CacheEntry` is what prevents that: it's true only for a row that was
- * already good before this run, or that this run's re-geocode actually
- * succeeded on (even if the result's region/country legitimately came back
+ * a failed re-geocode or a failed UPDATE is logged and skipped, the run
+ * continues, and the final failure count sets the exit code. Critically, a
+ * failed place_cache row must NOT cascade into visits: `place_cache` starts
+ * this run 100% null (region AND country — see the task brief's measured
+ * baseline), so if step 3 blindly joined the full cache table regardless of
+ * resolution state, a row that failed re-geocoding (or whose successful
+ * geocode then failed to persist — lock timeout, network blip) would still
+ * read back as null and step 3 would overwrite its visits' CURRENT
+ * (possibly perfectly healthy, e.g. "서울") city with null — a silent
+ * regression. The `resolved` flag on each `CacheEntry` is what prevents
+ * that: true only for a row that was already good before this run, or whose
+ * fresh value this run BOTH fetched successfully AND wrote to `place_cache`
+ * successfully (even if the result's region/country legitimately came back
  * null — the adapters do return null region with a set country for some
- * coordinates, and that's a genuine value, not a failure).
+ * coordinates, and that's a genuine value, not a failure). In dry-run mode
+ * no write is ever attempted, so there's no persisted-write signal to gate
+ * on there — a successful geocode alone marks the coordinate resolved, so
+ * the preview stays meaningful.
  *
  * `visits` are NOT re-detected: only the two administrative columns are
  * written, so visit boundaries/place names/saved-place overrides are
  * untouched.
+ *
+ * Throttling: this used flat concurrency 5 (matching visit-persister.ts) in
+ * an earlier draft, per the original spec. Coordinator review round 1
+ * overrode that with measured evidence from Task 5: an n=100 comparison run
+ * at concurrency 5 produced 35 failures out of 92 live coordinates, purely
+ * from Kakao rate limiting — and this script re-geocodes 521 rows, ~5x that
+ * volume. It now reuses scripts/lib/geocode-throttle.ts (Kakao paced at
+ * concurrency 1 with a 300ms inter-coordinate delay, everything else at
+ * concurrency 5), the same module compare-region-extraction.ts was already
+ * throttled through, plus that module's single retry-with-backoff — with
+ * 521 rows a transient failure is likely, and a retry is far cheaper than a
+ * whole re-run.
  *
  * --dry-run performs NO writes. Because a full run re-geocodes every
  * `place_cache` row needing it (~521 at last count) against billed/
@@ -83,12 +104,14 @@ loadEnv({ path: ".env.local", override: true });
 // scripts/backfill-tracks.ts and scripts/compare-region-extraction.ts.
 import { and, asc, eq } from "drizzle-orm";
 import { getDb, getPool, placeCache, visits } from "../src/db";
-import { getGeocodingAdapter } from "../src/lib/adapters/geocoding";
+import { getGeocodingAdapter, isInKorea } from "../src/lib/adapters/geocoding";
 import { placeCacheCoordKey } from "../src/lib/geo";
 import { parseUserIdArgs } from "./lib/backfill-args";
-
-/** Matches visit-persister.ts's own geocoding concurrency cap. */
-const CONCURRENCY = 5;
+import {
+  describeThrottlingPlan,
+  reverseGeocodeWithRetry,
+  runThrottledGeocode,
+} from "./lib/geocode-throttle";
 
 /**
  * Both the dry-run's live-geocode sample size and the "바뀔 값 표본 20건"
@@ -132,10 +155,17 @@ interface CacheEntry {
   country: string | null;
   /**
    * True iff this coordinate is safe to propagate to `visits`: either it
-   * already had a non-null region before this run, or this run's re-geocode
-   * succeeded on it (see the file header's "Row-failure isolation"). False
-   * for a row that was null before this run AND is still unresolved
-   * (skipped by a capped dry-run sample, or a live failure this run).
+   * already had a non-null region/country before this run (see
+   * `isCacheRowUnresolved`), or this run BOTH re-geocoded it successfully
+   * AND (apply mode only) successfully persisted that result to
+   * `place_cache` — see the file header's "Row-failure isolation". A
+   * successful geocode whose UPDATE then fails must NOT flip this to true,
+   * or `visits` would end up holding a value `place_cache` itself never
+   * actually stored. In dry-run mode no write is attempted, so a
+   * successful geocode alone is enough (there's nothing to gate on).
+   * False for a row that was null before this run AND is still unresolved
+   * (skipped by a capped dry-run sample, a failed geocode, or a failed
+   * write).
    */
   resolved: boolean;
 }
@@ -166,43 +196,67 @@ async function loadCacheRows(): Promise<CacheRow[]> {
     .orderBy(asc(placeCache.id));
 }
 
+/**
+ * A `place_cache` row is a re-geocode target — and, symmetrically, NOT yet
+ * safe to propagate to `visits` — exactly when BOTH `region` and `country`
+ * are null. Matches visit-persister.ts's `isStale` rule (see that file's
+ * comment): a legitimate geocode can return `region: null` with a set
+ * `country` (mapbox.ts/google.ts fall back to null region when no admin
+ * region resolves for a coordinate, while still setting country). Testing
+ * `region` alone would re-select and re-geocode that row on every future
+ * run forever without ever converging — the exact bug this mirrors from
+ * visit-persister.ts. Keep this in sync with that file's `isStale` if
+ * either changes.
+ */
+export function isCacheRowUnresolved(row: {
+  region: string | null;
+  country: string | null;
+}): boolean {
+  return row.region === null && row.country === null;
+}
+
 function buildCacheMap(rows: CacheRow[]): Map<string, CacheEntry> {
   const map = new Map<string, CacheEntry>();
   for (const row of rows) {
     map.set(cacheKey(row.latKey, row.lonKey), {
       region: row.region,
       country: row.country,
-      resolved: row.region !== null,
+      resolved: !isCacheRowUnresolved(row),
     });
   }
   return map;
 }
 
-/** Re-geocodes `rows` at CONCURRENCY 5, matching visit-persister.ts's own loop shape. */
+/**
+ * Re-geocodes `rows`, throttled per provider via
+ * scripts/lib/geocode-throttle.ts (Kakao paced at concurrency 1, everything
+ * else at concurrency 5 — see the file header's "Throttling" section for
+ * why this replaced a flat concurrency 5). Each row gets one retry after a
+ * backoff before being recorded as a failure (also from that module).
+ */
 async function geocodeRows(
   rows: { latKey: number; lonKey: number }[]
 ): Promise<{ outcomes: GeocodeOutcome[]; failures: RowFailure[] }> {
   const outcomes: GeocodeOutcome[] = [];
   const failures: RowFailure[] = [];
 
-  for (let i = 0; i < rows.length; i += CONCURRENCY) {
-    const batch = rows.slice(i, i + CONCURRENCY);
-    await Promise.all(
-      batch.map(async ({ latKey, lonKey }) => {
-        try {
-          const adapter = getGeocodingAdapter(latKey, lonKey);
-          const result = await adapter.reverseGeocode(latKey, lonKey);
-          if (result === null) {
-            failures.push({ latKey, lonKey, error: new Error("reverseGeocode returned null") });
-            return;
-          }
-          outcomes.push({ latKey, lonKey, region: result.region, country: result.country });
-        } catch (error) {
-          failures.push({ latKey, lonKey, error });
-        }
-      })
-    );
-  }
+  await runThrottledGeocode(
+    rows,
+    (r) => isInKorea(r.latKey, r.lonKey),
+    async ({ latKey, lonKey }) => {
+      const adapter = getGeocodingAdapter(latKey, lonKey);
+      const { result, failed } = await reverseGeocodeWithRetry(adapter, latKey, lonKey);
+      if (failed || result === null) {
+        failures.push({
+          latKey,
+          lonKey,
+          error: new Error("reverseGeocode returned null after retry"),
+        });
+        return;
+      }
+      outcomes.push({ latKey, lonKey, region: result.region, country: result.country });
+    }
+  );
 
   return { outcomes, failures };
 }
@@ -222,6 +276,41 @@ async function applyPlaceCacheUpdates(outcomes: GeocodeOutcome[]): Promise<RowFa
     }
   }
   return failures;
+}
+
+/**
+ * Marks each successful `outcome` resolved in `cacheMap` (mutated in
+ * place), gated on the persisted write actually landing — NOT just on the
+ * geocode having succeeded (Finding 1, coordinator review round 1). In
+ * dry-run mode no write is attempted, so there's nothing to gate on: a
+ * successful geocode alone is enough, matching the dry-run preview's own
+ * "what would a real run change" framing. Returns the write failures
+ * (always empty in dry-run mode).
+ */
+async function resolveOutcomes(
+  outcomes: GeocodeOutcome[],
+  cacheMap: Map<string, CacheEntry>,
+  dryRun: boolean
+): Promise<RowFailure[]> {
+  if (dryRun) {
+    for (const o of outcomes) {
+      cacheMap.set(cacheKey(o.latKey, o.lonKey), {
+        region: o.region,
+        country: o.country,
+        resolved: true,
+      });
+    }
+    return [];
+  }
+
+  const writeFailures = await applyPlaceCacheUpdates(outcomes);
+  const failedWriteKeys = new Set(writeFailures.map((f) => cacheKey(f.latKey, f.lonKey)));
+  for (const o of outcomes) {
+    const key = cacheKey(o.latKey, o.lonKey);
+    if (failedWriteKeys.has(key)) continue; // write failed — must not flip to resolved
+    cacheMap.set(key, { region: o.region, country: o.country, resolved: true });
+  }
+  return writeFailures;
 }
 
 function printPlaceCacheSample(
@@ -390,11 +479,11 @@ async function main() {
   // Steps 1-2: place_cache (global — see file header).
   const cacheRows = await loadCacheRows();
   const cacheMap = buildCacheMap(cacheRows);
-  const targetRows = cacheRows.filter((r) => r.region === null);
+  const targetRows = cacheRows.filter(isCacheRowUnresolved);
 
   console.log(
     `place_cache: ${cacheRows.length} total row(s) (global cache, shared across all users), ` +
-      `${targetRows.length} with region IS NULL — this run's re-geocode target.`
+      `${targetRows.length} with region AND country both null — this run's re-geocode target.`
   );
 
   const rowsToGeocode = dryRun ? targetRows.slice(0, SAMPLE_SIZE) : targetRows;
@@ -405,23 +494,15 @@ async function main() {
     );
   }
 
+  const kakaoCount = rowsToGeocode.filter((r) => isInKorea(r.latKey, r.lonKey)).length;
+  console.log(describeThrottlingPlan(kakaoCount, rowsToGeocode.length - kakaoCount));
+
   const { outcomes, failures: geocodeFailures } = await geocodeRows(rowsToGeocode);
   failures.push(...geocodeFailures.map((f) => toFailure("place_cache re-geocode", f)));
 
-  for (const o of outcomes) {
-    cacheMap.set(cacheKey(o.latKey, o.lonKey), {
-      region: o.region,
-      country: o.country,
-      resolved: true,
-    });
-  }
-
-  let placeCacheWriteFailureCount = 0;
-  if (!dryRun) {
-    const writeFailures = await applyPlaceCacheUpdates(outcomes);
-    placeCacheWriteFailureCount = writeFailures.length;
-    failures.push(...writeFailures.map((f) => toFailure("place_cache UPDATE", f)));
-  }
+  const writeFailures = await resolveOutcomes(outcomes, cacheMap, dryRun);
+  const placeCacheWriteFailureCount = writeFailures.length;
+  failures.push(...writeFailures.map((f) => toFailure("place_cache UPDATE", f)));
 
   printPlaceCacheSample(rowsToGeocode, outcomes, geocodeFailures);
 

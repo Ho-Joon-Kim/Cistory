@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isCacheRowUnresolved } from "./backfill-visit-regions";
 import { parseUserIdArgs } from "./lib/backfill-args";
 
 // Covers the same review findings backfill-tracks.test.ts guards for a
@@ -63,5 +64,32 @@ describe("parseUserIdArgs", () => {
     // must not just fall off the end of a destructure.
     const result = parseUserIdArgs(["--force", "u1"]);
     expect(result).toHaveProperty("error");
+  });
+});
+
+// Coordinator review round 1, Finding 2: the target filter used to test
+// `region === null` alone, reproducing a bug already fixed in
+// visit-persister.ts's `isStale` check. A legitimate geocode can return
+// `region: null` with a set `country` (mapbox.ts/google.ts fall back to
+// null region when no admin region resolves for a coordinate) — testing
+// region alone would re-select and re-geocode that row on every future run
+// forever, burning API quota without ever converging.
+describe("isCacheRowUnresolved", () => {
+  it("treats a row with both region and country null as unresolved — a re-geocode target", () => {
+    expect(isCacheRowUnresolved({ region: null, country: null })).toBe(true);
+  });
+
+  it("does NOT treat a null region with a set country as unresolved — the exact case the old single-column filter got wrong", () => {
+    // Under the old `row.region === null` filter this row would have been
+    // wrongly selected as a target (and re-geocoded, forever, every run).
+    expect(isCacheRowUnresolved({ region: null, country: "Hong Kong" })).toBe(false);
+  });
+
+  it("treats a row with both region and country set as resolved", () => {
+    expect(isCacheRowUnresolved({ region: "서울", country: "대한민국" })).toBe(false);
+  });
+
+  it("treats a row with a set region but null country as resolved", () => {
+    expect(isCacheRowUnresolved({ region: "서울", country: null })).toBe(false);
   });
 });

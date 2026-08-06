@@ -100,43 +100,24 @@ loadEnv({ path: ".env.local", override: true });
 // scripts/calibrate-track-splitting.ts and scripts/backfill-tracks.ts.
 import { count, eq, sql } from "drizzle-orm";
 import { type Database, getDb, getPool, placeCache, visits } from "../src/db";
-import {
-  type GeocodingAdapter,
-  type GeocodingResult,
-  getGeocodingAdapter,
-  isInKorea,
-} from "../src/lib/adapters/geocoding";
+import { getGeocodingAdapter, isInKorea } from "../src/lib/adapters/geocoding";
 import { placeCacheCoordKey } from "../src/lib/geo";
+import {
+  describeThrottlingPlan,
+  reverseGeocodeWithRetry,
+  runThrottledGeocode,
+} from "./lib/geocode-throttle";
 
 const DEFAULT_LIMIT = 100;
 const GOOGLE_GEOCODE_API_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
 
-/**
- * Kakao's `reverseGeocode` costs 7 HTTP requests per coordinate: 1
- * `coord2address` (awaited first) then 6 category searches fired together
- * via `Promise.all` (`CATEGORY_CODES` in `src/lib/adapters/geocoding/kakao.ts`
- * — not exported, so the count is hardcoded here with this citation). A
- * n=100 run at the old flat concurrency-5 therefore burst up to 5*6=30
- * simultaneous Kakao requests per batch with no pacing between batches,
- * which is what tripped Kakao's rate limit (confirmed against the dev DB —
- * see judgment call #5). `KAKAO_CONCURRENCY=1` caps the peak at 6 concurrent
- * requests from one coordinate's category-search fan-out; the pause between
- * coordinates further spreads throughput to roughly 7 requests / ~750ms
- * (~9 req/s), comfortably under typical per-app quotas.
- */
-const KAKAO_REQUESTS_PER_COORDINATE = 7;
-const KAKAO_CONCURRENCY = 1;
-const KAKAO_BATCH_PAUSE_MS = 300;
-
-/** Google costs ~3 requests/coordinate (2 concurrent adapter calls + 1 sequential unrestricted probe) and has a much higher default quota — unthrottled beyond the existing outer cap. */
-const OTHER_CONCURRENCY = 5;
-
-/** A `reverseGeocode` call that returns null or throws gets exactly one retry after this backoff before being recorded as 조회실패 — see judgment call #5. */
-const RETRY_BACKOFF_MS = 800;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+// Kakao/other throttling (KAKAO_CONCURRENCY=1 + KAKAO_BATCH_PAUSE_MS pacing,
+// OTHER_CONCURRENCY=5) and the retry-once-after-backoff wrapper
+// (RETRY_BACKOFF_MS) that judgment call #5 below documents now live in
+// scripts/lib/geocode-throttle.ts — extracted during Task 6's coordinator
+// review round 1 so scripts/backfill-visit-regions.ts could reuse the same
+// pacing instead of inventing a second copy. See that module for the
+// n=100-run rate-limit evidence this is based on.
 
 // ============ CLI args ============
 
@@ -527,31 +508,9 @@ interface ComparisonRow {
   googleUnrestricted?: GoogleUnrestrictedResult;
 }
 
-/**
- * At most one retry after `RETRY_BACKOFF_MS`. A `null` return (no throw) is
- * treated the same as a thrown error — every provider's adapter returns
- * `null` on both a non-ok HTTP status and an empty result set, so they're
- * indistinguishable without re-probing, and judgment call #5 explains why
- * re-treating a `place_cache` coordinate as "no result" is the wrong default.
- */
-async function reverseGeocodeWithRetry(
-  adapter: GeocodingAdapter,
-  lat: number,
-  lon: number
-): Promise<{ result: GeocodingResult | null; failed: boolean }> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const result = await adapter.reverseGeocode(lat, lon);
-      if (result !== null) return { result, failed: false };
-    } catch (e) {
-      if (attempt === 2) {
-        console.error(`reverseGeocode(${lat}, ${lon}) failed on retry:`, e);
-      }
-    }
-    if (attempt === 1) await sleep(RETRY_BACKOFF_MS);
-  }
-  return { result: null, failed: true };
-}
+// reverseGeocodeWithRetry: see scripts/lib/geocode-throttle.ts. Judgment
+// call #5 above explains why re-treating a `place_cache` coordinate as "no
+// result" is the wrong default — this is the retry that addresses it.
 
 async function compareOne(
   sample: SampleRow,
@@ -598,58 +557,26 @@ async function compareOne(
 }
 
 /**
- * Concurrency-capped map, chunked like visit-persister.ts's own geocoding
- * loop. `pauseMs` (default 0, no pause) sleeps between batches — not after
- * the last one — so throughput can be spread out for a rate-limited provider
- * without slowing down a provider that doesn't need it.
- */
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<R>,
-  pauseMs = 0
-): Promise<R[]> {
-  const results: R[] = [];
-  for (let i = 0; i < items.length; i += concurrency) {
-    const batch = items.slice(i, i + concurrency);
-    results.push(...(await Promise.all(batch.map(worker))));
-    const isLastBatch = i + concurrency >= items.length;
-    if (pauseMs > 0 && !isLastBatch) await sleep(pauseMs);
-  }
-  return results;
-}
-
-/**
  * Runs the Kakao-provider samples (expensive: KAKAO_REQUESTS_PER_COORDINATE
  * requests each) through a low, paced concurrency and everything else
- * through the higher OTHER_CONCURRENCY, running both groups in parallel
- * (they hit different providers, so throttling one never has to wait on the
- * other). Prints the throttling plan up front so a reader can tell what was
- * actually issued without re-deriving it from the code.
+ * through the higher OTHER_CONCURRENCY, both in parallel — see
+ * scripts/lib/geocode-throttle.ts's `runThrottledGeocode`. Prints the
+ * throttling plan up front so a reader can tell what was actually issued
+ * without re-deriving it from the code.
  */
 async function runComparisons(
   samples: SampleRow[],
   visitIndex: Map<string, CurrentVisitInfo>,
   googleApiKey: string | undefined
 ): Promise<ComparisonRow[]> {
-  const kakaoSamples = samples.filter((s) => s.provider === "kakao");
-  const otherSamples = samples.filter((s) => s.provider !== "kakao");
-  const worker = (sample: SampleRow) => compareOne(sample, visitIndex, googleApiKey);
+  const kakaoCount = samples.filter((s) => s.provider === "kakao").length;
+  console.log(describeThrottlingPlan(kakaoCount, samples.length - kakaoCount));
 
-  console.log(
-    `Throttling: kakao=${kakaoSamples.length} coordinate(s) @ concurrency ${KAKAO_CONCURRENCY}` +
-      ` (~${kakaoSamples.length * KAKAO_REQUESTS_PER_COORDINATE} Kakao HTTP requests` +
-      ` [1 coord2address + ${KAKAO_REQUESTS_PER_COORDINATE - 1} category searches per coordinate],` +
-      ` ${KAKAO_BATCH_PAUSE_MS}ms pause between coordinates); other=${otherSamples.length}` +
-      ` coordinate(s) @ concurrency ${OTHER_CONCURRENCY}.`
+  return runThrottledGeocode(
+    samples,
+    (s) => s.provider === "kakao",
+    (sample) => compareOne(sample, visitIndex, googleApiKey)
   );
-
-  const [kakaoResults, otherResults] = await Promise.all([
-    mapWithConcurrency(kakaoSamples, KAKAO_CONCURRENCY, worker, KAKAO_BATCH_PAUSE_MS),
-    mapWithConcurrency(otherSamples, OTHER_CONCURRENCY, worker),
-  ]);
-
-  return [...kakaoResults, ...otherResults];
 }
 
 // ============ Reporting ============
