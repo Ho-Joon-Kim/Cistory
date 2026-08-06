@@ -173,4 +173,55 @@ describe("visit-persister region/country enrichment", () => {
     // The stale cache row must have been deleted before re-geocoding.
     expect(state.deletedStaleKeys).toEqual([{ latKey: 37.5, lonKey: 127 }]);
   });
+
+  it("layers a saved-place name over the cached region/country, rather than skipping the lookup", async () => {
+    seedVisitPoints();
+    state.savedPlaceRows = [
+      {
+        id: "sp-1",
+        userId: "user-1",
+        name: "우리집",
+        lat: 37.5,
+        lon: 127,
+        radiusM: 100,
+        category: "집",
+        address: "우리집 주소",
+        excludeFromTrips: false,
+        tripExclusionRadiusM: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    ];
+    state.placeCacheRows = [
+      {
+        latKey: 37.5,
+        lonKey: 127,
+        placeName: "강남역",
+        address: "서울특별시 강남구 역삼동",
+        category: "지하철역",
+        provider: "kakao",
+        region: "서울",
+        country: "대한민국",
+        resolvedAt: new Date("2026-07-01T00:00:00.000Z"),
+      },
+    ];
+
+    const result = await detectAndPersistVisits("user-1", "2026-07-22");
+
+    // Name identity comes from the saved place, not the cache/geocode result.
+    expect(result).toHaveLength(1);
+    expect(result[0].placeName).toBe("우리집");
+    expect(result[0].savedPlaceId).toBe("sp-1");
+    // But the administrative region still comes from the coordinate lookup —
+    // home is still in 서울, a saved place doesn't erase that.
+    expect(result[0].city).toBe("서울");
+    expect(result[0].countryName).toBe("대한민국");
+    expect(state.reverseGeocode).not.toHaveBeenCalled();
+
+    expect(state.insertedVisits).toHaveLength(1);
+    expect(state.insertedVisits[0].placeName).toBe("우리집");
+    expect(state.insertedVisits[0].savedPlaceId).toBe("sp-1");
+    expect(state.insertedVisits[0].city).toBe("서울");
+    expect(state.insertedVisits[0].countryName).toBe("대한민국");
+  });
 });

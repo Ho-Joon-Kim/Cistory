@@ -91,7 +91,10 @@ export async function detectAndPersistVisits(
   // (previously N SELECT-per-visit) and run any remaining geocoding API calls
   // in parallel with a small concurrency cap to respect Kakao's rate limits.
 
-  // 4a. Classify visits into saved-place vs needs-lookup, and collect cache keys.
+  // 4a. Collect saved-place name overrides, and queue EVERY visit for the
+  // region/country lookup — a saved place overrides what a location is called,
+  // not the administrative region its coordinate sits in (home is still in
+  // 서울), so region/country always come from the cache/geocode pipeline below.
   interface Enrichment {
     placeName: string | null;
     address: string | null;
@@ -101,38 +104,41 @@ export async function detectAndPersistVisits(
     savedPlaceId?: string;
   }
 
+  interface SavedPlaceOverride {
+    placeName: string;
+    address: string | null;
+    category: string | null;
+    savedPlaceId: string;
+  }
+
   const visitEnrichments = new Map<number, Enrichment>();
-  const visitsNeedingCache: { idx: number; latKey: number; lonKey: number }[] = [];
+  const savedPlaceOverrides = new Map<number, SavedPlaceOverride>();
+  const visitsForRegionLookup: { idx: number; latKey: number; lonKey: number }[] = [];
 
   detectedVisits.forEach((visit, idx) => {
     const matched = userSavedPlaces.find(
       (p) => distanceM(visit.centerLat, visit.centerLon, p.lat, p.lon) <= p.radiusM
     );
     if (matched) {
-      // Saved places carry no structured region/country — leave them null
-      // rather than parsing the user-entered address string.
-      visitEnrichments.set(idx, {
+      savedPlaceOverrides.set(idx, {
         placeName: matched.name,
         address: matched.address,
         category: matched.category,
-        region: null,
-        country: null,
         savedPlaceId: matched.id,
       });
-    } else {
-      visitsNeedingCache.push({
-        idx,
-        latKey: roundCoord(visit.centerLat),
-        lonKey: roundCoord(visit.centerLon),
-      });
     }
+    visitsForRegionLookup.push({
+      idx,
+      latKey: roundCoord(visit.centerLat),
+      lonKey: roundCoord(visit.centerLon),
+    });
   });
 
-  // 4b. Batch-read placeCache for all cache-lookup candidates at once.
+  // 4b. Batch-read placeCache for every visit's coordinate at once.
   let cacheByKey = new Map<string, typeof placeCache.$inferSelect>();
-  if (visitsNeedingCache.length > 0) {
-    const latKeys = Array.from(new Set(visitsNeedingCache.map((v) => v.latKey)));
-    const lonKeys = Array.from(new Set(visitsNeedingCache.map((v) => v.lonKey)));
+  if (visitsForRegionLookup.length > 0) {
+    const latKeys = Array.from(new Set(visitsForRegionLookup.map((v) => v.latKey)));
+    const lonKeys = Array.from(new Set(visitsForRegionLookup.map((v) => v.lonKey)));
     const cachedRows = await db
       .select()
       .from(placeCache)
@@ -145,7 +151,7 @@ export async function detectAndPersistVisits(
   const staleKeys: { latKey: number; lonKey: number }[] = [];
   const needsGeocoding: { idx: number; latKey: number; lonKey: number }[] = [];
 
-  for (const v of visitsNeedingCache) {
+  for (const v of visitsForRegionLookup) {
     const cached = cacheByKey.get(`${v.latKey}:${v.lonKey}`);
     // A cache row written before region/country existed carries no admin region;
     // treat it as stale so it refills on next touch instead of yielding a null city.
@@ -218,6 +224,27 @@ export async function detectAndPersistVisits(
 
   if (geocodeRows.length > 0) {
     await db.insert(placeCache).values(geocodeRows).onConflictDoNothing();
+  }
+
+  // 4d. Layer saved-place name overrides on top of the region/country lookup
+  // result. Applied last (and independent of whether the lookup produced a
+  // hit) so a saved place still gets its name/category/id even if geocoding
+  // failed for its coordinate — region/country simply stay null in that case.
+  for (const [idx, override] of savedPlaceOverrides) {
+    const base = visitEnrichments.get(idx) ?? {
+      placeName: null,
+      address: null,
+      category: null,
+      region: null,
+      country: null,
+    };
+    visitEnrichments.set(idx, {
+      ...base,
+      placeName: override.placeName,
+      address: override.address,
+      category: override.category,
+      savedPlaceId: override.savedPlaceId,
+    });
   }
 
   const enrichedVisits: EnrichedVisit[] = [];
