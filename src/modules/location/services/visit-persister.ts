@@ -9,13 +9,9 @@ import { and, asc, eq, gte, inArray, isNull, lt, lte, or } from "drizzle-orm";
 import type { SavedPlace } from "@/db";
 import { getDb, locationPoints, placeCache, savedPlaces, visits } from "@/db";
 import { getGeocodingAdapter } from "@/lib/adapters/geocoding";
-import { distanceM } from "@/lib/geo";
+import { distanceM, placeCacheCoordKey } from "@/lib/geo";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { detectAndMergeVisits } from "./visit-detector";
-
-function roundCoord(value: number): number {
-  return Math.round(value * 1000) / 1000;
-}
 
 export interface EnrichedVisit {
   centerLat: number;
@@ -129,8 +125,8 @@ export async function detectAndPersistVisits(
     }
     visitsForRegionLookup.push({
       idx,
-      latKey: roundCoord(visit.centerLat),
-      lonKey: roundCoord(visit.centerLon),
+      latKey: placeCacheCoordKey(visit.centerLat),
+      lonKey: placeCacheCoordKey(visit.centerLon),
     });
   });
 

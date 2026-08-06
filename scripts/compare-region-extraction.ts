@@ -28,14 +28,16 @@
  * 1. roundCoord: the brief says to reuse `roundCoord` from `src/lib/geo` to
  *    join `visits` back to a `place_cache` key. That function rounds to 6
  *    decimals (~11cm, calibrated for the `location_points` unique index) —
- *    but `place_cache.lat_key`/`lon_key` are actually written by a *separate*,
- *    non-exported 3-decimal `roundCoord` defined locally inside
- *    visit-persister.ts (~111m grid, deliberately coarse so nearby visits
- *    share one geocode). Confirmed empirically against the dev DB: sampled
+ *    but `place_cache.lat_key`/`lon_key` are actually written by a 3-decimal
+ *    rounding (~111m grid, deliberately coarse so nearby visits share one
+ *    geocode). Confirmed empirically against the dev DB: sampled
  *    `place_cache` rows hold values like `37.522` / `126.924` — 3 decimal
  *    places, not 6. Using the 6-decimal function here would silently produce
- *    zero `visits` joins. Since the real function isn't exported, its exact
- *    rounding is replicated below (`roundCoord3`) instead.
+ *    zero `visits` joins. That 3-decimal rounding used to be replicated
+ *    separately in this file, `visit-persister.ts`, and `track-persister.ts`
+ *    (three copies of the same private function); Task 6 extracted it into
+ *    `placeCacheCoordKey` in `src/lib/geo.ts`, which this script now imports
+ *    directly instead of replicating.
  *
  * 2. `visits` join cardinality: `place_cache` is a global (userId-less)
  *    cache, and several `visits` rows can legitimately round to the same
@@ -104,6 +106,7 @@ import {
   getGeocodingAdapter,
   isInKorea,
 } from "../src/lib/adapters/geocoding";
+import { placeCacheCoordKey } from "../src/lib/geo";
 
 const DEFAULT_LIMIT = 100;
 const GOOGLE_GEOCODE_API_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
@@ -422,15 +425,6 @@ async function sampleFromPlaceCache(db: Database, limit: number): Promise<Sample
 
 // ============ Current visits.city / visits.country_name lookup ============
 
-/**
- * Replicates the private 3-decimal roundCoord() inside visit-persister.ts —
- * see the file header comment for why src/lib/geo's roundCoord (6 decimals)
- * is the wrong function here.
- */
-function roundCoord3(value: number): number {
-  return Math.round(value * 1000) / 1000;
-}
-
 interface CurrentVisitInfo {
   city: string | null;
   countryName: string | null;
@@ -451,7 +445,7 @@ async function loadCurrentVisitIndex(db: Database): Promise<Map<string, CurrentV
 
   const index = new Map<string, CurrentVisitInfo>();
   for (const row of rows) {
-    const key = `${roundCoord3(row.centerLat)}:${roundCoord3(row.centerLon)}`;
+    const key = `${placeCacheCoordKey(row.centerLat)}:${placeCacheCoordKey(row.centerLon)}`;
     const existing = index.get(key);
     if (!existing || row.calculatedAt > existing.calculatedAt) {
       index.set(key, {

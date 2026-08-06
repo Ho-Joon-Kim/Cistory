@@ -7,6 +7,7 @@
 
 import { and, asc, eq, gte, inArray, isNull, lt, lte, or } from "drizzle-orm";
 import { getDb, locationPoints, placeCache, tracks, transportationSegments, visits } from "@/db";
+import { placeCacheCoordKey } from "@/lib/geo";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { buildTracks, type TrackPoint } from "./track-builder";
 import { detectTransportModes } from "./transportation/detector";
@@ -65,8 +66,8 @@ async function resolvePlaceNames(
     } else {
       cacheLookups.push({
         idx,
-        latKey: Math.round(q.lat * 1000) / 1000,
-        lonKey: Math.round(q.lon * 1000) / 1000,
+        latKey: placeCacheCoordKey(q.lat),
+        lonKey: placeCacheCoordKey(q.lon),
       });
     }
   });
