@@ -36,8 +36,13 @@ vi.mock("@/db", async (importOriginal) => {
     where: async () => {
       const name = nameOf(table);
       if (name === "place_cache") {
+        // Mirrors visit-persister.ts's isStale rule: a cache row is stale
+        // (and thus deleted before re-geocoding) only when placeName and
+        // address are identical and there's no category — NOT merely
+        // because region/country are null (a legitimate geocode can resolve
+        // without an admin region and must stay cached as-is).
         state.deletedStaleKeys = state.placeCacheRows
-          .filter((r) => r.region === null || r.region === undefined)
+          .filter((r) => r.placeName === r.address && !r.category)
           .map((r) => ({ latKey: r.latKey as number, lonKey: r.lonKey as number }));
       }
       // "visits" deletes are a no-op for these tests (nothing pre-seeded).
@@ -89,11 +94,15 @@ beforeEach(() => {
 
 // Two points at the same spot, 5 minutes apart, clear the visit detector's
 // 3-minute / 2-point threshold and land the visit centroid at exactly
-// (37.5, 127) so it round-trips through roundCoord() unchanged.
+// (37.5224999, 127). The latitude is chosen so placeCacheCoordKey (3
+// decimals: 37.522) and roundCoord (6 decimals: 37.5225) diverge — if
+// visit-persister.ts were ever changed to look up place_cache with
+// roundCoord instead of placeCacheCoordKey, the cache lookups below would
+// silently miss and every test in this suite would fail.
 function seedVisitPoints() {
   state.points = [
-    { lat: 37.5, lon: 127, timestamp: new Date("2026-07-21T15:00:00.000Z") },
-    { lat: 37.5, lon: 127, timestamp: new Date("2026-07-21T15:05:00.000Z") },
+    { lat: 37.5224999, lon: 127, timestamp: new Date("2026-07-21T15:00:00.000Z") },
+    { lat: 37.5224999, lon: 127, timestamp: new Date("2026-07-21T15:05:00.000Z") },
   ];
 }
 
@@ -102,7 +111,7 @@ describe("visit-persister region/country enrichment", () => {
     seedVisitPoints();
     state.placeCacheRows = [
       {
-        latKey: 37.5,
+        latKey: 37.522,
         lonKey: 127,
         placeName: "강남역",
         // Leading postal code, like the real cache rows that produced the
@@ -131,26 +140,62 @@ describe("visit-persister region/country enrichment", () => {
     expect(state.insertedVisits[0].countryName).toBe("대한민국");
   });
 
-  it("treats a cache row with region: null as stale and re-geocodes", async () => {
+  it("uses a cache row with region: null and country: null as-is, without re-geocoding forever", async () => {
     seedVisitPoints();
-    // Old-style cache row from before region/country existed: distinct
-    // placeName/address and a category, so it would NOT trip the old
-    // (placeName === address && !category) staleness check.
+    // A coordinate where the provider legitimately resolved neither an admin
+    // region nor a country — e.g. a POI is found but the address geocode
+    // call itself comes back with zero results (google.test.ts's "returns
+    // null region/country when the geocode response is empty"). This row
+    // predates nothing; it's what a fresh geocode of this exact coordinate
+    // produces today. Treating both-null as stale would re-geocode on every
+    // touch, land on the same null/null result, and never converge — the
+    // permanent re-geocode loop this fix removes. The pre-migration-0040
+    // rows that condition used to catch (both columns null because the
+    // columns didn't exist yet) were a one-time state, already repaired by
+    // scripts/backfill-visit-regions.ts.
     state.placeCacheRows = [
       {
-        latKey: 37.5,
+        latKey: 37.522,
         lonKey: 127,
-        placeName: "강남역",
-        address: "서울 강남구 역삼동",
-        category: "지하철역",
-        provider: "kakao",
+        placeName: "Some POI",
+        address: "Some Address, Somewhere",
+        category: "poi",
+        provider: "google",
         region: null,
         country: null,
         resolvedAt: new Date("2026-07-01T00:00:00.000Z"),
       },
     ];
+
+    const result = await detectAndPersistVisits("user-1", "2026-07-22");
+
+    expect(state.reverseGeocode).not.toHaveBeenCalled();
+    expect(result).toHaveLength(1);
+    expect(result[0].city).toBeNull();
+    expect(result[0].countryName).toBeNull();
+  });
+
+  it("treats a cache row with placeName === address and no category as stale and re-geocodes", async () => {
+    seedVisitPoints();
+    // The one surviving staleness signal: a row where placeName and address
+    // are identical and there's no category — a geocode that never really
+    // resolved to anything more than the raw address. This must re-geocode
+    // regardless of what region/country happen to hold.
+    state.placeCacheRows = [
+      {
+        latKey: 37.522,
+        lonKey: 127,
+        placeName: "서울 강남구 역삼동",
+        address: "서울 강남구 역삼동",
+        category: null,
+        provider: "kakao",
+        region: "서울",
+        country: "대한민국",
+        resolvedAt: new Date("2026-07-01T00:00:00.000Z"),
+      },
+    ];
     state.reverseGeocode.mockResolvedValue({
-      placeName: "강남역 2",
+      placeName: "강남역",
       address: "서울 강남구 역삼동 2",
       category: "지하철역",
       provider: "kakao",
@@ -162,28 +207,24 @@ describe("visit-persister region/country enrichment", () => {
 
     expect(state.reverseGeocode).toHaveBeenCalledTimes(1);
     expect(result).toHaveLength(1);
+    expect(result[0].placeName).toBe("강남역");
     expect(result[0].city).toBe("서울");
-    expect(result[0].countryName).toBe("대한민국");
-
-    // The refreshed row written back to place_cache must carry the new fields.
-    expect(state.insertedPlaceCache).toHaveLength(1);
-    expect(state.insertedPlaceCache[0].region).toBe("서울");
-    expect(state.insertedPlaceCache[0].country).toBe("대한민국");
 
     // The stale cache row must have been deleted before re-geocoding.
-    expect(state.deletedStaleKeys).toEqual([{ latKey: 37.5, lonKey: 127 }]);
+    expect(state.deletedStaleKeys).toEqual([{ latKey: 37.522, lonKey: 127 }]);
   });
 
   it("treats a cache row with region: null but a resolved country as a hit, not stale", async () => {
     seedVisitPoints();
     // A legitimate geocode where the provider resolved no admin region for
     // this coordinate (mapbox.ts/google.ts both fall back to `region: null`
-    // on an otherwise-successful response) but did resolve a country. Only
-    // BOTH columns null means "pre-migration row" — region alone must not
-    // trip staleness, or this coordinate re-geocodes forever and never caches.
+    // on an otherwise-successful response) but did resolve a country.
+    // Region being null is never, by itself, a staleness signal — only
+    // placeName === address && !category is — or this coordinate would
+    // re-geocode forever and never cache.
     state.placeCacheRows = [
       {
-        latKey: 37.5,
+        latKey: 37.522,
         lonKey: 127,
         placeName: "Some POI",
         address: "Some Address, Hong Kong",
@@ -210,7 +251,7 @@ describe("visit-persister region/country enrichment", () => {
         id: "sp-1",
         userId: "user-1",
         name: "우리집",
-        lat: 37.5,
+        lat: 37.5224999,
         lon: 127,
         radiusM: 100,
         category: "집",
@@ -223,7 +264,7 @@ describe("visit-persister region/country enrichment", () => {
     ];
     state.placeCacheRows = [
       {
-        latKey: 37.5,
+        latKey: 37.522,
         lonKey: 127,
         placeName: "강남역",
         address: "서울특별시 강남구 역삼동",

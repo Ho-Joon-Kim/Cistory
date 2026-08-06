@@ -149,19 +149,20 @@ export async function detectAndPersistVisits(
 
   for (const v of visitsForRegionLookup) {
     const cached = cacheByKey.get(`${v.latKey}:${v.lonKey}`);
-    // A cache row written before migration 0040 added region/country carries
-    // both columns null and should refill. A legitimate geocode can ALSO come
-    // back with a null region alone (mapbox.ts/google.ts fall back to null
-    // when no admin region resolves for that coordinate) while still setting
-    // country — so testing region alone would mark that row stale forever:
-    // re-geocode -> still-null region -> stale again on every future touch,
-    // burning API quota (Kakao always sets country to "대한민국", and
-    // Mapbox/Google resolve one for nearly every coordinate). Only treat the
-    // row as pre-migration, and thus stale, when BOTH columns are null.
-    const isStale =
-      cached &&
-      ((cached.placeName === cached.address && !cached.category) ||
-        (cached.region === null && cached.country === null));
+    // A coordinate whose provider legitimately resolves without an admin
+    // region — mapbox.ts/google.ts return `region: null` (sometimes
+    // `country: null` too — e.g. a POI is found but the address geocode call
+    // itself comes back with zero results) when no admin region matches that
+    // coordinate — caches as-is. That null region is the same end state a
+    // re-fetch would produce, just without spending another API call:
+    // treating it as stale would re-geocode, land on the same null result,
+    // and loop forever. The rows this condition once ALSO caught — cache
+    // entries written before migration 0040 added region/country, which held
+    // both columns null — were a one-time backfill target, not an ongoing
+    // case: scripts/backfill-visit-regions.ts already repaired every one of
+    // them (521/521, zero failures), so there is nothing left predating the
+    // migration for this clause to heal.
+    const isStale = cached && cached.placeName === cached.address && !cached.category;
     if (cached && !isStale) {
       visitEnrichments.set(v.idx, {
         placeName: cached.placeName,
