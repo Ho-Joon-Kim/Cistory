@@ -1,5 +1,41 @@
-import { describe, expect, it } from "vitest";
-import { aggregateReportBody, type ReportBodyPoint } from "./service";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { generateTextMock } = vi.hoisted(() => ({
+  generateTextMock: vi.fn(),
+}));
+
+vi.mock("@/lib/adapters/ai/claude", () => ({
+  CLAUDE_MODELS: { NARRATIVE: "claude-opus-5" },
+  createClaudeAdapter: vi.fn(() => ({ generateText: generateTextMock })),
+}));
+
+import type { Database } from "@/db";
+import type { AIGenerateResult } from "@/lib/adapters/ai/claude";
+import { aggregateReportBody, createReportService, type ReportBodyPoint } from "./service";
+
+/** `_generateNarrative` never touches `db` — an empty stand-in is enough. */
+const db = {} as Database;
+
+function aiResult(overrides: Partial<AIGenerateResult> = {}): AIGenerateResult {
+  return {
+    content: "이번 달 요약입니다.",
+    usage: { inputTokens: 10, outputTokens: 20 },
+    stopReason: "end_turn",
+    ...overrides,
+  };
+}
+
+/**
+ * `_generateNarrative` is private (TS-only enforcement, not JS `#private`),
+ * so it's reachable at runtime through a narrow cast — this keeps the test
+ * targeted at the guard itself rather than routing through the full
+ * generateMonthlyNarrative/generateYearlyNarrative DB path.
+ */
+function generateNarrative(service: ReturnType<typeof createReportService>, prompt: string) {
+  return (
+    service as unknown as { _generateNarrative(p: string): Promise<string> }
+  )._generateNarrative(prompt);
+}
 
 function pt(day: string, over: Partial<ReportBodyPoint> = {}): ReportBodyPoint {
   return {
@@ -68,5 +104,46 @@ describe("aggregateReportBody", () => {
       { date: "2026-02-28", weight: 69.8 },
     ]);
     expect(r.measurementCount).toBe(3);
+  });
+});
+
+describe("_generateNarrative", () => {
+  beforeEach(() => {
+    generateTextMock.mockReset();
+  });
+
+  it("throws — with the stop reason in the message — when the API call returns no text", async () => {
+    // Mirrors overview/narrative.ts's guard: adaptive thinking can consume the
+    // whole maxTokens budget on reasoning, leaving a thinking block and no
+    // text block. A refusal (stopReason "refusal", HTTP 200) looks the same.
+    generateTextMock.mockResolvedValue(aiResult({ content: "", stopReason: "refusal" }));
+    const service = createReportService(db, "fake-api-key");
+
+    await expect(generateNarrative(service, "prompt")).rejects.toThrow(/refusal/);
+  });
+
+  it("throws on whitespace-only text, not just a fully-empty string", async () => {
+    generateTextMock.mockResolvedValue(
+      aiResult({ content: "   \n\t  ", stopReason: "max_tokens" })
+    );
+    const service = createReportService(db, "fake-api-key");
+
+    await expect(generateNarrative(service, "prompt")).rejects.toThrow(/max_tokens/);
+  });
+
+  it("still returns an empty string, without calling the API, when no key is configured", async () => {
+    // The legitimate empty: "no AI configured" must stay silent and must not
+    // be conflated with a failed call — only a real generateText() call whose
+    // result is empty should throw.
+    const service = createReportService(db); // no anthropicApiKey
+    await expect(generateNarrative(service, "prompt")).resolves.toBe("");
+    expect(generateTextMock).not.toHaveBeenCalled();
+  });
+
+  it("returns the narrative unchanged on a normal result", async () => {
+    generateTextMock.mockResolvedValue(aiResult({ content: "이번 달 요약입니다." }));
+    const service = createReportService(db, "fake-api-key");
+
+    await expect(generateNarrative(service, "prompt")).resolves.toBe("이번 달 요약입니다.");
   });
 });
