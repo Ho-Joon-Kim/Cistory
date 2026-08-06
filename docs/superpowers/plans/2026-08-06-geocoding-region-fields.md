@@ -839,22 +839,62 @@ git commit -m "feat(location): add visit region backfill script"
 
 `trip-naming.test.ts`를 읽는다. `DOMESTIC_REGION_ALIASES`에 의존하는 케이스(예: `"서울특별시"`를 입력해 `"서울 여행"`을 기대)가 있으면, 백필 후 실제 데이터는 `"서울"`이므로 입력을 그에 맞게 바꾼다.
 
-- [ ] **Step 2: 테스트 수정 후 실패 확인**
+- [ ] **Step 2: 실패하는 테스트 추가**
 
-`city`가 `"서울"`로 들어오는 케이스를 추가한다.
+별칭 테이블에 **없는** 지명이 정규화되는지를 고정하는 테스트를 추가한다. 이것이 이번 변경의
+핵심이며, 현재 코드로는 반드시 실패해야 한다:
+
+- `city`가 `"제주특별자치도"`인 방문들 → 여행 이름이 `"제주 여행"` (현재는 별칭에 없어 `null` →
+  `"국내 여행"`으로 떨어진다)
+- `city`가 `"서울"`인 방문들 → `"서울 여행"` (기존 동작 유지)
+- `city`가 `"서울특별시"`인 방문들 → `"서울 여행"` (접미사 제거로 동일하게 수렴)
 
 Run: `yarn test src/modules/location/services/trip-naming.test.ts`
-Expected: 새 케이스는 현재 코드로도 통과할 수 있다(별칭 테이블에 `"서울"`이 있으므로). 그렇다면 이 태스크는 리팩터링이며, 기존 테스트가 전부 통과하는 것이 성공 기준이다.
+Expected: 제주 케이스가 FAIL. 통과한다면 별칭 테이블이 아직 살아 있거나 테스트가 잘못 작성된 것이다.
 
 - [ ] **Step 3: 구현**
 
-`DOMESTIC_REGION_ALIASES` 상수와 `normalizeDomesticRegion` 함수를 삭제하고, 호출부를 `visit.city` 직접 사용으로 바꾼다:
+`DOMESTIC_REGION_ALIASES`(17개 항목) 상수를 삭제하고, `normalizeDomesticRegion`을 **접미사 제거
+정규화**로 교체한다.
+
+백필 후 실제 데이터를 보면 Kakao의 `region_1depth_name`이 일관되게 짧은 형태가 아니다:
+
+```
+서울 1758   대전 112   대구 25   경기 21   인천 19        ← 짧은 형태
+제주특별자치도 28      전남광주통합특별시 27              ← 긴 형태
+```
+
+`city`를 그대로 쓰면 여행 이름이 "제주 여행"이 아니라 "제주특별자치도 여행"이 된다. 별칭 테이블로
+돌아가는 것은 원래 문제로의 회귀이므로, 테이블에 없는 지명도 처리되는 일반 규칙을 쓴다.
+
+`scripts/compare-region-extraction.ts:271-281`에 이미 검증된 로직이 있다. 그대로 옮긴다:
 
 ```ts
-  const domesticRegions = domesticVisits
-    .map((visit) => visit.city)
-    .filter((region): region is string => region !== null && region.length > 0);
+/**
+ * Kakao's region_1depth_name is not uniformly short-form — it returns "서울" but
+ * also "제주특별자치도". Strip the administrative suffix instead of maintaining a
+ * lookup table, so region names the table never knew about still normalise.
+ * Order matters: the longer suffixes must be tried before the bare "도", or
+ * "제주특별자치도" loses only its final character.
+ */
+const REGION_SUFFIXES = ["특별자치시", "특별자치도", "특별시", "광역시", "도"];
+
+function normalizeDomesticRegion(city: string | null): string | null {
+  if (!city) return null;
+  let value = city.trim().replace(/,$/, "");
+  for (const suffix of REGION_SUFFIXES) {
+    if (value.length > suffix.length && value.endsWith(suffix)) {
+      value = value.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return value.length > 0 ? value : null;
+}
 ```
+
+호출부(`trip-naming.ts:72`)는 그대로 `normalizeDomesticRegion(visit.city)`을 쓰면 된다 — 함수
+시그니처가 같으므로 변경이 없다. 달라지는 것은 별칭에 없으면 `null`을 반환하던 동작이, 이제 어떤
+지명이든 정규화해 반환한다는 점이다.
 
 - [ ] **Step 4: 테스트 통과 확인**
 
