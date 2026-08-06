@@ -35,6 +35,24 @@ describe("createTripName", () => {
     ).toEqual("전남광주통합 여행");
   });
 
+  it("rejects romanised region names from fallback geocoders", () => {
+    expect(
+      createTripName([
+        { ...JEJU, city: "Jeju-do", countryName: "대한민국" },
+        { ...JEJU, city: "Gyeonggi-do", countryName: "대한민국" },
+      ])
+    ).toEqual("국내 여행");
+  });
+
+  it.each([
+    ["서울", "서울 여행"],
+    ["서울특별시", "서울 여행"],
+  ])("normalizes Seoul region names %s → %s", (city, expected) => {
+    expect(
+      createTripName([{ centerLat: 37.5665, centerLon: 126.978, city, countryName: "대한민국" }])
+    ).toEqual(expected);
+  });
+
   it("falls back for untrusted domestic city values", () => {
     expect(
       createTripName([

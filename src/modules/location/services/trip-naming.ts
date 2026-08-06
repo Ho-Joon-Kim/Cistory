@@ -58,6 +58,12 @@ function normalizeDomesticRegion(city: string | null): string | null {
   if (value.length === 0 || /\d/.test(value)) {
     return null;
   }
+  // This is the domestic path — a value without Hangul means the geocode came from a
+  // fallback provider (e.g. when KAKAO_REST_API_KEY is unset) and we should use the safe
+  // generic trip name rather than surfacing romanised values verbatim
+  if (!/[가-힣]/.test(value)) {
+    return null;
+  }
   return value;
 }
 
