@@ -93,6 +93,52 @@ export interface GroupingSummary {
   multiLegSessions: number;
 }
 
+export interface LegUpdate {
+  id: string;
+  sessionId?: string;
+  legOrder: number;
+}
+
+/**
+ * Pure ordering decision for persisting session groups.
+ *
+ * `subway_trip_matches` carries `uniqueIndex("idx_stm_segment_leg")` on
+ * `(transportationSegmentId, legOrder)`: the matcher inserts each segment's
+ * legs numbered 0..n-1, and this grouper renumbers `legOrder` to be the
+ * position within a (possibly different) session. If a single segment's
+ * legs land in two different session groups, a naive single-pass UPDATE can
+ * try to set one leg's new `legOrder` to a value another leg of the *same*
+ * segment currently holds, tripping the unique index mid-renumber and
+ * aborting the whole transaction.
+ *
+ * Two-phase fix: first "park" every touched row at a `legOrder` that cannot
+ * collide with anything — strictly decreasing negatives, since the matcher
+ * never writes negative values — then assign the real sessionId and
+ * session-local `legOrder`. Every park update precedes every assign update
+ * in the returned sequence, so applying it in order never hits the unique
+ * index. `newSessionId` is injected so the sequence is deterministic in
+ * tests.
+ */
+export function planLegUpdates(
+  groups: { id: string }[][],
+  newSessionId: () => string
+): LegUpdate[] {
+  const parkUpdates: LegUpdate[] = [];
+  const assignUpdates: LegUpdate[] = [];
+  let parkCursor = 0;
+
+  for (const group of groups) {
+    const sessionId = newSessionId();
+    for (let i = 0; i < group.length; i++) {
+      parkCursor += 1;
+      parkUpdates.push({ id: group[i].id, legOrder: -parkCursor });
+      assignUpdates.push({ id: group[i].id, sessionId, legOrder: i });
+    }
+  }
+
+  return [...parkUpdates, ...assignUpdates];
+}
+
 /** Group the day's matches into transfer sessions for one user. */
 export async function groupMatchesIntoSessions(
   userId: string,
@@ -158,18 +204,18 @@ export async function groupMatchesIntoSessions(
   }
   if (current.length > 0) groups.push(current);
 
-  // Persist session_id + leg_order. Each group gets a fresh uuid via gen_random_uuid().
-  let multiLegSessions = 0;
+  // Persist session_id + leg_order via the two-phase renumber in
+  // planLegUpdates (park every touched row at a collision-free negative
+  // leg_order, then assign the real session id + session-local leg_order).
+  // Each group gets a fresh uuid via crypto.randomUUID().
+  const multiLegSessions = groups.filter((group) => group.length > 1).length;
   await db.transaction(async (tx) => {
-    for (const group of groups) {
-      const sessionId = crypto.randomUUID();
-      if (group.length > 1) multiLegSessions++;
-      for (let i = 0; i < group.length; i++) {
-        await tx
-          .update(subwayTripMatches)
-          .set({ sessionId, legOrder: i })
-          .where(eq(subwayTripMatches.id, group[i].id));
+    for (const update of planLegUpdates(groups, () => crypto.randomUUID())) {
+      const setValues: { legOrder: number; sessionId?: string } = { legOrder: update.legOrder };
+      if (update.sessionId !== undefined) {
+        setValues.sessionId = update.sessionId;
       }
+      await tx.update(subwayTripMatches).set(setValues).where(eq(subwayTripMatches.id, update.id));
     }
   });
 
