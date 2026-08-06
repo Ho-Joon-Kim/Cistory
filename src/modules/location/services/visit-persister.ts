@@ -153,11 +153,19 @@ export async function detectAndPersistVisits(
 
   for (const v of visitsForRegionLookup) {
     const cached = cacheByKey.get(`${v.latKey}:${v.lonKey}`);
-    // A cache row written before region/country existed carries no admin region;
-    // treat it as stale so it refills on next touch instead of yielding a null city.
+    // A cache row written before migration 0040 added region/country carries
+    // both columns null and should refill. A legitimate geocode can ALSO come
+    // back with a null region alone (mapbox.ts/google.ts fall back to null
+    // when no admin region resolves for that coordinate) while still setting
+    // country — so testing region alone would mark that row stale forever:
+    // re-geocode -> still-null region -> stale again on every future touch,
+    // burning API quota (Kakao always sets country to "대한민국", and
+    // Mapbox/Google resolve one for nearly every coordinate). Only treat the
+    // row as pre-migration, and thus stale, when BOTH columns are null.
     const isStale =
       cached &&
-      ((cached.placeName === cached.address && !cached.category) || cached.region === null);
+      ((cached.placeName === cached.address && !cached.category) ||
+        (cached.region === null && cached.country === null));
     if (cached && !isStale) {
       visitEnrichments.set(v.idx, {
         placeName: cached.placeName,

@@ -174,6 +174,35 @@ describe("visit-persister region/country enrichment", () => {
     expect(state.deletedStaleKeys).toEqual([{ latKey: 37.5, lonKey: 127 }]);
   });
 
+  it("treats a cache row with region: null but a resolved country as a hit, not stale", async () => {
+    seedVisitPoints();
+    // A legitimate geocode where the provider resolved no admin region for
+    // this coordinate (mapbox.ts/google.ts both fall back to `region: null`
+    // on an otherwise-successful response) but did resolve a country. Only
+    // BOTH columns null means "pre-migration row" — region alone must not
+    // trip staleness, or this coordinate re-geocodes forever and never caches.
+    state.placeCacheRows = [
+      {
+        latKey: 37.5,
+        lonKey: 127,
+        placeName: "Some POI",
+        address: "Some Address, Hong Kong",
+        category: "poi",
+        provider: "mapbox",
+        region: null,
+        country: "Hong Kong",
+        resolvedAt: new Date("2026-07-01T00:00:00.000Z"),
+      },
+    ];
+
+    const result = await detectAndPersistVisits("user-1", "2026-07-22");
+
+    expect(state.reverseGeocode).not.toHaveBeenCalled();
+    expect(result).toHaveLength(1);
+    expect(result[0].city).toBeNull();
+    expect(result[0].countryName).toBe("Hong Kong");
+  });
+
   it("layers a saved-place name over the cached region/country, rather than skipping the lookup", async () => {
     seedVisitPoints();
     state.savedPlaceRows = [
