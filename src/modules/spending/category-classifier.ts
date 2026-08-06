@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Database } from "@/db";
 import { accountRoles, transactions, users } from "@/db/schema";
 import {
+  CLAUDE_MODELS,
   type ClaudeAdapter,
   type ClaudeModel,
   createClaudeAdapter,
@@ -11,7 +12,7 @@ import { logger } from "@/lib/logger";
 import { EXPENSE_CATEGORIES, type ExpenseCategory, isExpenseCategory } from "./categories";
 import { accountRolesJoinOn, bucketSql } from "./classify";
 
-export const EXPENSE_CLASSIFIER_MODEL = "claude-haiku-4-5";
+export const EXPENSE_CLASSIFIER_MODEL = CLAUDE_MODELS.EXPENSE_CLASSIFIER;
 const DEFAULT_BATCH_SIZE = 25;
 
 export interface ExpenseClassificationInput {
@@ -38,6 +39,37 @@ const responseSchema = z.object({
   ),
 });
 
+/** Sent to the API so the response shape is enforced server-side. The zod
+ * schema above still runs on the result — it additionally checks that each
+ * category is one of ours, which JSON Schema's enum could express but which we
+ * keep in one place. */
+const OUTPUT_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    classifications: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          category: { type: "string", enum: [...EXPENSE_CATEGORIES] },
+          confidence: { type: "integer" },
+        },
+        required: ["id", "category", "confidence"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["classifications"],
+  additionalProperties: false,
+} as const;
+
+// Structured outputs make the API enforce this shape server-side, but the
+// guarantee isn't a proof: the odds the model still wraps its reply in a
+// code fence aren't exactly zero, and what a fallback here costs (a few
+// lines) is far less than what losing it costs (a whole 25-item batch
+// failing on one stray fence). Keep extractJson as a fallback rather than
+// deleting it.
 function extractJson(content: string): unknown {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   return JSON.parse((fenced ?? content).trim());
@@ -79,6 +111,7 @@ export async function classifyExpenses(
     prompt: buildExpenseClassificationPrompt(items),
     maxTokens: Math.max(500, items.length * 60),
     temperature: 0,
+    outputSchema: OUTPUT_JSON_SCHEMA,
   });
   const parsed = responseSchema.parse(extractJson(result.content));
   const requestedIds = new Set(items.map((item) => item.id));

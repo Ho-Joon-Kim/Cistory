@@ -130,4 +130,19 @@ describe("ClaudeAdapter model capabilities", () => {
     expect(lastRequest().thinking).toEqual({ type: "disabled" });
     expect(lastRequest().output_config).toEqual({ effort: "low" });
   });
+
+  it("merges effort and outputSchema into the same output_config instead of one overwriting the other", async () => {
+    createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
+
+    await createClaudeAdapter("k", CLAUDE_MODELS.COMMIT_SUMMARY).generateText({
+      prompt: "p",
+      effort: "low",
+      outputSchema: { type: "object" },
+    });
+
+    expect(lastRequest().output_config).toEqual({
+      effort: "low",
+      format: { type: "json_schema", schema: { type: "object" } },
+    });
+  });
 });

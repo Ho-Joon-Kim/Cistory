@@ -41,6 +41,8 @@ export interface AIGenerateOptions {
   temperature?: number;
   thinking?: "adaptive" | "disabled";
   effort?: "low" | "medium" | "high";
+  /** JSON Schema. 지정하면 응답이 그 스키마를 따르도록 API가 강제한다. */
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface AIGenerateResult {
@@ -91,10 +93,18 @@ export class ClaudeAdapter {
       if (caps.thinking) body.thinking = { type: options.thinking };
       else drop("thinking");
     }
+    // effort와 outputSchema는 둘 다 output_config 아래 들어간다. 따로
+    // `body.output_config = {...}`로 대입하면 서로를 덮어쓰므로 하나의
+    // 객체에 모아 한 번만 대입한다.
+    const outputConfig: Anthropic.OutputConfig = {};
     if (options.effort !== undefined) {
-      if (caps.effort) body.output_config = { effort: options.effort };
+      if (caps.effort) outputConfig.effort = options.effort;
       else drop("effort");
     }
+    if (options.outputSchema !== undefined) {
+      outputConfig.format = { type: "json_schema", schema: options.outputSchema };
+    }
+    if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig;
 
     try {
       const response = await this.client.messages.create(body);
