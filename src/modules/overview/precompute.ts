@@ -11,8 +11,12 @@ import type { PeriodAggregateInput, PeriodAggregatePayload } from "./types";
 // Bump whenever aggregation semantics change so finalized snapshots recompute
 // instead of freezing stale numbers. v2 (2026-08): fix/track-splitting-stay-detection
 // changed what a `tracks` row means (movement-only, split at stays instead of a
-// single 24h-per-day track), which aggregate/location.ts sums directly.
-export const OVERVIEW_COMPUTE_VERSION = 2;
+// single 24h-per-day track), which aggregate/location.ts sums directly. v3
+// (2026-08): fix/geocoding-region-fields changed `visits.city`/`country_name`
+// from address-string-split fragments (postal codes, building names) to the
+// geocoding adapters' structured region/country fields, which
+// aggregate/location.ts's `visitedRegions` reads directly.
+export const OVERVIEW_COMPUTE_VERSION = 3;
 export const PRECOMPUTE_CLAIM_LIMIT = 5;
 export const PRECOMPUTE_MAX_ATTEMPTS = 3;
 export const PRECOMPUTE_USER_BATCH_LIMIT = 250;
