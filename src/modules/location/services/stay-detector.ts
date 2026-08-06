@@ -39,9 +39,18 @@ export interface StayOptions {
   minDurationSec: number;
 }
 
+// Calibrated 2026-08-06 over 2026-02-01…2026-08-06 with
+// scripts/calibrate-track-splitting.ts. Chosen for stability rather than the
+// lowest stationary-segment share: at radiusM 30 the anchor sits inside GPS
+// noise, so stays never form and sitting still leaks into tracks, where the
+// mode detector labels the drift as walking/cycling rather than stationary —
+// which made the worse configuration score better on that metric. Real modes
+// (driving, bus, train, flying) are unchanged across the grid; only the
+// drift-mimicking low-speed modes move. See
+// docs/superpowers/specs/2026-08-06-track-splitting-design.md.
 export const DEFAULT_STAY_OPTIONS: StayOptions = {
-  radiusM: 50,
-  minDurationSec: 600,
+  radiusM: 60,
+  minDurationSec: 450,
 };
 
 export function findStays(
