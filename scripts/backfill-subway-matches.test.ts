@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { parseArgs, resolveDateRange } from "./lib/backfill-args";
 
-// Covers the two review findings on this script before it's used to
-// regenerate `tracks` + `transportation_segments` for 187 days of real
-// data: (1) a typo'd --dry-run must never silently resolve to a live run,
-// and (2) a reversed/invalid date range must never silently resolve to a
-// "successful" zero-day run.
+// scripts/backfill-subway-matches.ts is a thin CLI wrapper around
+// backfillSubwayMatches() and shares its argument parsing with
+// scripts/backfill-tracks.ts via scripts/lib/backfill-args.ts (see that
+// file's tests too). This script is about to re-run subway matching over
+// real transportation_segments for a real user, so it needs the same
+// guarantees: (1) a typo'd --dry-run must never silently resolve to a live
+// run, and (2) a reversed/invalid date range must never silently resolve to
+// a "successful" zero-day run.
 
 describe("parseArgs", () => {
   it("parses a valid dry run", () => {
@@ -28,10 +31,8 @@ describe("parseArgs", () => {
     });
   });
 
-  // The reviewer reproduced all four of these resolving to `dryRun: false`
-  // with otherwise-valid positionals under the old `.includes("--dry-run")`
-  // + filter parsing — i.e. a silent live run. Each must now be a loud
-  // error, and specifically not `{ dryRun: false, userId: "u1", ... }`.
+  // Each of these must resolve to a loud error, never a silent live run
+  // (i.e. never `{ dryRun: false, userId: "u1", ... }`).
   const dryRunTypos = ["--dryrun", "-dry-run", "--Dry-Run", " --dry-run"];
 
   for (const typo of dryRunTypos) {
