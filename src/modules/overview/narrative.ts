@@ -66,14 +66,13 @@ export interface NarrativeStore {
   claimAutoBatch(now: Date, limit: number): Promise<NarrativeClaim[]>;
   /**
    * Extends a claimed row's lease without touching generationStartedAt (the
-   * identity `complete`/`fail` match on). Called immediately before each
-   * row's `generate()` call in a batch so the lease measures "time since
-   * this row started" instead of "time since the whole batch started" — a
-   * slow earlier row must not let the next cron tick reclaim (and re-pay
-   * for) a row still legitimately in flight. A no-op if the row was already
-   * reclaimed by another worker.
+   * identity `complete`/`fail` match on). Returns whether it actually
+   * updated the row — false means another worker already reclaimed it (its
+   * lease expired and a later `claimAutoBatch` reset + re-claimed it out
+   * from under this run), and the caller must not proceed to `generate()`
+   * for it: that would run a second paid call on a row it no longer owns.
    */
-  renewLease(claim: NarrativeClaim, now: Date): Promise<void>;
+  renewLease(claim: NarrativeClaim, now: Date): Promise<boolean>;
   complete(claim: NarrativeClaim, content: string, model: string, now: Date): Promise<boolean>;
   fail(claim: NarrativeClaim, error: string, now: Date): Promise<void>;
 }
@@ -180,6 +179,49 @@ export function createNarrativeService(
     }
   }
 
+  /**
+   * Renews a single claim's lease, the same way `generate()` handles an AI
+   * failure: a thrown DB error is caught, recorded via `store.fail`, and
+   * reported as "not renewed" rather than propagating — so one row's DB
+   * problem can't abort the rest of a batch.
+   */
+  async function renewOrFail(claim: NarrativeClaim): Promise<boolean> {
+    const renewNow = new Date();
+    try {
+      return await store.renewLease(claim, renewNow);
+    } catch (error) {
+      await store.fail(claim, error instanceof Error ? error.message : String(error), renewNow);
+      return false;
+    }
+  }
+
+  /**
+   * Renews the lease for `claims[i]` and every claim after it that hasn't
+   * been processed yet — not just `claims[i]`. claimAutoBatch stamps one
+   * lease_expires_at across the whole batch, but rows generate
+   * sequentially, so refreshing only the current row still lets a slow
+   * earlier row push a later, still-waiting row's lease past
+   * NARRATIVE_LEASE_MS before its own turn arrives. Renewing the whole
+   * remaining tail on every iteration keeps every not-yet-started row
+   * fresh the entire time it's waiting, not just at the instant its turn
+   * begins. Batches are capped at NARRATIVE_BATCH_SIZE (5), so the extra
+   * calls this costs are trivial.
+   *
+   * Returns whether `claims[i]` — the row about to be generated — is still
+   * ours. The caller must skip `generate()` for it when this is false:
+   * calling it anyway would run a second paid AI call on a row another
+   * worker now owns (the write would ultimately be refused by `complete`'s
+   * guard, but the spend already happened).
+   */
+  async function renewPendingLeases(claims: NarrativeClaim[], i: number): Promise<boolean> {
+    let currentIsRenewed = false;
+    for (let j = i; j < claims.length; j++) {
+      const renewed = await renewOrFail(claims[j]);
+      if (j === i) currentIsRenewed = renewed;
+    }
+    return currentIsRenewed;
+  }
+
   return {
     get,
 
@@ -210,15 +252,13 @@ export function createNarrativeService(
     async processAutoBatch(now: Date = new Date(), limit = NARRATIVE_BATCH_SIZE) {
       const claims = await store.claimAutoBatch(now, limit);
       let generated = 0;
-      for (const claim of claims) {
-        // Re-stamp the lease right before this row's AI call. claimAutoBatch
-        // stamps one lease_expires_at across the whole batch, but rows
-        // generate sequentially — without this, a slow earlier row can push
-        // a later row's lease past NARRATIVE_LEASE_MS, and the next cron
-        // tick's claimAutoBatch resets the still-in-flight row to pending
-        // and re-claims it, running a second paid call concurrently.
-        await store.renewLease(claim, new Date());
-        if (await generate(claim, new Date())) generated++;
+      for (let i = 0; i < claims.length; i++) {
+        // See renewPendingLeases: refreshes this row's lease and every
+        // not-yet-processed row's lease, and reports whether this row is
+        // still ours. Skip generating it if not — another worker already
+        // owns it.
+        if (!(await renewPendingLeases(claims, i))) continue;
+        if (await generate(claims[i], new Date())) generated++;
       }
       return { claimed: claims.length, generated, failed: claims.length - generated };
     },
@@ -392,12 +432,14 @@ export function createDatabaseNarrativeStore(db: Database): NarrativeStore {
       // session timezone (KST here), a 9h gap from every Drizzle-written
       // timestamp column.
       const leaseExpiresAt = new Date(now.getTime() + NARRATIVE_LEASE_MS);
-      await db.execute(sql`
+      const result = await db.execute(sql`
         UPDATE period_narratives SET lease_expires_at = ${leaseExpiresAt}, updated_at = ${now}
         WHERE user_id = ${claim.userId} AND period_type = ${claim.periodType}
           AND period_key = ${claim.periodKey} AND status = 'generating'
           AND generation_started_at = ${claim.generationStartedAt}
+        RETURNING id
       `);
+      return result.rows.length === 1;
     },
 
     async complete(claim, content, model, now) {

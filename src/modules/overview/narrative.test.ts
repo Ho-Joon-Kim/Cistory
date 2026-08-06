@@ -31,7 +31,7 @@ function store(overrides: Partial<NarrativeStore> = {}): NarrativeStore {
     find: vi.fn(async () => null),
     acquireManual: vi.fn(async () => ({ status: "acquired", claim })),
     claimAutoBatch: vi.fn(async () => []),
-    renewLease: vi.fn(async () => undefined),
+    renewLease: vi.fn(async () => true),
     complete: vi.fn(async () => true),
     fail: vi.fn(async () => undefined),
     ...overrides,
@@ -183,13 +183,13 @@ describe("narrative service", () => {
     expect(repository.claimAutoBatch).toHaveBeenCalledWith(NOW, 2);
   });
 
-  it("renews each row's lease immediately before generating it, not once for the whole batch", async () => {
+  it("renews every not-yet-processed row's lease on each iteration, not just the current row's", async () => {
     // claimAutoBatch stamps one lease across all claimed rows, but rows
-    // generate sequentially. Without a per-row renewal, a slow earlier row
-    // can push a later row's lease past NARRATIVE_LEASE_MS and the next
-    // cron tick reclaims it mid-flight (duplicate paid call). Pin the fix:
-    // renewLease must fire for claim N right before generate() for claim N,
-    // not batched before or after the loop.
+    // generate sequentially. Renewing only the current row still lets a
+    // slow earlier row push a later, still-waiting row's lease stale before
+    // its own turn arrives. Pin the fix: at claim N's iteration, every claim
+    // from N onward gets renewed (not just N), and claim N's own generate()
+    // only runs after that renewal pass.
     const claimTwo: NarrativeClaim = { ...claim, periodKey: "2026-07" };
     const repository = store({
       claimAutoBatch: vi.fn(async () => [claim, claimTwo]),
@@ -198,6 +198,7 @@ describe("narrative service", () => {
     (repository.renewLease as ReturnType<typeof vi.fn>).mockImplementation(
       async (c: NarrativeClaim) => {
         calls.push(`renew:${c.periodKey}`);
+        return true;
       }
     );
     const adapter = {
@@ -216,12 +217,68 @@ describe("narrative service", () => {
 
     expect(calls).toEqual([
       "renew:2026-06",
+      "renew:2026-07",
       "generate:2026-06",
       "renew:2026-07",
       "generate:2026-07",
     ]);
-    expect(repository.renewLease).toHaveBeenCalledWith(claim, expect.any(Date));
-    expect(repository.renewLease).toHaveBeenCalledWith(claimTwo, expect.any(Date));
+  });
+
+  it("skips generating a row whose lease renewal reports it was already reclaimed", async () => {
+    // Concrete failure this pins: two earlier rows in the batch each exhaust
+    // retries (~6 min each), so by the time this row's turn arrives its
+    // lease has expired and a later cron tick's claimAutoBatch already
+    // reset + re-claimed it. renewLease correctly reports that (returns
+    // false on its own-turn call after succeeding on the earlier proactive
+    // call) — the caller must not call generate() anyway, which would run a
+    // second paid Opus 5 call on a row it no longer owns.
+    const claimTwo: NarrativeClaim = { ...claim, periodKey: "2026-07" };
+    const renewCallsByKey: Record<string, number> = {};
+    const repository = store({
+      claimAutoBatch: vi.fn(async () => [claim, claimTwo]),
+      renewLease: vi.fn(async (c: NarrativeClaim) => {
+        renewCallsByKey[c.periodKey] = (renewCallsByKey[c.periodKey] ?? 0) + 1;
+        // claimTwo: succeeds on the proactive renewal (claim's turn), fails
+        // from its own turn onward — simulates losing the race in between.
+        if (c.periodKey === claimTwo.periodKey && renewCallsByKey[c.periodKey] >= 2) return false;
+        return true;
+      }),
+    });
+    const adapter = ai();
+
+    const result = await createNarrativeService(repository, adapter).processAutoBatch(NOW, 2);
+
+    expect(result).toEqual({ claimed: 2, generated: 1, failed: 1 });
+    expect(adapter.generateText).toHaveBeenCalledTimes(1);
+    const generatedPrompt = adapter.generateText.mock.calls[0][0].prompt as string;
+    expect(generatedPrompt).toContain(claim.periodKey);
+    expect(generatedPrompt).not.toContain(claimTwo.periodKey);
+    expect(repository.complete).not.toHaveBeenCalledWith(
+      claimTwo,
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it("does not let a renewLease DB error propagate out of processAutoBatch or strand the rest of the batch", async () => {
+    const claimTwo: NarrativeClaim = { ...claim, periodKey: "2026-07" };
+    const repository = store({
+      claimAutoBatch: vi.fn(async () => [claim, claimTwo]),
+      renewLease: vi.fn(async (c: NarrativeClaim) => {
+        if (c.periodKey === claim.periodKey) throw new Error("connection reset");
+        return true;
+      }),
+    });
+    const adapter = ai();
+
+    const result = await createNarrativeService(repository, adapter).processAutoBatch(NOW, 2);
+
+    expect(result).toEqual({ claimed: 2, generated: 1, failed: 1 });
+    expect(repository.fail).toHaveBeenCalledWith(claim, "connection reset", expect.any(Date));
+    expect(adapter.generateText).toHaveBeenCalledTimes(1);
+    const generatedPrompt = adapter.generateText.mock.calls[0][0].prompt as string;
+    expect(generatedPrompt).toContain(claimTwo.periodKey);
   });
 });
 
@@ -298,12 +355,16 @@ describe("database narrative queue", () => {
     });
     const db = { execute } as unknown as Database;
 
-    await createDatabaseNarrativeStore(db).renewLease(claim, NOW);
+    const renewed = await createDatabaseNarrativeStore(db).renewLease(claim, NOW);
 
     expect(statements[0]).toContain("UPDATE period_narratives");
     expect(statements[0]).not.toMatch(/now\(\)/i);
     expect(statements[0]).toContain("status = 'generating'");
     expect(statements[0]).toContain("generation_started_at = ");
     expect(statements[0]).toContain("lease_expires_at = $1");
+    expect(statements[0]).toContain("RETURNING id");
+    // The mocked execute reports no matching row, so renewLease must report
+    // the loss via its return value rather than assuming success.
+    expect(renewed).toBe(false);
   });
 });
