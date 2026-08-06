@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketByMinute, bucketStats, type RawScalarSample } from "./compaction";
+import { bucketByMinute, bucketStats, compactionWindow, type RawScalarSample } from "./compaction";
 
 const s = (at: string, value: number, source = "FITBIT"): RawScalarSample => ({
   sampleAt: new Date(at),
@@ -120,5 +120,39 @@ describe("bucketStats", () => {
 
   it("never lets a bucket weigh zero, which would erase it from a weighted mean", () => {
     expect(bucketStats({ min: 60, max: 80, n: 0 }, 70).n).toBe(1);
+  });
+});
+
+describe("compactionWindow", () => {
+  const at = (s: string) => new Date(s);
+
+  it("covers the newest eligible sample, exclusive upper bound included", () => {
+    const w = compactionWindow(at("2026-08-03T10:15:30.000Z"));
+    // `sample_at < to` must still match the newest row, so `to` sits just past it.
+    expect(w.to.getTime()).toBeGreaterThan(at("2026-08-03T10:15:30.000Z").getTime());
+    expect(w.from.getTime()).toBeLessThanOrEqual(at("2026-08-03T10:15:30.000Z").getTime());
+  });
+
+  it("spans exactly one day so a run's work stays bounded", () => {
+    const w = compactionWindow(at("2026-08-03T10:15:30.000Z"));
+    expect(w.to.getTime() - w.from.getTime()).toBe(86_400_000);
+  });
+
+  // Newest-first is the point: half the remaining rows sat in the 13 most recent
+  // days while the walk was grinding through 177 sparse ones. Successive windows
+  // must step BACKWARD, each starting where the previous one began.
+  it("walks backward — the next window ends where this one started", () => {
+    const first = compactionWindow(at("2026-08-03T10:15:30.000Z"));
+    // The newest raw row left after the first pass is just below `first.from`.
+    const second = compactionWindow(new Date(first.from.getTime() - 1));
+    expect(second.to.getTime()).toBeLessThanOrEqual(first.from.getTime());
+    expect(second.from.getTime()).toBeLessThan(second.to.getTime());
+  });
+
+  it("never produces an inverted or empty window", () => {
+    for (const iso of ["2025-07-08T00:00:00.000Z", "2026-08-03T23:59:59.999Z"]) {
+      const w = compactionWindow(at(iso));
+      expect(w.from.getTime()).toBeLessThan(w.to.getTime());
+    }
   });
 });
