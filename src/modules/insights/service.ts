@@ -39,6 +39,16 @@ function daysInYear(year: number): number {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0 ? 366 : 365;
 }
 
+// Commute reliability: minimum track duration to count as a candidate commute.
+// Matches MIN_VISIT_DURATION_SEC in visit-detector.ts — the project's existing
+// "this is a real dwell, not noise" threshold. With the stay-splitting track
+// semantics, sub-3-minute tracks are GPS jitter and micro-walks, not commutes
+// (135 of 745 candidate tracks over 2026-02-01…2026-08-06, including a
+// 53-second track covering 1961 m). Higher floors were measured to shift the
+// PM median by 4.6 min, which distorts rather than cleans the metric, so this
+// stays at the jitter-removal threshold rather than climbing further.
+const MIN_COMMUTE_DURATION_SEC = 180;
+
 // ── Existing Result Types (unchanged) ──────────────────────────────────────
 
 export interface StreaksResult {
@@ -710,7 +720,8 @@ export class InsightsService {
           eq(tracks.userId, userId),
           gte(tracks.startTime, start),
           lte(tracks.startTime, end),
-          sql`${tracks.dominantMode} IN ('cycling', 'walking', 'running')`
+          sql`${tracks.dominantMode} IN ('cycling', 'walking', 'running')`,
+          gte(tracks.durationSeconds, MIN_COMMUTE_DURATION_SEC)
         )
       );
 
