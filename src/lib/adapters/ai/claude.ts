@@ -75,7 +75,7 @@ export class ClaudeAdapter {
         option: name,
       });
 
-    const body: Record<string, unknown> = {
+    const body: Anthropic.MessageCreateParamsNonStreaming = {
       model: this.model,
       max_tokens: maxTokens,
       system: system ?? undefined,
@@ -97,9 +97,7 @@ export class ClaudeAdapter {
     }
 
     try {
-      const response = await this.client.messages.create(
-        body as unknown as Anthropic.MessageCreateParamsNonStreaming
-      );
+      const response = await this.client.messages.create(body);
 
       // content[0]이 아니라 text 블록을 찾는다 — adaptive thinking이 켜진
       // 모델은 첫 블록이 thinking이라 content[0]만 읽으면 빈 문자열이 된다.

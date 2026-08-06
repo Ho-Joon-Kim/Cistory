@@ -12,6 +12,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
+import { logger } from "@/lib/logger";
 import { CLAUDE_MODELS, createClaudeAdapter } from "./claude";
 
 function reply(content: unknown[], stopReason = "end_turn") {
@@ -77,6 +78,10 @@ describe("ClaudeAdapter response parsing", () => {
 
 describe("ClaudeAdapter model capabilities", () => {
   it("drops temperature for a model that rejects sampling params", async () => {
+    // Dropping the param silently would erase the caller's intent (e.g.
+    // temperature: 0 for deterministic classification) with no trace. An
+    // operator must be able to see it happened.
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
     createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
 
     await createClaudeAdapter("k", CLAUDE_MODELS.COMMIT_SUMMARY).generateText({
@@ -85,6 +90,10 @@ describe("ClaudeAdapter model capabilities", () => {
     });
 
     expect(lastRequest()).not.toHaveProperty("temperature");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Claude option dropped — model does not accept it",
+      expect.objectContaining({ model: CLAUDE_MODELS.COMMIT_SUMMARY, option: "temperature" })
+    );
   });
 
   it("keeps temperature for a model that accepts it", async () => {
