@@ -8,45 +8,14 @@ export interface TripNamingVisit {
   countryName: string | null;
 }
 
-const DOMESTIC_REGION_ALIASES = new Map<string, string>([
-  ["서울", "서울"],
-  ["서울특별시", "서울"],
-  ["부산", "부산"],
-  ["부산광역시", "부산"],
-  ["대구", "대구"],
-  ["대구광역시", "대구"],
-  ["인천", "인천"],
-  ["인천광역시", "인천"],
-  ["광주", "광주"],
-  ["광주광역시", "광주"],
-  ["대전", "대전"],
-  ["대전광역시", "대전"],
-  ["울산", "울산"],
-  ["울산광역시", "울산"],
-  ["세종", "세종"],
-  ["세종특별자치시", "세종"],
-  ["경기", "경기"],
-  ["경기도", "경기"],
-  ["강원", "강원"],
-  ["강원도", "강원"],
-  ["강원특별자치도", "강원"],
-  ["충북", "충북"],
-  ["충청북도", "충북"],
-  ["충남", "충남"],
-  ["충청남도", "충남"],
-  ["전북", "전북"],
-  ["전라북도", "전북"],
-  ["전북특별자치도", "전북"],
-  ["전남", "전남"],
-  ["전라남도", "전남"],
-  ["경북", "경북"],
-  ["경상북도", "경북"],
-  ["경남", "경남"],
-  ["경상남도", "경남"],
-  ["제주", "제주"],
-  ["제주도", "제주"],
-  ["제주특별자치도", "제주"],
-]);
+/**
+ * Kakao's region_1depth_name is not uniformly short-form — it returns "서울" but
+ * also "제주특별자치도". Strip the administrative suffix instead of maintaining a
+ * lookup table, so region names the table never knew about still normalise.
+ * Order matters: the longer suffixes must be tried before the bare "도", or
+ * "제주특별자치도" loses only its final character.
+ */
+const REGION_SUFFIXES = ["특별자치시", "특별자치도", "특별시", "광역시", "도"];
 
 /**
  * Builds a short trip name exclusively from trusted coordinate classification
@@ -78,7 +47,18 @@ export function createTripName(visits: TripNamingVisit[]): string {
 
 function normalizeDomesticRegion(city: string | null): string | null {
   if (!city) return null;
-  return DOMESTIC_REGION_ALIASES.get(city.trim()) ?? null;
+  let value = city.trim().replace(/,$/, "");
+  for (const suffix of REGION_SUFFIXES) {
+    if (value.length > suffix.length && value.endsWith(suffix)) {
+      value = value.slice(0, -suffix.length);
+      break;
+    }
+  }
+  // Reject invalid region names that contain ASCII digits (postal codes, street addresses)
+  if (value.length === 0 || /\d/.test(value)) {
+    return null;
+  }
+  return value;
 }
 
 function unique(values: (string | null)[]): string[] {

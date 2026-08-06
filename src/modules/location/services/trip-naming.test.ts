@@ -27,6 +27,14 @@ describe("createTripName", () => {
     expect(createTripName([{ ...JEJU, city, countryName: "대한민국" }])).toEqual(expected);
   });
 
+  it("normalizes region names not in the alias table via suffix stripping", () => {
+    expect(
+      createTripName([
+        { centerLat: 34.8, centerLon: 126.8, city: "전남광주통합특별시", countryName: "대한민국" },
+      ])
+    ).toEqual("전남광주통합 여행");
+  });
+
   it("falls back for untrusted domestic city values", () => {
     expect(
       createTripName([
