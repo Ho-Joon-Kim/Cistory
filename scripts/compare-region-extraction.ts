@@ -60,6 +60,28 @@
  *    row, and the summary reports two separate tallies: the headline
  *    live-visit tally (what should decide the backfill) and the orphan count
  *    with its own verdict breakdown.
+ *
+ * 5. Lookup failure vs. a real 악화: a `reverseGeocode` call that returns
+ *    `null` or throws (rate limit, transient network error) used to flow
+ *    into the same classification path as a genuine successful-but-worse
+ *    result — `looksBroken(null)` is `true`, so a rate-limited coordinate and
+ *    a real regression both landed on 악화 with no way to tell them apart.
+ *    Confirmed against the dev DB: at n=100, concurrency 5, Kakao's ~700
+ *    requests (100 coordinates × 7 — 1 `coord2address` + 6 parallel category
+ *    searches per coordinate; see `KAKAO_REQUESTS_PER_COORDINATE`) tripped a
+ *    rate limit, and every failure counted as a quality regression. A `null`
+ *    result is now retried once after a short backoff (`RETRY_BACKOFF_MS`),
+ *    and if it's still `null`/throwing, the row is recorded as `"조회실패"` —
+ *    a fifth outcome alongside the four `Verdict`s, never passed through
+ *    `classify()` at all — and excluded from both the headline and orphan
+ *    tallies. Treating any post-retry `null` as failure (not "genuinely
+ *    nothing here") is deliberate: every sampled coordinate came from
+ *    `place_cache`, which by construction only holds coordinates that
+ *    resolved successfully once already, so a `null` on re-geocoding the
+ *    exact same coordinate is far more likely to be transient than a
+ *    legitimate "no result." Kakao's per-coordinate cost also means the
+ *    outer concurrency that was safe for Google (2-3 requests/coordinate) is
+ *    not safe for Kakao — see `KAKAO_CONCURRENCY`/`KAKAO_BATCH_PAUSE_MS`.
  */
 
 import { argv, exit } from "node:process";
@@ -77,14 +99,41 @@ loadEnv({ path: ".env.local", override: true });
 import { count, eq, sql } from "drizzle-orm";
 import { type Database, getDb, getPool, placeCache, visits } from "../src/db";
 import {
+  type GeocodingAdapter,
   type GeocodingResult,
   getGeocodingAdapter,
   isInKorea,
 } from "../src/lib/adapters/geocoding";
 
 const DEFAULT_LIMIT = 100;
-const CONCURRENCY = 5;
 const GOOGLE_GEOCODE_API_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
+
+/**
+ * Kakao's `reverseGeocode` costs 7 HTTP requests per coordinate: 1
+ * `coord2address` (awaited first) then 6 category searches fired together
+ * via `Promise.all` (`CATEGORY_CODES` in `src/lib/adapters/geocoding/kakao.ts`
+ * — not exported, so the count is hardcoded here with this citation). A
+ * n=100 run at the old flat concurrency-5 therefore burst up to 5*6=30
+ * simultaneous Kakao requests per batch with no pacing between batches,
+ * which is what tripped Kakao's rate limit (confirmed against the dev DB —
+ * see judgment call #5). `KAKAO_CONCURRENCY=1` caps the peak at 6 concurrent
+ * requests from one coordinate's category-search fan-out; the pause between
+ * coordinates further spreads throughput to roughly 7 requests / ~750ms
+ * (~9 req/s), comfortably under typical per-app quotas.
+ */
+const KAKAO_REQUESTS_PER_COORDINATE = 7;
+const KAKAO_CONCURRENCY = 1;
+const KAKAO_BATCH_PAUSE_MS = 300;
+
+/** Google costs ~3 requests/coordinate (2 concurrent adapter calls + 1 sequential unrestricted probe) and has a much higher default quota — unthrottled beyond the existing outer cap. */
+const OTHER_CONCURRENCY = 5;
+
+/** A `reverseGeocode` call that returns null or throws gets exactly one retry after this backoff before being recorded as 조회실패 — see judgment call #5. */
+const RETRY_BACKOFF_MS = 800;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ============ CLI args ============
 
@@ -279,6 +328,16 @@ function classify(
   return "동일";
 }
 
+/**
+ * Fifth outcome, orthogonal to the four `classify()` rules above (which stay
+ * untouched — this is never a `Verdict` and never flows through `classify()`).
+ * Recorded when re-geocoding a coordinate failed even after one retry; see
+ * judgment call #5 in the file header for why a post-retry `null` is treated
+ * as a failure rather than a real "nothing here" signal.
+ */
+const LOOKUP_FAILED = "조회실패" as const;
+type RowOutcome = Verdict | typeof LOOKUP_FAILED;
+
 // ============ Sampling ============
 
 interface SampleRow {
@@ -469,8 +528,35 @@ interface ComparisonRow {
   currentCountry: string | null;
   newRegion: string | null;
   newCountry: string | null;
-  verdict: Verdict;
+  /** One of the 4 `classify()` verdicts, or `LOOKUP_FAILED` if re-geocoding never succeeded (see judgment call #5). */
+  verdict: RowOutcome;
   googleUnrestricted?: GoogleUnrestrictedResult;
+}
+
+/**
+ * At most one retry after `RETRY_BACKOFF_MS`. A `null` return (no throw) is
+ * treated the same as a thrown error — every provider's adapter returns
+ * `null` on both a non-ok HTTP status and an empty result set, so they're
+ * indistinguishable without re-probing, and judgment call #5 explains why
+ * re-treating a `place_cache` coordinate as "no result" is the wrong default.
+ */
+async function reverseGeocodeWithRetry(
+  adapter: GeocodingAdapter,
+  lat: number,
+  lon: number
+): Promise<{ result: GeocodingResult | null; failed: boolean }> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const result = await adapter.reverseGeocode(lat, lon);
+      if (result !== null) return { result, failed: false };
+    } catch (e) {
+      if (attempt === 2) {
+        console.error(`reverseGeocode(${lat}, ${lon}) failed on retry:`, e);
+      }
+    }
+    if (attempt === 1) await sleep(RETRY_BACKOFF_MS);
+  }
+  return { result: null, failed: true };
 }
 
 async function compareOne(
@@ -483,22 +569,19 @@ async function compareOne(
   const current = visitIndex.get(`${latKey}:${lonKey}`);
   const hasVisitMatch = current !== undefined;
 
-  let result: GeocodingResult | null = null;
-  try {
-    const adapter = getGeocodingAdapter(latKey, lonKey);
-    result = await adapter.reverseGeocode(latKey, lonKey);
-  } catch (e) {
-    console.error(`reverseGeocode(${latKey}, ${lonKey}) failed:`, e);
-  }
+  const adapter = getGeocodingAdapter(latKey, lonKey);
+  const { result, failed: lookupFailed } = await reverseGeocodeWithRetry(adapter, latKey, lonKey);
 
   const newRegion = result?.region ?? null;
   const newCountry = result?.country ?? null;
   const currentCity = current?.city ?? null;
   const currentCountry = current?.countryName ?? null;
 
-  const verdict = inKorea
-    ? classify(currentCity, newRegion, (v) => looksBroken(v, true))
-    : classify(currentCountry, newCountry, looksBrokenCountry);
+  const verdict: RowOutcome = lookupFailed
+    ? LOOKUP_FAILED
+    : inKorea
+      ? classify(currentCity, newRegion, (v) => looksBroken(v, true))
+      : classify(currentCountry, newCountry, looksBrokenCountry);
 
   let googleUnrestricted: GoogleUnrestrictedResult | undefined;
   if (provider === "google" && googleApiKey) {
@@ -520,18 +603,59 @@ async function compareOne(
   };
 }
 
-/** Concurrency-capped map, chunked like visit-persister.ts's own geocoding loop (CONCURRENCY = 5). */
+/**
+ * Concurrency-capped map, chunked like visit-persister.ts's own geocoding
+ * loop. `pauseMs` (default 0, no pause) sleeps between batches — not after
+ * the last one — so throughput can be spread out for a rate-limited provider
+ * without slowing down a provider that doesn't need it.
+ */
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
-  worker: (item: T) => Promise<R>
+  worker: (item: T) => Promise<R>,
+  pauseMs = 0
 ): Promise<R[]> {
   const results: R[] = [];
   for (let i = 0; i < items.length; i += concurrency) {
     const batch = items.slice(i, i + concurrency);
     results.push(...(await Promise.all(batch.map(worker))));
+    const isLastBatch = i + concurrency >= items.length;
+    if (pauseMs > 0 && !isLastBatch) await sleep(pauseMs);
   }
   return results;
+}
+
+/**
+ * Runs the Kakao-provider samples (expensive: KAKAO_REQUESTS_PER_COORDINATE
+ * requests each) through a low, paced concurrency and everything else
+ * through the higher OTHER_CONCURRENCY, running both groups in parallel
+ * (they hit different providers, so throttling one never has to wait on the
+ * other). Prints the throttling plan up front so a reader can tell what was
+ * actually issued without re-deriving it from the code.
+ */
+async function runComparisons(
+  samples: SampleRow[],
+  visitIndex: Map<string, CurrentVisitInfo>,
+  googleApiKey: string | undefined
+): Promise<ComparisonRow[]> {
+  const kakaoSamples = samples.filter((s) => s.provider === "kakao");
+  const otherSamples = samples.filter((s) => s.provider !== "kakao");
+  const worker = (sample: SampleRow) => compareOne(sample, visitIndex, googleApiKey);
+
+  console.log(
+    `Throttling: kakao=${kakaoSamples.length} coordinate(s) @ concurrency ${KAKAO_CONCURRENCY}` +
+      ` (~${kakaoSamples.length * KAKAO_REQUESTS_PER_COORDINATE} Kakao HTTP requests` +
+      ` [1 coord2address + ${KAKAO_REQUESTS_PER_COORDINATE - 1} category searches per coordinate],` +
+      ` ${KAKAO_BATCH_PAUSE_MS}ms pause between coordinates); other=${otherSamples.length}` +
+      ` coordinate(s) @ concurrency ${OTHER_CONCURRENCY}.`
+  );
+
+  const [kakaoResults, otherResults] = await Promise.all([
+    mapWithConcurrency(kakaoSamples, KAKAO_CONCURRENCY, worker, KAKAO_BATCH_PAUSE_MS),
+    mapWithConcurrency(otherSamples, OTHER_CONCURRENCY, worker),
+  ]);
+
+  return [...kakaoResults, ...otherResults];
 }
 
 // ============ Reporting ============
@@ -569,9 +693,12 @@ function printRows(rows: ComparisonRow[]) {
   }
 }
 
+/** Only ever counts the 4 real `Verdict`s — a `LOOKUP_FAILED` row must be filtered out by the caller before this runs, since it was never classified. */
 function tallyByVerdict(rows: ComparisonRow[]): Record<Verdict, number> {
   const tally: Record<Verdict, number> = { 개선: 0, 동일: 0, 악화: 0, 판정불가: 0 };
-  for (const r of rows) tally[r.verdict] += 1;
+  for (const r of rows) {
+    if (r.verdict !== LOOKUP_FAILED) tally[r.verdict] += 1;
+  }
   return tally;
 }
 
@@ -582,15 +709,20 @@ function printVerdictCounts(tally: Record<Verdict, number>) {
 }
 
 /**
- * Cross-tabulates verdict × hasVisitMatch instead of one flat tally. An
- * orphan place_cache row (no matching `visits` at all) has nothing to
- * improve, but used to count toward 개선 identically to a real fix — so the
- * headline number that should decide the backfill is the live-visit-only
- * tally; orphans are reported separately, never folded back in silently.
+ * Three-way split, not one flat tally:
+ *   1. 조회실패 — re-geocoding never succeeded even after a retry. Not
+ *      evidence either way; excluded from both tallies below entirely.
+ *   2. Orphan `place_cache` rows (measured, but no matching `visits`) — has
+ *      nothing to improve, so it used to count toward 개선 identically to a
+ *      real fix. Reported separately, never folded into the headline number.
+ *   3. Headline — live-visit coordinates that were actually measured. This
+ *      is the number that should decide the backfill.
  */
 function printTally(rows: ComparisonRow[]) {
-  const liveRows = rows.filter((r) => r.hasVisitMatch);
-  const orphanRows = rows.filter((r) => !r.hasVisitMatch);
+  const failedRows = rows.filter((r) => r.verdict === LOOKUP_FAILED);
+  const measuredRows = rows.filter((r) => r.verdict !== LOOKUP_FAILED);
+  const liveRows = measuredRows.filter((r) => r.hasVisitMatch);
+  const orphanRows = measuredRows.filter((r) => !r.hasVisitMatch);
 
   console.log(
     `\nHeadline tally — live-visit coordinates only (n=${liveRows.length} of ${rows.length} sampled; this is what should decide the backfill):`
@@ -609,6 +741,17 @@ function printTally(rows: ComparisonRow[]) {
         " orphan counts toward 개선 as soon as re-geocoding returns anything, without fixing" +
         " any real visits.city/country_name value."
     );
+  }
+
+  console.log(
+    `\n조회실패 — re-geocoding failed even after retry, excluded from both tallies above (n=${failedRows.length} of ${rows.length}):`
+  );
+  if (failedRows.length === 0) {
+    console.log("  (none in this sample)");
+  } else {
+    for (const r of failedRows) {
+      console.log(`  ${r.latKey}, ${r.lonKey} (${r.provider})`);
+    }
   }
 }
 
@@ -673,9 +816,7 @@ async function main() {
     );
 
     const googleApiKey = process.env.GOOGLE_MAPS_API_KEY;
-    const rows = await mapWithConcurrency(samples, CONCURRENCY, (sample) =>
-      compareOne(sample, visitIndex, googleApiKey)
-    );
+    const rows = await runComparisons(samples, visitIndex, googleApiKey);
 
     printRows(rows);
     printTally(rows);
