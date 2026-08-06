@@ -119,12 +119,20 @@ maxTokens 8,000은 thinking과 응답이 한도를 나눠 쓰기 때문이며, �
 
 ### 4. 지출 분류 — structured outputs
 
-`output_config.format`에 JSON 스키마를 넘기고 `extractJson`(코드펜스 제거 + `JSON.parse`)을
-삭제한다. Haiku 4.5는 structured outputs를 지원한다. `temperature: 0`은 유지한다.
+`output_config.format`에 JSON 스키마를 넘겨 응답 형태를 서버 측에서 강제한다. Haiku 4.5는
+structured outputs를 지원한다. `temperature: 0`은 유지한다 — Haiku가 수용하고 결정성이
+목적이다.
 
-현재는 파싱 실패 시 배치 25건이 통째로 실패 처리되는데(`category-classifier.ts:156`의
-"Expense classification batch failed"), 그 경로 자체가 사라진다. 이것은 비용이 아니라 견고성
-개선이다.
+현재는 파싱 실패 시 배치 25건이 통째로 실패 처리된다(`category-classifier.ts:156`의
+"Expense classification batch failed"). 스키마 강제가 그 경로를 사실상 없앤다. 이것은 비용이
+아니라 견고성 개선이다.
+
+**`extractJson`(코드펜스 제거 + `JSON.parse`)은 삭제하지 않고 폴백으로 남긴다.** 구조화 출력이
+보장을 주더라도 모델이 펜스를 붙일 확률이 완전히 0은 아니고, 폴백을 지워서 얻는 이득(코드 몇 줄)이
+그때 잃는 것(배치 25건 통째 실패)보다 작다.
+
+zod `responseSchema`도 유지한다. API 스키마가 형태를 강제해도 `isExpenseCategory` 타입 가드는
+여전히 우리 쪽에서 돌아야 한다.
 
 ### 5. SDK `0.52.0` → `0.115.0`
 
