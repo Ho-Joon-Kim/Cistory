@@ -4,10 +4,21 @@
  * Reads subway_trip_matches plus its joined subway_lines/stations and produces
  * a small summary object: total sessions, leg count, transfer count, distance,
  * top lines/stations.
+ *
+ * Every `fromDate`/`toExclusiveDate` window bound is passed through
+ * `timestampParam(subwayTripMatches.subStartTime, …)`, never interpolated
+ * into a `sql` template as a bare Date. A bare Date bypasses Drizzle's
+ * column mapping: node-postgres serializes it with an offset in the
+ * *process* timezone (KST in production), and Postgres coerces that into
+ * `sub_start_time`'s `timestamp without time zone` by dropping the offset —
+ * landing the boundary at 09:00 KST instead of midnight, 9h off the
+ * column's UTC-wall-time write convention (see src/db/sql.ts). This had
+ * already shipped twice elsewhere in the repo before landing here too.
  */
 
 import { sql } from "drizzle-orm";
-import { type Database, getDb } from "@/db";
+import { type Database, getDb, subwayTripMatches } from "@/db";
+import { timestampParam } from "@/db/sql";
 import { resolveLineColor } from "@/lib/subway-color";
 
 export interface SubwayUsageTopLine {
@@ -131,8 +142,8 @@ export async function getSubwayInsights(
       count(*)::int                     AS total_legs
     FROM subway_trip_matches m
     WHERE m.user_id = ${userId}::uuid
-      AND m.sub_start_time >= ${fromDate}
-      AND m.sub_start_time < ${toExclusiveDate}
+      AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+      AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
   `);
   const agg = (aggRes.rows[0] ?? null) as unknown as InsightAggRow | null;
 
@@ -161,8 +172,8 @@ export async function getSubwayInsights(
     JOIN numbered_lines l ON l.id = m.line_id
     JOIN transportation_segments s ON s.id = m.transportation_segment_id
     WHERE m.user_id = ${userId}::uuid
-      AND m.sub_start_time >= ${fromDate}
-      AND m.sub_start_time < ${toExclusiveDate}
+      AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+      AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     GROUP BY l.id, l.ref, l.name, l.colour, l.network, l.fallback_idx
     ORDER BY ride_count DESC
     LIMIT 12
@@ -211,8 +222,8 @@ export async function getSubwayInsights(
              ) AS leg_rn
       FROM subway_trip_matches m
       WHERE m.user_id = ${userId}::uuid
-        AND m.sub_start_time >= ${fromDate}
-        AND m.sub_start_time < ${toExclusiveDate}
+        AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+        AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     )
     SELECT
       l1.ref AS from_ref, l1.name AS from_name, l1.colour AS from_colour,
@@ -301,8 +312,8 @@ export async function getSubwayUsage(
              ) AS leg_rn
       FROM subway_trip_matches m
       WHERE m.user_id = ${userId}::uuid
-        AND m.sub_start_time >= ${fromDate}
-        AND m.sub_start_time < ${toExclusiveDate}
+        AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+        AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     )
     SELECT
       count(DISTINCT m.session_id)::int                                AS total_sessions,
@@ -337,8 +348,8 @@ export async function getSubwayUsage(
     FROM subway_trip_matches m
     JOIN numbered_lines l ON l.id = m.line_id
     WHERE m.user_id = ${userId}::uuid
-      AND m.sub_start_time >= ${fromDate}
-      AND m.sub_start_time < ${toExclusiveDate}
+      AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+      AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     GROUP BY l.id, l.ref, l.name, l.colour, l.network, l.fallback_idx
     ORDER BY ride_count DESC
     LIMIT 3
@@ -349,8 +360,8 @@ export async function getSubwayUsage(
       SELECT m.id, m.start_station_id, m.end_station_id
       FROM subway_trip_matches m
       WHERE m.user_id = ${userId}::uuid
-        AND m.sub_start_time >= ${fromDate}
-        AND m.sub_start_time < ${toExclusiveDate}
+        AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+        AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     ),
     visited AS (
       SELECT start_station_id AS sid FROM legs WHERE start_station_id IS NOT NULL
@@ -380,8 +391,8 @@ export async function getSubwayUsage(
              ) AS leg_rn
       FROM subway_trip_matches m
       WHERE m.user_id = ${userId}::uuid
-        AND m.sub_start_time >= ${fromDate}
-        AND m.sub_start_time < ${toExclusiveDate}
+        AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+        AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     )
     SELECT s.name AS name, count(*)::int AS count
     FROM numbered_matches m1
