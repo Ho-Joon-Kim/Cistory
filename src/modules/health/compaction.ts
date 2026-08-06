@@ -146,6 +146,20 @@ export function bucketStats(
 /** Days compacted per run, so one cron tick can't walk unbounded history. */
 const MAX_DAYS_PER_RUN = 7;
 
+/**
+ * The one-day range to compact, anchored on the newest raw sample still eligible.
+ *
+ * `to` sits one millisecond past that sample because `compactRange` bounds with
+ * `sample_at < to`, so the anchor row itself has to fall inside. Each subsequent
+ * window ends where this one starts, walking backward a day at a time. A minute
+ * straddling either bound is compacted partially and completed by a later run — the
+ * ON CONFLICT merge in `compactRange` makes that exact.
+ */
+export function compactionWindow(newestRaw: Date): { from: Date; to: Date } {
+  const to = new Date(newestRaw.getTime() + 1);
+  return { from: new Date(to.getTime() - 86_400_000), to };
+}
+
 export interface CompactionResult {
   userId: string;
   rawDeleted: number;
@@ -221,9 +235,18 @@ async function compactRange(
 }
 
 /**
- * Compact every eligible metric for one user, oldest range first, bounded to
+ * Compact every eligible metric for one user, **newest range first**, bounded to
  * MAX_DAYS_PER_RUN days per call. Idempotent: once a range holds only buckets there
- * are no `value_json IS NULL` rows left to find, so a re-run is a no-op.
+ * are no `value_json IS NULL` rows left to find, so a re-run is a no-op — which is
+ * also what lets the walk restart from the newest row every night and skip straight
+ * over everything it already compacted.
+ *
+ * Newest-first because row density is wildly uneven. Measured a week after this
+ * shipped: the oldest-first walk had cleared 45 sparse Samsung-era days (~2,549
+ * rows/day) while 425,445 rows — half of everything left — sat in the 13 most recent
+ * Fitbit days (~32,727 rows/day) at the very back of the queue. Ingestion was
+ * outrunning compaction and the table grew. Same work per run, ordered by where the
+ * rows actually are, clears that in about two runs instead of twenty-eight.
  */
 export async function compactPendingSamples(
   db: Database,
@@ -234,19 +257,15 @@ export async function compactPendingSamples(
 
   for (const metric of COMPACTED_METRICS) {
     for (let i = 0; i < MAX_DAYS_PER_RUN; i++) {
-      const oldest = await db.execute(sql`
-        SELECT min(sample_at) AS from_at FROM health_samples
+      const newest = await db.execute(sql`
+        SELECT max(sample_at) AS at FROM health_samples
         WHERE user_id = ${userId} AND metric = ${metric} AND value_json IS NULL
           AND sample_at < ${cutoff.toISOString()}::timestamp
       `);
-      const fromRaw = (oldest.rows[0] as { from_at: string | Date | null } | undefined)?.from_at;
-      if (!fromRaw) break; // nothing left older than the retention window
+      const newestRaw = (newest.rows[0] as { at: string | Date | null } | undefined)?.at;
+      if (!newestRaw) break; // nothing left older than the retention window
 
-      const from = new Date(fromRaw);
-      // One day at a time, never past the retention cutoff. A minute straddling the
-      // upper bound is compacted partially and completed by a later run — the ON
-      // CONFLICT merge above makes that exact.
-      const to = new Date(Math.min(from.getTime() + 86_400_000, cutoff.getTime()));
+      const { from, to } = compactionWindow(new Date(newestRaw));
       const { rawDeleted, bucketsWritten } = await compactRange(db, userId, metric, from, to);
       result.rawDeleted += rawDeleted;
       result.bucketsWritten += bucketsWritten;
