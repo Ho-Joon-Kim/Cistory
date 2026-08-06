@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: false,
-    include: ["src/**/*.{test,spec}.ts"],
+    include: ["src/**/*.{test,spec}.ts", "scripts/**/*.{test,spec}.ts"],
     setupFiles: ["./vitest.setup.ts"],
     // Injected before any test module loads so module-scope reads don't throw.
     // src/lib/auth.ts calls getPool() at module scope, and 44/62 route modules
