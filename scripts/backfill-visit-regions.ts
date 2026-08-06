@@ -34,9 +34,11 @@
  *
  * Steps:
  *   1. Load `place_cache`. A row is a CACHE-GROUP re-geocode target when
- *      BOTH `region` AND `country` are null — matches visit-persister.ts's
- *      `isStale` rule (see `isCacheRowUnresolved` below for why region
- *      alone is the wrong test).
+ *      BOTH `region` AND `country` are null — the signature every row held
+ *      before migration 0040 introduced those columns (see
+ *      `isCacheRowUnresolved` below for why testing region alone is wrong,
+ *      and why this rule is now independent of visit-persister.ts's own
+ *      `isStale` check).
  *      `place_cache` has no `userId` column — it's a single cache shared by
  *      every user — so this step is necessarily global, not scoped to the
  *      userId argument.
@@ -49,25 +51,42 @@
  *      to be re-geocoded by the cache-group path in step 3, and adding it
  *      again would double the API calls for zero benefit. Two visits
  *      sharing a rounded coordinate produce exactly one orphan-group
- *      target — geocode it once, not twice.
+ *      target — geocode it once, not twice — but this step also keeps ONE
+ *      representative TRUE visit center (`centerLat`/`centerLon`, not the
+ *      rounded grid key) per target, for step 3 to geocode against.
  *   3. Re-geocode both groups TOGETHER via the same adapter selection
  *      (`getGeocodingAdapter`) as visit-persister.ts, throttled per
  *      provider through ONE combined pass (see "Throttling" below — NOT
  *      flat concurrency 5, and NOT two independent throttling windows).
- *        - Cache group: UPDATEs only `region`/`country` on the EXISTING
- *          `place_cache` row — never placeName/address/category/provider,
- *          so a re-geocode (possibly via a different provider than the one
- *          that originally wrote the row) never clobbers an existing,
- *          correct place name.
- *        - Orphan group: INSERTs a brand-new `place_cache` row with every
- *          column set from the geocode result — there is no existing row
- *          whose placeName/address/category/provider must be preserved.
- *          `onConflictDoNothing()` backstops step 2's own dedupe in case a
- *          concurrent process wrote the same coordinate between the load
- *          and this write — the same guard visit-persister.ts's own
- *          geocode-and-insert path uses. It must never touch a row that
- *          already exists, which step 2's cache-map filter already
- *          guarantees by construction.
+ *        - Cache group: calls `reverseGeocode` against the ROUNDED grid key
+ *          itself (there is no other coordinate on record for an existing
+ *          `place_cache` row), and UPDATEs only `region`/`country` on that
+ *          EXISTING row — never placeName/address/category/provider, so a
+ *          re-geocode (possibly via a different provider than the one that
+ *          originally wrote the row) never clobbers an existing, correct
+ *          place name.
+ *        - Orphan group: calls `reverseGeocode` against the TRUE visit
+ *          center kept in step 2, NOT the rounded grid key — matching
+ *          visit-persister.ts's own geocode-and-insert path, which geocodes
+ *          `visit.centerLat`/`centerLon` and only KEYS the cache row by the
+ *          rounded value. This matters more here than for the cache group:
+ *          the cache group only ever writes region/country (시/도-level, far
+ *          coarser than the grid cell), but the orphan group writes
+ *          `placeName`/`address`/`category` into the GLOBAL `place_cache`
+ *          table — geocoding the rounded key (up to ~78m off true center at
+ *          the edge of a 3-decimal cell) would give every later visit
+ *          landing in that grid cell a place name describing a point up to
+ *          78m away. The result is still stored keyed by the ROUNDED
+ *          coordinate (`placeCacheCoordKey`'s grid), only the geocode CALL
+ *          itself targets the true center. INSERTs a brand-new
+ *          `place_cache` row with every column set from the geocode result
+ *          — there is no existing row whose placeName/address/category/
+ *          provider must be preserved. `onConflictDoNothing()` backstops
+ *          step 2's own dedupe in case a concurrent process wrote the same
+ *          coordinate between the load and this write — the same guard
+ *          visit-persister.ts's own geocode-and-insert path uses. It must
+ *          never touch a row that already exists, which step 2's cache-map
+ *          filter already guarantees by construction.
  *   4. UPDATE `visits.city`/`visits.country_name`, scoped to the given
  *      `userId`, for every visit whose rounded (center_lat, center_lon) —
  *      via `placeCacheCoordKey`, the SAME 3-decimal grid key
@@ -137,23 +156,29 @@
  * `place_cache` row needing it (~521 at last count) against billed/
  * rate-limited APIs, --dry-run caps its OWN live geocoding to a small
  * deterministic sample (SAMPLE_SIZE, 20 — matching the spec's "바뀔 값 표본
- * 20건") instead of fetching everything, and reports:
- *   - the exact `place_cache` target count and the exact `visits` candidate
- *     count — both computable without any live geocoding (cheap in-memory
- *     joins over data already loaded), and
- *   - up to 20 real "before → after" sample rows for both place_cache and
- *     visits, drawn from that capped sample, so the preview reflects a real
- *     API response rather than a guess.
+ * 20건") PER GROUP instead of fetching everything, and reports:
+ *   - the exact `place_cache` target count for the cache group, and the
+ *     exact orphan-coordinate count for the orphan group — both computable
+ *     without any live geocoding (cheap in-memory joins/scans over data
+ *     already loaded), and
+ *   - up to 20 real "before → after" sample rows for the cache group's
+ *     `place_cache` UPDATEs and the orphan group's `place_cache` INSERTs
+ *     separately (`printPlaceCacheSample` / `printOrphanCacheSample`, never
+ *     conflated — the orphan-group preview has no "before" state, since
+ *     there is no row yet), plus one combined `visits` preview, all drawn
+ *     from that capped sample so previews reflect real API responses rather
+ *     than a guess.
  * The `visits` "would change" count in dry-run mode is explicitly a
- * lower-bound preview limited to the sampled cache rows, NOT the true
- * full-run count — the run banner says so. The `visits` "candidate" count
- * (matches *some* place_cache coordinate, resolved or not) is exact and
- * unsampled; it is the upper bound the real number can't exceed.
- * The orphan group gets the identical treatment — its own SAMPLE_SIZE-capped
- * live sample, its own exact unsampled target count, and its own
- * "before → after" preview (`printOrphanCacheSample`) — printed separately
- * from the cache group's so the two are never conflated: the orphan-group
- * preview has no "before" state, since there is no row yet.
+ * lower-bound preview limited to the sampled rows, NOT the true full-run
+ * count — the run banner says so. The `visits` "candidate" count (matches
+ * *some* place_cache coordinate already in `cacheMap`, resolved or not) is
+ * exact and unsampled ONLY for the cache group — see `planVisitChanges`'s
+ * own doc comment for why the orphan group breaks that guarantee
+ * specifically in dry-run mode (an orphan coordinate past the sample cap
+ * never enters `cacheMap` at all, so its visits are excluded from
+ * `candidates` too, not just from `changes`) — the printed banner must
+ * spell this out rather than calling the combined number "exact,
+ * unsampled" the way the pre-orphan-group version of this script did.
  */
 
 import { argv, exit } from "node:process";
@@ -281,14 +306,26 @@ async function loadCacheRows(): Promise<CacheRow[]> {
 /**
  * A `place_cache` row is a re-geocode target — and, symmetrically, NOT yet
  * safe to propagate to `visits` — exactly when BOTH `region` and `country`
- * are null. Matches visit-persister.ts's `isStale` rule (see that file's
- * comment): a legitimate geocode can return `region: null` with a set
- * `country` (mapbox.ts/google.ts fall back to null region when no admin
- * region resolves for a coordinate, while still setting country). Testing
- * `region` alone would re-select and re-geocode that row on every future
- * run forever without ever converging — the exact bug this mirrors from
- * visit-persister.ts. Keep this in sync with that file's `isStale` if
- * either changes.
+ * are null: the signature every row held before migration 0040 introduced
+ * those two columns. A legitimate geocode can return `region: null` with a
+ * set `country` (mapbox.ts/google.ts fall back to null region when no admin
+ * region resolves for a coordinate, while still setting country), so
+ * testing `region` alone would re-select and re-geocode that row on every
+ * future run forever without ever converging.
+ *
+ * This rule is now INDEPENDENT of visit-persister.ts's own `isStale` check
+ * (`cached.placeName === cached.address && !cached.category`) — do NOT try
+ * to keep the two "in sync". They test different signatures for different
+ * purposes: `isStale` detects a low-quality/failed geocode so
+ * visit-persister.ts can retry it inline on the next visit-detection run.
+ * The two DID overlap once — visit-persister.ts's comment at its `isStale`
+ * definition explains its null/null clause was deliberately retired,
+ * specifically because this backfill script already ran and cleared every
+ * row matching it (521/521, zero failures) — so there is nothing left
+ * predating migration 0040 for that clause to catch. A future editor
+ * following a "keep these in sync" instruction would be reintroducing dead
+ * code there, or worse, coupling this script's target selection to an
+ * unrelated retry heuristic.
  */
 export function isCacheRowUnresolved(row: {
   region: string | null;
@@ -310,6 +347,20 @@ export function buildCacheMap(rows: CacheRow[]): Map<string, CacheEntry> {
 }
 
 /**
+ * An orphan-group target: the ROUNDED grid key it will be stored/looked-up
+ * under (`latKey`/`lonKey`, `place_cache`'s actual primary lookup key) PLUS
+ * a representative TRUE visit center (`centerLat`/`centerLon` — the first
+ * visit's raw coordinate found at this grid cell) to geocode against. See
+ * `geocodeCoordinateOf` for why the two must not be conflated.
+ */
+export interface OrphanTarget {
+  latKey: number;
+  lonKey: number;
+  centerLat: number;
+  centerLon: number;
+}
+
+/**
  * Discovers the orphan group: coordinates of `visitRows` that have NO
  * `place_cache` row at all in `cacheMap` — not even an unresolved one. A
  * coordinate already present in `cacheMap` (resolved or not) is skipped
@@ -318,31 +369,108 @@ export function buildCacheMap(rows: CacheRow[]): Map<string, CacheEntry> {
  * same coordinate twice for no benefit and, worse, risk a duplicate INSERT
  * attempt racing the cache group's UPDATE. Deduplicates by rounded
  * coordinate so two visits sharing a `placeCacheCoordKey` produce exactly
- * one target, matching the cache group's one-row-per-coordinate shape.
+ * one target, matching the cache group's one-row-per-coordinate shape — the
+ * FIRST visit found at a given grid cell becomes that target's
+ * `centerLat`/`centerLon`, kept alongside the rounded key so step 3 can
+ * geocode the true center instead of the grid key (see `geocodeCoordinateOf`).
  */
 export function findOrphanVisitCoordinates(
   visitRows: { centerLat: number; centerLon: number }[],
   cacheMap: Map<string, CacheEntry>
-): { latKey: number; lonKey: number }[] {
-  const seen = new Map<string, { latKey: number; lonKey: number }>();
+): OrphanTarget[] {
+  const seen = new Map<string, OrphanTarget>();
   for (const v of visitRows) {
     const latKey = placeCacheCoordKey(v.centerLat);
     const lonKey = placeCacheCoordKey(v.centerLon);
     const key = cacheKey(latKey, lonKey);
     if (cacheMap.has(key)) continue; // already has a place_cache row — not an orphan
     if (seen.has(key)) continue; // another visit already queued this coordinate
-    seen.set(key, { latKey, lonKey });
+    seen.set(key, { latKey, lonKey, centerLat: v.centerLat, centerLon: v.centerLon });
   }
   return Array.from(seen.values());
 }
 
-/** Which group a geocode target belongs to — routes the outcome to the UPDATE or INSERT persistence path. */
-type GeocodeTargetKind = "cache" | "orphan";
-
-interface GeocodeTarget {
+interface CacheGeocodeTarget {
+  kind: "cache";
   latKey: number;
   lonKey: number;
-  kind: GeocodeTargetKind;
+}
+
+interface OrphanGeocodeTarget {
+  kind: "orphan";
+  latKey: number;
+  lonKey: number;
+  centerLat: number;
+  centerLon: number;
+}
+
+/** Which group a geocode target belongs to — routes the outcome to the UPDATE or INSERT persistence path. */
+type GeocodeTarget = CacheGeocodeTarget | OrphanGeocodeTarget;
+
+/**
+ * The coordinate to actually call `reverseGeocode` against. For the cache
+ * group this IS the rounded grid key — an existing `place_cache` row has no
+ * other coordinate on record, and re-geocoding it is what the original
+ * script always did. For the orphan group this is the TRUE visit center,
+ * never the rounded grid key: geocoding the grid key would be off by up to
+ * ~78m at the edge of a 3-decimal cell, and unlike the cache group (which
+ * only ever writes 시/도-level region/country) the orphan group writes
+ * placeName/address/category into the GLOBAL `place_cache` table — a wrong
+ * coordinate here leaks a place name describing the wrong point to every
+ * later visit that lands in the same grid cell. Matches
+ * visit-persister.ts's own geocode-and-insert path, which geocodes
+ * `visit.centerLat`/`centerLon` and only KEYS the cache row by the rounded
+ * value.
+ */
+function geocodeCoordinateOf(target: GeocodeTarget): { lat: number; lon: number } {
+  return target.kind === "orphan"
+    ? { lat: target.centerLat, lon: target.centerLon }
+    : { lat: target.latKey, lon: target.lonKey };
+}
+
+/**
+ * Maps one successful geocode `result` to the outcome shape its target's
+ * group expects. This is the ONLY place that decides "this result belongs
+ * to the cache group's UPDATE path" vs "the orphan group's INSERT path" —
+ * pulled out of `geocodeTargets`'s worker as its own pure function
+ * specifically so that routing decision is unit-testable without a live
+ * geocode call. A mis-routing bug here (e.g. an orphan target's result
+ * built as a bare `GeocodeOutcome` and pushed into `cacheOutcomes`) would
+ * be invisible to the type system — `OrphanGeocodeOutcome` structurally
+ * extends `GeocodeOutcome`, so it satisfies that array's element type too —
+ * and would only surface as `applyPlaceCacheUpdates` silently UPDATE-ing
+ * zero rows (see that function's own rowCount guard) while the coordinate
+ * still gets marked resolved without any `place_cache` row ever having been
+ * written.
+ */
+export function buildOutcome(
+  target: GeocodeTarget,
+  result: GeocodingResult
+): { kind: "cache"; outcome: GeocodeOutcome } | { kind: "orphan"; outcome: OrphanGeocodeOutcome } {
+  if (target.kind === "cache") {
+    return {
+      kind: "cache",
+      outcome: {
+        latKey: target.latKey,
+        lonKey: target.lonKey,
+        region: result.region,
+        country: result.country,
+      },
+    };
+  }
+  return {
+    kind: "orphan",
+    outcome: {
+      latKey: target.latKey,
+      lonKey: target.lonKey,
+      region: result.region,
+      country: result.country,
+      placeName: result.placeName,
+      address: result.address,
+      category: result.category ?? null,
+      provider: result.provider,
+    },
+  };
 }
 
 /**
@@ -352,9 +480,13 @@ interface GeocodeTarget {
  * file header's "Throttling" section for why this replaced a flat
  * concurrency 5, and why the two groups share one pass rather than two).
  * Each row gets one retry after a backoff before being recorded as a
- * failure (also from that module). Failures and outcomes are split by
- * group so the caller can route them to the right persistence function
- * (UPDATE vs INSERT) and label failures distinctly in the run's output.
+ * failure (also from that module). The coordinate actually sent to
+ * `reverseGeocode` comes from `geocodeCoordinateOf` (true center for the
+ * orphan group, grid key for the cache group); the coordinate used to KEY
+ * the outcome/failure is always the rounded `latKey`/`lonKey`. Outcomes and
+ * failures are split by group via `buildOutcome` so the caller can route
+ * them to the right persistence function (UPDATE vs INSERT) and label
+ * failures distinctly in the run's output.
  */
 async function geocodeTargets(targets: GeocodeTarget[]): Promise<{
   cacheOutcomes: GeocodeOutcome[];
@@ -369,10 +501,15 @@ async function geocodeTargets(targets: GeocodeTarget[]): Promise<{
 
   await runThrottledGeocode(
     targets,
-    (t) => isInKorea(t.latKey, t.lonKey),
-    async ({ latKey, lonKey, kind }) => {
-      const adapter = getGeocodingAdapter(latKey, lonKey);
-      const { result, failed } = await reverseGeocodeWithRetry(adapter, latKey, lonKey);
+    (t) => {
+      const { lat, lon } = geocodeCoordinateOf(t);
+      return isInKorea(lat, lon);
+    },
+    async (target) => {
+      const { latKey, lonKey, kind } = target;
+      const { lat, lon } = geocodeCoordinateOf(target);
+      const adapter = getGeocodingAdapter(lat, lon);
+      const { result, failed } = await reverseGeocodeWithRetry(adapter, lat, lon);
       if (failed || result === null) {
         const failure: RowFailure = {
           latKey,
@@ -382,19 +519,11 @@ async function geocodeTargets(targets: GeocodeTarget[]): Promise<{
         (kind === "cache" ? cacheFailures : orphanFailures).push(failure);
         return;
       }
-      if (kind === "cache") {
-        cacheOutcomes.push({ latKey, lonKey, region: result.region, country: result.country });
+      const built = buildOutcome(target, result);
+      if (built.kind === "cache") {
+        cacheOutcomes.push(built.outcome);
       } else {
-        orphanOutcomes.push({
-          latKey,
-          lonKey,
-          region: result.region,
-          country: result.country,
-          placeName: result.placeName,
-          address: result.address,
-          category: result.category ?? null,
-          provider: result.provider,
-        });
+        orphanOutcomes.push(built.outcome);
       }
     }
   );
@@ -402,16 +531,40 @@ async function geocodeTargets(targets: GeocodeTarget[]): Promise<{
   return { cacheOutcomes, orphanOutcomes, cacheFailures, orphanFailures };
 }
 
-/** Writes only `region`/`country` — never placeName/address/category/provider. Sequential: these are local DB writes, not the rate-limited resource. */
+/**
+ * Writes only `region`/`country` — never placeName/address/category/
+ * provider. Sequential: these are local DB writes, not the rate-limited
+ * resource.
+ *
+ * Also asserts the UPDATE actually matched a row (`rowCount`). It always
+ * should — every outcome here came from a `cacheTargetRows` row this same
+ * run loaded from `place_cache` — so a 0-row match means either the row
+ * vanished between load and write, or (the scenario `buildOutcome`'s own
+ * doc comment calls out) an orphan-group outcome was mis-routed into this
+ * UPDATE path instead of `applyPlaceCacheInserts`'s INSERT path. Either way
+ * it must be treated as a failure, not silently marked resolved: without
+ * this guard, `resolveOutcomes` would see no write failure and flip the
+ * coordinate to `resolved: true` even though no `place_cache` row for it
+ * was ever actually written.
+ */
 async function applyPlaceCacheUpdates(outcomes: GeocodeOutcome[]): Promise<RowFailure[]> {
   const db = getDb();
   const failures: RowFailure[] = [];
   for (const o of outcomes) {
     try {
-      await db
+      const result = await db
         .update(placeCache)
         .set({ region: o.region, country: o.country })
         .where(and(eq(placeCache.latKey, o.latKey), eq(placeCache.lonKey, o.lonKey)));
+      if (!result.rowCount) {
+        failures.push({
+          latKey: o.latKey,
+          lonKey: o.lonKey,
+          error: new Error(
+            "UPDATE matched 0 rows — no place_cache row exists at this coordinate (possible mis-routed orphan-group outcome; see buildOutcome)"
+          ),
+        });
+      }
     } catch (error) {
       failures.push({ latKey: o.latKey, lonKey: o.lonKey, error });
     }
@@ -429,16 +582,24 @@ async function applyPlaceCacheUpdates(outcomes: GeocodeOutcome[]): Promise<RowFa
  * guard visit-persister.ts's own geocode-and-insert path uses; it must
  * never overwrite a row that already exists. Sequential and per-row
  * try/catch for the same row-failure isolation as `applyPlaceCacheUpdates`.
+ *
+ * Returns `insertedCount` separately from `failures`: a conflict-skip
+ * (`rowCount === 0` via `onConflictDoNothing`, i.e. some other writer got
+ * there first) is NOT a failure — the coordinate is still safe to resolve,
+ * since a `place_cache` row now exists for it either way — but it also
+ * didn't actually insert anything THIS run, so the caller's printed
+ * "inserted=N" total must not count it as one.
  */
 async function applyPlaceCacheInserts(
   outcomes: OrphanGeocodeOutcome[],
   resolvedAt: Date
-): Promise<RowFailure[]> {
+): Promise<{ failures: RowFailure[]; insertedCount: number }> {
   const db = getDb();
   const failures: RowFailure[] = [];
+  let insertedCount = 0;
   for (const o of outcomes) {
     try {
-      await db
+      const result = await db
         .insert(placeCache)
         .values({
           latKey: o.latKey,
@@ -452,11 +613,12 @@ async function applyPlaceCacheInserts(
           resolvedAt,
         })
         .onConflictDoNothing();
+      if (result.rowCount) insertedCount++;
     } catch (error) {
       failures.push({ latKey: o.latKey, lonKey: o.lonKey, error });
     }
   }
-  return failures;
+  return { failures, insertedCount };
 }
 
 /**
@@ -602,12 +764,27 @@ async function loadVisitRows(userId: string): Promise<VisitRow[]> {
 
 /**
  * candidates: any visit whose coordinate matches SOME place_cache row,
- * resolved or not — exact, unsampled, and the upper bound the real "would
- * change" count can't exceed (step 5: no match at all means untouched).
- * This is unchanged by the orphan group: `cacheMap` is the single source of
- * truth, and by the time this runs it already holds every orphan-group
- * coordinate that resolved this run alongside the originally-loaded cache
- * rows, so a visit matching either group is treated identically here.
+ * resolved or not, ALREADY PRESENT IN `cacheMap` at call time (step 5: no
+ * match at all means untouched). `cacheMap` is the single source of truth
+ * for both groups — a visit matching either the cache group or the orphan
+ * group is treated identically here, there is no separate code path.
+ *
+ * Whether `candidates` is the exact, unsampled upper bound on the real
+ * "would change" count depends on how completely `cacheMap` was populated
+ * before this call, which differs by group and by run mode:
+ *   - cache group: ALWAYS exact. `buildCacheMap` loads every `place_cache`
+ *     row into `cacheMap` regardless of dry-run sampling — sampling only
+ *     controls which UNRESOLVED rows get re-geocoded, not whether they're
+ *     present at all.
+ *   - orphan group in an APPLY run: exact. Every orphan coordinate gets
+ *     geocoded (and, on success, an entry in `cacheMap`) this run.
+ *   - orphan group in a DRY run: NOT exact — only capped to SAMPLE_SIZE,
+ *     so an orphan coordinate past the cap never enters `cacheMap` at all,
+ *     and its visits are excluded from `candidates` too (not just from
+ *     `changes`). A dry run's `candidates` count can therefore come in
+ *     LOWER than what a real apply run would show. The caller (`main`)
+ *     must reflect this in what it prints, not call the number "exact,
+ *     unsampled" unconditionally.
  *
  * changes: the subset that is both resolved AND actually differs from the
  * visit's current value (skips no-op writes). In dry-run mode with a capped
@@ -741,25 +918,37 @@ async function main() {
   }
 
   // Step 3: re-geocode both groups together through one throttled pass, so
-  // the printed estimate and the pacing cover the whole run.
+  // the printed estimate and the pacing cover the whole run. The orphan
+  // group carries its true visit center through so geocodeTargets calls
+  // reverseGeocode against it, not the rounded grid key (see
+  // geocodeCoordinateOf).
   const combinedTargets: GeocodeTarget[] = [
-    ...cacheRowsToGeocode.map((r) => ({
-      latKey: r.latKey,
-      lonKey: r.lonKey,
-      kind: "cache" as const,
-    })),
-    ...orphanRowsToGeocode.map((r) => ({
-      latKey: r.latKey,
-      lonKey: r.lonKey,
-      kind: "orphan" as const,
-    })),
+    ...cacheRowsToGeocode.map(
+      (r): GeocodeTarget => ({
+        kind: "cache",
+        latKey: r.latKey,
+        lonKey: r.lonKey,
+      })
+    ),
+    ...orphanRowsToGeocode.map(
+      (r): GeocodeTarget => ({
+        kind: "orphan",
+        latKey: r.latKey,
+        lonKey: r.lonKey,
+        centerLat: r.centerLat,
+        centerLon: r.centerLon,
+      })
+    ),
   ];
   console.log(
     `\nRe-geocode plan: ${cacheRowsToGeocode.length} cache-group row(s) + ${orphanRowsToGeocode.length} ` +
       `orphan-group coordinate(s) = ${combinedTargets.length} total this run.`
   );
 
-  const kakaoCount = combinedTargets.filter((t) => isInKorea(t.latKey, t.lonKey)).length;
+  const kakaoCount = combinedTargets.filter((t) => {
+    const { lat, lon } = geocodeCoordinateOf(t);
+    return isInKorea(lat, lon);
+  }).length;
   console.log(describeThrottlingPlan(kakaoCount, combinedTargets.length - kakaoCount));
 
   const {
@@ -784,10 +973,22 @@ async function main() {
   const placeCacheUpdateFailureCount = cacheWriteFailures.length;
   failures.push(...cacheWriteFailures.map((f) => toFailure("place_cache UPDATE (cache group)", f)));
 
-  const orphanWriteFailures = await resolveOutcomes(orphanOutcomes, cacheMap, dryRun, (outs) =>
-    applyPlaceCacheInserts(outs, now)
+  // insertedCount tracks rows this run ACTUALLY inserted, separate from
+  // write failures — an onConflictDoNothing no-op is neither (see
+  // applyPlaceCacheInserts's own doc comment), so orphanOutcomes.length
+  // minus failures would overstate "inserted" by counting no-ops as if
+  // they were fresh rows.
+  let orphanInsertedCount = 0;
+  const orphanWriteFailures = await resolveOutcomes(
+    orphanOutcomes,
+    cacheMap,
+    dryRun,
+    async (outs) => {
+      const { failures: insertFailures, insertedCount } = await applyPlaceCacheInserts(outs, now);
+      orphanInsertedCount += insertedCount;
+      return insertFailures;
+    }
   );
-  const placeCacheInsertFailureCount = orphanWriteFailures.length;
   failures.push(
     ...orphanWriteFailures.map((f) => toFailure("place_cache INSERT (orphan group)", f))
   );
@@ -800,14 +1001,27 @@ async function main() {
   // orphan group existed.
   const { candidates, changes } = planVisitChanges(visitRows, cacheMap);
 
+  // "candidates" is only genuinely exact/unsampled for the cache group: ALL
+  // of `cacheRows` loads into `cacheMap` regardless of dry-run sampling, so
+  // a visit matching a cache-group coordinate is always counted. The orphan
+  // group is different in dry-run mode specifically: an orphan coordinate
+  // never gets a cacheMap entry until it resolves, and dry-run only
+  // resolves the sampled `orphanRowsToGeocode` slice — so a visit at an
+  // unsampled orphan coordinate is silently excluded from `candidates` too,
+  // not just from `changes`. Calling this "exact, unsampled" unconditionally
+  // (as the pre-orphan-group version of this line did) would be false for a
+  // dry run that has more than SAMPLE_SIZE orphan coordinates; the real
+  // apply-run number can come in HIGHER than what dry-run shows here.
   console.log(
-    `\nvisits (user ${userId}): ${visitRows.length} total, ${candidates.length} match an existing ` +
-      `place_cache coordinate (exact upper bound — the real "would change" count can't exceed this), ` +
-      `${changes.length} would actually change value` +
+    `\nvisits (user ${userId}): ${visitRows.length} total, ${candidates.length} match a ` +
+      `place_cache coordinate already in memory this run` +
       (dryRun
-        ? ` based on the ${cacheRowsToGeocode.length} cache-group + ${orphanRowsToGeocode.length} ` +
-          `orphan-group geocode sample above (NOT the true full-run count).`
-        : ".")
+        ? ` (exact for the cache group; for the orphan group this only reflects the ` +
+          `${orphanRowsToGeocode.length}-of-${orphanCoordinates.length} sampled coordinate(s) that ` +
+          `resolved above — an apply run's candidate count can come in HIGHER than this).`
+        : ` (exact upper bound — the real "would change" count can't exceed this).`) +
+      ` ${changes.length} would actually change value` +
+      (dryRun ? ` based on that same sample (NOT the true full-run count).` : ".")
   );
 
   printVisitSample(changes);
@@ -817,7 +1031,8 @@ async function main() {
     failures.push(...visitFailures);
     console.log(
       `\nAPPLY totals: place_cache updated=${cacheOutcomes.length - placeCacheUpdateFailureCount}/${cacheTargetRows.length}, ` +
-        `place_cache inserted=${orphanOutcomes.length - placeCacheInsertFailureCount}/${orphanCoordinates.length}, ` +
+        `place_cache inserted=${orphanInsertedCount}/${orphanCoordinates.length} ` +
+        `(${orphanOutcomes.length - orphanInsertedCount - orphanWriteFailures.length} conflict-skip no-op(s) not counted as inserts), ` +
         `visits updated=${changes.length - visitFailures.length}/${changes.length}, failures=${failures.length}.`
     );
   } else {

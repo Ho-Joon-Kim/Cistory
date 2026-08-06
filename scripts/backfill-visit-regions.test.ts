@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { GeocodingResult } from "../src/lib/adapters/geocoding";
 import { placeCacheCoordKey } from "../src/lib/geo";
 import type { CacheEntry, VisitRow } from "./backfill-visit-regions";
 import {
+  buildOutcome,
   cacheKey,
   findOrphanVisitCoordinates,
   isCacheRowUnresolved,
@@ -109,15 +111,24 @@ describe("isCacheRowUnresolved", () => {
 // untouched") could never reach those visits no matter how many times it
 // ran — this "orphan group" is what discovers them.
 describe("findOrphanVisitCoordinates", () => {
-  it("a visit coordinate with no place_cache row becomes an orphan-group target", () => {
+  it("a visit coordinate with no place_cache row becomes an orphan-group target, carrying the TRUE center alongside the rounded grid key", () => {
     const cacheMap = new Map<string, CacheEntry>();
     const centerLat = 37.5665;
     const centerLon = 126.978;
 
     const result = findOrphanVisitCoordinates([{ centerLat, centerLon }], cacheMap);
 
+    // Both the rounded grid key (what place_cache is looked up/written by)
+    // AND the true visit center (what reverseGeocode must be called
+    // against — see geocodeCoordinateOf) must be present. Losing the true
+    // center here would silently regress to geocoding the rounded key.
     expect(result).toEqual([
-      { latKey: placeCacheCoordKey(centerLat), lonKey: placeCacheCoordKey(centerLon) },
+      {
+        latKey: placeCacheCoordKey(centerLat),
+        lonKey: placeCacheCoordKey(centerLon),
+        centerLat,
+        centerLon,
+      },
     ]);
   });
 
@@ -158,12 +169,86 @@ describe("findOrphanVisitCoordinates", () => {
 
     const result = findOrphanVisitCoordinates([visitA, visitB], cacheMap);
 
+    // The FIRST visit at the grid cell is the representative true center —
+    // visitA's raw coordinates, not visitB's, and not the rounded key.
     expect(result).toEqual([
       {
         latKey: placeCacheCoordKey(visitA.centerLat),
         lonKey: placeCacheCoordKey(visitA.centerLon),
+        centerLat: visitA.centerLat,
+        centerLon: visitA.centerLon,
       },
     ]);
+  });
+});
+
+// Coordinator review round 2, Finding 3: geocodeTargets' routing of a
+// geocode result to the cache group's UPDATE path vs the orphan group's
+// INSERT path had no direct test — a mis-routing bug (e.g. an orphan
+// result built as a bare cache outcome) would be invisible to the type
+// system, since OrphanGeocodeOutcome structurally satisfies GeocodeOutcome
+// too. buildOutcome is the one place that decision is made; pin it here
+// without needing a live geocode call.
+describe("buildOutcome", () => {
+  const fakeResult: GeocodingResult = {
+    placeName: "스타벅스 강남R점",
+    address: "서울 강남구 역삼동",
+    category: "카페",
+    provider: "kakao",
+    region: "서울",
+    country: "대한민국",
+  };
+
+  it("routes a cache-group target to a bare region/country outcome for the UPDATE path", () => {
+    const target = { kind: "cache" as const, latKey: 37.5, lonKey: 127.0 };
+
+    const built = buildOutcome(target, fakeResult);
+
+    expect(built).toEqual({
+      kind: "cache",
+      outcome: { latKey: 37.5, lonKey: 127.0, region: "서울", country: "대한민국" },
+    });
+  });
+
+  it("routes an orphan-group target to a full outcome (placeName/address/category/provider) for the INSERT path", () => {
+    const target = {
+      kind: "orphan" as const,
+      latKey: 37.5,
+      lonKey: 127.0,
+      centerLat: 37.50044,
+      centerLon: 127.00048,
+    };
+
+    const built = buildOutcome(target, fakeResult);
+
+    expect(built).toEqual({
+      kind: "orphan",
+      outcome: {
+        latKey: 37.5,
+        lonKey: 127.0,
+        region: "서울",
+        country: "대한민국",
+        placeName: "스타벅스 강남R점",
+        address: "서울 강남구 역삼동",
+        category: "카페",
+        provider: "kakao",
+      },
+    });
+  });
+
+  it("keys both groups' outcomes by the ROUNDED grid key, not the orphan target's true center", () => {
+    const target = {
+      kind: "orphan" as const,
+      latKey: 37.5,
+      lonKey: 127.0,
+      centerLat: 37.50044,
+      centerLon: 127.00048,
+    };
+
+    const built = buildOutcome(target, fakeResult);
+
+    expect(built.outcome.latKey).toBe(37.5);
+    expect(built.outcome.lonKey).toBe(127.0);
   });
 });
 
@@ -173,21 +258,16 @@ describe("findOrphanVisitCoordinates", () => {
 // see the file header's "Row-failure isolation" and its orphan-group
 // addendum.
 describe("resolveOutcomes + planVisitChanges (orphan-group resolution gate)", () => {
-  it("an orphan coordinate that never produced a geocode outcome stays absent from the cache map, and its visit is left untouched", async () => {
+  it("an orphan coordinate that never produced a geocode outcome (failed reverseGeocode) stays absent from the cache map, and its visit is left untouched", () => {
     const centerLat = 37.5665;
     const centerLon = 126.978;
-    const cacheMap = new Map<string, CacheEntry>(); // orphan candidate: no place_cache row at all
-
-    // Simulates geocodeTargets() finding zero outcomes for this coordinate
-    // — a failed reverseGeocode (after retry) never reaches resolveOutcomes
-    // as an outcome at all, it only shows up in the failures list.
-    const writeFailures = await resolveOutcomes([], cacheMap, false, async (outs) => {
-      expect(outs).toEqual([]);
-      return [];
-    });
-
-    expect(writeFailures).toEqual([]);
-    expect(cacheMap.size).toBe(0);
+    // A failed reverseGeocode (after retry) never reaches resolveOutcomes as
+    // an outcome — it only shows up in geocodeTargets' failures list, so
+    // there is nothing to resolve and cacheMap simply never gets an entry
+    // for this coordinate. Exercised directly via planVisitChanges rather
+    // than a no-op resolveOutcomes([], ...) call (which would pass whether
+    // or not the resolution gate exists at all, and isn't real coverage).
+    const cacheMap = new Map<string, CacheEntry>();
 
     const visitRows: VisitRow[] = [
       {
@@ -204,6 +284,37 @@ describe("resolveOutcomes + planVisitChanges (orphan-group resolution gate)", ()
     // candidate.
     expect(candidates).toEqual([]);
     expect(changes).toEqual([]);
+  });
+
+  it("dry-run mode never invokes the writer — an INSERT/UPDATE firing during --dry-run is the worst bug this script could have", async () => {
+    const centerLat = 37.5665;
+    const centerLon = 126.978;
+    const latKey = placeCacheCoordKey(centerLat);
+    const lonKey = placeCacheCoordKey(centerLon);
+    const cacheMap = new Map<string, CacheEntry>();
+    const outcome = { latKey, lonKey, region: "서울", country: "대한민국" };
+
+    let writerCalls = 0;
+    const writer = async () => {
+      writerCalls++;
+      return [];
+    };
+
+    const writeFailures = await resolveOutcomes([outcome], cacheMap, true, writer);
+
+    // The direct pin: if the `if (dryRun) { ...; return []; }` early return
+    // in resolveOutcomes were ever removed, this would call `writer` and
+    // writerCalls would be 1, failing this assertion.
+    expect(writerCalls).toBe(0);
+    expect(writeFailures).toEqual([]);
+    // Resolution still happens from the geocode alone — dry-run has nothing
+    // to gate a write on, so a successful geocode is enough (matches the
+    // file header's "--dry-run" section).
+    expect(cacheMap.get(cacheKey(latKey, lonKey))).toEqual({
+      region: "서울",
+      country: "대한민국",
+      resolved: true,
+    });
   });
 
   it("an orphan coordinate whose place_cache INSERT fails after a successful geocode stays unresolved, and its visit is left untouched", async () => {
