@@ -1473,7 +1473,12 @@ export class ReportService {
       effort: "medium",
     });
 
-    return result.content;
+    const content = result.content.trim();
+    if (!content) {
+      throw new Error(`AI returned an empty narrative (stopReason: ${result.stopReason})`);
+    }
+
+    return content;
   }
 
   // ==================== Deep Reports Private Methods ====================
