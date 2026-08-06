@@ -25,6 +25,10 @@ const limit = Math.max(1, Math.min(Number(args.get("--limit") ?? 500), 5000));
 const batchSize = Math.max(1, Math.min(Number(args.get("--batch-size") ?? 25), 50));
 const userId = args.get("--user");
 const model = String(args.get("--model") ?? "claude-haiku-4-5");
+// Sonnet 5 / Opus 5 reject non-default sampling params (temperature) with a
+// 400. This script's default model accepts it and relies on it for
+// deterministic classification; only send it for models known to accept it.
+const SAMPLING_CAPABLE_MODELS = new Set(["claude-haiku-4-5"]);
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
 if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is required");
@@ -93,6 +97,17 @@ async function loadPending() {
   return result.rows;
 }
 
+function buildRequestOptions(batch) {
+  const options = {
+    model,
+    max_tokens: Math.max(500, batch.length * 60),
+    system: "당신은 한국 소비 거래 분류기입니다. 유효한 JSON만 출력하세요.",
+    messages: [{ role: "user", content: prompt(batch) }],
+  };
+  if (SAMPLING_CAPABLE_MODELS.has(model)) options.temperature = 0;
+  return options;
+}
+
 async function run() {
   const rows = await loadPending();
   console.log(
@@ -105,14 +120,11 @@ async function run() {
   for (let offset = 0; offset < rows.length; offset += batchSize) {
     const batch = rows.slice(offset, offset + batchSize);
     try {
-      const response = await anthropic.messages.create({
-        model,
-        max_tokens: Math.max(500, batch.length * 60),
-        temperature: 0,
-        system: "당신은 한국 소비 거래 분류기입니다. 유효한 JSON만 출력하세요.",
-        messages: [{ role: "user", content: prompt(batch) }],
-      });
-      const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+      const response = await anthropic.messages.create(buildRequestOptions(batch));
+      // content[0]이 아니라 text 블록을 찾는다 — adaptive thinking이 기본으로
+      // 켜진 모델(Sonnet 5/Opus 5)은 첫 블록이 thinking이라 content[0]만
+      // 읽으면 빈 문자열이 되어 배치 전체가 조용히 미분류로 남는다.
+      const text = response.content.find((block) => block.type === "text")?.text ?? "";
       const classifications = parseResponse(text, new Set(batch.map((item) => item.id)));
       const classifiedIds = new Set(classifications.map((item) => item.id));
 
