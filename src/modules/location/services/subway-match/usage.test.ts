@@ -33,9 +33,14 @@ import { numberedMatchesCte } from "./usage";
  *      not simulated by this file.
  *   3. Source-text guards (same technique as ../../../db/raw-sql-now.test.ts)
  *      pinning that no `sql\`` block anywhere in usage.ts still derives
- *      ordering from the stored (segment-local) `leg_order` column, and
- *      that all three sites actually call the shared builder rather than
- *      re-inlining their own copy of the CTE.
+ *      ordering from the stored (segment-local) `leg_order` column, that
+ *      all three sites actually call the shared builder rather than
+ *      re-inlining their own copy of the CTE, that none of the file's seven
+ *      date-filtered queries binds a bare `fromDate`/`toExclusiveDate`
+ *      (`numberedMatchesCte` only made the 3 CTE-consuming sites
+ *      structurally safe — the other 4 still bind inline, with zero
+ *      structural coverage until this guard), and that the `user_id` scope
+ *      survives at its expected count across all five template locations.
  */
 
 describe("numberedMatchesCte — the actual SQL and params it generates", () => {
@@ -99,6 +104,32 @@ describe("usage.ts source guards (mirrors db/raw-sql-now.test.ts's technique)", 
   it("all three sites call the shared builder instead of re-inlining their own CTE", () => {
     const calls = source.match(/numberedMatchesCte\(userId, fromDate, toExclusiveDate\)/g);
     expect(calls).toHaveLength(3);
+  });
+
+  // `numberedMatchesCte` made the 3 CTE-consuming sites structurally safe,
+  // but 4 of the 7 date-filtered queries (getSubwayInsights's aggRes/
+  // lineRes, getSubwayUsage's linesRes/stationsRes) still bind fromDate/
+  // toExclusiveDate inline, with zero structural coverage — this file
+  // already shipped the raw-Date bug once (see the file's own header
+  // comment). This must run against the RAW `source` string, not
+  // `extractSqlTemplates`'s output below: that helper's depth-walk strips
+  // the `${` `}` interpolation delimiters as it flattens a template into a
+  // body string, so a bare `${fromDate}` no longer looks like `${fromDate}`
+  // by the time it reaches `sqlBlocks` — this guard would silently never
+  // fire if it ran against that extracted text instead of `source`.
+  it("no query binds a bare fromDate/toExclusiveDate — every date bound must route through timestampParam", () => {
+    expect(source).not.toMatch(/\$\{\s*(fromDate|toExclusiveDate)\s*\}/);
+  });
+
+  // Same reasoning, for the user_id scope: 4 sites still write
+  // `m.user_id = ${userId}::uuid` inline (the 5th copy lives inside
+  // numberedMatchesCte, shared by the other 3 sites). Pinning the exact
+  // count catches either a filter quietly dropped (a cross-user data leak)
+  // or a stray duplicate, without needing per-query line numbers that
+  // would drift as the file is edited.
+  it("every date-filtered query keeps its user_id scope (5 occurrences: 4 inline + 1 inside numberedMatchesCte)", () => {
+    const calls = source.match(/m\.user_id = \$\{userId\}::uuid/g);
+    expect(calls).toHaveLength(5);
   });
 });
 

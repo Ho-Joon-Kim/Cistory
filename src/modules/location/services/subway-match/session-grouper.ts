@@ -18,8 +18,14 @@
  * to the same new position (e.g. both "leg 0 of their own session"), which
  * is a permanent collision on the index's *final* values, not just a
  * transient one a reordered UPDATE sequence could dodge. Session-local
- * ordering is instead derived at *read* time in `usage.ts` via
- * `ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY sub_start_time, ...)`.
+ * ordering is instead derived at *read* time in `usage.ts`'s
+ * `numberedMatchesCte()` via `ROW_NUMBER() OVER (PARTITION BY
+ * COALESCE(session_id, id) ORDER BY sub_start_time, sub_end_time, id)` — the
+ * `COALESCE(session_id, id)` matters: a plain `PARTITION BY session_id`
+ * would lump every unsessioned row (session_id IS NULL) into one shared
+ * partition and rank them against each other by time, instead of each
+ * ranking as its own singleton "session" the way `numberedMatchesCte`'s doc
+ * comment (and CLAUDE.md) describe.
  */
 
 import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
