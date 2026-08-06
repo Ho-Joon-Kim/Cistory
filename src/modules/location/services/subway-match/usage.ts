@@ -4,10 +4,21 @@
  * Reads subway_trip_matches plus its joined subway_lines/stations and produces
  * a small summary object: total sessions, leg count, transfer count, distance,
  * top lines/stations.
+ *
+ * Every `fromDate`/`toExclusiveDate` window bound is passed through
+ * `timestampParam(subwayTripMatches.subStartTime, …)`, never interpolated
+ * into a `sql` template as a bare Date. A bare Date bypasses Drizzle's
+ * column mapping: node-postgres serializes it with an offset in the
+ * *process* timezone (KST in production), and Postgres coerces that into
+ * `sub_start_time`'s `timestamp without time zone` by dropping the offset —
+ * landing the boundary at 09:00 KST instead of midnight, 9h off the
+ * column's UTC-wall-time write convention (see src/db/sql.ts). This had
+ * already shipped twice elsewhere in the repo before landing here too.
  */
 
-import { sql } from "drizzle-orm";
-import { type Database, getDb } from "@/db";
+import { type SQL, sql } from "drizzle-orm";
+import { type Database, getDb, subwayTripMatches } from "@/db";
+import { timestampParam } from "@/db/sql";
 import { resolveLineColor } from "@/lib/subway-color";
 
 export interface SubwayUsageTopLine {
@@ -26,7 +37,7 @@ export interface SubwayUsageTopStation {
 export interface SubwayUsageData {
   totalSessions: number;
   totalLegs: number;
-  /** Number of transfer events (legs with leg_order > 0). */
+  /** Number of transfer events (legs that aren't the first leg of their session). */
   transferCount: number;
   /** Approximate total subway distance in meters. */
   totalDistanceMeters: number;
@@ -117,6 +128,68 @@ interface InsightAggRow {
   total_legs: number | string;
 }
 
+/**
+ * The `numbered_matches` CTE shared by every query that needs session-local
+ * leg order: `getSubwayInsights`'s `pairsRes` (adjacency) and
+ * `getSubwayUsage`'s `aggRes` (transfer count) and `transferRes`
+ * (adjacency). Single-sourced rather than tripled by hand so the user scope
+ * and the date-window binding are structural, not copy-paste discipline —
+ * `usage.test.ts` renders this function's own SQL/params and pins both.
+ *
+ * `leg_order` on subway_trip_matches is segment-local (matcher.ts's
+ * numbering within one transportation_segment_id), not session-local — see
+ * session-grouper.ts's file header for why the grouper never renumbers it.
+ * `ROW_NUMBER()` derives the session-local position instead:
+ *
+ *   PARTITION BY COALESCE(session_id, id)
+ *     Groups legs by session, except an unsessioned row (session_id IS
+ *     NULL — currently 47 matches across 12 days that predate this fix, but
+ *     possible any time the grouper's pass over a day fails) sits in a
+ *     singleton partition keyed by its own id: it always ranks leg 1 of
+ *     "its own session" (never a transfer) and can't be paired as adjacent
+ *     to anything. Plain `PARTITION BY session_id` would instead lump every
+ *     unsessioned row of the whole query window into one shared NULL
+ *     partition and rank them against each other by time — `=` in the
+ *     adjacency joins already excludes NULL-to-NULL pairings on its own
+ *     (SQL's `NULL = NULL` is never true), but the transfer-count filter
+ *     below has no such join to protect it, so those rows would land at
+ *     leg_rn > 1 by chance of where they fall in that shared ordering,
+ *     over-counting transfers that never happened.
+ *   ORDER BY sub_start_time, sub_end_time, id
+ *     Two legs in one session can share a sub_start_time exactly (GPS
+ *     timestamps are second-resolution). Without a tiebreaker, Postgres's
+ *     tie order is arbitrary and could differ run to run, silently
+ *     swapping which line pairs with which in the adjacency joins.
+ *     sub_end_time breaks the tie deterministically; id is the final
+ *     tiebreaker for the residual exact-tie case, guaranteeing a strict
+ *     total order.
+ *
+ * Note: `count(DISTINCT session_id)` (totalSessions, elsewhere in this
+ * file) ignores NULL, while this CTE's COALESCE gives every unsessioned row
+ * its own "session" — so totalLegs can legitimately exceed the sum of legs
+ * across totalSessions. Deliberate, not a bug: we don't know an unsessioned
+ * row's real session, so it's excluded from the session count but still
+ * counted as a leg.
+ *
+ * Window bound via `timestampParam` — see the file header for why a bare
+ * Date must never be interpolated into this template directly.
+ */
+export function numberedMatchesCte(userId: string, fromDate: Date, toExclusiveDate: Date): SQL {
+  return sql`
+    numbered_matches AS (
+      SELECT m.*,
+             ROW_NUMBER() OVER (
+               PARTITION BY COALESCE(m.session_id, m.id)
+               ORDER BY m.sub_start_time, m.sub_end_time, m.id
+             ) AS leg_rn
+      FROM subway_trip_matches m
+      WHERE m.user_id = ${userId}::uuid
+        AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+        AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
+    )
+  `;
+}
+
 export async function getSubwayInsights(
   userId: string,
   fromDate: Date,
@@ -131,8 +204,8 @@ export async function getSubwayInsights(
       count(*)::int                     AS total_legs
     FROM subway_trip_matches m
     WHERE m.user_id = ${userId}::uuid
-      AND m.sub_start_time >= ${fromDate}
-      AND m.sub_start_time < ${toExclusiveDate}
+      AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+      AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
   `);
   const agg = (aggRes.rows[0] ?? null) as unknown as InsightAggRow | null;
 
@@ -161,14 +234,17 @@ export async function getSubwayInsights(
     JOIN numbered_lines l ON l.id = m.line_id
     JOIN transportation_segments s ON s.id = m.transportation_segment_id
     WHERE m.user_id = ${userId}::uuid
-      AND m.sub_start_time >= ${fromDate}
-      AND m.sub_start_time < ${toExclusiveDate}
+      AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+      AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     GROUP BY l.id, l.ref, l.name, l.colour, l.network, l.fallback_idx
     ORDER BY ride_count DESC
     LIMIT 12
   `);
 
-  // Transfer pairs: for each session, walk consecutive legs.
+  // Transfer pairs: for each session, walk consecutive legs. Session-local
+  // adjacency is derived at read time by numberedMatchesCte — see its doc
+  // comment for the tie-breaking, null-session_id, and totalLegs-vs-
+  // totalSessions reasoning.
   const pairsRes = await db.execute(sql`
     WITH numbered_lines AS (
       SELECT id, system_id, name, ref, colour, network,
@@ -177,7 +253,8 @@ export async function getSubwayInsights(
                                             ORDER BY ref, name, id) - 1)
                   ELSE 0 END AS fallback_idx
       FROM subway_lines
-    )
+    ),
+    ${numberedMatchesCte(userId, fromDate, toExclusiveDate)}
     SELECT
       l1.ref AS from_ref, l1.name AS from_name, l1.colour AS from_colour,
       l1.network AS from_network, l1.fallback_idx AS from_fb,
@@ -185,18 +262,17 @@ export async function getSubwayInsights(
       l2.network AS to_network, l2.fallback_idx AS to_fb,
       st.name AS station_name,
       count(*)::int AS pair_count
-    FROM subway_trip_matches m1
-    JOIN subway_trip_matches m2
+    FROM numbered_matches m1
+    JOIN numbered_matches m2
+      -- Equality never matches when either side is NULL, so this already
+      -- excludes unsessioned rows on its own; the COALESCE above is what
+      -- keeps their leg_rn from being computed against unrelated rows.
       ON m2.session_id = m1.session_id
-     AND m2.user_id = m1.user_id
-     AND m2.leg_order = m1.leg_order + 1
+     AND m2.leg_rn = m1.leg_rn + 1
     JOIN numbered_lines l1 ON l1.id = m1.line_id
     JOIN numbered_lines l2 ON l2.id = m2.line_id
     LEFT JOIN subway_stations st ON st.id = m1.end_station_id
-    WHERE m1.user_id = ${userId}::uuid
-      AND m1.sub_start_time >= ${fromDate}
-      AND m1.sub_start_time < ${toExclusiveDate}
-      AND st.name IS NOT NULL
+    WHERE st.name IS NOT NULL
     GROUP BY l1.ref, l1.name, l1.colour, l1.network, l1.fallback_idx,
              l2.ref, l2.name, l2.colour, l2.network, l2.fallback_idx,
              st.name
@@ -253,20 +329,21 @@ export async function getSubwayUsage(
 ): Promise<SubwayUsageData> {
   const db = getDb();
 
+  // transfer_count = "not the first leg of its session", derived from time
+  // order rather than the stored (segment-local) leg_order — see
+  // numberedMatchesCte's doc comment for the full reasoning.
   const aggRes = await db.execute(sql`
+    WITH ${numberedMatchesCte(userId, fromDate, toExclusiveDate)}
     SELECT
       count(DISTINCT m.session_id)::int                                AS total_sessions,
       count(*)::int                                                    AS total_legs,
-      count(*) FILTER (WHERE m.leg_order > 0)::int                    AS transfer_count,
+      count(*) FILTER (WHERE m.leg_rn > 1)::int                       AS transfer_count,
       sum(
         extract(epoch FROM (m.sub_end_time - m.sub_start_time)) /
         NULLIF(extract(epoch FROM (s.end_time - s.start_time)), 0) * s.distance_meters
       ) AS total_distance
-    FROM subway_trip_matches m
+    FROM numbered_matches m
     JOIN transportation_segments s ON s.id = m.transportation_segment_id
-    WHERE m.user_id = ${userId}::uuid
-      AND m.sub_start_time >= ${fromDate}
-      AND m.sub_start_time < ${toExclusiveDate}
   `);
   const agg = (aggRes.rows[0] ?? null) as unknown as AggRow | null;
 
@@ -290,8 +367,8 @@ export async function getSubwayUsage(
     FROM subway_trip_matches m
     JOIN numbered_lines l ON l.id = m.line_id
     WHERE m.user_id = ${userId}::uuid
-      AND m.sub_start_time >= ${fromDate}
-      AND m.sub_start_time < ${toExclusiveDate}
+      AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+      AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     GROUP BY l.id, l.ref, l.name, l.colour, l.network, l.fallback_idx
     ORDER BY ride_count DESC
     LIMIT 3
@@ -302,8 +379,8 @@ export async function getSubwayUsage(
       SELECT m.id, m.start_station_id, m.end_station_id
       FROM subway_trip_matches m
       WHERE m.user_id = ${userId}::uuid
-        AND m.sub_start_time >= ${fromDate}
-        AND m.sub_start_time < ${toExclusiveDate}
+        AND m.sub_start_time >= ${timestampParam(subwayTripMatches.subStartTime, fromDate)}
+        AND m.sub_start_time < ${timestampParam(subwayTripMatches.subStartTime, toExclusiveDate)}
     ),
     visited AS (
       SELECT start_station_id AS sid FROM legs WHERE start_station_id IS NOT NULL
@@ -321,18 +398,17 @@ export async function getSubwayUsage(
   // Transfer stations: end-station of leg N matches start-station of leg N+1
   // within the same session (or the cluster radius — we already used the same
   // station id during grouping, so id-equality is sufficient at this point).
+  // Session-local adjacency derived from time order — see numberedMatchesCte's
+  // doc comment for the tie-breaking and null-session_id reasoning.
   const transferRes = await db.execute(sql`
+    WITH ${numberedMatchesCte(userId, fromDate, toExclusiveDate)}
     SELECT s.name AS name, count(*)::int AS count
-    FROM subway_trip_matches m1
-    JOIN subway_trip_matches m2
+    FROM numbered_matches m1
+    JOIN numbered_matches m2
       ON m2.session_id = m1.session_id
-     AND m2.user_id = m1.user_id
-     AND m2.leg_order = m1.leg_order + 1
+     AND m2.leg_rn = m1.leg_rn + 1
     JOIN subway_stations s ON s.id = m1.end_station_id
-    WHERE m1.user_id = ${userId}::uuid
-      AND m1.sub_start_time >= ${fromDate}
-      AND m1.sub_start_time < ${toExclusiveDate}
-      AND s.name IS NOT NULL
+    WHERE s.name IS NOT NULL
     GROUP BY s.name
     ORDER BY count DESC
     LIMIT 5
