@@ -2,7 +2,11 @@ import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "@/db";
 import { accountRoles, transactions, users } from "@/db/schema";
-import { type ClaudeAdapter, createClaudeAdapter } from "@/lib/adapters/ai/claude";
+import {
+  type ClaudeAdapter,
+  type ClaudeModel,
+  createClaudeAdapter,
+} from "@/lib/adapters/ai/claude";
 import { logger } from "@/lib/logger";
 import { EXPENSE_CATEGORIES, type ExpenseCategory, isExpenseCategory } from "./categories";
 import { accountRolesJoinOn, bucketSql } from "./classify";
@@ -89,12 +93,12 @@ export async function classifyExpenses(
 
 export class ExpenseCategoryService {
   private ai: ClaudeAdapter;
-  private model: string;
+  private model: ClaudeModel;
 
   constructor(
     private db: Database,
     anthropicApiKey: string,
-    model: string = EXPENSE_CLASSIFIER_MODEL
+    model: ClaudeModel = EXPENSE_CLASSIFIER_MODEL
   ) {
     this.ai = createClaudeAdapter(anthropicApiKey, model);
     this.model = model;
@@ -211,7 +215,7 @@ export class ExpenseCategoryService {
 export function createExpenseCategoryService(
   db: Database,
   anthropicApiKey: string,
-  model?: string
+  model?: ClaudeModel
 ): ExpenseCategoryService {
   return new ExpenseCategoryService(db, anthropicApiKey, model);
 }
