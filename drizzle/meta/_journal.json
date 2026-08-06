@@ -274,6 +274,13 @@
       "when": 1785380911613,
       "tag": "0038_drop_unused_location_lonlat_gist",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785975306780,
+      "tag": "0039_location_processing_point_count",
+      "breakpoints": true
     }
   ]
 }

@@ -66,9 +66,21 @@ async function markLocationDayCompleted(
   date: string,
   now: Date
 ) {
+  // Record how many points the day held at completion. That count is what makes the
+  // day "settled": if it later differs, points arrived after the pipeline ran and the
+  // day becomes a candidate again. This replaces the old `anomaly IS NULL` marker,
+  // which cost a rewrite of ~98% of the day's rows every run. A count is used rather
+  // than comparing `location_points.created_at` against `completed_at` because those
+  // two columns are on different timezone conventions (UTC wall vs KST wall), so the
+  // comparison would be silently 9 hours wrong.
   await db.execute(sql`
     UPDATE location_processing_days
-    SET status = 'completed', completed_at = ${now}, last_error = NULL, updated_at = ${now}
+    SET status = 'completed', completed_at = ${now}, last_error = NULL, updated_at = ${now},
+      point_count = (
+        SELECT count(*)::int FROM location_points
+        WHERE user_id = ${userId}
+          AND (timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date = ${date}::date
+      )
     WHERE user_id = ${userId} AND date = ${date}
   `);
 }
@@ -157,21 +169,23 @@ async function candidateDates(
   const result = await db.execute<{ d: string; [key: string]: unknown }>(sql`
     SELECT to_char(candidate_days.d, 'YYYY-MM-DD') AS d FROM (
       SELECT point_days.d FROM (
-        SELECT d, count(*) FILTER (WHERE anomaly IS NULL)::int AS pending_count FROM (
-          SELECT
-            (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d,
-            anomaly
-          FROM location_points
-          WHERE user_id = ${userId}
-            AND timestamp >= (now() at time zone 'UTC') - interval '45 days'
-            AND (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date <= ${today}::date
-        ) point_candidates
-        GROUP BY d
+        SELECT
+          (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d,
+          count(*)::int AS point_count
+        FROM location_points
+        WHERE user_id = ${userId}
+          AND timestamp >= (now() at time zone 'UTC') - interval '45 days'
+          AND (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date <= ${today}::date
+        GROUP BY 1
       ) point_days
       LEFT JOIN location_processing_days processing
         ON processing.user_id = ${userId}
         AND processing.date = to_char(point_days.d, 'YYYY-MM-DD')
-      WHERE point_days.pending_count > 0
+      -- A settled day is one whose recorded point_count still matches what is there.
+      -- A NULL point_count means "completed before we tracked it" and is treated as
+      -- unknown, so the day gets re-examined once. Replaces the old marker scan,
+      -- count(*) FILTER (WHERE anomaly IS NULL) > 0.
+      WHERE processing.point_count IS DISTINCT FROM point_days.point_count
         OR point_days.d IN (${yesterday}::date, ${today}::date)
         OR processing.id IS NULL
         OR processing.status = 'failed'

@@ -65,13 +65,26 @@ export async function planBackfill(
         ? sql`AND d = (now() at time zone 'Asia/Seoul')::date`
         : sql``;
 
+  // A day needs work when `location_processing_days` has no completed row for it, or
+  // the count it completed with no longer matches what the day holds (points arrived
+  // late). This replaces a scan for `anomaly IS NULL`, which required the pipeline to
+  // stamp every clean point every run — ~98% of the table's write volume.
   const unprocessed = await db.execute<{ d: string; [key: string]: unknown }>(sql`
     SELECT to_char(d, 'YYYY-MM-DD') as d FROM (
-      SELECT (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date as d
-      FROM location_points
-      WHERE user_id = ${userId}
-      GROUP BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date
-      HAVING count(*) filter (where anomaly IS NULL) > 0
+      SELECT point_days.d
+      FROM (
+        SELECT (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date as d,
+               count(*)::int as point_count
+        FROM location_points
+        WHERE user_id = ${userId}
+        GROUP BY 1
+      ) point_days
+      LEFT JOIN location_processing_days processing
+        ON processing.user_id = ${userId}
+        AND processing.date = to_char(point_days.d, 'YYYY-MM-DD')
+        AND processing.status = 'completed'
+      WHERE processing.id IS NULL
+         OR processing.point_count IS DISTINCT FROM point_days.point_count
     ) unprocessed
     WHERE 1=1 ${scopeFilter}
     ORDER BY d

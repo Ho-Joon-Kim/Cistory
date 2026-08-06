@@ -125,15 +125,18 @@ export async function runAnomalyDetectionForDay(
   `);
   const speedMarked = Number(speedResult.rowCount ?? 0);
 
-  // Mark remaining NULL points as false (scanned, not anomaly)
-  await db.execute(sql`
-    UPDATE location_points
-    SET anomaly = false
-    WHERE user_id = ${userId}
-      AND timestamp >= ${dayStart}
-      AND timestamp < ${dayEnd}
-      AND anomaly IS NULL
-  `);
+  // Clean points are deliberately left NULL. This used to stamp every one of them
+  // `anomaly = false` so that "already scanned" could be read off the column, and it
+  // dominated this table's write volume: 2,523,006 of 2,572,633 points carried the
+  // false marker, so ~98% of each day's rows were rewritten on every run. Because
+  // `anomaly` sits in the predicate of idx_location_points_not_anomaly none of those
+  // updates could be heap-only — 25 HOT out of 778,620 — so each one also rewrote
+  // every index entry for the row.
+  //
+  // "Has this day been processed?" now lives in `location_processing_days`, which
+  // records the day's point count on completion (see cron-processing.ts). Readers are
+  // unaffected: they all test `anomaly IS NOT TRUE` or `NULL OR false`, and the
+  // partial index predicate is `anomaly IS NOT TRUE`, which already matches NULL.
 
   return {
     accuracyMarked,

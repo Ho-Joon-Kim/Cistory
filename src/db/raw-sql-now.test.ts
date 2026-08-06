@@ -22,8 +22,9 @@ import { describe, expect, it } from "vitest";
  * here with a note on why its `now()` is a read.
  */
 const ALLOWED: Record<string, number> = {
-  // `(now() at time zone 'Asia/Seoul')::date` — today's KST date, for filtering.
-  "/src/app/api/settings/location-backfill/route.ts": 5,
+  // `(now() at time zone 'Asia/Seoul')::date` — today's KST date, for filtering and
+  // for splitting past-vs-today in the day-status rollup.
+  "/src/app/api/settings/location-backfill/route.ts": 6,
   // `last_refreshed_at < now() - interval '350 days'` — staleness comparison.
   "/src/lib/cron.ts": 1,
   // A 45-day window bound, plus two stale-lease comparisons against

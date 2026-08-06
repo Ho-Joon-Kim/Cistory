@@ -33,8 +33,6 @@ interface DryRunResult {
   };
   anomaly: {
     totalPoints: number;
-    scanned: number;
-    unscanned: number;
     anomaliesFound: number;
   };
   geocoding: {
