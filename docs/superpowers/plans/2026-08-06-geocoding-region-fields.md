@@ -633,11 +633,18 @@ Expected: FAIL
 stale 판정에 조건을 추가한다:
 
 ```ts
-    // A cache row written before region/country existed carries no admin region;
-    // treat it as stale so it refills on next touch instead of yielding a null city.
+    // A cache row written before the region/country columns existed carries neither;
+    // treat that as stale so it refills on next touch instead of yielding a null city.
+    // Both columns must be null: `region === null` alone cannot tell a pre-0040 row
+    // from a coordinate the provider resolved successfully but without a region
+    // (mapbox context.region absent, google administrative_area_level_1 absent).
+    // Marking those stale would delete and re-geocode them on every single touch,
+    // forever. Kakao always sets country, and Google/Mapbox almost always resolve one,
+    // so both-null reliably means "written before the columns existed".
     const isStale =
-      (cached && cached.placeName === cached.address && !cached.category) ||
-      (cached && cached.region === null);
+      cached &&
+      ((cached.placeName === cached.address && !cached.category) ||
+        (cached.region === null && cached.country === null));
 ```
 
 캐시 히트 경로:

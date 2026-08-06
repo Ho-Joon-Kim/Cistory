@@ -126,10 +126,22 @@ export interface GeocodingResult {
 기존 staleness 판정에 조건을 추가한다.
 
 ```ts
-const isStale = (cached.placeName === cached.address && !cached.category) || cached.region === null;
+const isStale =
+  (cached.placeName === cached.address && !cached.category) ||
+  (cached.region === null && cached.country === null);
 ```
 
-옛 캐시 521행은 접근될 때 자동으로 재지오코딩되어 채워진다. 별도 백필 스크립트가 필요 없다.
+**두 컬럼이 모두 null일 때만** stale로 본다. `region === null` 하나만 보면 두 상황을 구분하지
+못한다 — 컬럼이 생기기 전에 쓰인 행과, 제공자가 그 좌표에 대해 정상 응답했지만 region이 없는
+경우다. 후자는 실재한다(`mapbox.ts`의 `props.context?.region?.name ?? null`,
+`google.ts`의 `administrative_area_level_1` 컴포넌트 부재). 그 좌표는 매번 stale → 삭제 →
+재지오코딩 → 다시 null로 기록을 무한 반복해 캐시가 무력화되고 API 쿼터를 계속 쓴다.
+
+Kakao는 `country`를 `"대한민국"`으로 항상 채우고 Google·Mapbox도 region이 없어도 country는
+대개 해결하므로, **둘 다 null = 컬럼 생기기 전 행**이라는 판별이 성립한다. 옛 캐시 521행은 모두
+두 컬럼이 null이라 자가 치유 의도는 유지된다.
+
+옛 캐시는 접근될 때 자동으로 재지오코딩되어 채워진다. 별도 백필 스크립트가 필요 없다.
 
 ### 6. `DOMESTIC_REGION_ALIASES` 제거
 
