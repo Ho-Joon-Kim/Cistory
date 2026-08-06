@@ -9,15 +9,25 @@
  *      interchange (within stationClusterRadiusMeters or sharing a normalized
  *      name — handles "시청"/"City Hall" cross-language pairs).
  *
- * Sessions get a fresh uuid; leg_order is reassigned 0..N within the session.
+ * Sessions get a fresh uuid, written here as `session_id` only. `leg_order`
+ * is NOT touched by this pass: it is `matcher.ts`'s segment-local numbering
+ * (0..n-1 within one `transportation_segment_id`), and `idx_stm_segment_leg`
+ * is a unique index scoped to that same column pair. Renumbering `leg_order`
+ * to a session-local position here used to collide with that index whenever
+ * one segment's legs landed in two different sessions — both could resolve
+ * to the same new position (e.g. both "leg 0 of their own session"), which
+ * is a permanent collision on the index's *final* values, not just a
+ * transient one a reordered UPDATE sequence could dodge. Session-local
+ * ordering is instead derived at *read* time in `usage.ts` via
+ * `ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY sub_start_time, ...)`.
  */
 
 import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import { getDb, subwayTripMatches } from "@/db";
+import { distanceM } from "@/lib/geo";
 import { logger } from "@/lib/logger";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { subwayMatchConfig as cfg } from "./config";
-import { distanceM } from "@/lib/geo";
 
 interface MatchRow {
   id: string;
@@ -93,50 +103,34 @@ export interface GroupingSummary {
   multiLegSessions: number;
 }
 
-export interface LegUpdate {
+export interface SessionAssignment {
   id: string;
-  sessionId?: string;
-  legOrder: number;
+  sessionId: string;
 }
 
 /**
- * Pure ordering decision for persisting session groups.
- *
- * `subway_trip_matches` carries `uniqueIndex("idx_stm_segment_leg")` on
- * `(transportationSegmentId, legOrder)`: the matcher inserts each segment's
- * legs numbered 0..n-1, and this grouper renumbers `legOrder` to be the
- * position within a (possibly different) session. If a single segment's
- * legs land in two different session groups, a naive single-pass UPDATE can
- * try to set one leg's new `legOrder` to a value another leg of the *same*
- * segment currently holds, tripping the unique index mid-renumber and
- * aborting the whole transaction.
- *
- * Two-phase fix: first "park" every touched row at a `legOrder` that cannot
- * collide with anything — strictly decreasing negatives, since the matcher
- * never writes negative values — then assign the real sessionId and
- * session-local `legOrder`. Every park update precedes every assign update
- * in the returned sequence, so applying it in order never hits the unique
- * index. `newSessionId` is injected so the sequence is deterministic in
- * tests.
+ * Pure grouping decision for persisting session groups: map each match id to
+ * the id of the fresh session its group was assigned. This never writes
+ * `legOrder` — see the file header for why leg_order stays segment-local and
+ * is never renumbered here. `session_id` carries no uniqueness constraint,
+ * so there is no ordering hazard to manage: every id in `groups` gets
+ * exactly one assignment, in any order. `newSessionId` is injected so the
+ * sequence is deterministic in tests.
  */
-export function planLegUpdates(
+export function planSessionAssignments(
   groups: { id: string }[][],
   newSessionId: () => string
-): LegUpdate[] {
-  const parkUpdates: LegUpdate[] = [];
-  const assignUpdates: LegUpdate[] = [];
-  let parkCursor = 0;
+): SessionAssignment[] {
+  const assignments: SessionAssignment[] = [];
 
   for (const group of groups) {
     const sessionId = newSessionId();
-    for (let i = 0; i < group.length; i++) {
-      parkCursor += 1;
-      parkUpdates.push({ id: group[i].id, legOrder: -parkCursor });
-      assignUpdates.push({ id: group[i].id, sessionId, legOrder: i });
+    for (const row of group) {
+      assignments.push({ id: row.id, sessionId });
     }
   }
 
-  return [...parkUpdates, ...assignUpdates];
+  return assignments;
 }
 
 /** Group the day's matches into transfer sessions for one user. */
@@ -204,18 +198,15 @@ export async function groupMatchesIntoSessions(
   }
   if (current.length > 0) groups.push(current);
 
-  // Persist session_id + leg_order via the two-phase renumber in
-  // planLegUpdates (park every touched row at a collision-free negative
-  // leg_order, then assign the real session id + session-local leg_order).
+  // Persist session_id only (leg_order is untouched — see file header).
   // Each group gets a fresh uuid via crypto.randomUUID().
   const multiLegSessions = groups.filter((group) => group.length > 1).length;
   await db.transaction(async (tx) => {
-    for (const update of planLegUpdates(groups, () => crypto.randomUUID())) {
-      const setValues: { legOrder: number; sessionId?: string } = { legOrder: update.legOrder };
-      if (update.sessionId !== undefined) {
-        setValues.sessionId = update.sessionId;
-      }
-      await tx.update(subwayTripMatches).set(setValues).where(eq(subwayTripMatches.id, update.id));
+    for (const assignment of planSessionAssignments(groups, () => crypto.randomUUID())) {
+      await tx
+        .update(subwayTripMatches)
+        .set({ sessionId: assignment.sessionId })
+        .where(eq(subwayTripMatches.id, assignment.id));
     }
   });
 

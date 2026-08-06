@@ -26,7 +26,7 @@ export interface SubwayUsageTopStation {
 export interface SubwayUsageData {
   totalSessions: number;
   totalLegs: number;
-  /** Number of transfer events (legs with leg_order > 0). */
+  /** Number of transfer events (legs that aren't the first leg of their session). */
   transferCount: number;
   /** Approximate total subway distance in meters. */
   totalDistanceMeters: number;
@@ -169,6 +169,31 @@ export async function getSubwayInsights(
   `);
 
   // Transfer pairs: for each session, walk consecutive legs.
+  //
+  // `leg_order` on subway_trip_matches is segment-local (matcher.ts), not
+  // session-local — the grouper never renumbers it (see session-grouper.ts's
+  // file header for why: renumbering it collided with idx_stm_segment_leg).
+  // So session-local adjacency has to be derived here at read time, ranking
+  // each session's legs by time.
+  //
+  // Ties: two legs in one session can share a sub_start_time exactly (GPS
+  // timestamps only carry second resolution and a transfer's next leg can
+  // start on the same wall-clock second the previous one ends). An
+  // unstable/arbitrary tie order would let ROW_NUMBER flip which leg ranks
+  // first on repeated runs, silently swapping which line pairs with which
+  // in the join below. Break ties with sub_end_time, then id, for a fully
+  // deterministic order.
+  //
+  // Null session_id: a match that was never grouped into a session (or lost
+  // its grouping — the exact bug this file's fix addresses) has no known
+  // neighbor. `COALESCE(m.session_id, m.id)` puts each such row in its own
+  // singleton partition, so it always ranks as leg 1 of "its own session"
+  // (never a transfer, per the transfer_count query below) and — because
+  // its partition key can't equal any other row's — can never be paired as
+  // adjacent to anything here either. Plain `PARTITION BY session_id` would
+  // instead lump every unsessioned row of every day into one NULL
+  // partition and rank them against each other by time, pairing up
+  // completely unrelated trips.
   const pairsRes = await db.execute(sql`
     WITH numbered_lines AS (
       SELECT id, system_id, name, ref, colour, network,
@@ -177,6 +202,17 @@ export async function getSubwayInsights(
                                             ORDER BY ref, name, id) - 1)
                   ELSE 0 END AS fallback_idx
       FROM subway_lines
+    ),
+    numbered_matches AS (
+      SELECT m.*,
+             ROW_NUMBER() OVER (
+               PARTITION BY COALESCE(m.session_id, m.id)
+               ORDER BY m.sub_start_time, m.sub_end_time, m.id
+             ) AS leg_rn
+      FROM subway_trip_matches m
+      WHERE m.user_id = ${userId}::uuid
+        AND m.sub_start_time >= ${fromDate}
+        AND m.sub_start_time < ${toExclusiveDate}
     )
     SELECT
       l1.ref AS from_ref, l1.name AS from_name, l1.colour AS from_colour,
@@ -185,18 +221,17 @@ export async function getSubwayInsights(
       l2.network AS to_network, l2.fallback_idx AS to_fb,
       st.name AS station_name,
       count(*)::int AS pair_count
-    FROM subway_trip_matches m1
-    JOIN subway_trip_matches m2
+    FROM numbered_matches m1
+    JOIN numbered_matches m2
+      -- Equality never matches when either side is NULL, so this already
+      -- excludes unsessioned rows on its own; the COALESCE above is what
+      -- keeps their leg_rn from being computed against unrelated rows.
       ON m2.session_id = m1.session_id
-     AND m2.user_id = m1.user_id
-     AND m2.leg_order = m1.leg_order + 1
+     AND m2.leg_rn = m1.leg_rn + 1
     JOIN numbered_lines l1 ON l1.id = m1.line_id
     JOIN numbered_lines l2 ON l2.id = m2.line_id
     LEFT JOIN subway_stations st ON st.id = m1.end_station_id
-    WHERE m1.user_id = ${userId}::uuid
-      AND m1.sub_start_time >= ${fromDate}
-      AND m1.sub_start_time < ${toExclusiveDate}
-      AND st.name IS NOT NULL
+    WHERE st.name IS NOT NULL
     GROUP BY l1.ref, l1.name, l1.colour, l1.network, l1.fallback_idx,
              l2.ref, l2.name, l2.colour, l2.network, l2.fallback_idx,
              st.name
@@ -253,20 +288,32 @@ export async function getSubwayUsage(
 ): Promise<SubwayUsageData> {
   const db = getDb();
 
+  // transfer_count = "not the first leg of its session", derived from time
+  // order rather than the stored (segment-local) leg_order — see the
+  // pairsRes query in getSubwayInsights above for the full tie-breaking and
+  // null-session_id reasoning, which applies identically here.
   const aggRes = await db.execute(sql`
+    WITH numbered_matches AS (
+      SELECT m.*,
+             ROW_NUMBER() OVER (
+               PARTITION BY COALESCE(m.session_id, m.id)
+               ORDER BY m.sub_start_time, m.sub_end_time, m.id
+             ) AS leg_rn
+      FROM subway_trip_matches m
+      WHERE m.user_id = ${userId}::uuid
+        AND m.sub_start_time >= ${fromDate}
+        AND m.sub_start_time < ${toExclusiveDate}
+    )
     SELECT
       count(DISTINCT m.session_id)::int                                AS total_sessions,
       count(*)::int                                                    AS total_legs,
-      count(*) FILTER (WHERE m.leg_order > 0)::int                    AS transfer_count,
+      count(*) FILTER (WHERE m.leg_rn > 1)::int                       AS transfer_count,
       sum(
         extract(epoch FROM (m.sub_end_time - m.sub_start_time)) /
         NULLIF(extract(epoch FROM (s.end_time - s.start_time)), 0) * s.distance_meters
       ) AS total_distance
-    FROM subway_trip_matches m
+    FROM numbered_matches m
     JOIN transportation_segments s ON s.id = m.transportation_segment_id
-    WHERE m.user_id = ${userId}::uuid
-      AND m.sub_start_time >= ${fromDate}
-      AND m.sub_start_time < ${toExclusiveDate}
   `);
   const agg = (aggRes.rows[0] ?? null) as unknown as AggRow | null;
 
@@ -321,18 +368,28 @@ export async function getSubwayUsage(
   // Transfer stations: end-station of leg N matches start-station of leg N+1
   // within the same session (or the cluster radius — we already used the same
   // station id during grouping, so id-equality is sufficient at this point).
+  // Session-local adjacency derived from time order — see the pairsRes query
+  // in getSubwayInsights above for the tie-breaking and null-session_id
+  // reasoning, which applies identically here.
   const transferRes = await db.execute(sql`
+    WITH numbered_matches AS (
+      SELECT m.*,
+             ROW_NUMBER() OVER (
+               PARTITION BY COALESCE(m.session_id, m.id)
+               ORDER BY m.sub_start_time, m.sub_end_time, m.id
+             ) AS leg_rn
+      FROM subway_trip_matches m
+      WHERE m.user_id = ${userId}::uuid
+        AND m.sub_start_time >= ${fromDate}
+        AND m.sub_start_time < ${toExclusiveDate}
+    )
     SELECT s.name AS name, count(*)::int AS count
-    FROM subway_trip_matches m1
-    JOIN subway_trip_matches m2
+    FROM numbered_matches m1
+    JOIN numbered_matches m2
       ON m2.session_id = m1.session_id
-     AND m2.user_id = m1.user_id
-     AND m2.leg_order = m1.leg_order + 1
+     AND m2.leg_rn = m1.leg_rn + 1
     JOIN subway_stations s ON s.id = m1.end_station_id
-    WHERE m1.user_id = ${userId}::uuid
-      AND m1.sub_start_time >= ${fromDate}
-      AND m1.sub_start_time < ${toExclusiveDate}
-      AND s.name IS NOT NULL
+    WHERE s.name IS NOT NULL
     GROUP BY s.name
     ORDER BY count DESC
     LIMIT 5
