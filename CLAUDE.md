@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a personal life-logging application that aggregates several private data streams into one dashboard: GitHub commits with AI-powered summaries, location via OwnTracks (visit/track/transport-mode/trip/subway detection), coding activity via WakaTime, Toss financial transactions via MacroDroid push notifications (with AI expense categorization), brokerage portfolio data via the Korea Investment & Securities (KIS) API, body composition via Withings, and health/fitness (steps, heart rate, sleep, workouts) via the Google Health API (Fitbit) plus an on-device Health Connect importer. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. Includes monthly/yearly reports, an "insights" dashboard with AI narratives, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and background sync via node-cron (dedicated container in production, in-process during dev), with Sentry error tracking and Better Stack structured logging.
+Cistory is a personal life-logging application that aggregates several private data streams into one dashboard: GitHub commits with AI-powered summaries, location via OwnTracks (visit/track/transport-mode/trip/subway detection), coding activity via WakaTime, Toss financial transactions via MacroDroid push notifications (with AI expense categorization), brokerage portfolio data via the Korea Investment & Securities (KIS) API, body composition via Withings, and health/fitness (steps, heart rate, sleep, workouts) via the Google Health API (Fitbit) plus an on-device Health Connect importer. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. The reporting surface is a single `/overview` dashboard over precomputed period snapshots with AI narratives (it replaced the separate `/insights` and `/report` pages), plus a `/travel` trip browser, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and background sync via node-cron (dedicated container in production, in-process during dev), with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -34,6 +34,7 @@ yarn test -t "visit detector"             # Run tests matching a name
 
 # One-off operational scripts
 yarn spending:backfill-categories         # Backfill AI expense categories
+yarn location:backfill-heatmaps           # Rebuild location_heatmap_daily rollups
 npx tsx scripts/detect-trips.ts <userId>  # Manual/backfill trip detection
 npx tsx scripts/verify-returns.ts         # TWR/XIRR sanity check vs live DB
 
@@ -68,12 +69,13 @@ src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
 │   ├── (dashboard)/         # Dashboard route group (settings, repositories, spending)
-│   ├── api/                 # API routes (~70 endpoints)
+│   ├── api/                 # API routes (~80 endpoints)
 │   ├── dashboard/           # Main dashboard page
 │   ├── health/              # Health/fitness dashboard (Google Health + Withings)
-│   ├── insights/            # Insights dashboard (places, transportation, body, etc.)
+│   ├── overview/            # Unified period dashboard (recent/week/month/year)
+│   ├── travel/              # Trip list + /travel/[tripId] detail
 │   ├── portfolio/           # KIS brokerage portfolio page
-│   ├── report/              # Monthly/yearly report pages (+ /report/comparison)
+│   ├── insights/, report/   # Redirect-only shims → /overview (see legacy-routes.ts)
 │   └── privacy|terms/       # Static pages required by the Google/Withings OAuth reviews
 ├── components/              # Shared components (Layout/, map/, ui/ shadcn components)
 ├── db/
@@ -94,20 +96,25 @@ src/
 │   ├── api-handler.ts       # withAuth / withValidation wrappers, ApiError
 │   ├── api-key-route.ts     # createApiKeyRoute() factory for key POST/DELETE pairs
 │   ├── auth*.ts             # Better Auth server/client config + route helpers
-│   ├── cron.ts              # All cron job bodies + schedule registration
+│   ├── cron.ts              # Cron schedule registration + most job bodies
+│   ├── trip-detection-cron.ts # runTripDetection + boot catch-up orchestration
 │   ├── crypto.ts            # AES-256-GCM secret encryption (KIS/Withings/Google tokens)
 │   ├── oauth-state.ts       # Signed stateless OAuth state codec (per-provider context)
 │   ├── sentry-scrub.ts      # Drops raw health payloads before they reach Sentry
+│   ├── data-usage.ts        # Per-user per-table row/byte estimates → dataUsageCache
+│   ├── date-key.ts          # "YYYY-MM-DD" key math + getKstDateWindow
+│   ├── hooks/               # Shared client hooks (useCountUp, useNdjsonStream, …)
 │   ├── logger.ts            # Structured logging (Better Stack / console fallback)
 │   └── utils.ts             # cn, generateId, date helpers (parseDateLocal, …)
 ├── modules/                 # Feature modules (hooks.ts, service.ts, components/)
 │   ├── health/             # Google Health sync, Health Connect import, /health UI
 │   │                       #   compaction.ts (heart-rate minute buckets),
 │   │                       #   sessions.ts (multi-source sleep/exercise dedup)
-│   ├── insights/           # Insights dashboard
+│   ├── insights/           # Year-scoped insight sections (/api/insights, /health, overview cards)
 │   ├── location/           # Location tracking + processing pipeline (services/)
+│   ├── overview/           # /overview: period snapshots, precompute, narratives, legacy redirects
 │   ├── portfolio/          # KIS brokerage portfolio (returns.ts for TWR)
-│   ├── report/             # Monthly/yearly reports, AI narratives, 30+ chart components
+│   ├── report/             # Monthly/yearly aggregation behind /api/reports/*, 30+ chart components
 │   ├── settings/           # User settings + integration connection cards
 │   ├── spending/           # Spending dashboard, AI expense categorization, forecast
 │   ├── subway/             # Subway system seeding + OSM refresh
@@ -115,6 +122,7 @@ src/
 │   ├── sync/               # Commit sync service (SyncService class)
 │   ├── timeline/           # Timeline display
 │   ├── transaction/        # Toss notification parser
+│   ├── travel/             # /travel trip browser (not-a-trip exclusions, route points)
 │   ├── wakatime/           # WakaTime coding activity
 │   └── withings/           # Withings body-measurement sync
 instrumentation.ts           # (project root) Initializes Cron + Sentry on server boot
@@ -122,7 +130,8 @@ sentry.{server,client,edge}.config.ts
 prompts/                     # External prompt assets (commit-system-prompt.txt)
 docs/                        # brainstorms/, plans/, health/, portfolio/, ideation/
 scripts/                     # migrate.ts, refresh-subway.ts, detect-trips.ts, verify-returns.ts,
-                             # calibrate-subway-matcher.ts, probe-google-health.ts,
+                             # calibrate-subway-matcher.ts, calibrate-flight-detection.ts,
+                             # probe-google-health.ts, backfill-location-heatmaps.ts,
                              # backfill-spending-categories.mjs, fix-standalone-instrumentation.mjs
 ```
 
@@ -179,7 +188,9 @@ const db = getDb();
 - `placeCache` - Geocoding cache, unique on `(latKey, lonKey)`
 - `savedPlaces`, `dailyDistances`
 - `visits` - Persisted stay points with reverse-geocoded placeName/address/city/countryName, optional `savedPlaceId`
-- `tracks` - Movement journeys between visits; `transportationSegments` - fine-grained mode segments; `trips` - multi-day travel detection
+- `tracks` - Movement journeys between visits; `transportationSegments` - fine-grained mode segments; `trips` - multi-day travel detection (`autoDetected` distinguishes cron-detected from user-created)
+- `locationHeatmapDaily` - Per-KST-day point counts on a 3-decimal lat/lon grid, unique on `(userId, date, lat, lon)`. Precomputed so `/overview` never scans raw `location_points`
+- `locationProcessingDays` - **Durable** per-day pipeline marker (`processing`/`completed`/`failed` + `attemptCount`/`lastError`), unique on `(userId, date)`. Unlike the `anomaly` stamp on `location_points` it records successful *empty* days and survives a restart after a post-anomaly stage fails, and it is the watermark the overview precompute reads to decide whether an ended period may finalize
 - `subwaySystems` (PostGIS `bbox` Polygon), `subwayLines` (MultiLineString), `subwayStations` (Point), `subwayTripMatches`
 
 *Coding*
@@ -202,10 +213,14 @@ const db = getDb();
 - `healthDailySummaries` - Per-**KST**-day rollup derived by bucketing `healthSamples` via `localDaySql` (NOT copied from Google's `dailyRollUp`, whose buckets are Google-server-TZ). Unique on `(userId, metric, day)`
 - `healthRawPages` - Verbatim API responses, append-only, never pruned, surfaced per-user in the data-usage card. Cheaper than it looks: highly repetitive JSON compresses hard, so 786k heart-rate points occupied 11 MB here against 287 MB as rows in `healthSamples`. That gap is why minute-bucket compaction is safe — this table stays the verbatim system of record
 
+*Overview (period snapshots)*
+- `periodSnapshots` - One row per `(userId, periodType, periodKey)`, unique on that triple. `periodType` is `recent`|`week`|`month`|`year`; `status` is `pending`|`computing`|`ready`|`failed`. Five independent jsonb domain envelopes (`coding`, `location`, `health`, `spending`, `assets`), each carrying its own status so one failing domain doesn't sink the snapshot. Lease columns (`computeStartedAt`/`leaseExpiresAt`/`attemptCount`/`lastError`) drive the claim queue; `computeVersion` invalidates snapshots when aggregation logic changes — bump `OVERVIEW_COMPUTE_VERSION` and every snapshot recomputes
+- `periodNarratives` - AI narrative per `(userId, periodType, periodKey)`, unique on that triple, `periodType` excluding `recent`. Same lease shape (`status` `pending`|`generating`|`ready`|`failed`), plus the `model` that produced it
+
 *Meta*
 - `dataUsageCache` - Per-user per-table row count and estimated byte size. `estimatedBytes` is **bigint** (0036): it was `integer` until `location_points` reached 75% of int4's 2 GB ceiling, and the per-category `SUM(...)::int` in `insights/service.ts` would have thrown `integer out of range`. Cast byte sums to `::bigint`, never `::int`
 
-PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` lat/lon, while the `subway*` tables (0019/0020) use real PostGIS `geometry` columns. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (commit `a3df73a`), so don't reintroduce it. 0021 `account_roles`; 0022 brokerage tables; 0023 target allocations; 0024 backfill watermarks; 0025 transaction category columns; 0026 Withings; 0027 health; 0028 added `health_samples.source` to the unique key; 0029 `users.health_import_api_key`; 0030 `period_snapshots`; 0031 `location_heatmap_daily`; 0032 `location_processing_days`; 0033 `period_narratives`; 0034 saved-place trip exclusions + `trips.auto_detected`; 0035 relabelled Fitbit-native `health_samples.source` from `'unknown'` to `'FITBIT'` (data-only; must stay paired with the `sampleSource()` parser change, since `source` is part of the sample identity); 0036 widened `data_usage_cache.estimated_bytes` to bigint.
+PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` lat/lon, while the `subway*` tables (0019/0020) use real PostGIS `geometry` columns. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (commit `a3df73a`), so don't reintroduce it. 0021 `account_roles`; 0022 brokerage tables; 0023 target allocations; 0024 backfill watermarks; 0025 transaction category columns; 0026 Withings; 0027 health; 0028 added `health_samples.source` to the unique key; 0029 `users.health_import_api_key`; 0030 `period_snapshots`; 0031 `location_heatmap_daily`; 0032 `location_processing_days`; 0033 `period_narratives`; 0034 saved-place trip exclusions + `trips.auto_detected`; 0035 relabelled Fitbit-native `health_samples.source` from `'unknown'` to `'FITBIT'` (data-only; must stay paired with the `sampleSource()` parser change, since `source` is part of the sample identity); 0036 widened `data_usage_cache.estimated_bytes` to bigint; 0037 tuned `location_points` autovacuum (scale factor 0.2 → 0.02 — the daily `SET anomaly` rewrite can never be HOT because `anomaly` sits in the `idx_location_points_not_anomaly` predicate, so the table accumulated 15% dead tuples before ever crossing the default threshold); 0038 dropped `idx_location_points_lonlat` — zero scans over the DB's whole life, because `lonlat` is only ever read as `ST_Distance(lonlat, LAG(lonlat))`, which a GiST index cannot serve. The column and its `set_lonlat` trigger stay; recreate the index if a real spatial predicate is ever added.
 
 `location_velocity_migration_20260710_backup` is a leftover backup table from a one-off data fix, not part of the schema — don't build on it.
 
@@ -221,15 +236,16 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - Initial sync: last 3 months of commits. Regular sync: since `lastSyncedAt` (fallback: 7 days). Both flows use shared `_executeSyncCommits()`
 - Deduplication via SHA batch lookup (batch size: 500); 100ms delay between commit saves
 
-**Cron Jobs** (`src/lib/cron.ts`) — all registered with an explicit `timezone: "Asia/Seoul"`. Do **not** drop that option and rely on the container `TZ`: node-cron falls back to an Intl lookup that needs tzdata, which Alpine images often lack, silently resolving to UTC.
+**Cron Jobs** (`src/lib/cron.ts` registers every schedule; some bodies live with their feature — `src/lib/trip-detection-cron.ts`, `src/modules/location/cron-processing.ts`, `src/modules/overview/cron.ts`) — all registered with an explicit `timezone: "Asia/Seoul"`. Do **not** drop that option and rely on the container `TZ`: node-cron falls back to an Intl lookup that needs tzdata, which Alpine images often lack, silently resolving to UTC.
 
 | Schedule | Job | What it does |
 |---|---|---|
 | `*/10 * * * *` | `syncAllUsers` | Per-user commit sync (gated by `syncIntervalHours`), pending AI summaries (20/user), WakaTime sync, Withings sync (24h-gated), Google Health forward sync + `backfillPendingConnections`, KIS portfolio sync + `backfillPendingAccounts`, data-usage refresh, deletes sync jobs older than 7 days |
 | `*/10 * * * *` | `categorizePendingSpending` | AI expense categorization of uncategorized transactions (100/user, Haiku) |
 | `0 23 * * *` | `reparseTodayNotifications` | Reparses today's Toss notifications to pick up parser improvements |
-| `0 1 * * *` | `processYesterdayLocations` | Full location pipeline for the previous KST day |
-| `15 * * * *` | `processYesterdayLocations` (catch-up) | Hourly safety net — re-uses the same anomaly-IS-NULL date scan, so it's an empty-set query when there's no backlog. Exists because a single missed daily tick (crash/deploy) used to mean 24h of unprocessed data |
+| `*/5 * * * *` | `precomputeOverviewSnapshots` → `generateOverviewNarratives` | Claims leased `period_snapshots` rows and publishes them, then generates pending `period_narratives`. 5 minutes so UI-triggered recompute lands inside the client's ten-minute poll window |
+| `0 1 * * *` | `processYesterdayLocations` | Full location pipeline for the previous KST day, then rebuilds that day's heatmap and chains straight into `precomputeAfterLocation` |
+| `15 * * * *` | `processYesterdayLocations` (catch-up) | Hourly safety net — re-uses the same day-selection scan, so it's an empty-set query when there's no backlog. Exists because a single missed daily tick (crash/deploy) used to mean 24h of unprocessed data |
 | `0 2 * * 0` | `runTripDetection` | Weekly rolling-window trip detection (date-range op, can't live in the per-day loop) |
 | `0 4 * * *` | `compactHealthSamples` | Compacts settled `heart_rate` rows into per-minute buckets (7 days/run, **newest first**, never touching anything under `RAW_RETENTION_DAYS`). Newest-first because density is uneven — an oldest-first walk spent its first week on sparse Samsung-era days while half the remaining rows sat in the 13 most recent Fitbit days at the back of the queue. Daily rather than in the 10-min loop because it only ever touches ranges the sync has finished with; 04:00 keeps the heavy DELETE/INSERT clear of the 01:00 location and 03:00 subway windows |
 | `0 3 1 1 *` | `runSubwayRefresh` | Yearly OSM subway refresh, plus a boot catch-up for any system older than ~350 days |
@@ -241,8 +257,11 @@ Every job has a module-level single-flight boolean guard. `seedSubwaySystemsIfEm
 **Location Tracking & Processing** (`src/modules/location/services/`):
 - OwnTracks app sends GPS data to `/api/owntracks?apikey={key}` (returns `[]` per OwnTracks protocol)
 - On-demand stay-point detection for client views: clusters points within 100m radius, minimum 10-minute stay
-- Persisted `visits`/`tracks`/`transportationSegments` are computed by the daily 01:00 cron and exposed via `/api/timeline/locations/*` and insights endpoints
+- Persisted `visits`/`tracks`/`transportationSegments` are computed by the daily 01:00 cron (`src/modules/location/cron-processing.ts`) and exposed via `/api/timeline/locations/*` and insights endpoints
 - Pipeline stages: `anomaly-filter` → `visit-detector`/`visit-persister` → `track-builder`/`track-persister` → `transportation/detector` → `subway-match` (matches segments against `subway_lines` PostGIS geometry, groups transfers into sessions) → `subway-discovery` (probes Overpass for new cities, capped at 3/run). `trip-detector` + `/api/trips/detect` group visits into multi-day trips (overseas detection included). `backfill-orchestrator.ts` drives the re-run path
+- **"Has this day been processed?" lives in `locationProcessingDays`, not in `locationPoints.anomaly`.** A day is settled when it has a `completed` row whose `pointCount` still equals the day's current point count; a mismatch (or a missing row) makes it a candidate again, which is what catches points OwnTracks flushes late for an old day. `anomaly` is now purely a quality flag — `true` for anomalous points, NULL otherwise — and every reader tests `anomaly IS NOT TRUE`. Stamping clean points `false` used to rewrite ~98% of each day's rows per run, and since `anomaly` sits in the predicate of `idx_location_points_not_anomaly` none of it could be heap-only. A **count**, not a timestamp, is compared on purpose: `locationPoints.createdAt` is UTC wall time while `locationProcessingDays.completedAt` is KST wall time
+- Each day's run is bracketed by a `location_processing_days` row and reports a `failedStage` of `state`|`anomaly`|`visits`|`tracks`|`heatmap`. That row — not the `anomaly` stamp — is the durable "this day is done" signal, and `/overview` refuses to finalize an ended period until it covers the period's end date. A day marked `failed` therefore blocks period finalization rather than silently publishing a partial snapshot
+- Trip writes go through `trip-writer.ts`'s advisory-lock wrapper, since detection runs from the weekly cron, `/api/trips/detect`, `/api/settings/trip-regenerate` and the backfill orchestrator
 - Geocoding auto-selects Kakao (Korean coordinates), Google Places, or Mapbox (international); results cached in `placeCache`
 - Location hooks poll every 60 seconds when viewing today's date
 
@@ -254,11 +273,19 @@ Every job has a module-level single-flight boolean guard. `seedSubwaySystemsIfEm
 - **Withings** — `src/modules/withings/service.ts` syncs measurement groups incrementally off `lastMeasureUpdate`; display formatting is centralized in `src/lib/body-format.ts` so insights and reports never diverge.
 - **Privacy**: `src/lib/sentry-scrub.ts` is wired into `sentry.server.config.ts`'s `beforeSend`/`beforeSendTransaction` and drops raw health payloads (URL markers, breadcrumb data, denylisted `extra` keys). Any new field carrying health values must be added to its denylist.
 
-**Reports** (`src/modules/report/`):
-- Monthly and yearly reports aggregate commits, coding, location, spending, and body data
-- API supports sectioned queries (`?section=commits|coding|location`) for incremental loading
-- AI narrative generation via POST with Claude, prompts in `prompts.ts`
-- Overseas trip detection (`travel.ts`), `comparison-service.ts` for period-over-period, plus scratch-map and subway-usage endpoints
+**Overview** (`src/modules/overview/`) — the unified reporting surface, and the piece most likely to surprise you:
+- `/overview?periodType=&periodKey=` renders one of four period types (`recent`|`week`|`month`|`year`). `/insights`, `/report` and `/report/comparison` are **redirect-only shims**: `legacy-routes.ts` maps their old query params onto overview params. Don't add UI to those pages — they render nothing
+- Their **API** routes are not deprecated, though. `modules/insights` still backs `/api/insights`, the `/health` page and several overview cards; `modules/report` still backs `/api/reports/*` and `location/services/trip-naming`. Neither module is dead code — only the two pages are
+- Reads never aggregate on demand. `GET /api/overview` returns a stored `period_snapshots` row, or a `missing`/`pending`/`computing` status that the client polls on. `POST /api/overview/recompute` enqueues (202) and is same-origin-checked, capped at `OVERVIEW_OUTSTANDING_LIMIT` (5) outstanding requests per user
+- `precompute.ts` is a leased work queue, not a loop: `recoverExpiredLeases` → `seedActivePeriods` → `claimSnapshots` (10-min lease, 5 per run, 3 attempts, 250 users per page) → `publishSnapshot`. Every publish is conditional on still holding the lease, so a second worker can't clobber a first
+- **Active periods refresh freely; ended periods only finalize once `location_processing_days` covers their end date** (`deferredForLocation` in the run result). An ended month finalized before its last day's location pipeline landed would freeze a permanently wrong number
+- `aggregate/` computes the five domains (`coding`, `location`, `health`, `spending`, `portfolio`) into independent envelopes; a domain that throws is stored `failed` while the others publish
+- `narrative.ts` generates the AI narrative for non-`recent` periods on the same lease pattern (batch 5, 3 attempts, 8-min lease). Input is truncated to `NARRATIVE_MAX_INPUT_CHARS` (24k) by progressively dropping detail, and the producing model is recorded on the row
+- `OVERVIEW_RETENTION_PERIODS` (45 recent, 104 week, 60 month, 10 year) bounds how far back a period may be requested or recomputed — a key older than the boundary, or newer than the current one, is rejected rather than queued
+
+**Travel** (`src/modules/travel/`):
+- `/travel` lists trips (cursor-paginated on `(endDate, startDate, id)`) and `/travel/[tripId]` shows one, joining visits, commits, coding, spending and health for the trip window
+- `POST /api/trips/[id]/not-a-trip` is the correction path for a false positive: rather than just deleting the trip, `not-a-trip.ts` creates a `savedPlaces` exclusion around the trip's dominant visit (10 km radius, or 100 m when pinned to an existing saved place) so auto-detection stops re-detecting it on the next weekly run
 
 **Toss Transaction Tracking**:
 - MacroDroid forwards Toss push notifications to `/api/toss-notifications?apikey={key}`
@@ -277,10 +304,11 @@ Every job has a module-level single-flight boolean guard. `seedSubwaySystemsIfEm
 ### API Routes
 
 - `/api/auth/[...all]` - Better Auth catch-all; `/api/auth/disconnect` - DELETE account
-- `/api/settings` - GET/PUT settings; `/api/settings/{owntracks-key,wakatime-key,toss-key,health-import-key}` - POST/DELETE API keys; `/api/settings/wakatime-sync` - manual sync; `/api/settings/data-usage`; `/api/settings/db-benchmark`; `/api/settings/location-backfill` - GET dry-run / POST re-run pipeline (SSE); `/api/settings/subway-match-backfill`; `/api/settings/account-roles`
+- `/api/settings` - GET/PUT settings; `/api/settings/{owntracks-key,wakatime-key,toss-key,health-import-key}` - POST/DELETE API keys; `/api/settings/wakatime-sync` - manual sync; `/api/settings/data-usage`; `/api/settings/db-benchmark`; `/api/settings/location-backfill` - GET dry-run / POST re-run pipeline (SSE); `/api/settings/subway-match-backfill`; `/api/settings/transportation-reclassify`; `/api/settings/trip-regenerate`; `/api/settings/account-roles`
 - `/api/sync` - POST manual sync; `/api/sync/status`; `/api/sync/jobs`
 - `/api/timeline` - GET paginated commits; `/api/timeline/{repos,stats,current-activity}`; `/api/timeline/commits/[commitId]{,/stats,/summary}`; `/api/timeline/locations{,/stay-points,/distances,/tracks,/import}`; `/api/timeline/{coding-sessions,coding-stats}`
-- `/api/trips` - GET/POST; `/api/trips/[id]` - PUT/DELETE; `/api/trips/detect` - POST auto-detect
+- `/api/trips` - GET/POST; `/api/trips/[id]` - PUT/DELETE; `/api/trips/detect` - POST auto-detect; `/api/trips/[id]/not-a-trip` - POST false-positive correction (creates a saved-place exclusion); `/api/trips/[id]/route-points` - GET map route
+- `/api/overview` - GET stored period snapshot (`?periodType=&periodKey=`); `/api/overview/recompute` - POST enqueue (202, same-origin); `/api/overview/narrative` - GET narrative / POST enqueue generation
 - `/api/insights` - GET. No `section` param returns all 18 sections in one batched single-transaction response; `?section=` fetches one of streaks|patterns|routines|digests|commit-heatmap|subway|swimlane|ai-clock|commute-reliability|place-productivity|trips|transport-modes|visits-x-commits|net-spend|repo-split|data-usage|discoveries|body
 - `/api/reports/{monthly,yearly}` - GET report data (`?section=`); POST AI narrative. `/api/reports/{comparison,scratch-map,subway-usage}`
 - `/api/summaries/process` - POST batch summary generation

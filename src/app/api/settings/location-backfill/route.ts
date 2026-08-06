@@ -44,44 +44,58 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ hasData: false });
     }
 
+    // `anomaly` no longer records whether a point was scanned — a clean point simply
+    // stays NULL now, and `location_processing_days` owns "has this day been
+    // processed?". So only the totals are point-level; progress is counted in days.
     const [anomalyStats] = await db
       .select({
         total: sql<number>`count(*)::int`,
-        scanned: sql<number>`count(*) filter (where anomaly is not null)::int`,
-        unscanned: sql<number>`count(*) filter (where anomaly is null)::int`,
         anomalies: sql<number>`count(*) filter (where anomaly = true)::int`,
-        todayUnscanned: sql<number>`count(*) filter (where anomaly is null and (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date)::int`,
+        todayPoints: sql<number>`count(*) filter (where (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date)::int`,
       })
       .from(locationPoints)
       .where(eq(locationPoints.userId, user.id));
 
-    // Days fully scanned = all points on that day have anomaly IS NOT NULL.
-    // We exclude today from "past" reporting so the daily 01:00 KST cron isn't
-    // mistaken for a backlog the user has to clear manually.
+    // A day is done when location_processing_days holds a completed row whose
+    // point_count still matches the day — the same predicate the cron and the backfill
+    // planner use, so this card can never disagree with what they will actually do.
+    // Today is excluded from "past" so the daily 01:00 KST cron isn't mistaken for a
+    // backlog the user has to clear manually.
     const scannedDaysResult = await db.execute<{
       past_total_days: number;
       past_scanned_days: number;
       past_unscanned_days: number;
+      today_pending: boolean;
       [key: string]: unknown;
     }>(sql`
       WITH per_day AS (
         SELECT
-          (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d,
-          count(*) FILTER (WHERE anomaly IS NULL) AS unscanned
-        FROM location_points
-        WHERE user_id = ${user.id}
-        GROUP BY (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date
+          (lp.timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date AS d,
+          count(*)::int AS point_count
+        FROM location_points lp
+        WHERE lp.user_id = ${user.id}
+        GROUP BY 1
+      ),
+      status AS (
+        SELECT per_day.d,
+               (p.id IS NOT NULL AND p.point_count IS NOT DISTINCT FROM per_day.point_count) AS done
+        FROM per_day
+        LEFT JOIN location_processing_days p
+          ON p.user_id = ${user.id}
+          AND p.date = to_char(per_day.d, 'YYYY-MM-DD')
+          AND p.status = 'completed'
       )
       SELECT
         count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date)::int AS past_total_days,
-        count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date AND unscanned = 0)::int AS past_scanned_days,
-        count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date AND unscanned > 0)::int AS past_unscanned_days
-      FROM per_day
+        count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date AND done)::int AS past_scanned_days,
+        count(*) FILTER (WHERE d < (now() at time zone 'Asia/Seoul')::date AND NOT done)::int AS past_unscanned_days,
+        coalesce(bool_or(d = (now() at time zone 'Asia/Seoul')::date AND NOT done), false) AS today_pending
+      FROM status
     `);
     const pastTotalDays = scannedDaysResult.rows[0]?.past_total_days ?? 0;
     const pastScannedDays = scannedDaysResult.rows[0]?.past_scanned_days ?? 0;
     const pastDaysRemaining = scannedDaysResult.rows[0]?.past_unscanned_days ?? 0;
-    const todayHasUnscanned = (anomalyStats.todayUnscanned ?? 0) > 0;
+    const todayHasUnscanned = scannedDaysResult.rows[0]?.today_pending ?? false;
 
     const [_visitStats] = await db
       .select({
@@ -159,13 +173,13 @@ export async function GET(request: NextRequest) {
       },
       today: {
         date: dateRange.today,
-        unscannedPoints: anomalyStats.todayUnscanned ?? 0,
+        // Today's whole point count while the day is still pending — the card reports
+        // what the 01:00 cron will pick up, and none of it is processed until it runs.
+        unscannedPoints: todayHasUnscanned ? (anomalyStats.todayPoints ?? 0) : 0,
         pending: todayHasUnscanned,
       },
       anomaly: {
         totalPoints: anomalyStats.total,
-        scanned: anomalyStats.scanned,
-        unscanned: anomalyStats.unscanned,
         anomaliesFound: anomalyStats.anomalies,
       },
       geocoding: {

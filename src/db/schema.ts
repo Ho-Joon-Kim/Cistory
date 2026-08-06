@@ -237,6 +237,14 @@ export const locationProcessingDays = pgTable(
     completedAt: timestamp("completed_at"),
     attemptCount: integer("attempt_count").notNull().default(0),
     lastError: text("last_error"),
+    // How many location_points the day held when it completed. This is what makes a
+    // day "settled": if the day's current count differs, points arrived after the
+    // pipeline ran (OwnTracks flushing a buffer after being offline) and the day is a
+    // candidate again. Deliberately a count and not a timestamp comparison —
+    // `location_points.created_at` is UTC wall time while `completed_at` is KST wall
+    // time, so comparing them would be silently 9h wrong (see the `now()` note in
+    // CLAUDE.md). A count carries no timezone at all.
+    pointCount: integer("point_count"),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [
