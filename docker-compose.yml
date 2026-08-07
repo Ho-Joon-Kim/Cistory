@@ -76,15 +76,19 @@ services:
   # confirmed in docs/map-matching/valhalla-probe-findings.md). docker/valhalla
   # /entrypoint.sh calls the real binaries by hand: builds tiles into
   # /custom_files only when missing/stale/fingerprint-changed, then execs
-  # valhalla_service in the foreground — so `restart: unless-stopped` is safe
-  # here the same way it is for the other long-running services in this file;
-  # the bare image's earlier restart-loop problem was its default Cmd exiting
-  # immediately, not the restart policy. No published port: reached over the
-  # internal network only.
+  # valhalla_service in the foreground, so on a healthy boot it never exits.
+  # EXTRACTS_FINGERPRINT is REQUIRED — the entrypoint hard-refuses (exit 1) if
+  # it's unset, since a missing value would otherwise defeat the rebuild-on-
+  # extract-change check entirely (see valhalla-probe-findings.md, Fix round 1
+  # §1). That refusal, and the "no PBF URLs" one beside it, are real exit
+  # paths a fresh clone can hit — `on-failure:5` retries genuine transient
+  # crashes a few times but stops spinning once it's clearly a config problem,
+  # unlike `unless-stopped` which would restart it forever at ~1min backoff.
+  # No published port: reached over the internal network only.
   valhalla:
     image: ghcr.io/valhalla/valhalla:latest
     container_name: cistory-valhalla
-    restart: unless-stopped
+    restart: on-failure:5
     volumes:
       - cistory_valhalla_tiles:/custom_files
       - ./docker/valhalla/entrypoint.sh:/entrypoint.sh:ro

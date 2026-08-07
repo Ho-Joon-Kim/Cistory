@@ -116,12 +116,19 @@ of top-level fields Valhalla can return:
   "shape": "...",
   "confidence_score": 1.0,
   "raw_score": ...,
-  "admins": [...],
+  "admins": [{ "country_text": "None", "state_text": "None" }],
   "edges": [...],
   "matched_points": [...],
   "alternate_paths": []
 }
 ```
+
+`admins` is real, but empty in the sense that matters — `country_text`/`state_text`
+are both the literal string `"None"` for every point, because this task's build
+never ran `valhalla_build_admins` (see §6, "Missing admin/timezone databases
+degrade gracefully" — deliberately out of scope for map-matching correctness).
+Don't plan on `admins` carrying a real country/state until that database is
+built; right now it's a fixed placeholder, not per-point data.
 
 So `filters.attributes` with `action: "include"` is an **allowlist over every
 field in the response**, not just per-edge/per-point attributes — top-level
@@ -137,6 +144,62 @@ POST /trace_attributes  filters.attributes: ["confidence_score", "edge.names"]
 `scripts/probe-valhalla.ts` has been fixed to include `"confidence_score"` in its
 filter list — **the adapter must do the same**, or every match will silently come
 back with `confidence_score: undefined`.
+
+### `matched_points[].type` is a three-value enum, not just `matched`
+
+The 4-point Gangnam-daero sample above only exercises `type: "matched"` — every
+point in a short, clean, well-spaced trace snaps cleanly. That's not the whole
+enum, and it's not representative of what the adapter will actually see: OwnTracks
+pings every few seconds, which produces a much denser trace than 4 points spanning
+~250m.
+
+Built a 60-point dense trace along the same Gangnam-daero corridor (~1.3m–7m
+point spacing, 2s time steps — the shape an OwnTracks track actually has) and
+matched it with the same filter set as above. Real result:
+
+```
+total matched_points: 60
+{'matched': 31, 'interpolated': 26, 'unmatched': 3}
+confidence_score: 1.0
+```
+
+An illustrative window (`matched_points[9:14]`) showing all three types in
+sequence, pasted verbatim:
+
+```json
+[
+  { "lon": 127.028249, "lat": 37.498082, "type": "interpolated", "edge_index": 2 },
+  { "lon": 127.028324, "lat": 37.498105, "type": "matched", "edge_index": 3 },
+  { "lon": 127.028183, "lat": 37.49856, "type": "unmatched" },
+  { "lon": 127.028207, "lat": 37.498611, "type": "matched", "edge_index": 4 },
+  { "lon": 127.028188, "lat": 37.498648, "type": "interpolated", "edge_index": 4 }
+]
+```
+
+The third element is pasted exactly as received — **`"edge_index"` is absent
+from `unmatched` points, not `null` or `-1`**. Confirmed across all 3 unmatched
+points in the 60-point sample, not just this one.
+
+What each type means for reconstructing a shape:
+- **`matched`** — Valhalla placed this input point confidently on a specific
+  edge (`edge_index` into the `edges[]` array).
+- **`interpolated`** — the input point falls between two confidently-matched
+  points; Valhalla still resolved it to a position along the matched path and
+  still reports an `edge_index`. This is not "no data" — it's a real point on
+  the reconstructed shape, just not one the algorithm is as confident was an
+  independent GPS fix on that exact edge.
+- **`unmatched`** — Valhalla could not confidently place this input point at
+  all. No `edge_index` key is present.
+
+**Adapter takeaway — two separate bugs this would otherwise ship with:**
+1. A naive `matched_points.filter(p => p.type === "matched")` (the obvious
+   first design, and what the plan before this task assumed) throws away 26 of
+   60 points on this trace — nearly half. `interpolated` points are real path
+   geometry and belong in the reconstructed shape.
+2. Any code doing `edges[p.edge_index]` without checking `p.type !== "unmatched"`
+   (or `"edge_index" in p`) first will throw on `undefined` the first time a
+   real trace produces an unmatched point — which happened 3 times in this one
+   60-point sample, so it is not a rare edge case on real GPS density.
 
 ## 3. Coverage vs. error — the exact rule
 
@@ -167,6 +230,35 @@ started service with zero tiles loaded at all** (empty `/custom_files`, Seoul
 coordinates) — confirming `error_code: 444` really means "nothing to snap to
 here," not something specific to the Atlantic test point.
 
+### "No coverage" also fires *inside* the built region, off any road
+
+The claim that matters most for the adapter's design isn't the Atlantic case —
+it's whether `error_code: 444` can be trusted to mean "this coordinate needs a
+wider extract." It can't. Tested a point well inside the built Korea bbox
+(`[124.5, 33.0, 132.0, 38.7]`) but nowhere near a mapped road — Soyang Lake,
+`37.935, 127.85`:
+
+```
+HTTP 400
+{
+  "error_code": 444,
+  "error": "Map Match algorithm failed to find path: map_snap algorithm failed to snap the shape points to the correct shape.",
+  "status_code": 400,
+  "status": "Bad Request"
+}
+```
+
+Byte-identical to the South Atlantic response above. **This means `error_code:
+444` alone cannot drive a "widen the extracts" operator action** — a point
+inside every built extract can produce exactly the same signal as a point
+outside all of them. Any tooling built on top of `no_coverage` rows (an alert,
+a dashboard suggesting which region to extend) needs a second signal to tell
+the two cases apart — e.g. checking the failed point's lat/lon against the
+`bbox` of each `MAP_EXTRACTS` entry (`src/lib/map-extracts.ts`) before deciding
+whether "outside every extract" is even a plausible explanation. This probe
+doesn't build that check — it only establishes that `error_code: 444` by
+itself can't.
+
 ### Contrast: genuine request/validation errors (same `HTTP 400`, different `error_code`)
 
 | Case | `error_code` | `error` |
@@ -175,22 +267,53 @@ here," not something specific to the Atlantic test point.
 | Missing `shape` field | `114` | `Insufficiently specified required parameter 'shape' or 'encoded_polyline'` |
 | Malformed JSON body | `100` | `Failed to parse json request` |
 | Over `max_trace_points` (16001 points) | `153` | `Too many shape points: (16001). The limit is 16000` |
+| Trace too long (Busan→Seoul, ~250km) | `154` | `Path distance exceeds the max distance limit: 200000 meters` |
+
+The `154` case, pasted in full:
+
+```
+HTTP 400
+{
+  "error_code": 154,
+  "error": "Path distance exceeds the max distance limit: 200000 meters",
+  "status_code": 400,
+  "status": "Bad Request"
+}
+```
+
+`154` comes from the same `service_limits.trace` config block as `max_shape`
+(§5) — the full block, read back from the generated `valhalla.json`:
+
+```json
+{
+  "max_distance": 200000.0,
+  "max_gps_accuracy": 100.0,
+  "max_search_radius": 100.0,
+  "max_shape": 16000,
+  "max_alternates": 3,
+  "max_alternates_shape": 100
+}
+```
+
+`max_distance` (200km) is the one that produced `154` above. `max_search_radius`
+(100m) and `max_gps_accuracy` (100m) weren't independently triggered in this
+probe, but they shape match behavior the same way: `max_search_radius` bounds
+how far Valhalla will look from an input point for a candidate edge (relevant
+to how far "off-road" a point can be and still match), and `max_gps_accuracy`
+caps the per-point accuracy value the request can claim. Both are worth the
+adapter's awareness even without a paste of a triggered failure for each.
 
 **Adapter takeaway**: classify strictly on `error_code`, not on `status_code`
-alone — every case above is `HTTP 400`. `error_code === 444` → `no_coverage`.
-Any other 4xx `error_code` on a request the adapter itself built correctly (i.e.
-not 125/114/100/153, which are all caller bugs) would be the "real engine error"
-bucket, but no such case was produced in this probe — everything Valhalla was
-asked either matched, failed to snap (444), or rejected the request shape.
-
-**Known ambiguity to carry into the adapter's design**: `error_code: 444` also
-fires for a genuinely in-region point that just isn't near any mapped road (e.g.
-the middle of a reservoir, inside a Korean tile). This probe cannot distinguish
-"outside every extract" from "inside an extract but off any road" — both produce
-the same signal. Given `MatchStatus`'s `no_coverage` is defined at the
-`segment_route_matches` level (see `src/db/schema.ts`) as "processed, no usable
-match", collapsing both into `no_coverage` is consistent with that definition —
-just don't read `no_coverage` as proof the point needs a wider extract.
+alone — every case above is `HTTP 400`. `error_code === 444` → `no_coverage`,
+though see the caveat above — it isn't proof the extract needs widening.
+`error_code === 154` is a different bucket from the other request-shape
+errors (125/114/100/153): those are caller bugs (fix the request), but `154`
+is "this trace is legitimate, just too long for one call" — a well-formed
+OwnTracks track spanning an intercity trip will genuinely exceed 200km. The
+correct response to `154` is **chunk the trace and retry**, not surface it as
+a failure needing investigation; treating it the same as 125/114/100 would page
+an operator for a perfectly normal long trip. Any other 4xx `error_code` this
+probe didn't produce would be the actual "unexpected engine error" bucket.
 
 ## 4. Costing support
 
@@ -365,11 +488,17 @@ not `tiles are current`. Both branches of the decision logic were exercised:
 
 ```
 [valhalla] building tiles (fingerprint=3ba0a7a3f995)
-[valhalla] downloading south-korea-latest.osm.pbf   (skipped — reused a pre-seeded copy)
+[valhalla] south-korea-latest.osm.pbf already downloaded, reusing
 ... 51s valhalla_build_tiles ...
 [valhalla] tile build finished
 [INFO] Tile extract successfully loaded with tile count: 595
 ```
+
+(The PBF had been pre-copied into the volume's `pbf/` subdirectory ahead of
+this run, from the same file already downloaded earlier in this task, purely
+to avoid a second multi-minute network fetch — the log line above is the
+entrypoint's real "already downloaded, reusing" branch, not a download that
+was skipped some other way.)
 
 Verified the service actually answers: `docker exec cistory-valhalla curl
 localhost:8002/status` returned the real version/actions payload.
@@ -398,6 +527,64 @@ being tested was already proven, and stopping early left the volume's real
 tiles/tar/stamp from step 1 untouched. Verified afterward: `.tile_build_stamp`
 still reads `fingerprint=3ba0a7a3f995`, `valhalla_tiles.tar` still 688MB.
 
+### Fixed after review: an unset `EXTRACTS_FINGERPRINT` used to force a rebuild on every start
+
+The first version of this entrypoint had a real bug: it wrote the stamp with
+`fingerprint=${EXTRACTS_FINGERPRINT:-unset}` (the literal string `"unset"`) but
+compared against `${EXTRACTS_FINGERPRINT:-}` (empty string) when deciding
+whether to rebuild. `"unset" != ""` is always true, so with `EXTRACTS_FINGERPRINT`
+left unset — which was possible, since `docker-compose.yml` defaulted it to
+empty and `.env.example` never mentioned it — every single container start
+would rebuild from scratch: a full re-download and re-bake of every configured
+extract, tens of minutes, with matching down for the whole window because the
+tile directory gets wiped (`rm -rf "$TILE_WORK_DIR"/*`) before the rebuild.
+
+Fixed two ways, not just one:
+1. Both sides of the comparison now read the same variable consistently (no more
+   `"unset"` vs `""` mismatch).
+2. `EXTRACTS_FINGERPRINT` being unset/empty is now a **hard refusal** —
+   `docker/valhalla/entrypoint.sh` exits 1 immediately, before touching
+   anything, the same way it already refused to start with no PBF URLs. An
+   unset fingerprint means the rebuild-on-extract-change check can never do
+   anything useful, so it's the same class of misconfiguration, not a
+   degraded-but-working mode.
+
+Verified both, for real, against the running image:
+
+```
+$ docker run --rm -v cistory_cistory_valhalla_tiles:/custom_files \
+    -v "$(pwd)/docker/valhalla/entrypoint.sh:/entrypoint.sh:ro" \
+    -e VALHALLA_TILE_URLS='https://download.geofabrik.de/asia/south-korea-latest.osm.pbf' \
+    --entrypoint /bin/bash ghcr.io/valhalla/valhalla:latest /entrypoint.sh
+[valhalla] EXTRACTS_FINGERPRINT is unset — refusing to start. Without a real value the rebuild-on-extract-change check can never do anything (see docs/map-matching/valhalla-probe-findings.md, Fix round 1 §1). Set it to extractsFingerprint() from src/lib/map-extracts.ts.
+$ echo $?
+1
+```
+
+— exits before creating `$TILE_DIR`, before running `valhalla_build_config`,
+before touching the volume at all. Re-ran the existing skip-path check (matching
+fingerprint `3ba0a7a3f995`, the real value already on this volume's stamp)
+afterward to confirm the fix didn't break the working case — still logs
+`tiles are current, skipping build` and the service still starts.
+
+`docker-compose.yml`'s `EXTRACTS_FINGERPRINT=${EXTRACTS_FINGERPRINT:-}` default
+was deliberately **not** changed to a hard `${EXTRACTS_FINGERPRINT:?err}`
+Compose-level guard — tested, and that form breaks `docker compose config`
+(and therefore every `docker compose` command, including ones targeting
+unrelated services like `postgres`) for the whole file the moment the variable
+is unset in the shell, not just for `valhalla`. The entrypoint's own runtime
+check is correctly scoped to just this one container failing at start; the
+Compose-level `:?` form is not.
+
+This hard refusal, plus the pre-existing "no PBF URLs" refusal, are both real
+`exit 1` paths a fresh clone following `.env.example` can hit — a clone that
+never set `EXTRACTS_FINGERPRINT` before this fix hits the new refusal
+immediately. `docker-compose.yml`'s restart policy for `valhalla` was
+`unless-stopped`, which restarts forever on any non-zero exit at ~1min
+backoff. Changed to `restart: on-failure:5` — still recovers from a genuine
+transient crash a few times, but stops once it's clearly a persistent
+misconfiguration rather than looping indefinitely.
+
 ### Note on the fingerprint value used for this task
 
 `extractsFingerprint()` over the real, full `MAP_EXTRACTS` (all 5 regions) is
@@ -420,4 +607,5 @@ build all 5 from scratch — it will not be fooled by this task's Korea-only sta
 - `cistory-valhalla` container: **stopped** (matches the state found at the start
   of this task — not left running).
 - All throwaway probe containers/volumes (`cistory-valhalla-probe`,
-  `valhalla-scratch-test`) removed.
+  `cistory-valhalla-probe2`, `valhalla-scratch-test`, and the unnamed container
+  used to verify the unset-`EXTRACTS_FINGERPRINT` refusal) removed.

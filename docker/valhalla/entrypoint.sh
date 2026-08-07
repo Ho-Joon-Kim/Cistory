@@ -30,14 +30,37 @@ TILE_WORK_DIR="$TILE_DIR/valhalla_tiles"
 TILE_ARTIFACT="$TILE_DIR/valhalla_tiles.tar"
 PBF_DIR="$TILE_DIR/pbf"
 
+# A missing/empty EXTRACTS_FINGERPRINT isn't a lesser-configured mode — it
+# silently defeats the whole point of the stamp check below. Refuse the same
+# way the "no PBF URLs" case does further down, rather than let it slide.
+if [ -z "${EXTRACTS_FINGERPRINT:-}" ]; then
+  echo "[valhalla] EXTRACTS_FINGERPRINT is unset — refusing to start. Without a" \
+    "real value the rebuild-on-extract-change check can never do anything (see" \
+    "docs/map-matching/valhalla-probe-findings.md, Fix round 1 §1). Set it to" \
+    "extractsFingerprint() from src/lib/map-extracts.ts." >&2
+  exit 1
+fi
+
+# valhalla_build_config has no persistent state of its own — regenerating it
+# unconditionally (cheap, <1s) guarantees $CONFIG exists before the final exec
+# on BOTH the build and skip paths, rather than depending on a config file
+# that a prior run happened to leave behind.
+mkdir -p "$TILE_DIR"
+valhalla_build_config \
+  --mjolnir-tile-dir "$TILE_WORK_DIR" \
+  --mjolnir-tile-extract "$TILE_ARTIFACT" \
+  -o "$CONFIG"
+
 needs_build() {
   [ ! -f "$STAMP" ] && return 0
   [ ! -f "$TILE_ARTIFACT" ] && return 0
   local built_fp
   built_fp=$(grep '^fingerprint=' "$STAMP" | cut -d= -f2 || echo "")
   # 추출본 목록이 바뀌면 fingerprint가 바뀐다 — 새 도시를 추가했다는 뜻이므로
-  # 다음 기동에 다시 굽는다.
-  [ "$built_fp" != "${EXTRACTS_FINGERPRINT:-}" ] && return 0
+  # 다음 기동에 다시 굽는다. EXTRACTS_FINGERPRINT is guaranteed non-empty here
+  # (checked above), so both sides of this comparison are real values, never
+  # the literal string "unset" on one side and "" on the other.
+  [ "$built_fp" != "$EXTRACTS_FINGERPRINT" ] && return 0
   local age_days
   age_days=$(( ( $(date +%s) - $(stat -c %Y "$STAMP") ) / 86400 ))
   [ "$age_days" -ge "$MAX_AGE_DAYS" ] && return 0
@@ -45,16 +68,8 @@ needs_build() {
 }
 
 if needs_build; then
-  echo "[valhalla] building tiles (fingerprint=${EXTRACTS_FINGERPRINT:-unset})"
-  mkdir -p "$TILE_DIR" "$TILE_WORK_DIR" "$PBF_DIR"
-
-  # valhalla_build_config has no persistent state of its own — regenerating it
-  # on every build is cheap (<1s) and keeps it in sync with this script's paths
-  # rather than depending on a config file baked earlier by hand.
-  valhalla_build_config \
-    --mjolnir-tile-dir "$TILE_WORK_DIR" \
-    --mjolnir-tile-extract "$TILE_ARTIFACT" \
-    -o "$CONFIG"
+  echo "[valhalla] building tiles (fingerprint=$EXTRACTS_FINGERPRINT)"
+  mkdir -p "$TILE_WORK_DIR" "$PBF_DIR"
 
   # VALHALLA_TILE_URLS is a space-separated list of PBF URLs (one per
   # src/lib/map-extracts.ts entry), matching what docker-compose.yml already
@@ -94,7 +109,7 @@ if needs_build; then
 
   {
     echo "built_at=$(date -u +%Y-%m-%d)"
-    echo "fingerprint=${EXTRACTS_FINGERPRINT:-unset}"
+    echo "fingerprint=$EXTRACTS_FINGERPRINT"
   } > "$STAMP"
   echo "[valhalla] tile build finished"
 else
