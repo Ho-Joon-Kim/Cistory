@@ -170,6 +170,10 @@ describe("GET /api/trips/:id/route-points", () => {
     const segmentRows = [
       {
         startTime: new Date("2026-07-15T00:00:00Z"),
+        // The two shape points are 10 minutes apart — well past MAX_SHAPE_GAP_MS — so this
+        // is a hole, not a single covered run. The raw row at 00:05 sits inside that hole and
+        // must flow through; only a genuinely uncovered raw row (00:15, after the shape ends)
+        // was ever expected to fill.
         shape: [
           [37, 127, Date.parse("2026-07-15T00:00:00Z")],
           [37.1, 127, Date.parse("2026-07-15T00:10:00Z")],
@@ -189,9 +193,10 @@ describe("GET /api/trips/:id/route-points", () => {
     expect(response.status).toBe(200);
     expect(db.select).toHaveBeenCalledTimes(2);
     expect(segmentBuilder.leftJoin).toHaveBeenCalledTimes(1);
-    expect(body.points.map((point: { lat: number }) => point.lat)).toEqual([37, 37.1, 37.15]);
+    expect(body.points.map((point: { lat: number }) => point.lat)).toEqual([37, 99, 37.1, 37.15]);
     expect(body.points.map((point: { timestamp: string }) => point.timestamp)).toEqual([
       "2026-07-15T00:00:00.000Z",
+      "2026-07-15T00:05:00.000Z",
       "2026-07-15T00:10:00.000Z",
       "2026-07-15T00:15:00.000Z",
     ]);

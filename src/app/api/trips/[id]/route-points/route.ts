@@ -53,8 +53,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
       )
       .orderBy(asc(transportationSegments.startTime));
 
-    // Sampling happens inside PostgreSQL. Only this bounded result is decoded in JS.
-    // The first/last rows are explicit exceptions; the stride allows at most cap-2 middles.
+    // Raw-point sampling happens inside PostgreSQL, so only a bounded set of raw rows is
+    // decoded in JS below (first/last rows are explicit exceptions; the stride allows at
+    // most cap-2 middles). Segment shapes are not sampled in SQL, though: every
+    // segmentRouteMatches.shape row in the trip window is decoded and merged whole by
+    // assembleTrackShape — the largest trip today holds roughly 35,000 road-mode points.
+    // The response is still capped at MAX_ROUTE_POINTS, just later, after
+    // simplifyRoutePoints/getSampledRowNumbers downsample the assembled result.
     const rawPointsPromise = db.execute(sql`
       WITH filtered AS (
         SELECT

@@ -51,11 +51,29 @@ function isCovered(timestamp: number, windows: CoverageWindow[]): boolean {
 }
 
 /**
+ * How large a gap between two consecutive shape timestamps can be before it stops looking
+ * like ordinary sampling jitter and starts looking like a real hole. OwnTracks samples
+ * roughly every 6s, so a healthy matched run's internal gaps sit in that neighborhood — the
+ * production case this constant fixes was a single 118s gap in the middle of an otherwise
+ * 6-point shape (segment `2cb7d666-5acb-4a4e-beff-1dc206ea3dd9`, 2026-08-01), and three of
+ * the ten segments matched so far have an internal gap over 60s. 30s sits five times past
+ * normal sampling — comfortably above jitter, comfortably below every observed real hole —
+ * so it splits holes apart without fragmenting a healthy run into many one-point "runs",
+ * which would reintroduce raw points on top of good snapped geometry and make the line jitter.
+ */
+const MAX_SHAPE_GAP_MS = 30_000;
+
+/**
  * Combines persisted road-matched geometry with sampled raw GPS points.
  *
- * Coverage is deliberately derived from the timestamps that are actually present in each
- * shape. A segment may contain only a partial match, so using its database start/end window
- * would suppress the raw points needed to bridge the unmatched part of the journey.
+ * Coverage is derived from the timestamps actually present in each shape, and split into one
+ * window per contiguous run of shape points (see MAX_SHAPE_GAP_MS) rather than one window per
+ * segment. A shape is not temporally contiguous just because it spans a segment's full
+ * duration: Valhalla drops points it can't snap to a road as `unmatched`, and the adapter's
+ * chunk merge drops a failed chunk of a long trace outright — so a shape can have a large hole
+ * in the middle while its min/max timestamps still span the whole segment. Treating that whole
+ * span as covered suppresses the raw points needed to bridge the hole and draws a straight
+ * line across ground the raw GPS actually covered.
  */
 export function assembleTrackShape(
   segments: TrackShapeSegment[],
@@ -67,24 +85,34 @@ export function assembleTrackShape(
   for (const segment of [...segments].sort(
     (left, right) => left.startTime.getTime() - right.startTime.getTime()
   )) {
-    let coverageStart = Number.POSITIVE_INFINITY;
-    let coverageEnd = Number.NEGATIVE_INFINITY;
-    for (const [lat, lon, timestamp] of segment.shape ?? []) {
-      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(timestamp)) {
-        continue;
+    const shapePoints = (segment.shape ?? [])
+      .filter(
+        ([lat, lon, timestamp]) =>
+          Number.isFinite(lat) && Number.isFinite(lon) && Number.isFinite(timestamp)
+      )
+      .map(([lat, lon, timestamp]) => ({ lat, lon, timestamp }))
+      .sort((left, right) => left.timestamp - right.timestamp);
+
+    let runStart: number | null = null;
+    let runEnd: number | null = null;
+    for (const point of shapePoints) {
+      if (runEnd !== null && point.timestamp - runEnd > MAX_SHAPE_GAP_MS) {
+        coverage.push({ start: runStart as number, end: runEnd });
+        runStart = null;
       }
-      coverageStart = Math.min(coverageStart, timestamp);
-      coverageEnd = Math.max(coverageEnd, timestamp);
+      if (runStart === null) runStart = point.timestamp;
+      runEnd = point.timestamp;
+
       snappedPoints.push({
-        lat,
-        lon,
+        lat: point.lat,
+        lon: point.lon,
         accuracy: null,
-        timestamp: new Date(timestamp),
-        epochMillis: timestamp,
+        timestamp: new Date(point.timestamp),
+        epochMillis: point.timestamp,
       });
     }
-    if (Number.isFinite(coverageStart)) {
-      coverage.push({ start: coverageStart, end: coverageEnd });
+    if (runStart !== null && runEnd !== null) {
+      coverage.push({ start: runStart, end: runEnd });
     }
   }
 
