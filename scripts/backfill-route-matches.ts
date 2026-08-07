@@ -89,6 +89,7 @@ function summaryLine(date: string, summary: RouteMatchSummary): string {
     `matched=${summary.matched}`,
     `lowConfidence=${summary.lowConfidence}`,
     `noRoadMatch=${summary.noRoadMatch}`,
+    `tooShort=${summary.tooShort}`,
     `failed=${summary.failed}`,
     `notApplicable=${summary.notApplicable}`,
     `skipped=${summary.skipped}`,

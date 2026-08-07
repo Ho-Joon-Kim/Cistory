@@ -83,6 +83,7 @@ describe("runRouteMatchBackfill", () => {
         matched: 1,
         lowConfidence: 0,
         noRoadMatch: 0,
+        tooShort: 0,
         failed: 0,
         notApplicable: 1,
         skipped: 0,

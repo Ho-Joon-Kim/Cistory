@@ -421,7 +421,7 @@ export const segmentRouteMatches = pgTable(
     segmentId: uuid("segment_id")
       .notNull()
       .references(() => transportationSegments.id, { onDelete: "cascade" }),
-    /** matched | low_confidence | no_road_match | failed | not_applicable */
+    /** matched | low_confidence | no_road_match | too_short | failed | not_applicable */
     matchStatus: text("match_status").notNull(),
     /** [[lat, lon, epochMillis], …] — matched/low_confidence일 때만 채워진다. */
     shape: jsonb("shape").$type<Array<[number, number, number]>>(),
@@ -444,6 +444,8 @@ export type MatchStatus =
   | "matched"
   | "low_confidence"
   | "no_road_match"
+  | "too_short"
+  /** Attempted and errored (engine/request failure) — never "too few points to try". */
   | "failed"
   | "not_applicable";
 
