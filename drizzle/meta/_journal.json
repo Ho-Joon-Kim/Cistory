@@ -288,6 +288,13 @@
       "when": 1785997554791,
       "tag": "0040_ordinary_ultimo",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786063671941,
+      "tag": "0041_familiar_george_stacy",
+      "breakpoints": true
     }
   ]
 }
