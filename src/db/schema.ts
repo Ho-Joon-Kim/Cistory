@@ -423,7 +423,7 @@ export const segmentRouteMatches = pgTable(
       .references(() => transportationSegments.id, { onDelete: "cascade" }),
     /** matched | low_confidence | no_road_match | failed | not_applicable */
     matchStatus: text("match_status").notNull(),
-    /** [[lat, lon], …] — matched/low_confidence일 때만 채워진다. */
+    /** [[lat, lon, epochMillis], …] — matched/low_confidence일 때만 채워진다. */
     shape: jsonb("shape"),
     roadNames: jsonb("road_names"),
     roadClasses: jsonb("road_classes"),

@@ -111,16 +111,16 @@ afterEach(() => {
 });
 
 describe("createValhallaAdapter", () => {
-  it("returns matched with snapped shape, road names and classes", async () => {
+  it("returns matched with snapped shape carrying each input timestamp", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, goodBody));
     const result = await createValhallaAdapter("http://valhalla:8002").match(points, "auto");
 
     expect(result.status).toBe("matched");
     expect(result.shape).toEqual([
-      [37.497877, 127.027525],
-      [37.4981, 127.028307],
-      [37.498957, 127.028765],
-      [37.49973, 127.029393],
+      [37.497877, 127.027525, points[0].timestamp.getTime()],
+      [37.4981, 127.028307, points[1].timestamp.getTime()],
+      [37.498957, 127.028765, points[2].timestamp.getTime()],
+      [37.49973, 127.029393, points[3].timestamp.getTime()],
     ]);
     expect(result.roadNames).toEqual([
       "강남대로",
@@ -366,9 +366,9 @@ describe("createValhallaAdapter", () => {
     );
     const result = await createValhallaAdapter("http://valhalla:8002").match(points, "auto");
     expect(result.shape).toEqual([
-      [37.49791, 127.02762],
-      [37.4983, 127.028],
-      [37.49911, 127.02872],
+      [37.49791, 127.02762, points[0].timestamp.getTime()],
+      [37.4983, 127.028, points[1].timestamp.getTime()],
+      [37.49911, 127.02872, points[3].timestamp.getTime()],
     ]);
   });
 
@@ -414,5 +414,11 @@ describe("createValhallaAdapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(expectedCalls);
     expect(result.status).toBe("matched");
     expect(result.shape).toHaveLength(4 * expectedCalls);
+    const timestamps = result.shape?.map((point) => point[2]) ?? [];
+    expect(timestamps[0]).toBe(many[0].timestamp.getTime());
+    expect(timestamps.at(-1)).toBe(many.at(-1)?.timestamp.getTime());
+    expect(
+      timestamps.every((timestamp, index) => index === 0 || timestamp >= timestamps[index - 1])
+    ).toBe(true);
   });
 });

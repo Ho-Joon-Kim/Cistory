@@ -25,8 +25,8 @@ export interface MatchPoint {
 
 export interface MatchResult {
   status: "matched" | "low_confidence" | "no_road_match" | "failed";
-  /** [lat, lon] 순서. matched/low_confidence일 때만 채워진다. */
-  shape: Array<[number, number]> | null;
+  /** [lat, lon, epochMillis] 순서. matched/low_confidence일 때만 채워진다. */
+  shape: Array<[number, number, number]> | null;
   roadNames: string[];
   roadClasses: string[];
   confidence: number | null;
@@ -199,14 +199,29 @@ export function createValhallaAdapter(baseUrl: string, timeoutMs = 30_000): MapM
     }
   }
 
-  function parseSuccess(body: TraceAttributesResponse): MatchResult {
+  function parseSuccess(body: TraceAttributesResponse, inputPoints: MatchPoint[]): MatchResult {
     // interpolated는 "확신이 덜한 매칭"이 아니라 실제 경로 지오메트리다 —
     // matched만 남기면 조밀한 실제 트레이스에서 절반 가까이 버려진다
     // (findings §2, 60점 샘플에서 matched 31 / interpolated 26). unmatched만
     // 뺀다.
-    const shape = (body.matched_points ?? [])
-      .filter((p) => p.type === "matched" || p.type === "interpolated")
-      .map((p): [number, number] => [p.lat, p.lon]);
+    const matchedPoints = body.matched_points ?? [];
+    const inputStart = inputPoints[0].timestamp.getTime();
+    const inputEnd = inputPoints[inputPoints.length - 1].timestamp.getTime();
+    const timestampAt =
+      matchedPoints.length === inputPoints.length
+        ? (index: number) => inputPoints[index].timestamp.getTime()
+        : (index: number) => {
+            // 1:1 정렬을 확인할 수 없으면 이 요청 청크의 시간 범위에 균등 배분한다.
+            if (matchedPoints.length === 1) return inputStart;
+            return (
+              inputStart +
+              Math.round(((inputEnd - inputStart) * index) / (matchedPoints.length - 1))
+            );
+          };
+    const shape = matchedPoints
+      .map((point, index) => ({ point, timestamp: timestampAt(index) }))
+      .filter(({ point }) => point.type === "matched" || point.type === "interpolated")
+      .map(({ point, timestamp }): [number, number, number] => [point.lat, point.lon, timestamp]);
 
     if (shape.length === 0) {
       // 전부 unmatched였거나(포인트 하나도 못 스냅) matched_points 자체가
@@ -277,7 +292,7 @@ export function createValhallaAdapter(baseUrl: string, timeoutMs = 30_000): MapM
   async function matchChunk(points: MatchPoint[], costing: ValhallaCosting): Promise<MatchResult> {
     try {
       const result = await requestTraceAttributes(points, costing);
-      if (result.ok) return parseSuccess(result.body);
+      if (result.ok) return parseSuccess(result.body, points);
       return await handleErrorCode(result.errorCode, points, costing);
     } catch (error) {
       logger.warn("[Valhalla] match request failed", {
