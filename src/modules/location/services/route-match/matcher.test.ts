@@ -8,8 +8,8 @@ import { logger } from "@/lib/logger";
 import {
   buildRowForSegment,
   currentTileVersion,
-  matchRoutesForDay,
   MIN_POINTS_TO_MATCH,
+  matchRoutesForDay,
   summarizeRouteMatches,
 } from "./matcher";
 
@@ -143,11 +143,11 @@ describe("buildRowForSegment", () => {
   });
 
   it("calls the adapter once a segment reaches the MIN_POINTS_TO_MATCH threshold", async () => {
-    // Regression guard for MIN_POINTS_TO_MATCH itself: a full backfill measured that
-    // two-point segments match 1039/1147 of the time, so raising the cut above 2 would
-    // silently discard ~1000 segments that match successfully today. If this ever fails
-    // because MIN_POINTS_TO_MATCH moved, that trade-off needs to be made consciously, not by
-    // accident.
+    // Regression guard for MIN_POINTS_TO_MATCH itself: measured with the matcher's own point
+    // predicate (see the constant's comment above buildRowForSegment), exactly-two-point
+    // segments match 430/498 (~86%) of the time, so raising the cut above 2 would silently
+    // discard hundreds of segments that match successfully today. If this ever fails because
+    // MIN_POINTS_TO_MATCH moved, that trade-off needs to be made consciously, not by accident.
     expect(MIN_POINTS_TO_MATCH).toBe(2);
     const points = Array.from({ length: MIN_POINTS_TO_MATCH }, (_, i) =>
       point(new Date(NOW.getTime() + i * 1000))

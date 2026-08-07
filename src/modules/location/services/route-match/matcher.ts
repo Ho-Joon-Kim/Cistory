@@ -62,10 +62,14 @@ let warnedAboutMissingValhallaUrl = false;
 
 /**
  * Minimum GPS points a segment needs before it is worth sending to Valhalla. A full backfill
- * measured this directly rather than guessing it: segments with exactly 1 point matched 0/283
- * times (a single point cannot define a path), while segments with 2 points matched the large
- * majority of the time (1039/1147, ~91%). The cut sits at 1, not higher — raising it would
- * discard the ~1000 two-point segments that already match successfully today.
+ * measured this directly rather than guessing it, counted with the exact predicate
+ * `loadDayPointsBySegment` below applies (accuracy ≤200 or null, anomaly filtered out, half-open
+ * `[startTime, endTime)` window) — an unfiltered point count reads higher and understates how
+ * sharp the boundary really is. Under that predicate, segments with exactly 1 point matched
+ * 0/286 times (a single point cannot define a path), while segments with exactly 2 points
+ * matched 430/498 (~86%) of the time. The cut sits at 1, not higher — raising it would discard
+ * hundreds of two-point segments that already match successfully today. (Re-measure with the
+ * same predicate before changing this comment — the dev DB is live, so exact counts drift.)
  *
  * This is a domain judgement about which segments are worth attempting, not a transport-client
  * concern, so it lives here rather than in the Valhalla adapter (`valhalla.ts`).
