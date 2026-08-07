@@ -12,6 +12,7 @@ import {
   type MatchPoint,
   type MatchResult,
   type ValhallaCosting,
+  ValhallaUnreachableError,
 } from "@/lib/adapters/map-matching/valhalla";
 import { toKstCalendarDate } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
@@ -27,6 +28,16 @@ export interface RouteMatchSummary {
   failed: number;
   notApplicable: number;
   skipped: number;
+  /**
+   * True when Valhalla was unreachable partway through this day and the run gave up without
+   * writing anything — not even for segments that matched earlier in this same call. Every other
+   * count is zero in that case. Without this flag an aborted day and a day with nothing to do
+   * both come back as an all-zero summary, and callers (the nightly cron hook, the backfill
+   * script) need to tell those apart: one is fine to ignore, the other means the engine is down.
+   * `segmentsConsidered` still reports how many segments were queued, so a log line can say how
+   * much work was abandoned.
+   */
+  aborted: boolean;
 }
 
 interface RouteMatchSegment {
@@ -86,6 +97,7 @@ function emptySummary(): RouteMatchSummary {
     failed: 0,
     notApplicable: 0,
     skipped: 0,
+    aborted: false,
   };
 }
 
@@ -112,7 +124,10 @@ function baseRow(
  *
  * Point-loader failures are intentionally not caught: they are database failures, so the
  * caller must abort instead of replacing previously persisted rows with fabricated failures.
- * Adapter failures are isolated to this segment because route matching is best-effort.
+ * Adapter failures are normally isolated to this segment, since route matching is best-effort —
+ * except `ValhallaUnreachableError`, which is not a fact about this segment at all (see its doc
+ * comment in valhalla.ts) and is rethrown so the caller can abort the whole day instead of
+ * recording a fabricated `failed` for every segment it happens to reach before giving up.
  */
 export async function buildRowForSegment(
   segment: RouteMatchSegment,
@@ -153,6 +168,9 @@ export async function buildRowForSegment(
       costing: decision.costing,
     };
   } catch (error) {
+    // Not this segment's problem to swallow — the caller decides what an unreachable engine
+    // means for the whole day (matchRoutesForDay), and it does its own single consolidated log.
+    if (error instanceof ValhallaUnreachableError) throw error;
     logger.warn("[RouteMatch] segment match failed", {
       segmentId: segment.id,
       error: error instanceof Error ? error.message : String(error),
@@ -179,6 +197,7 @@ export function summarizeRouteMatches(
     failed: counts.get("failed") ?? 0,
     notApplicable: counts.get("not_applicable") ?? 0,
     skipped: segmentsConsidered - rows.length,
+    aborted: false,
   };
 }
 
@@ -239,7 +258,20 @@ async function loadDayPointsBySegment(
   return pointsBySegment;
 }
 
-/** Match and atomically replace one user's segment-route rows for a KST date. */
+/**
+ * Match and atomically replace one user's segment-route rows for a KST date.
+ *
+ * If Valhalla is unreachable partway through, this writes nothing at all for the day — not even
+ * for segments it matched before the engine dropped out — and returns a summary with
+ * `aborted: true` instead of throwing. The invariant the rest of this pipeline relies on is "no
+ * row means not yet processed" (see the `segment_route_matches` schema comment); a partially
+ * written day would look processed and would never be picked up again. Rows are only ever
+ * written once, in the single transaction at the end, after every segment in the day has been
+ * attempted — so an early return here (before that transaction) is what "write nothing" reduces
+ * to. Database failures from the point loader are a different case and are not caught here: see
+ * `buildRowForSegment`'s doc comment for why those must still abort the process rather than
+ * return a summary.
+ */
 export async function matchRoutesForDay(
   userId: string,
   date: string,
@@ -274,9 +306,23 @@ export async function matchRoutesForDay(
   const loadPoints: PointsLoader = async (segment) => pointsBySegment.get(segment.id) ?? [];
 
   const rows: RouteMatchRow[] = [];
-  for (const segment of segments) {
-    const row = await buildRowForSegment(segment, loadPoints, adapter, tileVersion, matchedAt);
-    if (row) rows.push(row);
+  try {
+    for (const segment of segments) {
+      const row = await buildRowForSegment(segment, loadPoints, adapter, tileVersion, matchedAt);
+      if (row) rows.push(row);
+    }
+  } catch (error) {
+    if (!(error instanceof ValhallaUnreachableError)) throw error;
+    // No transaction has run yet — rows accumulated in `rows` above never touch the database,
+    // so returning here before that transaction is the entire "write nothing" behavior. Segments
+    // matched earlier in this same loop are discarded along with it.
+    logger.warn("[RouteMatch] Valhalla unreachable — aborting day, writing nothing", {
+      userId,
+      date,
+      segmentsConsidered: segments.length,
+      error: error.message,
+    });
+    return { ...emptySummary(), segmentsConsidered: segments.length, aborted: true };
   }
 
   const segmentIds = segments.map((segment) => segment.id);

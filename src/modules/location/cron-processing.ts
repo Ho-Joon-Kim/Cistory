@@ -247,7 +247,20 @@ export async function runRouteMatchPostProcessing(userId: string, completedDates
   try {
     const { matchRoutesForDay } = await import("./services/route-match/matcher");
     for (const date of completedDates) {
-      await matchRoutesForDay(userId, date);
+      const summary = await matchRoutesForDay(userId, date);
+      if (summary.aborted) {
+        // Valhalla is unreachable — every other date in this batch would hit the same wall, so
+        // stop here instead of repeating the same failed connection attempt per date. Nothing
+        // was written for this date (or would be for the rest), so it's still an unprocessed
+        // route-match candidate: the hourly catch-up net always re-includes "yesterday"/"today"
+        // regardless of completion status, which retries this automatically once the engine is
+        // back — no operator action needed, unlike before this behavior existed.
+        logger.warn("[Cron] Valhalla unreachable — route matching deferred to the next tick", {
+          userId,
+          date,
+        });
+        break;
+      }
     }
   } catch (error) {
     logger.warn("[Cron] Route matching failed (non-fatal)", {

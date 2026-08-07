@@ -110,6 +110,27 @@ services:
       - EXTRACTS_FINGERPRINT=${EXTRACTS_FINGERPRINT:-}
       - VALHALLA_TILE_URLS=${VALHALLA_TILE_URLS:-}
       - VALHALLA_CONCURRENCY=2
+    # /status is confirmed real (not a gis-ops/docker-valhalla convenience endpoint that this
+    # bare image doesn't have): docs/map-matching/valhalla-probe-findings.md ran `docker exec
+    # cistory-valhalla curl localhost:8002/status` against the live container and got back the
+    # real version/actions payload. curl is present in the base image (also confirmed there) so
+    # no extra install is needed. No published port, so this must run from inside the container —
+    # matches how the finding above was actually verified.
+    #
+    # This is what lets `docker compose ps`/`docker inspect` show the one distinction that
+    # mattered enough to write a whole CLAUDE.md rollout-order rule around: the container can be
+    # up (accepted by Docker, `restart: unless-stopped` satisfied) for the ~30 minutes its first
+    # tile build takes, while `valhalla_service` — the only thing bound to :8002 — hasn't even
+    # exec'd yet (see entrypoint.sh: build_tiles runs, then `exec valhalla_service`). Before this,
+    # nothing external could tell "building tiles" apart from "serving requests"; now `unhealthy`
+    # means the former and `healthy` means the latter. No `depends_on: condition: service_healthy`
+    # reads it (nothing in this compose file waits on valhalla to boot), so it's purely
+    # observability — safe to add without changing startup ordering for any other service.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8002/status >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

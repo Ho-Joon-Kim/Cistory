@@ -130,6 +130,19 @@ export async function runRouteMatchBackfill(
   for (const date of dates) {
     try {
       const summary = await matcher(args.userId, date);
+      if (summary.aborted) {
+        // A human is watching this run and expects work to happen. The nightly cron treats this
+        // the same way — logs and defers to its own next tick — but that's silent-by-design over
+        // there, and silent is exactly what an operator-triggered backfill must not be: it would
+        // read as "ran clean, nothing to do" when really nothing happened at all. Fail loudly and
+        // stop immediately, since every remaining date would hit the same unreachable engine.
+        const error = new Error(
+          "Valhalla is unreachable — aborting backfill rather than silently doing nothing"
+        );
+        failedDays.push({ date, error });
+        log(`${date}: FAILED — ${error.message}`);
+        break;
+      }
       log(summaryLine(date, summary));
     } catch (error) {
       failedDays.push({ date, error });

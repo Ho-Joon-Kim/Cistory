@@ -75,6 +75,26 @@ const TRACE_TOO_LONG_ERROR_CODE = 154;
  */
 const MIN_SPLIT_POINTS = 2;
 
+/**
+ * Signals that Valhalla could not be reached at all — connection refused, DNS failure, reset —
+ * as opposed to a `MatchResult` with `status: "failed"`, which means the engine received the
+ * request and responded (even a malformed 2xx counts as "responded"). Thrown out of `match()`
+ * instead of folded into `emptyResult("failed")` on purpose: that conflation is the third time
+ * this file has bundled two different causes under one status (see this file's header comment
+ * for the other two — `no_road_match` vs `failed`, and `too_short` vs `failed`), and this one
+ * was the worst of the three because it made a deploy-ordering mistake fail silently. Callers
+ * (`matcher.ts`) must let this propagate rather than catching it into a per-segment `failed` row.
+ *
+ * A timeout/abort from this adapter's own `timeoutMs` is deliberately NOT classified as
+ * unreachable — see `requestTraceAttributes` for why.
+ */
+export class ValhallaUnreachableError extends Error {
+  constructor(cause: unknown) {
+    super("Valhalla unreachable", { cause });
+    this.name = "ValhallaUnreachableError";
+  }
+}
+
 interface RawMatchedPoint {
   lat: number;
   lon: number;
@@ -195,6 +215,23 @@ export function createValhallaAdapter(baseUrl: string, timeoutMs = 30_000): MapM
       const body = (await response.json().catch(() => ({}))) as TraceAttributesResponse;
       if (!response.ok) return { ok: false, errorCode: body.error_code };
       return { ok: true, body };
+    } catch (error) {
+      // Node's fetch throws a DOMException named "AbortError" (confirmed empirically —
+      // `error.name`, not `error instanceof DOMException`, is the portable check) when our own
+      // timer fires `controller.abort()`. That case stays ambiguous on purpose: the engine may
+      // simply be slow on a large trace rather than down, and treating every timeout as
+      // unreachable would abort — and blank — a whole day's matching over one slow segment, on
+      // every retry, since the same segment would likely time out again each time. Falling
+      // through lets it become an ordinary `failed` chunk below, same as before this file
+      // distinguished unreachable at all.
+      //
+      // Every other throw here (refused, DNS failure, reset — verified against real Node fetch
+      // errors, which surface as `TypeError` with the real cause on `.cause`) is unambiguous: a
+      // healthy engine never produces one, so treating it as unreachable costs nothing on a
+      // healthy day and is exactly the signal the day-abort behavior in `matcher.ts` needs on an
+      // unhealthy one.
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      throw new ValhallaUnreachableError(error);
     } finally {
       clearTimeout(timer);
     }
@@ -296,6 +333,10 @@ export function createValhallaAdapter(baseUrl: string, timeoutMs = 30_000): MapM
       if (result.ok) return parseSuccess(result.body, points);
       return await handleErrorCode(result.errorCode, points, costing);
     } catch (error) {
+      // Unreachable is not this chunk's problem to swallow — the caller (matcher.ts) is the one
+      // that decides what to do about the whole day, and logging it here too would double-log
+      // once per chunk on top of the caller's single consolidated warning.
+      if (error instanceof ValhallaUnreachableError) throw error;
       logger.warn("[Valhalla] match request failed", {
         error: error instanceof Error ? error.message : String(error),
       });

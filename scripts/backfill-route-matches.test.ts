@@ -87,6 +87,7 @@ describe("runRouteMatchBackfill", () => {
         failed: 0,
         notApplicable: 1,
         skipped: 0,
+        aborted: false,
       };
     });
 
@@ -101,5 +102,36 @@ describe("runRouteMatchBackfill", () => {
     expect(matchRoutesForDay).toHaveBeenNthCalledWith(1, "user-1", "2026-07-01");
     expect(matchRoutesForDay).toHaveBeenNthCalledWith(2, "user-1", "2026-07-02");
     expect(result.failedDays.map(({ date }) => date)).toEqual(["2026-07-01"]);
+  });
+
+  // A human is watching a backfill run and expects work to happen — unlike the nightly cron,
+  // which quietly defers to its next tick, an operator-triggered run must not look like a clean
+  // no-op when the engine was actually unreachable the whole time.
+  it("fails loudly and stops immediately when Valhalla reports unreachable, instead of silently doing nothing", async () => {
+    const matchRoutesForDay = vi.fn().mockResolvedValue({
+      segmentsConsidered: 3,
+      matched: 0,
+      lowConfidence: 0,
+      noRoadMatch: 0,
+      tooShort: 0,
+      failed: 0,
+      notApplicable: 0,
+      skipped: 0,
+      aborted: true,
+    });
+
+    const result = await runRouteMatchBackfill({ ...dryRunArgs, dryRun: false }, dates, {
+      loadModeCounts: vi.fn(),
+      log: vi.fn(),
+      matchRoutesForDay,
+      valhallaUrl: "http://valhalla:8002",
+    });
+
+    // Stops after the first date — the second date is never even attempted, since it would hit
+    // the same unreachable engine.
+    expect(matchRoutesForDay).toHaveBeenCalledOnce();
+    expect(matchRoutesForDay).toHaveBeenCalledWith("user-1", "2026-07-01");
+    expect(result.failedDays.map(({ date }) => date)).toEqual(["2026-07-01"]);
+    expect(result.failedDays[0].error).toBeInstanceOf(Error);
   });
 });
