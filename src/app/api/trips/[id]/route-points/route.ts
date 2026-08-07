@@ -1,10 +1,12 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, trips } from "@/db";
+import { getDb, segmentRouteMatches, transportationSegments, trips } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getKstDateWindow } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
+import { assembleTrackShape } from "@/modules/location/services/route-match/track-shape";
 import {
+  getSampledRowNumbers,
   MAX_ROUTE_POINTS,
   type RoutePointRow,
   simplifyRoutePoints,
@@ -34,6 +36,23 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     const window = getKstDateWindow(trip.startDate, trip.endDate);
+    const segmentRows = await db
+      .select({
+        startTime: transportationSegments.startTime,
+        endTime: transportationSegments.endTime,
+        shape: segmentRouteMatches.shape,
+      })
+      .from(transportationSegments)
+      .leftJoin(segmentRouteMatches, eq(segmentRouteMatches.segmentId, transportationSegments.id))
+      .where(
+        and(
+          eq(transportationSegments.userId, user.id),
+          gte(transportationSegments.startTime, window.start),
+          lt(transportationSegments.startTime, window.end)
+        )
+      )
+      .orderBy(asc(transportationSegments.startTime));
+
     // Sampling happens inside PostgreSQL. Only this bounded result is decoded in JS.
     // The first/last rows are explicit exceptions; the stride allows at most cap-2 middles.
     const result = await db.execute(sql`
@@ -74,7 +93,21 @@ export async function GET(request: NextRequest, context: RouteContext) {
       ORDER BY timestamp
     `);
     const sampledRows = result.rows as unknown as RoutePointRow[];
-    const points = simplifyRoutePoints(sampledRows, MIN_ROUTE_DISTANCE_M).map((row) => ({
+    const assembledRows = assembleTrackShape(
+      segmentRows.map((segment) => ({
+        ...segment,
+        shape: segment.shape as Array<[number, number, number]> | null,
+      })),
+      sampledRows
+    ).map((point) => ({ ...point, timestamp: new Date(point.timestamp) }));
+    const simplifiedRows = simplifyRoutePoints(assembledRows, MIN_ROUTE_DISTANCE_M);
+    const boundedRows =
+      simplifiedRows.length <= MAX_ROUTE_POINTS
+        ? simplifiedRows
+        : getSampledRowNumbers(simplifiedRows.length, MAX_ROUTE_POINTS).map(
+            (rowNumber) => simplifiedRows[rowNumber - 1]
+          );
+    const points = boundedRows.map((row) => ({
       lat: Number(row.lat),
       lon: Number(row.lon),
       accuracy: row.accuracy == null ? null : Number(row.accuracy),
