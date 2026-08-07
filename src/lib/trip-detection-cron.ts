@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { getDb, users } from "@/db";
-import { shiftDateKey } from "@/lib/date-key";
+import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 
 const TRIP_HISTORY_START = "2025-03-08";
@@ -142,8 +142,4 @@ async function extendThroughOverlappingAutoTrips(userId: string, initialFrom: st
   }
 
   return from;
-}
-
-export function toKstCalendarDate(date: Date): string {
-  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }

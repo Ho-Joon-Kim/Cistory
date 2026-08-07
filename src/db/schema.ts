@@ -400,6 +400,53 @@ export const transportationSegments = pgTable(
   ]
 );
 
+/**
+ * 세그먼트별 도로망 매칭 결과. `transportation_segments`에 컬럼을 붙이지 않는
+ * 이유는 그 테이블을 insights·리포트가 자주 읽고, 매칭 결과는 통째로 지우고
+ * 다시 만드는 대상이기 때문이다 (지하철 매칭과 같은 재생성 방식).
+ *
+ * **행이 없다 = 아직 처리하지 않았다.** 그래서 지하철·기차·비행처럼 애초에
+ * 도로가 아닌 세그먼트도 `not_applicable` 행을 남긴다 — "처리했는데 대상이
+ * 아니었다"와 "아직 안 했다"가 구분되어야 재실행 대상을 고를 수 있다.
+ * 반대로 `stationary`/`unknown`은 행을 만들지 않는다: 이동이 아니거나 모드를
+ * 몰라 costing을 고를 수 없어, 판단 자체가 성립하지 않는다.
+ */
+export const segmentRouteMatches = pgTable(
+  "segment_route_matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    segmentId: uuid("segment_id")
+      .notNull()
+      .references(() => transportationSegments.id, { onDelete: "cascade" }),
+    /** matched | low_confidence | no_road_match | failed | not_applicable */
+    matchStatus: text("match_status").notNull(),
+    /** [[lat, lon, epochMillis], …] — matched/low_confidence일 때만 채워진다. */
+    shape: jsonb("shape").$type<Array<[number, number, number]>>(),
+    roadNames: jsonb("road_names").$type<string[]>(),
+    roadClasses: jsonb("road_classes").$type<string[]>(),
+    confidence: doublePrecision("confidence"),
+    /** 실제로 보낸 costing. auto 폴백이 일어났는지가 여기 드러난다. */
+    costing: text("costing"),
+    /** "<빌드날짜>-<추출본 fingerprint>". 추출본을 넓힌 뒤 재실행 대상을 고르는 키. */
+    tileVersion: text("tile_version").notNull(),
+    matchedAt: timestamp("matched_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_srm_segment").on(table.segmentId),
+    index("idx_srm_user_status").on(table.userId, table.matchStatus),
+  ]
+);
+
+export type MatchStatus =
+  | "matched"
+  | "low_confidence"
+  | "no_road_match"
+  | "failed"
+  | "not_applicable";
+
 // ============ Trips (Travel Detection) ============
 export const trips = pgTable(
   "trips",

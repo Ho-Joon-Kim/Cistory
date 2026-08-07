@@ -1,5 +1,11 @@
+process.env.TZ = "Asia/Seoul";
+
+import { PgDialect } from "drizzle-orm/pg-core";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { locationPoints } from "@/db";
+import { timestampParam } from "@/db/sql";
+import { getKstDateWindow } from "@/lib/date-key";
 
 const mocks = vi.hoisted(() => ({
   getAuthenticatedUser: vi.fn(),
@@ -28,19 +34,30 @@ function request() {
   return new NextRequest("http://localhost/api/trips/trip-1/route-points");
 }
 
-function createDb(ownerRows: unknown[], routeRows: unknown[] = []) {
-  const execute = vi.fn().mockResolvedValue({ rows: routeRows });
+function createBuilder(rows: unknown[]) {
   const builder = {
     from: vi.fn(),
+    leftJoin: vi.fn(),
     where: vi.fn(),
+    orderBy: vi.fn(),
     limit: vi.fn(),
     // biome-ignore lint/suspicious/noThenProperty: Drizzle query builders are promise-like.
-    then: (resolve: (value: unknown[]) => unknown) => Promise.resolve(ownerRows).then(resolve),
+    then: (resolve: (value: unknown[]) => unknown) => Promise.resolve(rows).then(resolve),
   };
   builder.from.mockReturnValue(builder);
+  builder.leftJoin.mockReturnValue(builder);
   builder.where.mockReturnValue(builder);
+  builder.orderBy.mockReturnValue(builder);
   builder.limit.mockReturnValue(builder);
-  return { db: { select: vi.fn(() => builder), execute }, execute };
+  return builder;
+}
+
+function createDb(ownerRows: unknown[], routeRows: unknown[] = [], segmentRows: unknown[] = []) {
+  const execute = vi.fn().mockResolvedValue({ rows: routeRows });
+  const ownerBuilder = createBuilder(ownerRows);
+  const segmentBuilder = createBuilder(segmentRows);
+  const select = vi.fn().mockReturnValueOnce(ownerBuilder).mockReturnValueOnce(segmentBuilder);
+  return { db: { select, execute }, execute, segmentBuilder };
 }
 
 describe("route point sampling", () => {
@@ -90,11 +107,15 @@ describe("GET /api/trips/:id/route-points", () => {
   });
 
   it("returns only the already DB-capped rows in chronological order", async () => {
-    const rows = Array.from({ length: MAX_ROUTE_POINTS }, (_, index) => ({
-      lat: 33 + index / 10_000,
-      lon: 126,
-      accuracy: 10,
-      timestamp: new Date(Date.UTC(2026, 6, 14, 15, index)),
+    const timestamps = Array.from(
+      { length: MAX_ROUTE_POINTS },
+      (_, index) => new Date(Date.UTC(2026, 6, 14, 15, index))
+    );
+    const rows = timestamps.map((timestamp, index) => ({
+      lat: String(33 + index / 10_000),
+      lon: "126",
+      accuracy: "10",
+      timestamp: timestamp.toISOString().replace("T", " ").replace(".000Z", ""),
     }));
     const { db, execute } = createDb(
       [{ id: "trip-1", startDate: "2026-07-15", endDate: "2026-07-18" }],
@@ -109,7 +130,104 @@ describe("GET /api/trips/:id/route-points", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(body.rawSampledCount).toBe(MAX_ROUTE_POINTS);
     expect(body.points.length).toBeLessThanOrEqual(MAX_ROUTE_POINTS);
-    expect(body.points[0].timestamp).toBe(rows[0].timestamp.toISOString());
-    expect(body.points.at(-1).timestamp).toBe(rows.at(-1)?.timestamp.toISOString());
+    expect(body.points[0]).toMatchObject({
+      lat: 33,
+      lon: 126,
+      accuracy: 10,
+      timestamp: timestamps[0].toISOString(),
+    });
+    expect(body.points.at(-1)).toMatchObject({
+      lat: 33 + (MAX_ROUTE_POINTS - 1) / 10_000,
+      lon: 126,
+      accuracy: 10,
+      timestamp: timestamps.at(-1)?.toISOString(),
+    });
+  });
+
+  it("binds raw SQL window bounds through the location timestamp driver", async () => {
+    const trip = { id: "trip-1", startDate: "2026-07-15", endDate: "2026-07-18" };
+    const { db, execute } = createDb([trip]);
+    mocks.getDb.mockReturnValue(db);
+
+    await GET(request(), context());
+
+    const query = new PgDialect().sqlToQuery(execute.mock.calls[0][0]);
+    const window = getKstDateWindow(trip.startDate, trip.endDate);
+    const expectedStart = timestampParam(locationPoints.timestamp, window.start);
+    const expectedEnd = timestampParam(locationPoints.timestamp, window.end);
+
+    expect(query.params).toContain(expectedStart);
+    expect(query.params).toContain(expectedEnd);
+    expect(query.params).not.toContain(window.start);
+    expect(query.params).not.toContain(window.end);
+  });
+
+  it("queries trip-window segment matches and merges snapped geometry with raw gaps", async () => {
+    const rawRows = [
+      { lat: "99", lon: "127", accuracy: "10", timestamp: "2026-07-15 00:05:00" },
+      { lat: "37.15", lon: "127", accuracy: "10", timestamp: "2026-07-15 00:15:00" },
+    ];
+    const segmentRows = [
+      {
+        startTime: new Date("2026-07-15T00:00:00Z"),
+        // The two shape points are 10 minutes apart — well past MAX_SHAPE_GAP_MS — so this
+        // is a hole, not a single covered run. The raw row at 00:05 sits inside that hole and
+        // must flow through; only a genuinely uncovered raw row (00:15, after the shape ends)
+        // was ever expected to fill.
+        shape: [
+          [37, 127, Date.parse("2026-07-15T00:00:00Z")],
+          [37.1, 127, Date.parse("2026-07-15T00:10:00Z")],
+        ],
+      },
+    ];
+    const { db, segmentBuilder } = createDb(
+      [{ id: "trip-1", startDate: "2026-07-15", endDate: "2026-07-18" }],
+      rawRows,
+      segmentRows
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    const response = await GET(request(), context());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(db.select).toHaveBeenCalledTimes(2);
+    expect(segmentBuilder.leftJoin).toHaveBeenCalledTimes(1);
+    expect(body.points.map((point: { lat: number }) => point.lat)).toEqual([37, 99, 37.1, 37.15]);
+    expect(body.points.map((point: { timestamp: string }) => point.timestamp)).toEqual([
+      "2026-07-15T00:00:00.000Z",
+      "2026-07-15T00:05:00.000Z",
+      "2026-07-15T00:10:00.000Z",
+      "2026-07-15T00:15:00.000Z",
+    ]);
+    expect(body.rawSampledCount).toBe(2);
+  });
+
+  it("keeps the assembled response bounded when stored shapes exceed the route cap", async () => {
+    const shape = Array.from({ length: MAX_ROUTE_POINTS + 100 }, (_, index) => [
+      37 + index / 1000,
+      127,
+      Date.parse("2026-07-15T00:00:00Z") + index * 1000,
+    ]);
+    const { db } = createDb(
+      [{ id: "trip-1", startDate: "2026-07-15", endDate: "2026-07-18" }],
+      [],
+      [
+        {
+          startTime: new Date("2026-07-15T00:00:00Z"),
+          shape,
+        },
+      ]
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    const response = await GET(request(), context());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.points.length).toBeLessThanOrEqual(MAX_ROUTE_POINTS);
+    expect(body.count).toBe(body.points.length);
+    expect(body.points[0].timestamp).toBe("2026-07-15T00:00:00.000Z");
+    expect(body.points.at(-1).timestamp).toBe("2026-07-15T00:18:19.000Z");
   });
 });

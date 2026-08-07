@@ -79,7 +79,7 @@ src/
 │   └── privacy|terms/       # Static pages required by the Google/Withings OAuth reviews
 ├── components/              # Shared components (Layout/, map/, ui/ shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (39 app tables)
+│   ├── schema.ts            # Drizzle schema (40 app tables)
 │   ├── sql.ts               # KST-aware SQL helpers (localDaySql, numericToNumber)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
@@ -129,8 +129,11 @@ instrumentation.ts           # (project root) Initializes Cron + Sentry on serve
 sentry.{server,client,edge}.config.ts
 prompts/                     # External prompt assets (commit-system-prompt.txt)
 docs/                        # brainstorms/, plans/, health/, portfolio/, ideation/
+docker/valhalla/             # Self-hosted Valhalla map-matching container (entrypoint.sh builds
+                             # tiles from MAP_EXTRACTS on start, gated by EXTRACTS_FINGERPRINT)
 scripts/                     # migrate.ts, refresh-subway.ts, detect-trips.ts, verify-returns.ts,
                              # calibrate-subway-matcher.ts, calibrate-flight-detection.ts,
+                             # calibrate-mode-vs-road-class.ts, backfill-route-matches.ts,
                              # probe-google-health.ts, backfill-location-heatmaps.ts,
                              # backfill-spending-categories.mjs, fix-standalone-instrumentation.mjs
 ```
@@ -177,7 +180,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (39 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (40 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 
 *Core / GitHub*
 - `users` - Extended user data with `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `healthImportApiKey`, `wakatimeApiKey`, `lastLat`/`lastLon`, `syncIntervalHours` (UUID PK, references Better Auth `user.id`)
@@ -191,6 +194,7 @@ const db = getDb();
 - `tracks` - Movement journeys between visits; `transportationSegments` - fine-grained mode segments; `trips` - multi-day travel detection (`autoDetected` distinguishes cron-detected from user-created)
 - `locationHeatmapDaily` - Per-KST-day point counts on a 3-decimal lat/lon grid, unique on `(userId, date, lat, lon)`. Precomputed so `/overview` never scans raw `location_points`
 - `locationProcessingDays` - **Durable** per-day pipeline marker (`processing`/`completed`/`failed` + `attemptCount`/`lastError`), unique on `(userId, date)`. Unlike the `anomaly` stamp on `location_points` it records successful *empty* days and survives a restart after a post-anomaly stage fails, and it is the watermark the overview precompute reads to decide whether an ended period may finalize
+- `segmentRouteMatches` - Valhalla 도로망 매칭 결과, `(segmentId)` 유니크. `matchStatus`가 `matched`|`low_confidence`|`no_road_match`|`failed`|`not_applicable`. **행이 없다 = 아직 처리 안 함**이므로 도로가 아닌 모드도 `not_applicable` 행을 남기지만, `stationary`/`unknown`은 남기지 않는다. `tileVersion`은 추출본 변경 전후의 결과를 구분한다
 - `subwaySystems` (PostGIS `bbox` Polygon), `subwayLines` (MultiLineString), `subwayStations` (Point), `subwayTripMatches`
 
 *Coding*
@@ -220,7 +224,7 @@ const db = getDb();
 *Meta*
 - `dataUsageCache` - Per-user per-table row count and estimated byte size. `estimatedBytes` is **bigint** (0036): it was `integer` until `location_points` reached 75% of int4's 2 GB ceiling, and the per-category `SUM(...)::int` in `insights/service.ts` would have thrown `integer out of range`. Cast byte sums to `::bigint`, never `::int`
 
-PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` lat/lon, while the `subway*` tables (0019/0020) use real PostGIS `geometry` columns. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (commit `a3df73a`), so don't reintroduce it. 0021 `account_roles`; 0022 brokerage tables; 0023 target allocations; 0024 backfill watermarks; 0025 transaction category columns; 0026 Withings; 0027 health; 0028 added `health_samples.source` to the unique key; 0029 `users.health_import_api_key`; 0030 `period_snapshots`; 0031 `location_heatmap_daily`; 0032 `location_processing_days`; 0033 `period_narratives`; 0034 saved-place trip exclusions + `trips.auto_detected`; 0035 relabelled Fitbit-native `health_samples.source` from `'unknown'` to `'FITBIT'` (data-only; must stay paired with the `sampleSource()` parser change, since `source` is part of the sample identity); 0036 widened `data_usage_cache.estimated_bytes` to bigint; 0037 tuned `location_points` autovacuum (scale factor 0.2 → 0.02 — the daily `SET anomaly` rewrite can never be HOT because `anomaly` sits in the `idx_location_points_not_anomaly` predicate, so the table accumulated 15% dead tuples before ever crossing the default threshold); 0038 dropped `idx_location_points_lonlat` — zero scans over the DB's whole life, because `lonlat` is only ever read as `ST_Distance(lonlat, LAG(lonlat))`, which a GiST index cannot serve. The column and its `set_lonlat` trigger stay; recreate the index if a real spatial predicate is ever added.
+PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` lat/lon, while the `subway*` tables (0019/0020) use real PostGIS `geometry` columns. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (commit `a3df73a`), so don't reintroduce it. 0021 `account_roles`; 0022 brokerage tables; 0023 target allocations; 0024 backfill watermarks; 0025 transaction category columns; 0026 Withings; 0027 health; 0028 added `health_samples.source` to the unique key; 0029 `users.health_import_api_key`; 0030 `period_snapshots`; 0031 `location_heatmap_daily`; 0032 `location_processing_days`; 0033 `period_narratives`; 0034 saved-place trip exclusions + `trips.auto_detected`; 0035 relabelled Fitbit-native `health_samples.source` from `'unknown'` to `'FITBIT'` (data-only; must stay paired with the `sampleSource()` parser change, since `source` is part of the sample identity); 0036 widened `data_usage_cache.estimated_bytes` to bigint; 0037 tuned `location_points` autovacuum (scale factor 0.2 → 0.02 — the daily `SET anomaly` rewrite can never be HOT because `anomaly` sits in the `idx_location_points_not_anomaly` predicate, so the table accumulated 15% dead tuples before ever crossing the default threshold); 0038 dropped `idx_location_points_lonlat` — zero scans over the DB's whole life, because `lonlat` is only ever read as `ST_Distance(lonlat, LAG(lonlat))`, which a GiST index cannot serve. The column and its `set_lonlat` trigger stay; recreate the index if a real spatial predicate is ever added; 0041 segment_route_matches
 
 `location_velocity_migration_20260710_backup` is a leftover backup table from a one-off data fix, not part of the schema — don't build on it.
 
@@ -265,6 +269,8 @@ Every job has a module-level single-flight boolean guard. `seedSubwaySystemsIfEm
 - Trip writes go through `trip-writer.ts`'s advisory-lock wrapper, since detection runs from the weekly cron, `/api/trips/detect`, `/api/settings/trip-regenerate` and the backfill orchestrator
 - Geocoding auto-selects Kakao (Korean coordinates), Google Places, or Mapbox (international); results cached in `placeCache`
 - Location hooks poll every 60 seconds when viewing today's date
+- **Road-network route matching** (`src/modules/location/services/route-match/`) runs after the daily pipeline (chained from `processYesterdayLocations`) and calls a self-hosted Valhalla container (`VALHALLA_URL`) to snap road-mode segments to `segment_route_matches` — see the schema entry above for its status values. **Rollout order matters**: build tiles and get the `valhalla` container healthy *first*, then set `VALHALLA_URL` on the host `.env` *last*. Jenkins deploys with `docker run` and only ever runs `docker compose up -d postgres` — it never starts the `valhalla` service — so after this merges, route matching does nothing (one log line, `[RouteMatch] VALHALLA_URL is unset`) until an operator adds the three Valhalla env vars to the host `.env` and starts the container by hand. Setting `VALHALLA_URL` while the container is down or mid-rebuild makes every road segment record `failed` nightly with no automatic retry
+- **Regenerating transportation segments destroys route matches.** `segment_route_matches.segment_id` is `ON DELETE cascade`, and `detectAndPersistTracks` deletes and reinserts a day's `transportation_segments` with fresh UUIDs — so `/api/settings/location-backfill` and `/api/settings/transportation-reclassify` silently wipe every route match in the affected date range. Recovery is re-running `scripts/backfill-route-matches.ts` over the affected dates. This mirrors existing `subway_trip_matches` behavior, so it's consistent rather than novel — but it was written down nowhere until now
 
 **Health & Body**:
 - **Google Health (Fitbit)** — `src/modules/health/service.ts`. `HEALTH_METRICS` is a per-metric config table (dataType, camelCase `wrapper` key, `timeShape` of `interval` vs `sampleTime`, snake_case `filterField`) ground-truthed against live payloads by the U1 spike in `docs/health/google-health-spike-findings.md`. Only metrics whose exact shape was verified are enabled; values arrive as strings *or* numbers. Sync is bidirectional: a forward incremental cursor (`syncedThrough`) plus a backward historical walk in bounded 14-day chunks (4 chunks/run) so one cron tick never pages unbounded history in a single event-loop stretch. The backward walk stops on a presence probe rather than the first empty chunk, because real data has 80+ day gaps for sparse metrics like SpO2/VO2max.
@@ -350,6 +356,14 @@ KIS_ENCRYPTION_KEY=...               # ≥32 chars. Master key for AES-256-GCM e
                                      # credential and in-flight OAuth state
 WITHINGS_CLIENT_ID=... / WITHINGS_CLIENT_SECRET=...   # Withings OAuth
 FITBIT_CLIENT_ID=... / FITBIT_CLIENT_SECRET=...       # Google Health OAuth (named "Fitbit" throughout the UI/routes)
+VALHALLA_URL=http://valhalla:8002    # Self-hosted map-matching container. Unset ⇒ route
+                                     # matching is skipped entirely (one warning log line)
+VALHALLA_TILE_URLS="https://download.geofabrik.de/..." # Space-joined PBF extract URLs, one
+                                     # per MAP_EXTRACTS entry (src/lib/map-extracts.ts)
+EXTRACTS_FINGERPRINT=0cd893ece59f    # extractsFingerprint() from src/lib/map-extracts.ts.
+                                     # Required by docker/valhalla/entrypoint.sh — the
+                                     # container refuses to start without it (see "Rollout"
+                                     # note under Location Tracking & Processing below)
 IMPORT_MAX_FILE_SIZE_MB=500          # Cap for /api/timeline/locations/import
 ENABLE_DB_BENCHMARK=true             # Gate /api/settings/db-benchmark
 NEXT_PUBLIC_ENABLE_DB_BENCHMARK=true # Show the matching UI card
