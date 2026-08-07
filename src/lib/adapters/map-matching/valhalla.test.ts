@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createValhallaAdapter, MATCH_CONFIDENCE_THRESHOLD, MAX_TRACE_POINTS } from "./valhalla";
 
 // findings §2 — the real 4-point Gangnam-daero /trace_attributes request,
-// pasted verbatim. All four points sit inside the south-korea MAP_EXTRACTS
-// bbox ([124.3188, 32.3608, 132.3386, 38.6497]).
+// pasted verbatim. All four points fall inside one of the south-korea
+// MAP_EXTRACTS bboxes (isPointCovered — see map-extracts.ts).
 const points = [
   { lat: 37.4979, lon: 127.0276, timestamp: new Date("2026-08-01T00:00:00Z") },
   { lat: 37.4985, lon: 127.0281, timestamp: new Date("2026-08-01T00:00:06Z") },
@@ -13,21 +13,25 @@ const points = [
   { lat: 37.4997, lon: 127.0292, timestamp: new Date("2026-08-01T00:00:18Z") },
 ];
 
-// South Atlantic — outside every MAP_EXTRACTS bbox (no region covers it, even
-// after the fix-round-1 widening).
+// South Atlantic — outside every MAP_EXTRACTS bbox in every fix round (no
+// region covers it).
 const pointsOutsideAnyExtract = [
   { lat: -30.0, lon: -20.0, timestamp: new Date("2026-08-01T00:00:00Z") },
   { lat: -30.001, lon: -20.001, timestamp: new Date("2026-08-01T00:00:06Z") },
   { lat: -30.002, lon: -20.002, timestamp: new Date("2026-08-01T00:00:12Z") },
 ];
 
-// Starts inside the south-korea bbox (Seoul) and ends in the genuine gap
-// between the south-korea and tokyo-chiba (Kanto) extracts — (36.0, 133.0) is
-// outside both ([124.3188..132.3386] and [134.5757..154.4709] respectively).
-// This is fix round 1's core regression case: the reviewer's "Narita ->
-// 35.6,139.0 -> 35.2,138.6" example stopped straddling once tokyo-chiba's
-// bbox was correctly widened to Kanto's real reach, so this test uses a real
-// gap that survives that widening.
+// Starts inside a south-korea bbox (Seoul) and ends in the genuine gap
+// between the south-korea and kanto (formerly "tokyo-chiba") extracts —
+// (36.0, 133.0) is outside both (south-korea's furthest-east bbox tops out
+// at lon 131.8188; kanto's furthest-west mainland bbox starts at lon
+// 135.5757 — see map-extracts.ts). This is fix round 1's core regression
+// case: the reviewer's "Narita -> 35.6,139.0 -> 35.2,138.6" example stopped
+// straddling once kanto's bbox was widened to its real Kanto-region reach in
+// round 1 (all three points now fall inside the mainland cluster), and fix
+// round 2's tightening of that same bbox (correcting an overclaim into Osaka
+// etc.) doesn't reopen it either, so this test uses a real gap that survives
+// both rounds.
 const straddlingPoints = [
   { lat: 37.4979, lon: 127.0276, timestamp: new Date("2026-08-01T00:00:00Z") },
   { lat: 36.0, lon: 133.0, timestamp: new Date("2026-08-01T00:10:00Z") },
