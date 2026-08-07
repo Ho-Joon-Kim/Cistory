@@ -77,18 +77,24 @@ services:
   # /entrypoint.sh calls the real binaries by hand: builds tiles into
   # /custom_files only when missing/stale/fingerprint-changed, then execs
   # valhalla_service in the foreground, so on a healthy boot it never exits.
-  # EXTRACTS_FINGERPRINT is REQUIRED — the entrypoint hard-refuses (exit 1) if
-  # it's unset, since a missing value would otherwise defeat the rebuild-on-
-  # extract-change check entirely (see valhalla-probe-findings.md, Fix round 1
-  # §1). That refusal, and the "no PBF URLs" one beside it, are real exit
-  # paths a fresh clone can hit — `on-failure:5` retries genuine transient
-  # crashes a few times but stops spinning once it's clearly a config problem,
-  # unlike `unless-stopped` which would restart it forever at ~1min backoff.
+  # `restart: unless-stopped` (matching postgres/cistory/cistory-cron below) is
+  # safe here, on purpose: EXTRACTS_FINGERPRINT is REQUIRED and the entrypoint
+  # hard-refuses (exit 1, loud and fast) if it's unset, rather than quietly
+  # rebuilding tiles from scratch on every boot — that refusal is what used to
+  # make an infinite restart loop the visible symptom of this misconfiguration
+  # (see valhalla-probe-findings.md, Fix round 1 §1). A bounded policy like
+  # `on-failure:N` was tried and reverted: unlike `unless-stopped`, it is NOT
+  # re-applied when the Docker daemon itself restarts (a host reboot), so this
+  # service would silently stay down after every reboot while postgres/cistory
+  # came back — worse than the loop it was meant to avoid, since a loop at
+  # least logs. Don't flip this back without also removing the entrypoint's
+  # hard-refusal, since the two changes were solving the same problem from
+  # opposite ends.
   # No published port: reached over the internal network only.
   valhalla:
     image: ghcr.io/valhalla/valhalla:latest
     container_name: cistory-valhalla
-    restart: on-failure:5
+    restart: unless-stopped
     volumes:
       - cistory_valhalla_tiles:/custom_files
       - ./docker/valhalla/entrypoint.sh:/entrypoint.sh:ro
