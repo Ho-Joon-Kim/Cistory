@@ -11,7 +11,9 @@ import { MAP_EXTRACTS } from "@/lib/map-extracts";
  * 실측으로 확인한 것이다. 이 파일의 초안(Task 3 브리프)은 Valhalla 문서만
  * 보고 쓰였고, 실제 프로브가 그중 최소 다섯 군데를 틀렸다고 확인했다 — 필드
  * 이름, 타입 필터, 트레이스 상한, 오류 코드 두 개. 추측한 필드 이름을 넣지
- * 않는다; 프로브 문서와 다르면 프로브가 이긴다.
+ * 않는다; 프로브 문서와 다르면 프로브가 이긴다. Task 3 코드 리뷰 fix round 1
+ * 에서 444 판별식의 방향이 뒤집혀 있던 것과 병합 시 no_coverage 신호가
+ * 조용히 사라지던 것도 추가로 고쳤다 — 아래 각 함수의 주석 참고.
  */
 
 export type ValhallaCosting = "auto" | "pedestrian" | "bicycle" | "motorcycle" | "bus";
@@ -63,6 +65,15 @@ const NO_COVERAGE_ERROR_CODE = 444;
  */
 const TRACE_TOO_LONG_ERROR_CODE = 154;
 
+/**
+ * 154 재시도 분할 후 절반의 최소 포인트 수. Valhalla는 점 하나로는 거리도
+ * 경로도 계산할 수 없어, 1점짜리 요청은 보내봐야 결과가 뻔한 왕복 낭비다 —
+ * 그래서 분할 결과 어느 한쪽이라도 이 아래로 내려가면 아예 나누지 않고
+ * failed로 남긴다 (분할 전 이미 200km를 넘겼다는 것 자체가, 점이 2개뿐인데도
+ * 넘겼다면 더 쪼개봐야 답이 안 나온다는 뜻이기도 하다).
+ */
+const MIN_SPLIT_POINTS = 2;
+
 interface RawMatchedPoint {
   lat: number;
   lon: number;
@@ -98,15 +109,23 @@ function emptyResult(status: MatchResult["status"]): MatchResult {
 }
 
 /**
- * 트레이스의 어느 한 점이라도 구축된 추출본(MAP_EXTRACTS) bbox 안에 있는지.
+ * 트레이스의 모든 점이 구축된 추출본(MAP_EXTRACTS) bbox 안에 있는지.
  *
  * error_code 444는 "커버리지 밖"과 "커버리지 안이지만 도로 근처가 아님(공원,
  * 호수 등)"에 대해 바이트 단위로 동일한 응답을 준다 — 프로브가 확인했다
  * (findings §3, Soyang 저수지 케이스가 남대서양 케이스와 완전히 같은 본문을
- * 반환). 이 함수가 그 둘을 가르는 유일한 신호다.
+ * 반환). 위젠(widen)이 도움이 되는지는 "밖에 있는 점이 하나라도 있는가"로
+ * 갈린다 — 하나라도 밖에 있으면 그 지점 근처로 추출본을 넓히는 게 옳은
+ * 조치이므로 no_coverage다. **모든** 점이 안에 있는데도 못 찾았다면 넓혀도
+ * 소용없다(공원, 호수 등) — 그때만 failed다.
+ *
+ * (fix round 1: 이전 버전은 "하나라도 안에 있으면 failed"였다 — 반대였다.
+ * 방문 이력에서 뽑은 bbox라 실제 트레이스 대부분이 한 점쯤은 어딘가의 bbox
+ * 안에 걸치므로, 이 반전된 조건은 나리타→간토 밖 같은 "안에서 밖으로
+ * 걸치는" 구간까지 거의 다 failed로 묻어버려 재실행 대상에서 영영 빠뜨렸다.)
  */
-function anyPointInsideExtracts(points: MatchPoint[]): boolean {
-  return points.some((p) =>
+function everyPointInsideExtracts(points: MatchPoint[]): boolean {
+  return points.every((p) =>
     MAP_EXTRACTS.some(
       ({ bbox: [minLon, minLat, maxLon, maxLat] }) =>
         p.lon >= minLon && p.lon <= maxLon && p.lat >= minLat && p.lat <= maxLat
@@ -115,13 +134,29 @@ function anyPointInsideExtracts(points: MatchPoint[]): boolean {
 }
 
 /**
- * 부분 결과들을 하나로 잇는다. 성공한(shape가 채워진) 조각이 하나라도 있으면
- * 그것들만 이어붙이고, 전부 실패했을 때만 대표로 첫 조각의 상태를 반환한다 —
- * 긴 이동의 앞부분만 커버리지 밖인 경우가 실재하기 때문이다.
+ * 부분 결과들을 하나로 잇는다.
+ *
+ * no_coverage는 절대 조용히 사라지면 안 된다 — "추출본을 넓힌 뒤 재실행"을
+ * 트리거하는 유일한 신호이기 때문이다(재실행 대상 조회는 `match_status`
+ * 컬럼만 본다). 조각 중 하나라도 no_coverage면 — 다른 조각이 실제로
+ * 매칭됐더라도 — 전체를 no_coverage로 취급하고 shape는 비운다: matched로
+ * 조용히 잘려나간 shape(예: auto로 오분류된 항공편이 양 끝 두 점짜리
+ * shape로 "매칭"된 것처럼 저장되는 경우)를 남기는 것보다, 넓힌 뒤 통째로
+ * 다시 도는 쪽이 싸다. 이 순서는 입력 배열의 순서와 무관하게 결정적이어야
+ * 한다 — fix round 1 리뷰가 [failed, no_coverage]와 [no_coverage, failed]가
+ * 서로 다른 결과를 내던 것을 잡았다.
+ *
+ * no_coverage가 하나도 없을 때만 기존 방식대로: 매칭된(shape가 채워진)
+ * 조각이 있으면 그것들을 이어붙이고(실패한 조각은 버린다 — 긴 이동의
+ * 일부만 엔진 오류인 경우가 실재한다), 전부 실패했을 때만 failed다.
  */
 function mergeResults(results: MatchResult[]): MatchResult {
+  if (results.some((r) => r.status === "no_coverage")) {
+    return emptyResult("no_coverage");
+  }
+
   const usable = results.filter((r) => r.shape !== null);
-  if (usable.length === 0) return results[0];
+  if (usable.length === 0) return emptyResult("failed");
 
   const status = usable.some((r) => r.status === "low_confidence") ? "low_confidence" : "matched";
   const confidences = usable.map((r) => r.confidence).filter((c): c is number => c !== null);
@@ -190,6 +225,17 @@ export function createValhallaAdapter(baseUrl: string, timeoutMs = 30_000): MapM
     const shape = (body.matched_points ?? [])
       .filter((p) => p.type === "matched" || p.type === "interpolated")
       .map((p): [number, number] => [p.lat, p.lon]);
+
+    if (shape.length === 0) {
+      // 전부 unmatched였거나(포인트 하나도 못 스냅) matched_points 자체가
+      // 없거나(2xx인데 본문이 JSON으로 안 읽히는 경우도 .catch(() => ({}))를
+      // 거쳐 결국 여기로 온다) — 어느 쪽이든 geometry가 없다. matched로
+      // 남기면 match_status 컬럼만 보고는 진짜 매칭과 구분이 안 되고,
+      // `shape는 matched/low_confidence일 때만 채워진다`는 이 파일의 계약도
+      // 깨진다.
+      return emptyResult("failed");
+    }
+
     const edges = body.edges ?? [];
     const confidence = body.confidence_score ?? null;
 
@@ -213,11 +259,13 @@ export function createValhallaAdapter(baseUrl: string, timeoutMs = 30_000): MapM
   ): Promise<MatchResult> {
     if (errorCode === TRACE_TOO_LONG_ERROR_CODE) {
       // 이 트레이스는 잘못된 요청이 아니라 200km 상한을 넘는 정상적인 시외
-      // 이동이다 — 절반으로 잘라 재시도한다. 포인트 1개까지 내려가면(이론상
-      // 도달하지 않는다 — 점 하나의 거리는 0이다) 더 못 자르니 failed로
-      // 남긴다.
-      if (points.length <= 1) return emptyResult("failed");
+      // 이동이다 — 절반으로 잘라 재시도한다. 어느 한쪽이라도 MIN_SPLIT_POINTS
+      // 아래로 내려가는 분할은 하지 않는다 — 1점짜리 요청은 Valhalla가 애초에
+      // 유의미하게 처리할 수 없어 결과가 뻔한 왕복 낭비다.
       const mid = Math.floor(points.length / 2);
+      const canSplit = mid >= MIN_SPLIT_POINTS && points.length - mid >= MIN_SPLIT_POINTS;
+      if (!canSplit) return emptyResult("failed");
+
       const [left, right] = await Promise.all([
         matchChunk(points.slice(0, mid), costing),
         matchChunk(points.slice(mid), costing),
@@ -226,14 +274,16 @@ export function createValhallaAdapter(baseUrl: string, timeoutMs = 30_000): MapM
     }
 
     if (errorCode === NO_COVERAGE_ERROR_CODE) {
-      if (anyPointInsideExtracts(points)) {
-        // 구축된 추출본 안인데도 못 찾았다 — 추출본을 넓힌다고 해결되지
-        // 않는 케이스(공원, 호수 등)다. no_coverage로 보고하면 "추출본을
-        // 넓히면 살아난다"는 집계 신호가 거짓이 되므로 failed로 남긴다.
-        logger.warn("[Valhalla] error_code 444 inside a built extract — not a coverage gap", {
-          costing,
-          sample: { lat: points[0].lat, lon: points[0].lon },
-        });
+      if (everyPointInsideExtracts(points)) {
+        // 구축된 추출본 안인데도(전 구간) 못 찾았다 — 추출본을 넓힌다고
+        // 해결되지 않는 케이스(공원, 호수 등)다. no_coverage로 보고하면
+        // "추출본을 넓히면 살아난다"는 집계 신호가 거짓이 되므로 failed로
+        // 남긴다.
+        //
+        // 로그는 남기지 않는다: pedestrian 코스팅에서는 공원/호수를 걷는
+        // 게 흔하고 정상적인 결과라, 세그먼트마다 warn을 찍으면 진짜 엔진
+        // 오류와 뒤섞인 잡음이 된다. 근거가 필요하면 segment_route_matches
+        // 의 `match_status='failed'` 행 자체가 이미 영구 기록이다.
         return emptyResult("failed");
       }
       return emptyResult("no_coverage");
