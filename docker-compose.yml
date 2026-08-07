@@ -69,7 +69,24 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # Self-hosted road-network map matching. Uses the official image's stock
+  # entrypoint: tile_urls builds tiles from MAP_EXTRACTS (src/lib/map-extracts.ts)
+  # on first boot if /custom_files is empty, then starts the server. No custom
+  # entrypoint here — that lands in a later task once the image's internal
+  # build-script path and tile artifact filename are confirmed by a probe.
+  # No published port: reached over the internal network only.
+  valhalla:
+    image: ghcr.io/valhalla/valhalla:latest
+    container_name: cistory-valhalla
+    restart: unless-stopped
+    volumes:
+      - cistory_valhalla_tiles:/custom_files
+    environment:
+      - tile_urls=${VALHALLA_TILE_URLS:-}
+      - server_threads=2
+
 volumes:
   postgres_data:
     external: true
     name: cistory_postgres_data
+  cistory_valhalla_tiles:
