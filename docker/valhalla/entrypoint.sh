@@ -54,10 +54,34 @@ ADMIN_DB="$TILE_DIR/admin.sqlite"
 # wait_for_backoff()/record_failure() below — see the comment there for why
 # this exists.
 FAIL_MARKER="$TILE_DIR/.tile_build_failure"
+# The realistic failure mode is a typo'd or dead extract URL, and
+# EXTRACTS_FINGERPRINT does NOT change when a URL changes — it hashes each
+# MAP_EXTRACTS entry's `name` and `bboxes` only (src/lib/map-extracts.ts),
+# never its `url`. Keying the backoff marker on fingerprint alone would mean
+# an operator who fixes a bad URL and redeploys still inherits whatever's
+# left of the old backoff — up to an hour — before the corrected URL is even
+# tried. Hashing VALHALLA_TILE_URLS here and folding it into the marker
+# alongside the fingerprint (in wait_for_backoff/record_failure below) means
+# a URL fix is treated as a genuinely different attempt and retries right
+# away, while a truly unchanged, still-broken configuration keeps backing off.
+URLS_HASH=$(printf '%s' "${VALHALLA_TILE_URLS:-}" | sha256sum | cut -d' ' -f1)
 
 # A missing/empty EXTRACTS_FINGERPRINT isn't a lesser-configured mode — it
 # silently defeats the whole point of the stamp check below. Refuse the same
 # way the "no PBF URLs" case does further down, rather than let it slide.
+#
+# Deliberately NOT routed through record_failure()/the backoff below, unlike
+# the "no PBF URLs" refusal in build_tiles(). Three reasons: (1) it fires
+# before any real work happens — no download, no CPU burn — so it doesn't
+# have the "re-processing 1.4GB on every restart" problem the backoff exists
+# to bound; (2) it's a deploy-level misconfiguration (a missing
+# docker-compose.yml/.env value) that no amount of waiting ever resolves on
+# its own, so a backoff would only delay the fix, not enable one; (3) this
+# refusal was added specifically to REPLACE a silent bad-rebuild bug with a
+# loud, fast, obvious one (see the reference below) — deferring it behind a
+# sleep would partly undo that. "No PBF URLs" gets backed off instead because
+# a wrong-but-present URL is the realistic failure this backoff was written
+# for (see URLS_HASH above); this check is a different kind of error.
 if [ -z "${EXTRACTS_FINGERPRINT:-}" ]; then
   echo "[valhalla] EXTRACTS_FINGERPRINT is unset — refusing to start. Without a" \
     "real value the rebuild-on-extract-change check can never do anything (see" \
@@ -105,31 +129,46 @@ needs_build() {
 # and reverted (it doesn't survive a Docker daemon restart). The backoff
 # belongs here instead, in front of the actual work.
 #
-# Design: a failed build attempt writes attempt count + fingerprint + epoch
-# to $FAIL_MARKER. The next start computes an exponential delay from that
-# attempt count (1m, 2m, 4m, ... capped at 1h) and sleeps out any remaining
-# portion of it before touching the network or the tile directory. A
-# transient failure (a flaky download, a momentarily-unreachable extract
-# host) typically succeeds on the very next attempt, which is only ever a
-# few minutes away — it recovers on its own. A deterministic failure (a
-# genuinely bad extract URL, a real Valhalla bug) keeps failing every time,
-# so the delay keeps doubling and CPU burn drops from every ~2 minutes to at
-# most once an hour — bounded, not eliminated. Nothing here ever stops
-# retrying altogether: once the real problem is fixed (corrected URL, image
-# update, whatever it was), the next scheduled attempt succeeds and clears
-# $FAIL_MARKER on its own — no operator has to shell in and delete a marker
-# file to get a retry to happen.
+# Design: a failed build attempt writes attempt count + fingerprint +
+# urls_hash + epoch to $FAIL_MARKER. The next start computes an exponential
+# delay from that attempt count (1m, 2m, 4m, ... capped at 1h) and sleeps out
+# any remaining portion of it before touching the network or the tile
+# directory. A transient failure (a flaky download, a momentarily-unreachable
+# extract host) typically succeeds on the very next attempt, which is only
+# ever a few minutes away — it recovers on its own. A deterministic failure
+# (a genuinely bad extract URL, a real Valhalla bug) keeps failing every
+# time, so the delay keeps doubling and CPU burn drops from every ~2 minutes
+# to at most once an hour — bounded, not eliminated. Nothing here ever stops
+# retrying altogether: once the real problem is fixed, the next scheduled
+# attempt succeeds and clears $FAIL_MARKER on its own — no operator has to
+# shell in and delete a marker file to get a retry to happen.
+#
+# "The real problem is fixed" needs both fingerprint AND urls_hash tracked,
+# not just fingerprint. The realistic version of "fixed" is an operator
+# correcting a typo'd or dead extract URL — and EXTRACTS_FINGERPRINT does not
+# change when a URL changes (it hashes each extract's name/bboxes only, see
+# src/lib/map-extracts.ts). Keying the marker on fingerprint alone would mean
+# a corrected URL still inherits whatever's left of the old backoff — up to
+# an hour — before actually being retried, which makes the "no operator
+# hand-clearing needed" claim above true only in a technically-eventually
+# sense. URLS_HASH (defined above) closes that gap: either value changing is
+# treated as a different attempt, ineligible to inherit the old delay.
 BACKOFF_BASE_SECONDS=60
 BACKOFF_MAX_SECONDS=3600
 
 wait_for_backoff() {
   [ -f "$FAIL_MARKER" ] || return 0
-  local failed_fp attempt last_epoch now shift_exp backoff next_retry remaining
+  local failed_fp failed_urls_hash attempt last_epoch now shift_exp backoff next_retry remaining
   failed_fp=$(grep '^fingerprint=' "$FAIL_MARKER" | cut -d= -f2 || echo "")
-  if [ "$failed_fp" != "$EXTRACTS_FINGERPRINT" ]; then
-    # 다른 fingerprint에 대한 실패 기록이다 — 운영자가 설정을 바꿔 재배포한
-    # 것이므로 예전 실패의 백오프를 물려받지 않는다.
-    echo "[valhalla] $FAIL_MARKER is for a different fingerprint ($failed_fp) — not backing off"
+  failed_urls_hash=$(grep '^urls_hash=' "$FAIL_MARKER" | cut -d= -f2 || echo "")
+  if [ "$failed_fp" != "$EXTRACTS_FINGERPRINT" ] || [ "$failed_urls_hash" != "$URLS_HASH" ]; then
+    # fingerprint나 URL 중 하나라도 달라졌다 — 추출본 목록을 바꿨거나(운영자가
+    # 재배포) 잘못된 URL을 고쳤다는 뜻이므로 예전 실패의 백오프를 물려받지
+    # 않는다. URL만 바뀐 경우 fingerprint는 그대로다 —
+    # extractsFingerprint()는 name/bboxes만 해시하고 url은 보지 않는다
+    # (src/lib/map-extracts.ts) — 그래서 fingerprint 하나만으로는 이 케이스를
+    # 못 잡는다.
+    echo "[valhalla] $FAIL_MARKER is for a different configuration (fingerprint=$failed_fp, urls_hash=${failed_urls_hash:0:12}) — not backing off"
     return 0
   fi
   attempt=$(grep '^attempt=' "$FAIL_MARKER" | cut -d= -f2 || echo 1)
@@ -150,14 +189,30 @@ wait_for_backoff() {
 }
 
 record_failure() {
-  local prev_attempt next_attempt
-  prev_attempt=$(grep '^attempt=' "$FAIL_MARKER" 2>/dev/null | cut -d= -f2 || echo 0)
-  [ -z "$prev_attempt" ] && prev_attempt=0
+  local prev_fp prev_urls_hash prev_attempt next_attempt
+  prev_fp=""
+  prev_urls_hash=""
+  if [ -f "$FAIL_MARKER" ]; then
+    prev_fp=$(grep '^fingerprint=' "$FAIL_MARKER" | cut -d= -f2 || echo "")
+    prev_urls_hash=$(grep '^urls_hash=' "$FAIL_MARKER" | cut -d= -f2 || echo "")
+  fi
+  # Only continue the existing attempt count when this failure is for the
+  # SAME configuration as the one on disk. Otherwise (first-ever failure, or
+  # the fingerprint/URLs changed since the last failure) start over at 1 —
+  # a fresh configuration hasn't earned the old one's backoff multiplier,
+  # even if it goes on to fail for an unrelated reason.
+  if [ "$prev_fp" = "$EXTRACTS_FINGERPRINT" ] && [ "$prev_urls_hash" = "$URLS_HASH" ]; then
+    prev_attempt=$(grep '^attempt=' "$FAIL_MARKER" | cut -d= -f2 || echo 0)
+    [ -z "$prev_attempt" ] && prev_attempt=0
+  else
+    prev_attempt=0
+  fi
   next_attempt=$(( prev_attempt + 1 ))
   {
     echo "attempt=$next_attempt"
     echo "last_attempt_epoch=$(date +%s)"
     echo "fingerprint=$EXTRACTS_FINGERPRINT"
+    echo "urls_hash=$URLS_HASH"
   } > "$FAIL_MARKER"
   echo "[valhalla] build attempt #$next_attempt failed; recorded to $FAIL_MARKER"
 }
@@ -189,6 +244,19 @@ build_tiles() {
 
   if [ "${#pbf_files[@]}" -eq 0 ]; then
     echo "[valhalla] VALHALLA_TILE_URLS is empty — nothing to build, refusing to start with no tiles" >&2
+    # An explicit `exit` does NOT fire the ERR trap (confirmed empirically —
+    # unlike a command returning nonzero under errexit, bash treats `exit` as
+    # the script ending on purpose, not a failure to react to), so
+    # on_build_error would never run for this path and it would bypass the
+    # backoff entirely, straight back into the restart loop it exists to
+    # prevent. Record it by hand before exiting. Unlike the
+    # EXTRACTS_FINGERPRINT refusal above, this one gets backed off on purpose:
+    # a wrong-but-present URL (the realistic failure this backoff was written
+    # for) fails via curl's own nonzero exit inside the loop above, which
+    # already goes through the ERR trap normally — but an empty
+    # VALHALLA_TILE_URLS is the same category of "bad extract configuration",
+    # just caught here instead, and there's no reason to treat it differently.
+    record_failure
     exit 1
   fi
 
