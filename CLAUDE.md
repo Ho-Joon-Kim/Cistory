@@ -79,7 +79,7 @@ src/
 │   └── privacy|terms/       # Static pages required by the Google/Withings OAuth reviews
 ├── components/              # Shared components (Layout/, map/, ui/ shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (39 app tables)
+│   ├── schema.ts            # Drizzle schema (40 app tables)
 │   ├── sql.ts               # KST-aware SQL helpers (localDaySql, numericToNumber)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
@@ -129,8 +129,11 @@ instrumentation.ts           # (project root) Initializes Cron + Sentry on serve
 sentry.{server,client,edge}.config.ts
 prompts/                     # External prompt assets (commit-system-prompt.txt)
 docs/                        # brainstorms/, plans/, health/, portfolio/, ideation/
+docker/valhalla/             # Self-hosted Valhalla map-matching container (entrypoint.sh builds
+                             # tiles from MAP_EXTRACTS on start, gated by EXTRACTS_FINGERPRINT)
 scripts/                     # migrate.ts, refresh-subway.ts, detect-trips.ts, verify-returns.ts,
                              # calibrate-subway-matcher.ts, calibrate-flight-detection.ts,
+                             # calibrate-mode-vs-road-class.ts, backfill-route-matches.ts,
                              # probe-google-health.ts, backfill-location-heatmaps.ts,
                              # backfill-spending-categories.mjs, fix-standalone-instrumentation.mjs
 ```
@@ -177,7 +180,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (39 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (40 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 
 *Core / GitHub*
 - `users` - Extended user data with `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `healthImportApiKey`, `wakatimeApiKey`, `lastLat`/`lastLon`, `syncIntervalHours` (UUID PK, references Better Auth `user.id`)
@@ -266,6 +269,8 @@ Every job has a module-level single-flight boolean guard. `seedSubwaySystemsIfEm
 - Trip writes go through `trip-writer.ts`'s advisory-lock wrapper, since detection runs from the weekly cron, `/api/trips/detect`, `/api/settings/trip-regenerate` and the backfill orchestrator
 - Geocoding auto-selects Kakao (Korean coordinates), Google Places, or Mapbox (international); results cached in `placeCache`
 - Location hooks poll every 60 seconds when viewing today's date
+- **Road-network route matching** (`src/modules/location/services/route-match/`) runs after the daily pipeline (chained from `processYesterdayLocations`) and calls a self-hosted Valhalla container (`VALHALLA_URL`) to snap road-mode segments to `segment_route_matches` — see the schema entry above for its status values. **Rollout order matters**: build tiles and get the `valhalla` container healthy *first*, then set `VALHALLA_URL` on the host `.env` *last*. Jenkins deploys with `docker run` and only ever runs `docker compose up -d postgres` — it never starts the `valhalla` service — so after this merges, route matching does nothing (one log line, `[RouteMatch] VALHALLA_URL is unset`) until an operator adds the three Valhalla env vars to the host `.env` and starts the container by hand. Setting `VALHALLA_URL` while the container is down or mid-rebuild makes every road segment record `failed` nightly with no automatic retry
+- **Regenerating transportation segments destroys route matches.** `segment_route_matches.segment_id` is `ON DELETE cascade`, and `detectAndPersistTracks` deletes and reinserts a day's `transportation_segments` with fresh UUIDs — so `/api/settings/location-backfill` and `/api/settings/transportation-reclassify` silently wipe every route match in the affected date range. Recovery is re-running `scripts/backfill-route-matches.ts` over the affected dates. This mirrors existing `subway_trip_matches` behavior, so it's consistent rather than novel — but it was written down nowhere until now
 
 **Health & Body**:
 - **Google Health (Fitbit)** — `src/modules/health/service.ts`. `HEALTH_METRICS` is a per-metric config table (dataType, camelCase `wrapper` key, `timeShape` of `interval` vs `sampleTime`, snake_case `filterField`) ground-truthed against live payloads by the U1 spike in `docs/health/google-health-spike-findings.md`. Only metrics whose exact shape was verified are enabled; values arrive as strings *or* numbers. Sync is bidirectional: a forward incremental cursor (`syncedThrough`) plus a backward historical walk in bounded 14-day chunks (4 chunks/run) so one cron tick never pages unbounded history in a single event-loop stretch. The backward walk stops on a presence probe rather than the first empty chunk, because real data has 80+ day gaps for sparse metrics like SpO2/VO2max.
@@ -351,6 +356,14 @@ KIS_ENCRYPTION_KEY=...               # ≥32 chars. Master key for AES-256-GCM e
                                      # credential and in-flight OAuth state
 WITHINGS_CLIENT_ID=... / WITHINGS_CLIENT_SECRET=...   # Withings OAuth
 FITBIT_CLIENT_ID=... / FITBIT_CLIENT_SECRET=...       # Google Health OAuth (named "Fitbit" throughout the UI/routes)
+VALHALLA_URL=http://valhalla:8002    # Self-hosted map-matching container. Unset ⇒ route
+                                     # matching is skipped entirely (one warning log line)
+VALHALLA_TILE_URLS="https://download.geofabrik.de/..." # Space-joined PBF extract URLs, one
+                                     # per MAP_EXTRACTS entry (src/lib/map-extracts.ts)
+EXTRACTS_FINGERPRINT=0cd893ece59f    # extractsFingerprint() from src/lib/map-extracts.ts.
+                                     # Required by docker/valhalla/entrypoint.sh — the
+                                     # container refuses to start without it (see "Rollout"
+                                     # note under Location Tracking & Processing below)
 IMPORT_MAX_FILE_SIZE_MB=500          # Cap for /api/timeline/locations/import
 ENABLE_DB_BENCHMARK=true             # Gate /api/settings/db-benchmark
 NEXT_PUBLIC_ENABLE_DB_BENCHMARK=true # Show the matching UI card
