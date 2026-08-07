@@ -72,7 +72,7 @@ describe("MAP_EXTRACTS", () => {
     ];
 
     const notCovered: Array<[string, number, number]> = [
-      // South Atlantic — outside every extract, the baseline no_coverage case.
+      // South Atlantic — outside every extract, the baseline uncovered case.
       ["South Atlantic", -30.0, -20.0],
       // Fix round 2, C1: each of these sat inside the old single-bbox
       // declaration (naive vertex min/max) but is not on any of these
@@ -85,7 +85,7 @@ describe("MAP_EXTRACTS", () => {
       // Osaka is the headline case: a future Osaka trip would 444 on every
       // segment (no Kansai tiles), and the old kanto bbox wrongly claimed it
       // as covered, which would have permanently hidden the gap from the
-      // no_coverage re-run queue.
+      // future coverage re-run selector.
       ["Osaka", 34.6937, 135.5023], // was inside the old kanto (tokyo-chiba) bbox
       ["Kyoto", 35.0116, 135.7681], // was inside the old kanto (tokyo-chiba) bbox
       ["Nagoya", 35.1815, 136.9066], // was inside the old kanto (tokyo-chiba) bbox
@@ -100,7 +100,7 @@ describe("MAP_EXTRACTS", () => {
   });
 
   // fingerprint는 tileVersion의 절반을 이룬다. 목록이 바뀌면 반드시 값이
-  // 바뀌어야 "추출본을 넓힌 뒤 no_coverage만 다시 돌리기"가 성립한다. 이 성질을
+  // 바뀌어야 추출본을 넓힌 뒤 재실행 대상을 구분할 수 있다. 이 성질을
   // 실제로 검증하려면 목록을 바꾼 전/후를 비교해야 한다 — 같은 목록을 두 번
   // 호출해 같다고 주장하는 것만으로는 "aaaaaaaaaaaa"를 반환하는 상수 함수도
   // 통과한다.

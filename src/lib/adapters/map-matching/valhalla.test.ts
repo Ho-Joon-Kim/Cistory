@@ -5,7 +5,7 @@ import { createValhallaAdapter, MATCH_CONFIDENCE_THRESHOLD, MAX_TRACE_POINTS } f
 
 // findings §2 — the real 4-point Gangnam-daero /trace_attributes request,
 // pasted verbatim. All four points fall inside one of the south-korea
-// MAP_EXTRACTS bboxes (isPointCovered — see map-extracts.ts).
+// the currently built south-korea extract (see map-extracts.ts).
 const points = [
   { lat: 37.4979, lon: 127.0276, timestamp: new Date("2026-08-01T00:00:00Z") },
   { lat: 37.4985, lon: 127.0281, timestamp: new Date("2026-08-01T00:00:06Z") },
@@ -70,9 +70,8 @@ const goodBody = {
 
 // findings §3 — error_code 444 is byte-identical whether the cause is
 // "outside every extract" or "inside an extract but off any road." Reused
-// verbatim across multiple tests below with different request coordinates,
-// to prove the adapter disambiguates on its own bbox knowledge, not on
-// anything in this body.
+// verbatim across multiple tests below with different request coordinates to
+// prove the adapter does not infer a cause from coverage data.
 const noSnapErrorBody = {
   error_code: 444,
   error:
@@ -180,48 +179,40 @@ describe("createValhallaAdapter", () => {
     expect(result.status).toBe("matched");
   });
 
-  it("reports no_coverage when every point of the trace is outside every built extract", async () => {
+  it("reports no_road_match when every point of the trace is outside every built extract", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody));
     const result = await createValhallaAdapter("http://valhalla:8002").match(
       pointsOutsideAnyExtract,
       "auto"
     );
-    expect(result.status).toBe("no_coverage");
+    expect(result.status).toBe("no_road_match");
     expect(result.shape).toBeNull();
   });
 
   // findings §3: error_code 444 is byte-identical whether the point is outside
   // every extract or inside one but off any road (a park, a lake). Reusing the
   // exact same error body here — with in-bbox coordinates instead of the
-  // out-of-bbox ones above — proves the adapter is disambiguating on the
-  // trace's own coordinates, not on anything Valhalla's response says.
-  it("reports failed — not no_coverage — for a 444 when every point of the trace is inside a built extract", async () => {
+  // out-of-bbox ones above — proves both cases receive the same observation.
+  it("reports no_road_match for a 444 inside a built extract without inferring coverage", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody));
     const result = await createValhallaAdapter("http://valhalla:8002").match(points, "auto");
-    expect(result.status).toBe("failed");
+    expect(result.status).toBe("no_road_match");
     expect(result.shape).toBeNull();
   });
 
-  // Fix round 1 regression test: the predicate used to be "any point inside
-  // -> failed", which is backwards. A trace that starts inside a built
-  // extract and crosses into a genuine gap (open sea between Korea and Japan
-  // here) is exactly the case widening an extract fixes, so it must be
-  // no_coverage, not failed — a failed row never gets re-run once coverage
-  // widens.
-  it("reports no_coverage — not failed — for a trace that starts inside a built extract and crosses into an uncovered gap", async () => {
+  it("reports no_road_match for a trace that crosses from a built extract into a gap", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody));
     const result = await createValhallaAdapter("http://valhalla:8002").match(
       straddlingPoints,
       "auto"
     );
-    expect(result.status).toBe("no_coverage");
+    expect(result.status).toBe("no_road_match");
     expect(result.shape).toBeNull();
   });
 
-  // 커버리지 밖과 엔진 오류를 섞으면 "추출본을 넓히면 살아난다"는 집계가
-  // 거짓이 된다. 애매하면 보수적으로 failed다. Uses a realistic error_code —
+  // Uses a realistic non-444 error_code —
   // findings §3 confirms Valhalla never actually returns a bare 5xx.
-  it("reports failed — not no_coverage — for any other error", async () => {
+  it("reports failed — not no_road_match — for any other error", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(400, genericErrorBody));
     const result = await createValhallaAdapter("http://valhalla:8002").match(points, "auto");
     expect(result.status).toBe("failed");
@@ -263,11 +254,9 @@ describe("createValhallaAdapter", () => {
     expect(result.status).toBe("failed");
   });
 
-  // Fix round 1, finding 4 (success path): losing no_coverage in a merge is
-  // the expensive error, because it's the only status the re-run job selects
-  // on. A silently truncated "matched" (shape from only the covered half)
-  // would hide that this segment needs a re-run once the gap is covered.
-  it("drops a successfully-matched chunk's shape and reports no_coverage overall when another chunk has no coverage", async () => {
+  // A partial shape suppresses raw-GPS gap fill and renders a truncated route,
+  // so no_road_match remains contagious across chunks.
+  it("drops a matched chunk's shape when another chunk has no road match", async () => {
     const partialCoverageTrace = [
       points[0], // Seoul — covered
       points[1], // Seoul — covered
@@ -277,7 +266,7 @@ describe("createValhallaAdapter", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(400, traceTooLongErrorBody)) // initial: triggers the split
       .mockResolvedValueOnce(jsonResponse(200, goodBody)) // left half (Seoul): matches
-      .mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody)); // right half (Atlantic): no_coverage
+      .mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody)); // right half: no road match
 
     const result = await createValhallaAdapter("http://valhalla:8002").match(
       partialCoverageTrace,
@@ -285,51 +274,50 @@ describe("createValhallaAdapter", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(result.status).toBe("no_coverage");
+    expect(result.status).toBe("no_road_match");
     expect(result.shape).toBeNull();
   });
 
   // Fix round 1, finding 4 (all-non-usable path, direction 1): the reviewer
-  // measured [failed, no_coverage] -> failed and [no_coverage, failed] ->
-  // no_coverage from the old order-dependent "return results[0]" fallback.
+  // measured different results from the old order-dependent fallback.
   // This and the next test pin both orderings to the same, deterministic
   // answer.
-  it("picks no_coverage deterministically when the failed chunk comes before the no_coverage chunk", async () => {
+  it("picks no_road_match when the failed chunk comes first", async () => {
     const failThenNoCoverage = [
       points[0], // Seoul — will get a generic request error
       points[1],
-      { lat: -30.0, lon: -20.0, timestamp: new Date("2026-08-01T00:10:00Z") }, // Atlantic — no_coverage
+      { lat: -30.0, lon: -20.0, timestamp: new Date("2026-08-01T00:10:00Z") },
       { lat: -30.001, lon: -20.001, timestamp: new Date("2026-08-01T00:15:00Z") },
     ];
     fetchMock
       .mockResolvedValueOnce(jsonResponse(400, traceTooLongErrorBody))
       .mockResolvedValueOnce(jsonResponse(400, genericErrorBody)) // left -> failed
-      .mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody)); // right -> no_coverage
+      .mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody)); // right -> no road match
 
     const result = await createValhallaAdapter("http://valhalla:8002").match(
       failThenNoCoverage,
       "auto"
     );
-    expect(result.status).toBe("no_coverage");
+    expect(result.status).toBe("no_road_match");
   });
 
-  it("picks no_coverage deterministically when the no_coverage chunk comes before the failed chunk", async () => {
+  it("picks no_road_match when the no-road-match chunk comes first", async () => {
     const noCoverageThenFail = [
-      { lat: -30.0, lon: -20.0, timestamp: new Date("2026-08-01T00:00:00Z") }, // Atlantic — no_coverage
+      { lat: -30.0, lon: -20.0, timestamp: new Date("2026-08-01T00:00:00Z") },
       { lat: -30.001, lon: -20.001, timestamp: new Date("2026-08-01T00:05:00Z") },
       points[2], // Seoul — will get a generic request error
       points[3],
     ];
     fetchMock
       .mockResolvedValueOnce(jsonResponse(400, traceTooLongErrorBody))
-      .mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody)) // left -> no_coverage
+      .mockResolvedValueOnce(jsonResponse(400, noSnapErrorBody)) // left -> no road match
       .mockResolvedValueOnce(jsonResponse(400, genericErrorBody)); // right -> failed
 
     const result = await createValhallaAdapter("http://valhalla:8002").match(
       noCoverageThenFail,
       "auto"
     );
-    expect(result.status).toBe("no_coverage");
+    expect(result.status).toBe("no_road_match");
   });
 
   // Fix round 1, finding 3: an all-unmatched 2xx response must not be stored

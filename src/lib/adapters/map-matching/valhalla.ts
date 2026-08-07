@@ -1,5 +1,4 @@
 import { logger } from "@/lib/logger";
-import { isPointCovered } from "@/lib/map-extracts";
 
 /**
  * Valhalla map matching 클라이언트.
@@ -11,11 +10,9 @@ import { isPointCovered } from "@/lib/map-extracts";
  * 실측으로 확인한 것이다. 이 파일의 초안(Task 3 브리프)은 Valhalla 문서만
  * 보고 쓰였고, 실제 프로브가 그중 최소 다섯 군데를 틀렸다고 확인했다 — 필드
  * 이름, 타입 필터, 트레이스 상한, 오류 코드 두 개. 추측한 필드 이름을 넣지
- * 않는다; 프로브 문서와 다르면 프로브가 이긴다. Task 3 코드 리뷰 fix round 1
- * 에서 444 판별식의 방향이 뒤집혀 있던 것과 병합 시 no_coverage 신호가
- * 조용히 사라지던 것도 추가로 고쳤다. fix round 2에서는 그 판별식이 기대는
- * `MAP_EXTRACTS`의 bbox 자체가 실제 타일 범위보다 훨씬 넓게 잘못 잡혀 있던
- * 것을 고쳤다 — `map-extracts.ts` 참고. 아래 각 함수의 주석 참고.
+ * 않는다; 프로브 문서와 다르면 프로브가 이긴다. error_code 444는 원인을
+ * 구분할 정보가 없으므로 추출본 범위를 추론하지 않고 `no_road_match`로만
+ * 보고한다.
  */
 
 export type ValhallaCosting = "auto" | "pedestrian" | "bicycle" | "motorcycle" | "bus";
@@ -27,7 +24,7 @@ export interface MatchPoint {
 }
 
 export interface MatchResult {
-  status: "matched" | "low_confidence" | "no_coverage" | "failed";
+  status: "matched" | "low_confidence" | "no_road_match" | "failed";
   /** [lat, lon] 순서. matched/low_confidence일 때만 채워진다. */
   shape: Array<[number, number]> | null;
   roadNames: string[];
@@ -58,7 +55,7 @@ export const MAX_TRACE_POINTS = 16000;
  * (findings §3) — 문서만 보고 쓴 초안은 171을 가정했지만, 171은 이 프로브의
  * 어떤 케이스에서도 관측되지 않았다.
  */
-const NO_COVERAGE_ERROR_CODE = 444;
+const NO_ROAD_MATCH_ERROR_CODE = 444;
 
 /**
  * "경로 거리가 `service_limits.trace.max_distance`(200km)를 넘는다"는
@@ -111,61 +108,33 @@ function emptyResult(status: MatchResult["status"]): MatchResult {
 }
 
 /**
- * 트레이스의 모든 점이 구축된 추출본(MAP_EXTRACTS) 안에 있는지 —
- * `isPointCovered`(`@/lib/map-extracts`)가 실제 판별을 한다.
- *
- * error_code 444는 "커버리지 밖"과 "커버리지 안이지만 도로 근처가 아님(공원,
- * 호수 등)"에 대해 바이트 단위로 동일한 응답을 준다 — 프로브가 확인했다
- * (findings §3, Soyang 저수지 케이스가 남대서양 케이스와 완전히 같은 본문을
- * 반환). 위젠(widen)이 도움이 되는지는 "밖에 있는 점이 하나라도 있는가"로
- * 갈린다 — 하나라도 밖에 있으면 그 지점 근처로 추출본을 넓히는 게 옳은
- * 조치이므로 no_coverage다. **모든** 점이 안에 있는데도 못 찾았다면 넓혀도
- * 소용없다(공원, 호수 등) — 그때만 failed다.
- *
- * (fix round 1: 이전 버전은 "하나라도 안에 있으면 failed"였다 — 반대였다.
- * 방문 이력에서 뽑은 bbox라 실제 트레이스 대부분이 한 점쯤은 어딘가의 bbox
- * 안에 걸치므로, 이 반전된 조건은 나리타→간토 밖 같은 "안에서 밖으로
- * 걸치는" 구간까지 거의 다 failed로 묻어버려 재실행 대상에서 영영 빠뜨렸다.
- * fix round 2: `isPointCovered`가 예전엔 각 추출본을 정점 min/max 하나짜리
- * bbox로 판별했다 — .poly 경계가 비볼록이라 오사카나 후쿠오카 같은, 실제로는
- * 타일에 없는 도시까지 "안"으로 오판했다. 이제는 `.poly`를 점-다각형 포함
- * 판정으로 실측해 만든 bbox 배열이라 그 문제가 없다. 자세한 내용은
- * `map-extracts.ts`의 파일 상단 주석 참고.)
- */
-function everyPointInsideExtracts(points: MatchPoint[]): boolean {
-  return points.every((p) => isPointCovered(p.lat, p.lon));
-}
-
-/**
  * 부분 결과들을 하나로 잇는다.
  *
- * no_coverage는 절대 조용히 사라지면 안 된다 — "추출본을 넓힌 뒤 재실행"을
- * 트리거하는 유일한 신호이기 때문이다(재실행 대상 조회는 `match_status`
- * 컬럼만 본다). 조각 중 하나라도 no_coverage면 — 다른 조각이 실제로
- * 매칭됐더라도 — 전체를 no_coverage로 취급하고 shape는 비운다.
+ * 조각 중 하나라도 no_road_match면 — 다른 조각이 실제로 매칭됐더라도 —
+ * 전체를 no_road_match로 취급하고 shape는 비운다.
  *
  * 부분 shape를 남기지 않는 이유는 재실행하면 그 지오메트리가 돌아오기
- * 때문이 아니다 — 같은 추출본으로 다시 돌리면 no_coverage가 shape 없이
+ * 때문이 아니다 — 같은 추출본으로 다시 돌리면 no_road_match가 shape 없이
  * 그대로 재현되고, 바다 한가운데처럼 영영 커버되지 않는 구간은 애초에
  * 돌아오지 않는다. 진짜 이유는 읽는 쪽이다: 이 데이터를 읽을 후속 로직의
  * `covered()` 판정은 세그먼트가 shape를 하나라도 가지고 있으면 그 구간
  * 전체를 "커버됨"으로 본다 — 부분 shape를 저장하면 raw-GPS로 빈틈을 메우는
  * 경로가 억제되고, 지도에는 반쪽짜리 선 뒤에 순간이동하는 모양으로
  * 그려진다(shape 없음보다 나쁘다). 재실행 신호를 잃는 건 되돌릴 수 없고,
- * 스냅 품질을 잃는 건 되돌릴 수 있다 — 그래서 no_coverage 쪽으로 접는다.
+ * 스냅 품질을 잃는 건 되돌릴 수 있다 — 그래서 no_road_match 쪽으로 접는다.
  *
  * 이 순서는 입력 배열의 순서와 무관하게 결정적이어야 한다 — fix round 1
- * 리뷰가 [failed, no_coverage]와 [no_coverage, failed]가 서로 다른 결과를
+ * 리뷰가 [failed, no_road_match]와 [no_road_match, failed]가 서로 다른 결과를
  * 내던 것을 잡았다.
  *
- * no_coverage가 하나도 없을 때만 기존 방식대로: 매칭된(shape가 채워진)
+ * no_road_match가 하나도 없을 때만 기존 방식대로: 매칭된(shape가 채워진)
  * 조각이 있으면 그것들을 이어붙이고(실패한 조각은 버린다 — failed 조각은
  * 어차피 재실행 대상이 아니니 부분 geometry라도 남기는 게 낫다), 전부
  * 실패했을 때만 failed다.
  */
 function mergeResults(results: MatchResult[]): MatchResult {
-  if (results.some((r) => r.status === "no_coverage")) {
-    return emptyResult("no_coverage");
+  if (results.some((r) => r.status === "no_road_match")) {
+    return emptyResult("no_road_match");
   }
 
   const usable = results.filter((r) => r.shape !== null);
@@ -286,20 +255,10 @@ export function createValhallaAdapter(baseUrl: string, timeoutMs = 30_000): MapM
       return mergeResults([left, right]);
     }
 
-    if (errorCode === NO_COVERAGE_ERROR_CODE) {
-      if (everyPointInsideExtracts(points)) {
-        // 구축된 추출본 안인데도(전 구간) 못 찾았다 — 추출본을 넓힌다고
-        // 해결되지 않는 케이스(공원, 호수 등)다. no_coverage로 보고하면
-        // "추출본을 넓히면 살아난다"는 집계 신호가 거짓이 되므로 failed로
-        // 남긴다.
-        //
-        // 로그는 남기지 않는다: pedestrian 코스팅에서는 공원/호수를 걷는
-        // 게 흔하고 정상적인 결과라, 세그먼트마다 warn을 찍으면 진짜 엔진
-        // 오류와 뒤섞인 잡음이 된다. 근거가 필요하면 segment_route_matches
-        // 의 `match_status='failed'` 행 자체가 이미 영구 기록이다.
-        return emptyResult("failed");
-      }
-      return emptyResult("no_coverage");
+    if (errorCode === NO_ROAD_MATCH_ERROR_CODE) {
+      // 444는 타일이 없는 지역과 타일 안에서 도로를 찾지 못한 경우가 동일하다.
+      // 어댑터는 원인을 추론하지 않고 Valhalla가 관측한 사실만 기록한다.
+      return emptyResult("no_road_match");
     }
 
     // findings §3의 나머지 4xx(125/114/100/153 등)는 전부 요청 자체가

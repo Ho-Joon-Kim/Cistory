@@ -12,10 +12,10 @@ import { createHash } from "node:crypto";
  * `tokyo-chiba`가 오해를 불러 이번에 개명했다 — 아래 항목 주석 참고).
  *
  * **bbox는 "이 URL이 내려받는 PBF가 실제로 덮는 지리적 범위"를 뜻한다 —
- * "우리가 가본 곳"이 아니다.** `src/lib/adapters/map-matching/valhalla.ts`가
- * Valhalla의 error_code 444("스냅할 도로 없음")를 no_coverage(추출본을
- * 넓혀야 함)와 failed(추출본은 이미 덮는데 도로 근처가 아님 — 공원, 호수 등)
- * 로 가르는 데 `isPointCovered()`(이 파일)를 쓰기 때문이다.
+ * "우리가 가본 곳"이 아니다.** 현재 어댑터는 error_code 444의 원인을
+ * 추론하지 않으므로 bbox와 `isPointCovered()`를 읽지 않는다. 이 데이터는
+ * 향후 현재 추출본을 기준으로 `no_road_match` 재실행 대상을 고르는
+ * 커버리지 선택기를 위해 유지한다.
  *
  * **왜 bbox가 하나가 아니라 배열인가.** `.poly` 경계는 비볼록이고 종종 서로
  * 멀리 떨어진 여러 덩어리(본토 + 외딴 섬들)를 하나의 영역으로 묶는다. 정점
@@ -25,10 +25,9 @@ import { createHash } from "node:crypto";
  * 포함하는데, 정점 min/max 사각형을 그대로 썼더니 오사카·교토·나고야·
  * 시즈오카·나가노·가나자와·도야마까지 "이미 덮인 지역"으로 오판했다(코드
  * 리뷰가 실제 트레이스로 재현: 이 도시들에 444를 흉내 낸 요청을 보내면
- * `everyPointInsideExtracts`가 true를 반환해 no_coverage 대신 failed를
- * 저장했다 — 나중에 `kansai` 추출본을 추가해도 이 행들은 no_coverage만
- * 골라 재실행하는 큐에 절대 잡히지 않는다). 과소 주장은 되돌릴 수 있는
- * 낭비(운영자가 no_coverage를 보고 추출본을 넓히면 그만)지만, 과대 주장은
+ * 예전 커버리지 추론은 `everyPointInsideExtracts`가 true를 반환하면 failed를
+ * 저장했다 — 나중에 `kansai` 추출본을 추가해도 이 행들을 재실행 대상으로
+ * 식별할 수 없었다. 과소 주장은 되돌릴 수 있는 낭비지만, 과대 주장은
  * 되돌릴 수 없는 유실(그 행은 영원히 failed로 남는다)이다 — 그래서 애매하면
  * 항상 더 좁게 잡는다.
  *
@@ -46,9 +45,7 @@ import { createHash } from "node:crypto";
  * 가 `isPointCovered()`로 양쪽 방향을 모두 고정한다.
  *
  * 새 도시를 다녀왔다면, 그 좌표가 이미 어느 bbox 안에 있는지부터 확인한다
- * (`isPointCovered`) — 이미 덮인 지역 안이면 할 일이 없다. 정말 모든 bbox
- * 밖일 때만 새 추출본을 추가한다. 다음 타일 재빌드 때 반영되고, 그때까지
- * 그 지역 세그먼트는 `no_coverage`로 남는다 (조용히 사라지지 않는다).
+ * (`isPointCovered`). 정말 모든 bbox 밖일 때만 새 추출본을 추가한다.
  */
 export interface MapExtract {
   /** 타일 빌드 로그와 fingerprint에 쓰이는 안정적인 식별자. */
@@ -74,7 +71,7 @@ export const MAP_EXTRACTS: MapExtract[] = [
     // 북부가 한반도 bbox의 위경도 범위 안에 들어오기 때문)는 이제 밖이다.
     // 알려진 축소: 울릉도·독도처럼 사각형 하나보다 작은 외딴 섬은 이 격자
     // 해상도에서 빠질 수 있다 — 실방문 가능성이 낮고, 빠지더라도
-    // no_coverage(과소 주장, 되돌릴 수 있음)로만 남으므로 허용한다.
+    // 커버리지 선택기가 보수적으로 판단하는 편이 안전하므로 허용한다.
     bboxes: [
       [124.8188, 32.8608, 127.3188, 33.3608],
       [124.8188, 33.3608, 127.8188, 33.8608],
@@ -137,7 +134,7 @@ export const MAP_EXTRACTS: MapExtract[] = [
     // 난닝(옛 정점 min/max bbox에는 다 들어있었다 — 베트남이 남북으로 길고
     // 가늘어서 이웃 나라·섬까지 위경도 범위에 걸렸다)은 이제 밖. 알려진
     // 축소: 푸꾸옥처럼 사각형 하나보다 작은 섬은 빠질 수 있다 — 실방문
-    // 기록이 없고, 빠지더라도 no_coverage로만 남으므로 허용한다.
+    // 기록이 없고, 빠지더라도 향후 추출본으로 재판단할 수 있으므로 허용한다.
     bboxes: [
       [104.0959, 8.3822, 110.0959, 9.3822],
       [104.0959, 9.3822, 111.0959, 10.3822],
@@ -195,11 +192,9 @@ export const MAP_EXTRACTS: MapExtract[] = [
 ];
 
 /**
- * 어떤 좌표가 `MAP_EXTRACTS`의 bbox 중 하나에라도 들어가는지. Valhalla의
- * error_code 444를 no_coverage/failed로 가르는 데 쓰는 유일한 판별 함수다
- * (`src/lib/adapters/map-matching/valhalla.ts`) — 그쪽에서 이 로직을 따로
- * 들고 있지 않는 이유는, "이 좌표는 우리가 덮는 범위 안인가"라는 질문 자체가
- * 이 파일의 데이터에 속하기 때문이다.
+ * 어떤 좌표가 `MAP_EXTRACTS`의 bbox 중 하나에라도 들어가는지.
+ * 현재 생산 경로에서는 사용하지 않지만, 향후 `no_road_match` 행을 현재
+ * 추출본 기준으로 재평가하는 커버리지 선택기의 지리 판별을 위해 유지한다.
  */
 export function isPointCovered(lat: number, lon: number): boolean {
   return MAP_EXTRACTS.some((extract) =>
@@ -228,7 +223,7 @@ export function fingerprintOf(extracts: MapExtract[]): string {
 /**
  * 추출본 목록의 12자리 해시. `segment_route_matches.tile_version`의 절반을
  * 이룬다 (나머지 절반은 빌드 날짜). 목록이 바뀌면 값이 바뀌므로, 추출본을
- * 넓힌 뒤 "옛 fingerprint로 매칭된 no_coverage 행"만 골라 다시 돌릴 수 있다.
+ * 넓힌 뒤 옛 fingerprint와 좌표를 함께 비교해 재실행 대상을 고를 수 있다.
  */
 export function extractsFingerprint(): string {
   return fingerprintOf(MAP_EXTRACTS);

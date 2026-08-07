@@ -191,7 +191,7 @@ const db = getDb();
 - `tracks` - Movement journeys between visits; `transportationSegments` - fine-grained mode segments; `trips` - multi-day travel detection (`autoDetected` distinguishes cron-detected from user-created)
 - `locationHeatmapDaily` - Per-KST-day point counts on a 3-decimal lat/lon grid, unique on `(userId, date, lat, lon)`. Precomputed so `/overview` never scans raw `location_points`
 - `locationProcessingDays` - **Durable** per-day pipeline marker (`processing`/`completed`/`failed` + `attemptCount`/`lastError`), unique on `(userId, date)`. Unlike the `anomaly` stamp on `location_points` it records successful *empty* days and survives a restart after a post-anomaly stage fails, and it is the watermark the overview precompute reads to decide whether an ended period may finalize
-- `segmentRouteMatches` - Valhalla 도로망 매칭 결과, `(segmentId)` 유니크. `matchStatus`가 `matched`|`low_confidence`|`no_coverage`|`failed`|`not_applicable`. **행이 없다 = 아직 처리 안 함**이므로 도로가 아닌 모드도 `not_applicable` 행을 남기지만, `stationary`/`unknown`은 남기지 않는다. `tileVersion`으로 "추출본을 넓힌 뒤 `no_coverage`만 재실행"이 가능하다
+- `segmentRouteMatches` - Valhalla 도로망 매칭 결과, `(segmentId)` 유니크. `matchStatus`가 `matched`|`low_confidence`|`no_road_match`|`failed`|`not_applicable`. **행이 없다 = 아직 처리 안 함**이므로 도로가 아닌 모드도 `not_applicable` 행을 남기지만, `stationary`/`unknown`은 남기지 않는다. `tileVersion`은 추출본 변경 전후의 결과를 구분한다
 - `subwaySystems` (PostGIS `bbox` Polygon), `subwayLines` (MultiLineString), `subwayStations` (Point), `subwayTripMatches`
 
 *Coding*
