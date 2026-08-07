@@ -7,6 +7,7 @@ import { precomputeAfterLocation } from "@/modules/overview/cron";
 import type { LocationCompletedWindow } from "@/modules/overview/precompute";
 
 let isLocationProcessingRunning = false;
+let isRouteMatchPostProcessingRunning = false;
 
 export interface LocationDayProcessingResult {
   userId: string;
@@ -237,6 +238,27 @@ async function runSubwayPostProcessing(userId: string, completedDates: string[])
   }
 }
 
+export async function runRouteMatchPostProcessing(userId: string, completedDates: string[]) {
+  if (isRouteMatchPostProcessingRunning) {
+    logger.info("[Cron] Route matching already running, skipping", { userId });
+    return;
+  }
+  isRouteMatchPostProcessingRunning = true;
+  try {
+    const { matchRoutesForDay } = await import("./services/route-match/matcher");
+    for (const date of completedDates) {
+      await matchRoutesForDay(userId, date);
+    }
+  } catch (error) {
+    logger.warn("[Cron] Route matching failed (non-fatal)", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    isRouteMatchPostProcessingRunning = false;
+  }
+}
+
 async function discoverSubwayCities(userId: string) {
   try {
     const { discoverMissingSubwayCities } = await import("./services/subway-discovery");
@@ -309,6 +331,7 @@ async function processLocationUser(
     .filter((result) => result.status === "completed")
     .map((result) => result.date);
   await runSubwayPostProcessing(userId, completedDates);
+  await runRouteMatchPostProcessing(userId, completedDates);
   await discoverSubwayCities(userId);
   return { days, completedWindow };
 }
