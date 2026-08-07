@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, segmentRouteMatches, transportationSegments, trips } from "@/db";
+import { getDb, locationPoints, segmentRouteMatches, transportationSegments, trips } from "@/db";
+import { timestampFromDriver, timestampParam } from "@/db/sql";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { getKstDateWindow } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
@@ -65,8 +66,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
           count(*) OVER () AS total_count
         FROM location_points
         WHERE user_id = ${user.id}
-          AND timestamp >= ${window.start}
-          AND timestamp < ${window.end}
+          AND timestamp >= ${timestampParam(locationPoints.timestamp, window.start)}
+          AND timestamp < ${timestampParam(locationPoints.timestamp, window.end)}
           AND (anomaly IS NULL OR anomaly = false)
           AND (accuracy IS NULL OR accuracy <= ${MAX_ACCURACY_M})
       ), sampled AS (
@@ -92,7 +93,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
       ORDER BY timestamp
     `);
     const [segmentRows, result] = await Promise.all([segmentRowsPromise, rawPointsPromise]);
-    const sampledRows = result.rows as unknown as RoutePointRow[];
+    const sampledRows: RoutePointRow[] = result.rows.map((row) => ({
+      lat: Number(row.lat),
+      lon: Number(row.lon),
+      accuracy: row.accuracy == null ? null : Number(row.accuracy),
+      timestamp: timestampFromDriver(locationPoints.timestamp, row.timestamp),
+    }));
     const assembledRows = assembleTrackShape(segmentRows, sampledRows);
     const simplifiedRows = simplifyRoutePoints(assembledRows, MIN_ROUTE_DISTANCE_M);
     const boundedRows =

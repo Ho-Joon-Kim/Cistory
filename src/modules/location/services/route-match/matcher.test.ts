@@ -1,3 +1,5 @@
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 import type { MapMatchingAdapter, MatchPoint } from "@/lib/adapters/map-matching/valhalla";
 import { logger } from "@/lib/logger";
@@ -7,6 +9,15 @@ import {
   matchRoutesForDay,
   summarizeRouteMatches,
 } from "./matcher";
+
+const mocks = vi.hoisted(() => ({
+  getDb: vi.fn(),
+}));
+
+vi.mock("@/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/db")>();
+  return { ...actual, getDb: mocks.getDb };
+});
 
 const NOW = new Date("2026-08-07T03:00:00.000Z");
 const TILE_VERSION = "2026-08-07-testfingerprint";
@@ -35,6 +46,47 @@ function adapter(): MapMatchingAdapter {
       confidence: 0.9,
     }),
   };
+}
+
+function createQueryBuilder(rows: unknown[]) {
+  const builder = {
+    from: vi.fn(),
+    leftJoin: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    // biome-ignore lint/suspicious/noThenProperty: Drizzle query builders are promise-like.
+    then: (resolve: (value: unknown[]) => unknown) => Promise.resolve(rows).then(resolve),
+  };
+  builder.from.mockReturnValue(builder);
+  builder.leftJoin.mockReturnValue(builder);
+  builder.where.mockReturnValue(builder);
+  builder.orderBy.mockReturnValue(builder);
+  return builder;
+}
+
+function databaseCapturingPointJoin() {
+  const dialect = new PgDialect();
+  let pointJoinSql: { sql: string; params: unknown[] } | null = null;
+  const segmentBuilder = createQueryBuilder([segment("cycling")]);
+  const pointsBuilder = createQueryBuilder([]);
+  pointsBuilder.leftJoin.mockImplementation((_table, condition: SQL) => {
+    const query = dialect.sqlToQuery(condition);
+    pointJoinSql = { sql: query.sql, params: query.params as unknown[] };
+    return pointsBuilder;
+  });
+
+  const tx = {
+    delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })),
+    insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+  };
+  const db = {
+    select: vi.fn().mockReturnValueOnce(segmentBuilder).mockReturnValueOnce(pointsBuilder),
+    transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) =>
+      callback(tx)
+    ),
+  };
+
+  return { db, getPointJoinSql: () => pointJoinSql };
 }
 
 describe("buildRowForSegment", () => {
@@ -167,6 +219,22 @@ describe("currentTileVersion", () => {
 });
 
 describe("matchRoutesForDay", () => {
+  it("loads only non-anomalous, accurate points for route matching", async () => {
+    const { db, getPointJoinSql } = databaseCapturingPointJoin();
+    mocks.getDb.mockReturnValue(db);
+
+    await matchRoutesForDay("user-1", "2026-08-07", { adapter: adapter(), now: NOW });
+
+    const pointJoin = getPointJoinSql();
+    expect(pointJoin).not.toBeNull();
+    expect(pointJoin?.sql).toContain('"location_points"."accuracy" is null');
+    expect(pointJoin?.sql).toContain('"location_points"."accuracy" <=');
+    expect(pointJoin?.sql).toContain('"location_points"."anomaly" is null');
+    expect(pointJoin?.sql).toContain('"location_points"."anomaly" =');
+    expect(pointJoin?.params).toContain(200);
+    expect(pointJoin?.params).toContain(false);
+  });
+
   it("logs only once and returns zero results when VALHALLA_URL is unset", async () => {
     vi.stubEnv("VALHALLA_URL", "");
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);

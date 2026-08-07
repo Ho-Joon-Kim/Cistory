@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, lte, or } from "drizzle-orm";
 import {
   getDb,
   locationPoints,
@@ -192,7 +192,9 @@ async function loadDayPointsBySegment(
       and(
         eq(locationPoints.userId, userId),
         gte(locationPoints.timestamp, transportationSegments.startTime),
-        lt(locationPoints.timestamp, transportationSegments.endTime)
+        lt(locationPoints.timestamp, transportationSegments.endTime),
+        or(isNull(locationPoints.accuracy), lte(locationPoints.accuracy, 200)),
+        or(isNull(locationPoints.anomaly), eq(locationPoints.anomaly, false))
       )
     )
     .where(
