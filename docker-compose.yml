@@ -69,21 +69,31 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  # Self-hosted road-network map matching. Uses the official image's stock
-  # entrypoint: tile_urls builds tiles from MAP_EXTRACTS (src/lib/map-extracts.ts)
-  # on first boot if /custom_files is empty, then starts the server. No custom
-  # entrypoint here — that lands in a later task once the image's internal
-  # build-script path and tile artifact filename are confirmed by a probe.
-  # No published port: reached over the internal network only.
+  # Self-hosted road-network map matching. ghcr.io/valhalla/valhalla:latest is
+  # a BARE image — Entrypoint [], Cmd [/bin/bash], no /valhalla directory, no
+  # tile_urls/custom_files convenience env vars (those belong to a different
+  # project, gis-ops/docker-valhalla, and this image reads none of them —
+  # confirmed in docs/map-matching/valhalla-probe-findings.md). docker/valhalla
+  # /entrypoint.sh calls the real binaries by hand: builds tiles into
+  # /custom_files only when missing/stale/fingerprint-changed, then execs
+  # valhalla_service in the foreground — so `restart: unless-stopped` is safe
+  # here the same way it is for the other long-running services in this file;
+  # the bare image's earlier restart-loop problem was its default Cmd exiting
+  # immediately, not the restart policy. No published port: reached over the
+  # internal network only.
   valhalla:
     image: ghcr.io/valhalla/valhalla:latest
     container_name: cistory-valhalla
     restart: unless-stopped
     volumes:
       - cistory_valhalla_tiles:/custom_files
+      - ./docker/valhalla/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
     environment:
-      - tile_urls=${VALHALLA_TILE_URLS:-}
-      - server_threads=2
+      - TILE_MAX_AGE_DAYS=365
+      - EXTRACTS_FINGERPRINT=${EXTRACTS_FINGERPRINT:-}
+      - VALHALLA_TILE_URLS=${VALHALLA_TILE_URLS:-}
+      - VALHALLA_CONCURRENCY=2
 
 volumes:
   postgres_data:
