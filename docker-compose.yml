@@ -69,12 +69,16 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  # Self-hosted road-network map matching. ghcr.io/valhalla/valhalla:latest is
-  # a BARE image — Entrypoint [], Cmd [/bin/bash], no /valhalla directory, no
-  # tile_urls/custom_files convenience env vars (those belong to a different
-  # project, gis-ops/docker-valhalla, and this image reads none of them —
-  # confirmed in docs/map-matching/valhalla-probe-findings.md). docker/valhalla
-  # /entrypoint.sh calls the real binaries by hand: builds tiles into
+  # Self-hosted road-network map matching, built from docker/valhalla/Dockerfile
+  # rather than used off the shelf — that Dockerfile layers osmium-tool onto
+  # ghcr.io/valhalla/valhalla:latest, needed by entrypoint.sh's merge-before-
+  # build step (see the comment there for why the merge exists: three or more
+  # PBF inputs crash valhalla_build_tiles on this image). The base image is
+  # otherwise a BARE image — Entrypoint [], Cmd [/bin/bash], no /valhalla
+  # directory, no tile_urls/custom_files convenience env vars (those belong to
+  # a different project, gis-ops/docker-valhalla, and this image reads none of
+  # them — confirmed in docs/map-matching/valhalla-probe-findings.md). docker/
+  # valhalla/entrypoint.sh calls the real binaries by hand: builds tiles into
   # /custom_files only when missing/stale/fingerprint-changed, then execs
   # valhalla_service in the foreground, so on a healthy boot it never exits.
   # `restart: unless-stopped` (matching postgres/cistory/cistory-cron below) is
@@ -92,7 +96,9 @@ services:
   # opposite ends.
   # No published port: reached over the internal network only.
   valhalla:
-    image: ghcr.io/valhalla/valhalla:latest
+    build:
+      context: ./docker/valhalla
+    image: cistory-valhalla:latest
     container_name: cistory-valhalla
     restart: unless-stopped
     volumes:
