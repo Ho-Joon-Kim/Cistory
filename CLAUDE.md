@@ -194,7 +194,7 @@ const db = getDb();
 - `tracks` - Movement journeys between visits; `transportationSegments` - fine-grained mode segments; `trips` - multi-day travel detection (`autoDetected` distinguishes cron-detected from user-created)
 - `locationHeatmapDaily` - Per-KST-day point counts on a 3-decimal lat/lon grid, unique on `(userId, date, lat, lon)`. Precomputed so `/overview` never scans raw `location_points`
 - `locationProcessingDays` - **Durable** per-day pipeline marker (`processing`/`completed`/`failed` + `attemptCount`/`lastError`), unique on `(userId, date)`. Unlike the `anomaly` stamp on `location_points` it records successful *empty* days and survives a restart after a post-anomaly stage fails, and it is the watermark the overview precompute reads to decide whether an ended period may finalize
-- `segmentRouteMatches` - Valhalla 도로망 매칭 결과, `(segmentId)` 유니크. `matchStatus`가 `matched`|`low_confidence`|`no_road_match`|`failed`|`not_applicable`. **행이 없다 = 아직 처리 안 함**이므로 도로가 아닌 모드도 `not_applicable` 행을 남기지만, `stationary`/`unknown`은 남기지 않는다. `tileVersion`은 추출본 변경 전후의 결과를 구분한다
+- `segmentRouteMatches` - Valhalla 도로망 매칭 결과, `(segmentId)` 유니크. `matchStatus`가 `matched`|`low_confidence`|`no_road_match`|`too_short`|`failed`|`not_applicable`. `too_short`은 세그먼트의 GPS 포인트 수가 `MIN_POINTS_TO_MATCH`(2) 미만이라 애초에 어댑터를 호출하지 않은 경우다 — 실측상 포인트 1개짜리 세그먼트는 0/283으로 전혀 매칭되지 않는 반면 2개짜리는 대다수(1039/1147)가 매칭되어, 경계가 정확히 1과 2 사이에 있다. `failed`는 실제로 어댑터를 호출했는데 엔진/요청 오류가 난 경우로만 좁혀졌다. **행이 없다 = 아직 처리 안 함**이므로 도로가 아닌 모드도 `not_applicable` 행을 남기지만, `stationary`/`unknown`은 남기지 않는다. `tileVersion`은 추출본 변경 전후의 결과를 구분한다
 - `subwaySystems` (PostGIS `bbox` Polygon), `subwayLines` (MultiLineString), `subwayStations` (Point), `subwayTripMatches`
 
 *Coding*

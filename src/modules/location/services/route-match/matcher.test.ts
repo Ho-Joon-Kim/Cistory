@@ -1,3 +1,5 @@
+process.env.TZ = "Asia/Seoul";
+
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
@@ -7,6 +9,7 @@ import {
   buildRowForSegment,
   currentTileVersion,
   matchRoutesForDay,
+  MIN_POINTS_TO_MATCH,
   summarizeRouteMatches,
 } from "./matcher";
 
@@ -139,7 +142,32 @@ describe("buildRowForSegment", () => {
     expect(row).toMatchObject({ matchStatus: "matched", costing: "bicycle" });
   });
 
-  it("writes failed without calling the adapter when the segment has no points", async () => {
+  it("calls the adapter once a segment reaches the MIN_POINTS_TO_MATCH threshold", async () => {
+    // Regression guard for MIN_POINTS_TO_MATCH itself: a full backfill measured that
+    // two-point segments match 1039/1147 of the time, so raising the cut above 2 would
+    // silently discard ~1000 segments that match successfully today. If this ever fails
+    // because MIN_POINTS_TO_MATCH moved, that trade-off needs to be made consciously, not by
+    // accident.
+    expect(MIN_POINTS_TO_MATCH).toBe(2);
+    const points = Array.from({ length: MIN_POINTS_TO_MATCH }, (_, i) =>
+      point(new Date(NOW.getTime() + i * 1000))
+    );
+    const loadPoints = vi.fn().mockResolvedValue(points);
+    const matcher = adapter();
+
+    const row = await buildRowForSegment(
+      segment("cycling"),
+      loadPoints,
+      matcher,
+      TILE_VERSION,
+      NOW
+    );
+
+    expect(matcher.match).toHaveBeenCalledWith(points, "bicycle");
+    expect(row).toMatchObject({ matchStatus: "matched", costing: "bicycle" });
+  });
+
+  it("writes too_short without calling the adapter when the segment has no points", async () => {
     const loadPoints = vi.fn().mockResolvedValue([]);
     const matcher = adapter();
 
@@ -151,7 +179,23 @@ describe("buildRowForSegment", () => {
       NOW
     );
 
-    expect(row).toMatchObject({ matchStatus: "failed", costing: "bicycle" });
+    expect(row).toMatchObject({ matchStatus: "too_short", costing: "bicycle" });
+    expect(matcher.match).not.toHaveBeenCalled();
+  });
+
+  it("writes too_short without calling the adapter when the segment has exactly one point", async () => {
+    const loadPoints = vi.fn().mockResolvedValue([point()]);
+    const matcher = adapter();
+
+    const row = await buildRowForSegment(
+      segment("cycling"),
+      loadPoints,
+      matcher,
+      TILE_VERSION,
+      NOW
+    );
+
+    expect(row).toMatchObject({ matchStatus: "too_short", costing: "bicycle" });
     expect(matcher.match).not.toHaveBeenCalled();
   });
 
@@ -159,16 +203,20 @@ describe("buildRowForSegment", () => {
     const matcher: MapMatchingAdapter = {
       match: vi.fn().mockRejectedValue(new Error("Valhalla unavailable")),
     };
+    // Two points — at/above MIN_POINTS_TO_MATCH — so the adapter is actually reached and this
+    // test exercises the exception path rather than the too_short short-circuit above it.
+    const points = [point(), point(new Date("2026-08-07T00:01:00.000Z"))];
 
     await expect(
       buildRowForSegment(
         segment("driving"),
-        vi.fn().mockResolvedValue([point()]),
+        vi.fn().mockResolvedValue(points),
         matcher,
         TILE_VERSION,
         NOW
       )
     ).resolves.toMatchObject({ matchStatus: "failed", costing: "auto" });
+    expect(matcher.match).toHaveBeenCalled();
   });
 
   it("lets point-loader database failures abort the operation", async () => {
@@ -193,16 +241,18 @@ describe("summarizeRouteMatches", () => {
           { matchStatus: "matched" },
           { matchStatus: "low_confidence" },
           { matchStatus: "no_road_match" },
+          { matchStatus: "too_short" },
           { matchStatus: "failed" },
           { matchStatus: "not_applicable" },
         ],
-        8
+        9
       )
     ).toEqual({
-      segmentsConsidered: 8,
+      segmentsConsidered: 9,
       matched: 2,
       lowConfidence: 1,
       noRoadMatch: 1,
+      tooShort: 1,
       failed: 1,
       notApplicable: 1,
       skipped: 2,
@@ -247,6 +297,7 @@ describe("matchRoutesForDay", () => {
       matched: 0,
       lowConfidence: 0,
       noRoadMatch: 0,
+      tooShort: 0,
       failed: 0,
       notApplicable: 0,
       skipped: 0,

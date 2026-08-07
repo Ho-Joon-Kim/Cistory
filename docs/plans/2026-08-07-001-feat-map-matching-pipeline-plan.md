@@ -208,8 +208,17 @@ Status taxonomy after U1:
 | `matched` | snapped, confidence at or above threshold | filled |
 | `low_confidence` | snapped, confidence below threshold | filled |
 | `no_road_match` | Valhalla found no road near the trace (`444`) | null |
+| `too_short` | segment has fewer than `MIN_POINTS_TO_MATCH` (2) points; adapter never called | null |
 | `failed` | engine or request error, or an empty/unparseable 2xx | null |
 | `not_applicable` | subway / train / flying — not a road mode | null |
+
+**Added post-launch** (`fix/route-match-too-short`): a full backfill measured that 283/283
+one-point segments failed to match while 1039/1147 two-point segments matched — so `too_short`
+was split out of `failed` at that exact boundary (< 2 points) rather than guessed at a rounder
+number. Zero-point and one-point segments share `too_short`: both fail the same "does this have
+the 2+ points a path needs" test, and splitting them further would mean asserting *why* a
+segment has zero points (filtered anomalies? no GPS fix?) from data this stage doesn't have —
+the same inference mistake `no_road_match` was introduced to stop making (KTD1 below).
 
 ---
 

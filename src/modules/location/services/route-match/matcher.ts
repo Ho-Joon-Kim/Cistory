@@ -23,6 +23,7 @@ export interface RouteMatchSummary {
   matched: number;
   lowConfidence: number;
   noRoadMatch: number;
+  tooShort: number;
   failed: number;
   notApplicable: number;
   skipped: number;
@@ -59,12 +60,25 @@ type LocationDb = ReturnType<typeof getDb>;
 
 let warnedAboutMissingValhallaUrl = false;
 
+/**
+ * Minimum GPS points a segment needs before it is worth sending to Valhalla. A full backfill
+ * measured this directly rather than guessing it: segments with exactly 1 point matched 0/283
+ * times (a single point cannot define a path), while segments with 2 points matched the large
+ * majority of the time (1039/1147, ~91%). The cut sits at 1, not higher — raising it would
+ * discard the ~1000 two-point segments that already match successfully today.
+ *
+ * This is a domain judgement about which segments are worth attempting, not a transport-client
+ * concern, so it lives here rather than in the Valhalla adapter (`valhalla.ts`).
+ */
+export const MIN_POINTS_TO_MATCH = 2;
+
 function emptySummary(): RouteMatchSummary {
   return {
     segmentsConsidered: 0,
     matched: 0,
     lowConfidence: 0,
     noRoadMatch: 0,
+    tooShort: 0,
     failed: 0,
     notApplicable: 0,
     skipped: 0,
@@ -112,8 +126,15 @@ export async function buildRowForSegment(
   }
 
   const points = await loadPoints(segment);
-  if (points.length === 0) {
-    return { ...base, matchStatus: "failed", costing: decision.costing };
+  // Zero and one point are folded into the same too_short status rather than split further.
+  // Both fail the identical test this threshold checks — "does this segment have the 2+ points
+  // a path needs" — and a single point cannot define a path any more than no points can.
+  // Distinguishing *why* there are zero points (every point filtered as anomalous vs. no GPS
+  // fix at all vs. something else) would mean asserting a cause from data this function does
+  // not have, which is the exact mistake `no_road_match` was introduced to stop making (see the
+  // `MatchStatus` comment in src/db/schema.ts). So: same observation, same status.
+  if (points.length < MIN_POINTS_TO_MATCH) {
+    return { ...base, matchStatus: "too_short", costing: decision.costing };
   }
 
   try {
@@ -150,6 +171,7 @@ export function summarizeRouteMatches(
     matched: counts.get("matched") ?? 0,
     lowConfidence: counts.get("low_confidence") ?? 0,
     noRoadMatch: counts.get("no_road_match") ?? 0,
+    tooShort: counts.get("too_short") ?? 0,
     failed: counts.get("failed") ?? 0,
     notApplicable: counts.get("not_applicable") ?? 0,
     skipped: segmentsConsidered - rows.length,
