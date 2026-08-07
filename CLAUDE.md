@@ -377,7 +377,7 @@ RUN_ON_START=true                    # Immediate sync on boot (cron-enabled proc
 2. `yarn db:generate` to create migration files in `drizzle/` — review the generated SQL before committing
 3. `yarn db:migrate` to apply to PostgreSQL (local dev)
 
-Drizzle config loads env from `.env.local` (not `.env`). Fallback `DATABASE_URL` for local dev: `postgresql://cistory:cistory@localhost:5432/cistory`.
+`drizzle.config.ts` resolves `DATABASE_URL` as `DRIZZLE_DATABASE_URL` env var > `.env.local` > `.env` > the localhost fallback below, loading `.env.local` with dotenv's `override: true` because drizzle-kit's CLI auto-loads `.env` first (default `override: false`) — without it, `.env.local` is a silent no-op. Fallback `DATABASE_URL` for local dev: `postgresql://cistory:cistory@localhost:5432/cistory`.
 
 CI/production uses `scripts/migrate.ts` (`npx tsx scripts/migrate.ts`) rather than `drizzle-kit migrate`. That script sets `lock_timeout=60s` and `statement_timeout=2m` at the connection level so a stuck `__drizzle_migrations` lock fails the build fast instead of hanging Jenkins. Jenkins additionally kills stale `idle in transaction` sessions on `drizzle`/DDL queries before starting a run.
 
