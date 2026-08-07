@@ -1,21 +1,22 @@
-export interface TrackShapeSegment {
+import type { TimestampedShape } from "@/lib/adapters/map-matching/valhalla";
+
+interface TrackShapeSegment {
   startTime: Date;
-  endTime: Date;
-  shape: Array<[number, number, number]> | null;
+  shape: TimestampedShape | null;
 }
 
-export interface RawTrackPoint {
+interface RawTrackPoint {
   lat: number;
   lon: number;
   accuracy: number | null;
   timestamp: Date;
 }
 
-export interface AssembledTrackPoint {
+interface AssembledTrackPoint {
   lat: number;
   lon: number;
   accuracy: number | null;
-  timestamp: string;
+  timestamp: Date;
 }
 
 interface CoverageWindow {
@@ -23,8 +24,30 @@ interface CoverageWindow {
   end: number;
 }
 
+function mergeCoverageWindows(windows: CoverageWindow[]): CoverageWindow[] {
+  const merged: CoverageWindow[] = [];
+  for (const window of windows.sort((left, right) => left.start - right.start)) {
+    const previous = merged.at(-1);
+    if (!previous || window.start > previous.end) {
+      merged.push({ ...window });
+    } else {
+      previous.end = Math.max(previous.end, window.end);
+    }
+  }
+  return merged;
+}
+
 function isCovered(timestamp: number, windows: CoverageWindow[]): boolean {
-  return windows.some((window) => timestamp >= window.start && timestamp <= window.end);
+  let low = 0;
+  let high = windows.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const window = windows[middle];
+    if (timestamp < window.start) high = middle - 1;
+    else if (timestamp > window.end) low = middle + 1;
+    else return true;
+  }
+  return false;
 }
 
 /**
@@ -56,7 +79,7 @@ export function assembleTrackShape(
         lat,
         lon,
         accuracy: null,
-        timestamp: new Date(timestamp).toISOString(),
+        timestamp: new Date(timestamp),
         epochMillis: timestamp,
       });
     }
@@ -65,10 +88,11 @@ export function assembleTrackShape(
     }
   }
 
+  const mergedCoverage = mergeCoverageWindows(coverage);
   const uncoveredRawPoints = rawPoints.flatMap((point) => {
     const epochMillis = point.timestamp.getTime();
-    if (!Number.isFinite(epochMillis) || isCovered(epochMillis, coverage)) return [];
-    return [{ ...point, timestamp: point.timestamp.toISOString(), epochMillis }];
+    if (!Number.isFinite(epochMillis) || isCovered(epochMillis, mergedCoverage)) return [];
+    return [{ ...point, epochMillis }];
   });
 
   return [...snappedPoints, ...uncoveredRawPoints]

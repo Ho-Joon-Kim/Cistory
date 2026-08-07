@@ -23,10 +23,12 @@ export interface MatchPoint {
   timestamp: Date;
 }
 
+export type TimestampedShape = Array<[number, number, number]>;
+
 export interface MatchResult {
   status: "matched" | "low_confidence" | "no_road_match" | "failed";
   /** [lat, lon, epochMillis] 순서. matched/low_confidence일 때만 채워진다. */
-  shape: Array<[number, number, number]> | null;
+  shape: TimestampedShape | null;
   roadNames: string[];
   roadClasses: string[];
   confidence: number | null;
@@ -123,9 +125,8 @@ function emptyResult(status: MatchResult["status"]): MatchResult {
  * 그려진다(shape 없음보다 나쁘다). 재실행 신호를 잃는 건 되돌릴 수 없고,
  * 스냅 품질을 잃는 건 되돌릴 수 있다 — 그래서 no_road_match 쪽으로 접는다.
  *
- * 이 순서는 입력 배열의 순서와 무관하게 결정적이어야 한다 — fix round 1
- * 리뷰가 [failed, no_road_match]와 [no_road_match, failed]가 서로 다른 결과를
- * 내던 것을 잡았다.
+ * 이 우선순위는 입력 배열의 순서와 무관하다. no_road_match가 하나라도
+ * 있으면 전체를 no_road_match로 접는다.
  *
  * no_road_match가 하나도 없을 때만 기존 방식대로: 매칭된(shape가 채워진)
  * 조각이 있으면 그것들을 이어붙이고(실패한 조각은 버린다 — failed 조각은

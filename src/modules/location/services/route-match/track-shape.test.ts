@@ -11,23 +11,19 @@ function raw(minute: number, lat = 37 + minute / 1000) {
   return { lat, lon: 127, accuracy: 10, timestamp: at(minute) };
 }
 
-function segment(
-  startMinute: number,
-  endMinute: number,
-  shape: Array<[number, number, number]> | null
-) {
-  return { startTime: at(startMinute), endTime: at(endMinute), shape };
+function segment(startMinute: number, shape: Array<[number, number, number]> | null) {
+  return { startTime: at(startMinute), shape };
 }
 
 describe("assembleTrackShape", () => {
   it("emits snapped segments in timestamp order regardless of input order", () => {
     const result = assembleTrackShape(
       [
-        segment(20, 30, [
+        segment(20, [
           [37.2, 127, epoch(20)],
           [37.3, 127, epoch(30)],
         ]),
-        segment(0, 10, [
+        segment(0, [
           [37, 127, epoch(0)],
           [37.1, 127, epoch(10)],
         ]),
@@ -35,7 +31,7 @@ describe("assembleTrackShape", () => {
       []
     );
 
-    expect(result.map((point) => point.timestamp)).toEqual(
+    expect(result.map((point) => point.timestamp.toISOString())).toEqual(
       [0, 10, 20, 30].map((minute) => at(minute).toISOString())
     );
   });
@@ -43,11 +39,11 @@ describe("assembleTrackShape", () => {
   it("fills raw gaps without duplicating raw points inside snapped spans", () => {
     const result = assembleTrackShape(
       [
-        segment(0, 10, [
+        segment(0, [
           [37, 127, epoch(0)],
           [37.1, 127, epoch(10)],
         ]),
-        segment(20, 30, [
+        segment(20, [
           [37.2, 127, epoch(20)],
           [37.3, 127, epoch(30)],
         ]),
@@ -64,7 +60,7 @@ describe("assembleTrackShape", () => {
     expect(result).toEqual(
       [raw(0), raw(10), raw(20)].map((point) => ({
         ...point,
-        timestamp: point.timestamp.toISOString(),
+        timestamp: point.timestamp,
       }))
     );
   });
@@ -72,15 +68,13 @@ describe("assembleTrackShape", () => {
   it("ignores segments with null or empty shapes", () => {
     const points = [raw(0), raw(10)];
 
-    expect(assembleTrackShape([segment(0, 5, null), segment(5, 10, [])], points)).toEqual(
-      points.map((point) => ({ ...point, timestamp: point.timestamp.toISOString() }))
-    );
+    expect(assembleTrackShape([segment(0, null), segment(5, [])], points)).toEqual(points);
   });
 
   it("fills the uncovered part of a segment window from raw points", () => {
     const result = assembleTrackShape(
       [
-        segment(0, 30, [
+        segment(0, [
           [37.1, 127, epoch(10)],
           [37.2, 127, epoch(20)],
         ]),
@@ -94,7 +88,7 @@ describe("assembleTrackShape", () => {
   it("emits only points accepted by the travel route timestamp contract", () => {
     const points = assembleTrackShape(
       [
-        segment(0, 10, [
+        segment(0, [
           [37, 127, epoch(0)],
           [37.1, 127, epoch(10)],
         ]),
@@ -103,8 +97,16 @@ describe("assembleTrackShape", () => {
     );
 
     expect(() =>
-      parseTravelRoute({ points, count: points.length, rawSampledCount: 1, maxPoints: 1000 })
+      parseTravelRoute({
+        points: points.map((point) => ({
+          ...point,
+          timestamp: point.timestamp.toISOString(),
+        })),
+        count: points.length,
+        rawSampledCount: 1,
+        maxPoints: 1000,
+      })
     ).not.toThrow();
-    expect(points.every((point) => Number.isFinite(Date.parse(point.timestamp)))).toBe(true);
+    expect(points.every((point) => Number.isFinite(point.timestamp.getTime()))).toBe(true);
   });
 });

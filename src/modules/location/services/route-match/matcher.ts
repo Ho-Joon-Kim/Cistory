@@ -13,6 +13,7 @@ import {
   type MatchResult,
   type ValhallaCosting,
 } from "@/lib/adapters/map-matching/valhalla";
+import { toKstCalendarDate } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 import { extractsFingerprint } from "@/lib/map-extracts";
 import { costingForMode } from "./costing";
@@ -27,7 +28,7 @@ export interface RouteMatchSummary {
   skipped: number;
 }
 
-export interface RouteMatchSegment {
+interface RouteMatchSegment {
   id: string;
   userId: string;
   mode: string;
@@ -35,7 +36,7 @@ export interface RouteMatchSegment {
   endTime: Date;
 }
 
-export interface RouteMatchRow {
+interface RouteMatchRow {
   userId: string;
   segmentId: string;
   matchStatus: MatchStatus;
@@ -48,16 +49,15 @@ export interface RouteMatchRow {
   matchedAt: Date;
 }
 
-export interface MatchRoutesForDayOptions {
+interface MatchRoutesForDayOptions {
   adapter?: MapMatchingAdapter;
   now?: Date;
 }
 
 type PointsLoader = (segment: RouteMatchSegment) => Promise<MatchPoint[]>;
+type LocationDb = ReturnType<typeof getDb>;
 
 let warnedAboutMissingValhallaUrl = false;
-
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 function emptySummary(): RouteMatchSummary {
   return {
@@ -137,10 +137,10 @@ export async function buildRowForSegment(
 }
 
 export function summarizeRouteMatches(
-  rows: ReadonlyArray<{ matchStatus: string }>,
+  rows: ReadonlyArray<{ matchStatus: MatchStatus }>,
   segmentsConsidered: number
 ): RouteMatchSummary {
-  const counts = new Map<string, number>();
+  const counts = new Map<MatchStatus, number>();
   for (const row of rows) {
     counts.set(row.matchStatus, (counts.get(row.matchStatus) ?? 0) + 1);
   }
@@ -163,8 +163,52 @@ export function summarizeRouteMatches(
  * stays correct for scripts and tests that run outside the production container.
  */
 export function currentTileVersion(now: Date): string {
-  const buildDate = new Date(now.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
-  return `${buildDate}-${extractsFingerprint()}`;
+  return `${toKstCalendarDate(now)}-${extractsFingerprint()}`;
+}
+
+async function loadDayPointsBySegment(
+  db: LocationDb,
+  userId: string,
+  segments: RouteMatchSegment[]
+): Promise<Map<string, MatchPoint[]>> {
+  const segmentIds = segments
+    .filter((segment) => costingForMode(segment.mode).kind === "match")
+    .map((segment) => segment.id);
+  const pointsBySegment = new Map<string, MatchPoint[]>(
+    segmentIds.map((segmentId) => [segmentId, []])
+  );
+  if (segmentIds.length === 0) return pointsBySegment;
+
+  const pointRows = await db
+    .select({
+      segmentId: transportationSegments.id,
+      lat: locationPoints.lat,
+      lon: locationPoints.lon,
+      timestamp: locationPoints.timestamp,
+    })
+    .from(transportationSegments)
+    .leftJoin(
+      locationPoints,
+      and(
+        eq(locationPoints.userId, userId),
+        gte(locationPoints.timestamp, transportationSegments.startTime),
+        lt(locationPoints.timestamp, transportationSegments.endTime)
+      )
+    )
+    .where(
+      and(eq(transportationSegments.userId, userId), inArray(transportationSegments.id, segmentIds))
+    )
+    .orderBy(asc(transportationSegments.startTime), asc(locationPoints.timestamp));
+
+  for (const row of pointRows) {
+    if (row.lat === null || row.lon === null || row.timestamp === null) continue;
+    pointsBySegment.get(row.segmentId)?.push({
+      lat: row.lat,
+      lon: row.lon,
+      timestamp: row.timestamp,
+    });
+  }
+  return pointsBySegment;
 }
 
 /** Match and atomically replace one user's segment-route rows for a KST date. */
@@ -198,22 +242,8 @@ export async function matchRoutesForDay(
     .where(and(eq(transportationSegments.userId, userId), eq(transportationSegments.date, date)))
     .orderBy(asc(transportationSegments.startTime));
 
-  const loadPoints: PointsLoader = async (segment) =>
-    db
-      .select({
-        lat: locationPoints.lat,
-        lon: locationPoints.lon,
-        timestamp: locationPoints.timestamp,
-      })
-      .from(locationPoints)
-      .where(
-        and(
-          eq(locationPoints.userId, userId),
-          gte(locationPoints.timestamp, segment.startTime),
-          lt(locationPoints.timestamp, segment.endTime)
-        )
-      )
-      .orderBy(asc(locationPoints.timestamp));
+  const pointsBySegment = await loadDayPointsBySegment(db, userId, segments);
+  const loadPoints: PointsLoader = async (segment) => pointsBySegment.get(segment.id) ?? [];
 
   const rows: RouteMatchRow[] = [];
   for (const segment of segments) {

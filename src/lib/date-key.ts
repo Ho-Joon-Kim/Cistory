@@ -1,4 +1,9 @@
 const DAY_MS = 86_400_000;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+export function toKstCalendarDate(date: Date): string {
+  return new Date(date.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
 
 export function dateKeyToUtcMillis(dateKey: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);

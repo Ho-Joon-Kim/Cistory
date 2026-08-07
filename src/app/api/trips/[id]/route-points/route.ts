@@ -36,10 +36,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     const window = getKstDateWindow(trip.startDate, trip.endDate);
-    const segmentRows = await db
+    const segmentRowsPromise = db
       .select({
         startTime: transportationSegments.startTime,
-        endTime: transportationSegments.endTime,
         shape: segmentRouteMatches.shape,
       })
       .from(transportationSegments)
@@ -55,7 +54,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     // Sampling happens inside PostgreSQL. Only this bounded result is decoded in JS.
     // The first/last rows are explicit exceptions; the stride allows at most cap-2 middles.
-    const result = await db.execute(sql`
+    const rawPointsPromise = db.execute(sql`
       WITH filtered AS (
         SELECT
           lat,
@@ -92,14 +91,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
       FROM sampled
       ORDER BY timestamp
     `);
+    const [segmentRows, result] = await Promise.all([segmentRowsPromise, rawPointsPromise]);
     const sampledRows = result.rows as unknown as RoutePointRow[];
-    const assembledRows = assembleTrackShape(
-      segmentRows.map((segment) => ({
-        ...segment,
-        shape: segment.shape as Array<[number, number, number]> | null,
-      })),
-      sampledRows
-    ).map((point) => ({ ...point, timestamp: new Date(point.timestamp) }));
+    const assembledRows = assembleTrackShape(segmentRows, sampledRows);
     const simplifiedRows = simplifyRoutePoints(assembledRows, MIN_ROUTE_DISTANCE_M);
     const boundedRows =
       simplifiedRows.length <= MAX_ROUTE_POINTS

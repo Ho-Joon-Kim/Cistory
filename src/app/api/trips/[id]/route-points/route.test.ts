@@ -132,7 +132,6 @@ describe("GET /api/trips/:id/route-points", () => {
     const segmentRows = [
       {
         startTime: new Date("2026-07-15T00:00:00Z"),
-        endTime: new Date("2026-07-15T00:10:00Z"),
         shape: [
           [37, 127, Date.parse("2026-07-15T00:00:00Z")],
           [37.1, 127, Date.parse("2026-07-15T00:10:00Z")],
@@ -153,6 +152,11 @@ describe("GET /api/trips/:id/route-points", () => {
     expect(db.select).toHaveBeenCalledTimes(2);
     expect(segmentBuilder.leftJoin).toHaveBeenCalledTimes(1);
     expect(body.points.map((point: { lat: number }) => point.lat)).toEqual([37, 37.1, 37.15]);
+    expect(
+      body.points.every((point: { timestamp: string }) =>
+        Number.isFinite(Date.parse(point.timestamp))
+      )
+    ).toBe(true);
     expect(body.rawSampledCount).toBe(2);
   });
 
@@ -168,7 +172,6 @@ describe("GET /api/trips/:id/route-points", () => {
       [
         {
           startTime: new Date("2026-07-15T00:00:00Z"),
-          endTime: new Date("2026-07-15T01:00:00Z"),
           shape,
         },
       ]

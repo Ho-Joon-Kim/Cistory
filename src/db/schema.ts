@@ -424,9 +424,9 @@ export const segmentRouteMatches = pgTable(
     /** matched | low_confidence | no_road_match | failed | not_applicable */
     matchStatus: text("match_status").notNull(),
     /** [[lat, lon, epochMillis], …] — matched/low_confidence일 때만 채워진다. */
-    shape: jsonb("shape"),
-    roadNames: jsonb("road_names"),
-    roadClasses: jsonb("road_classes"),
+    shape: jsonb("shape").$type<Array<[number, number, number]>>(),
+    roadNames: jsonb("road_names").$type<string[]>(),
+    roadClasses: jsonb("road_classes").$type<string[]>(),
     confidence: doublePrecision("confidence"),
     /** 실제로 보낸 costing. auto 폴백이 일어났는지가 여기 드러난다. */
     costing: text("costing"),
