@@ -21,6 +21,7 @@ import {
   segmentRouteMatches,
   transportationSegments,
 } from "../src/db";
+import { coveringExtract } from "../src/lib/map-extracts";
 
 interface ModeRoadClassRow {
   mode: string;
@@ -47,12 +48,31 @@ interface ConfidenceDecileRow {
   [key: string]: unknown;
 }
 
-interface StatusDistributionRow {
+interface SegmentCentroidRow {
   status: string;
-  segments: number;
   centroidLat: number | null;
   centroidLon: number | null;
   [key: string]: unknown;
+}
+
+interface StatusRegionRow {
+  status: string;
+  region: string;
+  segments: number;
+  [key: string]: unknown;
+}
+
+// The only row that means "we're missing an OSM extract for this area" — always printed,
+// even at zero, so a clean result reads as an answer rather than as a missing row.
+const OUTSIDE_EVERY_EXTRACT = "outside every extract";
+// A segment's centroid is the average of its location points; a segment with none of its own
+// points on record (rare, but possible) has no coordinate to place on the map at all. Surfacing
+// it as its own bucket keeps the per-status total honest instead of silently dropping rows.
+const NO_COORDINATE = "no coordinate";
+
+function regionFor(lat: number | null, lon: number | null): string {
+  if (lat === null || lon === null) return NO_COORDINATE;
+  return coveringExtract(lat, lon) ?? OUTSIDE_EVERY_EXTRACT;
 }
 
 function printTable(title: string, rows: unknown[]): void {
@@ -156,35 +176,51 @@ async function main(): Promise<void> {
     `);
     printTable("3. Confidence deciles", confidenceDeciles.rows);
 
-    const statusDistribution = await db.execute<StatusDistributionRow>(sql`
-      WITH segment_centroids AS (
-        SELECT
-          ${segmentRouteMatches.id} AS match_id,
-          ${segmentRouteMatches.matchStatus} AS status,
-          avg(${locationPoints.lat}) AS centroid_lat,
-          avg(${locationPoints.lon}) AS centroid_lon
-        FROM ${segmentRouteMatches}
-        INNER JOIN ${transportationSegments}
-          ON ${transportationSegments.id} = ${segmentRouteMatches.segmentId}
-        LEFT JOIN ${locationPoints}
-          ON ${locationPoints.userId} = ${transportationSegments.userId}
-          AND ${locationPoints.timestamp} >= ${transportationSegments.startTime}
-          AND ${locationPoints.timestamp} <= ${transportationSegments.endTime}
-        GROUP BY ${segmentRouteMatches.id}, ${segmentRouteMatches.matchStatus}
-      )
+    // One row per segment-match: its status and its centroid (the average of that segment's own
+    // location points, NULL when it has none). Deliberately ungrouped by coordinate here — with
+    // 0.1°-grid grouping this table used to emit ~300 rows, nearly all `segments = 1`, because a
+    // grid cell is the wrong unit for the question it exists to answer ("are these off the road
+    // network, or are we just missing an OSM extract for this area?"). Rolling up to "which
+    // extract covers this point" instead answers that directly, so the grouping happens in JS
+    // via `coveringExtract` rather than in SQL.
+    const segmentCentroids = await db.execute<SegmentCentroidRow>(sql`
       SELECT
-        status,
-        count(*)::integer AS segments,
-        round(centroid_lat::numeric, 1)::double precision AS "centroidLat",
-        round(centroid_lon::numeric, 1)::double precision AS "centroidLon"
-      FROM segment_centroids
-      GROUP BY
-        status,
-        round(centroid_lat::numeric, 1),
-        round(centroid_lon::numeric, 1)
-      ORDER BY status, segments DESC, "centroidLat", "centroidLon"
+        ${segmentRouteMatches.matchStatus} AS status,
+        avg(${locationPoints.lat}) AS "centroidLat",
+        avg(${locationPoints.lon}) AS "centroidLon"
+      FROM ${segmentRouteMatches}
+      INNER JOIN ${transportationSegments}
+        ON ${transportationSegments.id} = ${segmentRouteMatches.segmentId}
+      LEFT JOIN ${locationPoints}
+        ON ${locationPoints.userId} = ${transportationSegments.userId}
+        AND ${locationPoints.timestamp} >= ${transportationSegments.startTime}
+        AND ${locationPoints.timestamp} <= ${transportationSegments.endTime}
+      GROUP BY ${segmentRouteMatches.id}, ${segmentRouteMatches.matchStatus}
     `);
-    printTable("4. Status distribution with approximate centroid", statusDistribution.rows);
+
+    const regionCounts = new Map<string, Map<string, number>>();
+    for (const row of segmentCentroids.rows) {
+      const region = regionFor(row.centroidLat, row.centroidLon);
+      const byRegion = regionCounts.get(row.status) ?? new Map<string, number>();
+      byRegion.set(region, (byRegion.get(region) ?? 0) + 1);
+      regionCounts.set(row.status, byRegion);
+    }
+
+    const statusRegionRows: StatusRegionRow[] = [];
+    for (const [status, byRegion] of regionCounts) {
+      if (!byRegion.has(OUTSIDE_EVERY_EXTRACT)) {
+        byRegion.set(OUTSIDE_EVERY_EXTRACT, 0);
+      }
+      for (const [region, segments] of byRegion) {
+        statusRegionRows.push({ status, region, segments });
+      }
+    }
+    statusRegionRows.sort((a, b) => {
+      if (a.status !== b.status) return a.status < b.status ? -1 : 1;
+      if (a.segments !== b.segments) return b.segments - a.segments;
+      return a.region < b.region ? -1 : a.region > b.region ? 1 : 0;
+    });
+    printTable("4. Status × OSM extract coverage (where no_road_match clusters)", statusRegionRows);
   } finally {
     await pool.end();
   }
