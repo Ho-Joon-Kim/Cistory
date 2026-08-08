@@ -38,6 +38,18 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN yarn test
 
+# Stage: Integration test runner — has the full source + deps but does NOT
+# run tests at build time, unlike `tester` above. src/**/*.integration.test.ts
+# needs a real Postgres (docker-compose.test.yml), and a Docker build cannot
+# reach a sibling service container — there is no DB to connect to while this
+# stage is being built. Instead this image is built once, then run as a
+# container with `--network host` against a postgres-test container already
+# up on localhost, the same two-step shape the `migrator` stage below uses
+# for `scripts/migrate.ts`. See the Jenkinsfile's "Integration Tests" stage.
+FROM base AS integration-tester
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
 # Stage: Lightweight migration runner (no build, no secrets needed)
 FROM base AS migrator
 COPY --from=deps /app/node_modules ./node_modules
