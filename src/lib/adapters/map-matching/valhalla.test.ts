@@ -1,7 +1,12 @@
 process.env.TZ = "Asia/Seoul";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createValhallaAdapter, MATCH_CONFIDENCE_THRESHOLD, MAX_TRACE_POINTS } from "./valhalla";
+import {
+  createValhallaAdapter,
+  MATCH_CONFIDENCE_THRESHOLD,
+  MAX_TRACE_POINTS,
+  ValhallaUnreachableError,
+} from "./valhalla";
 
 // findings §2 — the real 4-point Gangnam-daero /trace_attributes request,
 // pasted verbatim. All four points fall inside one of the south-korea
@@ -218,8 +223,31 @@ describe("createValhallaAdapter", () => {
     expect(result.status).toBe("failed");
   });
 
-  it("reports failed when the request throws", async () => {
-    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+  // Behaviour change (was: reports failed when the request throws, folding a down engine into
+  // the same status as a real match failure — the exact conflation that made the
+  // build-tiles-first-then-set-VALHALLA_URL-last deploy rule necessary and made it fail
+  // silently when forgotten). A connection-level failure — refused, DNS, reset — is not a fact
+  // about the trace; the engine never got to look at it.
+  it("throws ValhallaUnreachableError — not a failed result — when the engine cannot be reached", async () => {
+    // Shaped like a real Node fetch connection failure (see valhalla.ts's classification
+    // comment): a TypeError with the real cause on `.cause`, not a bare Error.
+    const connectionError = new TypeError("fetch failed", { cause: new Error("ECONNREFUSED") });
+    fetchMock.mockRejectedValueOnce(connectionError);
+
+    await expect(
+      createValhallaAdapter("http://valhalla:8002").match(points, "auto")
+    ).rejects.toThrow(ValhallaUnreachableError);
+  });
+
+  // Deliberately ambiguous case, pinned so it doesn't drift: our own timeout firing looks
+  // identical to "the engine is alive but slow on a large trace." Treating it as unreachable
+  // would abort — and blank — a whole day's matching over one slow segment on every retry.
+  // Staying on the `failed` side costs one segment; going the other way risks the day never
+  // completing at all.
+  it("reports failed — not unreachable — when the adapter's own timeout aborts the request", async () => {
+    const abortError = new DOMException("This operation was aborted", "AbortError");
+    fetchMock.mockRejectedValueOnce(abortError);
+
     const result = await createValhallaAdapter("http://valhalla:8002").match(points, "auto");
     expect(result.status).toBe("failed");
     expect(result.shape).toBeNull();

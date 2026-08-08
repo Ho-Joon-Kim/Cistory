@@ -3,7 +3,11 @@ process.env.TZ = "Asia/Seoul";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
-import type { MapMatchingAdapter, MatchPoint } from "@/lib/adapters/map-matching/valhalla";
+import {
+  type MapMatchingAdapter,
+  type MatchPoint,
+  ValhallaUnreachableError,
+} from "@/lib/adapters/map-matching/valhalla";
 import { logger } from "@/lib/logger";
 import {
   buildRowForSegment,
@@ -230,6 +234,23 @@ describe("buildRowForSegment", () => {
       )
     ).rejects.toThrow("database unavailable");
   });
+
+  it("lets a ValhallaUnreachableError from the adapter propagate instead of writing failed", async () => {
+    const points = [point(), point(new Date("2026-08-07T00:01:00.000Z"))];
+    const matcher: MapMatchingAdapter = {
+      match: vi.fn().mockRejectedValue(new ValhallaUnreachableError(new Error("ECONNREFUSED"))),
+    };
+
+    await expect(
+      buildRowForSegment(
+        segment("driving"),
+        vi.fn().mockResolvedValue(points),
+        matcher,
+        TILE_VERSION,
+        NOW
+      )
+    ).rejects.toThrow(ValhallaUnreachableError);
+  });
 });
 
 describe("summarizeRouteMatches", () => {
@@ -256,6 +277,7 @@ describe("summarizeRouteMatches", () => {
       failed: 1,
       notApplicable: 1,
       skipped: 2,
+      aborted: false,
     });
   });
 });
@@ -301,11 +323,122 @@ describe("matchRoutesForDay", () => {
       failed: 0,
       notApplicable: 0,
       skipped: 0,
+      aborted: false,
     });
     expect(second).toEqual(first);
     expect(warn).toHaveBeenCalledOnce();
 
     warn.mockRestore();
     vi.unstubAllEnvs();
+  });
+
+  it("writes nothing and reports aborted when Valhalla is unreachable, even after an earlier segment in the same day already matched", async () => {
+    const first = segment("driving");
+    const second = { ...segment("driving"), id: "segment-driving-2" };
+    const segmentBuilder = createQueryBuilder([first, second]);
+
+    const firstPoints = [point(), point(new Date("2026-08-07T00:01:00.000Z"))];
+    const secondPoints = [
+      point(new Date("2026-08-07T00:02:00.000Z")),
+      point(new Date("2026-08-07T00:03:00.000Z")),
+    ];
+    const pointRows = [
+      ...firstPoints.map((p) => ({ segmentId: first.id, ...p })),
+      ...secondPoints.map((p) => ({ segmentId: second.id, ...p })),
+    ];
+    const pointsBuilder = createQueryBuilder(pointRows);
+
+    const tx = {
+      delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })),
+      insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+    };
+    const transaction = vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) =>
+      callback(tx)
+    );
+    const db = {
+      select: vi.fn().mockReturnValueOnce(segmentBuilder).mockReturnValueOnce(pointsBuilder),
+      transaction,
+    };
+    mocks.getDb.mockReturnValue(db);
+
+    // First segment matches normally; the second hits an unreachable engine. The abort must
+    // still discard the first segment's already-built row — nothing gets written for the day.
+    let calls = 0;
+    const matcher: MapMatchingAdapter = {
+      match: vi.fn().mockImplementation(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            status: "matched",
+            shape: [[37.5, 127, NOW.getTime()]],
+            roadNames: [],
+            roadClasses: [],
+            confidence: 0.9,
+          };
+        }
+        throw new ValhallaUnreachableError(new Error("ECONNREFUSED"));
+      }),
+    };
+
+    const summary = await matchRoutesForDay("user-1", "2026-08-07", { adapter: matcher, now: NOW });
+
+    expect(summary.aborted).toBe(true);
+    expect(summary.segmentsConsidered).toBe(2);
+    expect(summary.matched).toBe(0);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(tx.delete).not.toHaveBeenCalled();
+    expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes nothing-to-do from Valhalla-unreachable in the returned summary", async () => {
+    // Nothing to do: a day with zero road-mode segments.
+    const emptyDb = {
+      select: vi
+        .fn()
+        .mockReturnValueOnce(createQueryBuilder([]))
+        .mockReturnValueOnce(createQueryBuilder([])),
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({
+          delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })),
+          insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+        })
+      ),
+    };
+    mocks.getDb.mockReturnValue(emptyDb);
+    const nothingToDo = await matchRoutesForDay("user-1", "2026-08-07", {
+      adapter: adapter(),
+      now: NOW,
+    });
+    expect(nothingToDo).toMatchObject({ segmentsConsidered: 0, aborted: false });
+
+    // Gave up: Valhalla unreachable on the one segment that day has. Needs real points on the
+    // segment (unlike databaseCapturingPointJoin's empty points builder) or the segment resolves
+    // too_short without ever calling the adapter, and the unreachable path never exercises.
+    const onlySegment = segment("driving");
+    const withPoints = [point(), point(new Date("2026-08-07T00:01:00.000Z"))];
+    const unreachableDb = {
+      select: vi
+        .fn()
+        .mockReturnValueOnce(createQueryBuilder([onlySegment]))
+        .mockReturnValueOnce(
+          createQueryBuilder(withPoints.map((p) => ({ segmentId: onlySegment.id, ...p })))
+        ),
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({
+          delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })),
+          insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+        })
+      ),
+    };
+    mocks.getDb.mockReturnValue(unreachableDb);
+    const matcher: MapMatchingAdapter = {
+      match: vi.fn().mockRejectedValue(new ValhallaUnreachableError(new Error("ECONNREFUSED"))),
+    };
+    const gaveUp = await matchRoutesForDay("user-1", "2026-08-07", { adapter: matcher, now: NOW });
+    expect(gaveUp).toMatchObject({ segmentsConsidered: 1, aborted: true });
+    expect(unreachableDb.transaction).not.toHaveBeenCalled();
+
+    // The two must not be the same shape — that's the entire point of the flag.
+    expect(nothingToDo.aborted).not.toBe(gaveUp.aborted);
   });
 });
