@@ -1,22 +1,36 @@
 pipeline {
     agent any
 
-    // No disableConcurrentBuilds() here — it was tried in an earlier
-    // revision of this file and removed. This is a Multibranch Pipeline
+    // disableConcurrentBuilds() is NOT here for the Integration Tests
+    // stage's throwaway Postgres — that hazard is closed by build-scoped
+    // compose identity instead (see the comment on that stage): every
+    // build, including two builds of the *same* job run back to back, gets
+    // its own project/container/port because BUILD_TAG carries
+    // BUILD_NUMBER, so same-job overlap is already safe without this.
+    //
+    // It IS here for the deploy path. This is a Multibranch Pipeline
     // (env.BRANCH_NAME is read below, several stages gate on `when {
-    // branch 'main' }`), which gives every branch AND every open PR its own
-    // Jenkins job with its own build queue. disableConcurrentBuilds() only
-    // serializes builds *within one job* — it does nothing to stop two
-    // different jobs (two PRs pushed minutes apart, or a PR overlapping a
-    // main push) from running on this same `agent any` at the same time, so
-    // it never actually closed the race it was added for: two builds
-    // sharing the Integration Tests stage's throwaway Postgres. That race
-    // is closed properly instead, by giving every build its own compose
-    // project/container/port (see the per-build identity comment on the
-    // Integration Tests stage) — a fix that holds regardless of which job
-    // a build belongs to, so the blanket pipeline-wide serialization isn't
-    // buying anything anymore and isn't worth the queueing cost it would
-    // add to every push and every PR.
+    // branch 'main' }`), so main gets its own job, but within that one job
+    // Jenkins runs builds concurrently by default — that default is
+    // exactly why this option exists. Run Migrations, Deploy, Build Docker
+    // Image's unconditional `:latest` tag, and Cleanup all still hardcode
+    // `cistory-db` / fixed container names / a shared tag, so two pushes to
+    // main landing close together would otherwise run migrations and
+    // redeploy concurrently — precisely the "idle in transaction" lock
+    // contention the comment at the "Run Migrations" stage below was
+    // written to guard against. disableConcurrentBuilds() prevents that by
+    // serializing all of this job's builds, deploy stages included.
+    //
+    // (Considered instead: `lock('cistory-deploy')` around just the deploy
+    // stages, which would let Test/Integration Tests run concurrently and
+    // only serialize the deploy path. Not used — it requires the Lockable
+    // Resources plugin, which isn't confirmed installed on this Jenkins
+    // instance, and an unavailable plugin fails the whole pipeline outright
+    // rather than degrading gracefully. disableConcurrentBuilds() is a
+    // built-in option with no such risk.)
+    options {
+        disableConcurrentBuilds()
+    }
 
     triggers {
         githubPush()
@@ -54,13 +68,15 @@ pipeline {
             steps {
                 script {
                     // Per-build identity for the throwaway Postgres this stage
-                    // spins up, so two concurrent builds (see the pipeline-level
-                    // comment above on why disableConcurrentBuilds() couldn't be
-                    // relied on) never share one. BUILD_TAG
-                    // (jenkins-${JOB_NAME}-${BUILD_NUMBER}) is unique per running
-                    // build across every job on this Jenkins instance — sanitized
-                    // to lowercase alnum/dash so it's also a legal `docker
-                    // compose -p` project name (must match ^[a-z0-9][a-z0-9_-]*$;
+                    // spins up, so two concurrent builds — across jobs, where
+                    // disableConcurrentBuilds() (see the pipeline-level comment
+                    // above) can't help, but also within one job, so this stage
+                    // doesn't lean on that option either — never share one.
+                    // BUILD_TAG (jenkins-${JOB_NAME}-${BUILD_NUMBER}) is unique
+                    // per running build across every job on this Jenkins
+                    // instance — sanitized to lowercase alnum/dash so it's also
+                    // a legal `docker compose -p` project name (must match
+                    // ^[a-z0-9][a-z0-9_-]*$;
                     // the literal "jenkins-" prefix guarantees a safe first
                     // character even after a branch name with leading/odd
                     // characters is folded in). Passed as `-p` to every compose
@@ -92,7 +108,15 @@ pipeline {
                 // bind, so two builds requesting port 0 at the same time can't
                 // collide the way two builds both requesting 5433 could.
                 // `docker compose port` reads back whichever port the kernel
-                // actually chose.
+                // actually chose — guarded explicitly below, because
+                // `... | awk ...` has no `set -e`/`pipefail` protecting it: if
+                // `docker compose port` fails, the pipe's exit status is
+                // awk's (0, on empty input), so TEST_DB_PORT would silently
+                // end up empty rather than failing the stage. An empty port in
+                // the connection URL isn't just malformed — pg.Client treats a
+                // falsy port as absent and defaults to 5432, which on this
+                // host is production's cistory-db. The guard turns that into
+                // an explicit, immediate stage failure instead.
                 //
                 // DATABASE_URL is passed to the `npx tsx scripts/migrate.ts`
                 // command only, not to the container (`-e` on `docker run`
@@ -121,6 +145,10 @@ pipeline {
                     TEST_DB_HOST_PORT=0 docker compose -p ${env.INTEGRATION_TEST_PROJECT} -f docker-compose.test.yml up -d --wait
 
                     TEST_DB_PORT=\$(docker compose -p ${env.INTEGRATION_TEST_PROJECT} -f docker-compose.test.yml port postgres-test 5432 | awk -F: '{print \$NF}')
+                    if [ -z "\$TEST_DB_PORT" ]; then
+                        echo "ERROR: could not resolve the throwaway Postgres's published port ('docker compose -p ${env.INTEGRATION_TEST_PROJECT} -f docker-compose.test.yml port postgres-test 5432' returned nothing) — refusing to continue with an empty port, since pg.Client would silently default to 5432 (this host's production cistory-db)" >&2
+                        exit 1
+                    fi
 
                     docker run --rm \
                         --network host \
