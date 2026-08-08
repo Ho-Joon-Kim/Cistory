@@ -33,6 +33,38 @@ pipeline {
             }
         }
 
+        stage('Integration Tests') {
+            steps {
+                // src/**/*.integration.test.ts execute real SQL against a real
+                // Postgres and cannot run inside `docker build` the way the Test
+                // stage above does — a build has no network route to a sibling
+                // service container. So this stage follows the same two-step
+                // shape as "Run Migrations" below: build an image that HAS the
+                // suite but doesn't run it, bring up a throwaway Postgres via
+                // docker-compose.test.yml (its own project/network/port, never
+                // cistory-db), then run the suite as a container reaching it over
+                // --network host. Ungated by branch, like the Test stage above —
+                // PRs get the same regression safety net as pushes to main.
+                sh """
+                    docker build --target integration-tester -t ${IMAGE_NAME}:integration-tester .
+
+                    docker compose -f docker-compose.test.yml up -d --wait
+
+                    docker run --rm \
+                        --network host \
+                        -e DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:5433/cistory_test \
+                        -e TEST_DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:5433/cistory_test \
+                        ${IMAGE_NAME}:integration-tester \
+                        sh -c "npx tsx scripts/migrate.ts && npx vitest run -c vitest.integration.config.mts"
+                """
+            }
+            post {
+                always {
+                    sh "docker compose -f docker-compose.test.yml down || true"
+                }
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 script {
