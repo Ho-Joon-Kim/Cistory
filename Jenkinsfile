@@ -1,6 +1,26 @@
 pipeline {
     agent any
 
+    // The Integration Tests stage below runs a throwaway Postgres
+    // (docker-compose.test.yml) with a hardcoded container name and host
+    // port, torn down in `post { always }` as soon as that build's stage
+    // finishes. Two builds overlapping on this agent would share that one
+    // container — the second `up -d --wait` silently reuses the first
+    // build's instance rather than failing on the port — and then whichever
+    // build finishes first tears down the Postgres the other is still
+    // mid-suite against. The rest of the pipeline already isn't
+    // concurrency-safe either (Run Migrations and Deploy both use fixed
+    // container names/ports against cistory-db), so this pipeline has never
+    // actually supported concurrent runs — this just makes that assumption
+    // explicit instead of leaving it to accidentally hold. A build-scoped
+    // project name + dynamic port would fix the Integration Tests stage in
+    // isolation but leave every other stage's fixed-name assumption
+    // exactly as broken, so it wasn't worth the extra moving parts here: a
+    // queued second build costs a wait, not a wrong result.
+    options {
+        disableConcurrentBuilds()
+    }
+
     triggers {
         githubPush()
     }
@@ -45,6 +65,27 @@ pipeline {
                 // cistory-db), then run the suite as a container reaching it over
                 // --network host. Ungated by branch, like the Test stage above —
                 // PRs get the same regression safety net as pushes to main.
+                // DATABASE_URL is passed to the `npx tsx scripts/migrate.ts`
+                // command only, not to the container (`-e` on `docker run`
+                // would put it in the whole process's environment, and from
+                // there vitest inherits it too). That distinction is
+                // load-bearing, not tidiness: every integration test reaches
+                // Postgres through the transaction-bound `executor` param
+                // (src/db/testing/transactional-db.ts), never through the
+                // app's own getDb()/getPool() singleton — but if DATABASE_URL
+                // *were* sitting in the environment, code that forgot to pass
+                // an executor would silently succeed via getDb()'s separate
+                // pooled connection instead of failing loudly. That
+                // connection can't see this run's uncommitted fixture rows
+                // (they live inside one BEGIN/ROLLBACK transaction on a
+                // different connection), so an isolation assertion like
+                // "user B's rows aren't returned" would pass vacuously
+                // because nothing came back at all — exactly the always-green
+                // failure mode this whole suite exists to rule out, just
+                // displaced from the test file into the CI environment.
+                // TEST_DATABASE_URL stays container-wide because that's the
+                // one name src/db/testing/transactional-db.ts trusts (no
+                // DATABASE_URL fallback there either, for the same reason).
                 sh """
                     docker build --target integration-tester -t ${IMAGE_NAME}:integration-tester .
 
@@ -52,10 +93,9 @@ pipeline {
 
                     docker run --rm \
                         --network host \
-                        -e DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:5433/cistory_test \
                         -e TEST_DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:5433/cistory_test \
                         ${IMAGE_NAME}:integration-tester \
-                        sh -c "npx tsx scripts/migrate.ts && npx vitest run -c vitest.integration.config.mts"
+                        sh -c "DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:5433/cistory_test npx tsx scripts/migrate.ts && npx vitest run -c vitest.integration.config.mts"
                 """
             }
             post {
@@ -221,9 +261,19 @@ pipeline {
         stage('Cleanup') {
             when { branch 'main' }
             steps {
+                // Excludes every reused singleton tag (latest, tester,
+                // integration-tester, migrator), not just latest — those are
+                // retagged onto the newest image on every single build, so
+                // they always lexically outrank a 7-char hex sha tag
+                // ('i'/'m'/'t' > any '0'-'9'/'a'-'f' first character) and
+                // would otherwise occupy `tail -n +4`'s "keep" slots that are
+                // meant for actual commit-sha rollback targets. Before
+                // integration-tester existed this already silently kept only
+                // 1 real sha (tester + migrator ate 2 of the 3 slots);
+                // adding a third reused tag would have evicted all of them.
                 sh """
                     docker images ${IMAGE_NAME} --format '{{.Tag}}' \
-                        | grep -v latest \
+                        | grep -vE '^(latest|tester|integration-tester|migrator)\$' \
                         | sort -r \
                         | tail -n +4 \
                         | xargs -r -I {} docker rmi ${IMAGE_NAME}:{} 2>/dev/null || true

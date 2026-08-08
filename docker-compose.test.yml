@@ -5,10 +5,10 @@
 # container/network name, its own host port, its own storage. Nothing here
 # reads or writes cistory-db or cistory-valhalla.
 #
-# `yarn test:integration:db:down` (`docker compose -f docker-compose.test.yml
-# down`) removes the container and network in one shot. There is no named
-# volume to separately prune — see the tmpfs note below — so plain `down`
-# already leaves nothing behind.
+# `yarn db:test:down` (`docker compose -f docker-compose.test.yml down`)
+# removes the container and network in one shot. There is no named volume to
+# separately prune — see the tmpfs note below — so plain `down` already
+# leaves nothing behind.
 #
 # TZ=Asia/Seoul mirrors docker-compose.yml's `postgres` service on purpose,
 # not by habit. Postgres's `initdb` bakes the container's OS timezone into
@@ -41,7 +41,12 @@ services:
       POSTGRES_PASSWORD: cistory_test
       TZ: Asia/Seoul
     ports:
-      - "${TEST_DB_PORT:-5433}:5432"
+      # Hardcoded, not a ${VAR:-default} knob: package.json's fallback URLs
+      # and the Jenkinsfile both hardcode 5433 too, and a configurable port
+      # here without threading it through those as well would just move the
+      # container while every client stayed pointed at the old port. Change
+      # all three together if this ever needs to move.
+      - "5433:5432"
     tmpfs:
       # No named/external volume on purpose: this container is meant to be
       # thrown away, and tmpfs keeps runs fast without ever touching disk.

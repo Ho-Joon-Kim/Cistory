@@ -39,7 +39,13 @@ export function useTransactionalDb() {
   let db: TestDb;
 
   beforeAll(async () => {
-    const url = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+    // TEST_DATABASE_URL only — no DATABASE_URL fallback. This helper is what
+    // every integration test's fixtures go through; falling back to
+    // DATABASE_URL would mean a CI environment that (mis)sets DATABASE_URL
+    // for some unrelated reason silently connects this transaction to the
+    // wrong database instead of failing loudly. TEST_DATABASE_URL is the one
+    // name this suite trusts.
+    const url = process.env.TEST_DATABASE_URL;
     if (!url) {
       throw new Error(
         "TEST_DATABASE_URL is not set. Run `yarn test:integration` rather than invoking " +
