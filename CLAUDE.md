@@ -27,10 +27,14 @@ yarn db:migrate        # Run migrations
 yarn db:studio         # Open Drizzle Studio
 
 # Testing (Vitest, node environment)
-yarn test              # Run all tests once (vitest run)
+yarn test              # Run all tests once (vitest run) — no DB, ~950 tests
 yarn test:watch        # Watch mode
 yarn test src/lib/geo.test.ts             # Run a single test file
 yarn test -t "visit detector"             # Run tests matching a name
+
+# Integration tests (execute real SQL against a real throwaway Postgres — needs Docker)
+yarn test:integration   # Starts docker-compose.test.yml, runs migrations, runs the suite, leaves the DB up
+yarn db:test:down       # Tears the throwaway Postgres down when you're done
 
 # One-off operational scripts
 yarn spending:backfill-categories         # Backfill AI expense categories
@@ -43,6 +47,12 @@ yarn start             # Start production server (binds to 0.0.0.0, includes Cro
 ```
 
 Tests are colocated `*.test.ts` files (e.g. `src/lib/cron.test.ts`, `src/modules/transaction/parser.test.ts`). `vitest.config.mts` injects fake `DATABASE_URL`/auth/API-key env vars before test modules load — `src/lib/auth.ts` constructs a `pg.Pool` at module scope and most route modules transitively import it, but pool construction opens no connection, so no real DB is needed. `src/app/api/_routes-import.test.ts` is a glob-driven smoke test asserting every `src/app/api/**/route.ts` imports cleanly and exports at least one HTTP verb — it catches import-time crashes across all routes at once.
+
+**Integration tests are a separate, opt-in suite that does need a database.** Colocated `*.integration.test.ts` files (`src/db/sql.integration.test.ts`, `src/modules/location/services/subway-match/usage.integration.test.ts`) run under `vitest.integration.config.mts` against a disposable PostGIS Postgres, and execute real SQL — the properties they pin (session-timezone behavior, join direction, cross-user row isolation) are facts about Postgres, not about TypeScript, so no mock or unit test can establish them. `vitest.config.mts` explicitly excludes `*.integration.test.ts` (it would otherwise match the unit glob too, since it ends in `.test.ts`), so `yarn test` never opens a connection and stays fast and DB-free.
+
+`yarn test:integration` does the whole cycle: `docker compose -f docker-compose.test.yml up -d --wait` (an ephemeral, tmpfs-backed container — its own compose project, network, and port `5433`, never `cistory-db`), applies the real Drizzle migrations via `scripts/migrate.ts` against it (exercising the same migration path production uses, not a `drizzle-kit push` shortcut that could drift from the SQL actually shipped), then runs the suite. `yarn db:test:down` removes it; leaving it up between runs is fine and faster for iteration since `yarn test:integration` re-migrates idempotently on every invocation. **`docker-compose.test.yml` sets `TZ: Asia/Seoul` on the container, matching `docker-compose.yml`'s production `postgres` service exactly, and this is not cosmetic** — Postgres bakes the container's OS timezone into `postgresql.conf` as the session-default `TimeZone` GUC, and that default is the entire reason a bare `now()` in raw SQL yields KST wall time in production while everything Drizzle writes stays UTC wall time (see `src/db/sql.ts`'s header). A test database left on UTC would make the integration suite pass while the real nine-hour trap it exists to catch stayed uncaught.
+
+Isolation is transaction-per-test (`src/db/testing/transactional-db.ts`): each test file opens one dedicated `pg.Client`, wraps every test in `BEGIN`/`ROLLBACK`, and never commits — so tests never leak state into each other regardless of execution order, without per-table cleanup code to keep in sync as tables are added. This suite is intentionally narrow (two files, both with prior incident history — see `usage.test.ts`'s own header for the defects it documents itself unable to catch) rather than a blanket integration layer over all 47 raw-SQL call sites in `src/`; extend it by adding another `*.integration.test.ts` file, not by broadening these two.
 
 Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `yarn` for all package operations.
 
@@ -388,8 +398,9 @@ CI/production uses `scripts/migrate.ts` (`npx tsx scripts/migrate.ts`) rather th
 
 ### CI/CD & Deployment
 
-- **Jenkins pipeline** (`Jenkinsfile`): GitHub webhook → **Test** (`docker build --target tester`, whose `RUN yarn test` fails the build on any Vitest failure, before the image is built) → Docker build → Drizzle migrations (separate `migrator` stage container) → deploy web + cron containers → health check against `/api/health` (15 attempts, 5s interval) → Telegram notification. Everything from Run Migrations onward is gated on `when { branch 'main' }`, so PR builds test and build but never deploy.
-- **Docker** (`Dockerfile`): multi-stage on Node 22 Alpine — `base → deps → builder → tester → migrator → runner`. `.env` mounted as a build secret; only `NEXT_PUBLIC_*` vars are extracted for the build. Runs as non-root `nextjs` (UID 1001), using `output: "standalone"` from `next.config.ts`
+- **Jenkins pipeline** (`Jenkinsfile`): GitHub webhook → **Test** (`docker build --target tester`, whose `RUN yarn test` fails the build on any Vitest failure, before the image is built) → **Integration Tests** → Docker build → Drizzle migrations (separate `migrator` stage container) → deploy web + cron containers → health check against `/api/health` (15 attempts, 5s interval) → Telegram notification. Everything from Run Migrations onward is gated on `when { branch 'main' }`, so PR builds test and build but never deploy.
+- **Integration Tests stage**: `src/**/*.integration.test.ts` execute real SQL and can't run inside `docker build` the way the Test stage does — a build has no network route to a sibling service container. This stage instead mirrors the "Run Migrations" stage's own shape: build the `integration-tester` target (full source + deps, nothing run at build time), bring up `docker-compose.test.yml`'s throwaway Postgres, then `docker run --network host` the image against it on `localhost:5433`, migrating then running the suite inside the container. `post { always { docker compose ... down } }` tears the throwaway DB down whether the stage passes or fails. Ungated by branch, like Test — PRs get the same regression coverage as pushes to main.
+- **Docker** (`Dockerfile`): multi-stage on Node 22 Alpine — `base → deps → builder → tester → integration-tester → migrator → runner`. `.env` mounted as a build secret; only `NEXT_PUBLIC_*` vars are extracted for the build. Runs as non-root `nextjs` (UID 1001), using `output: "standalone"` from `next.config.ts`
 - **Web/cron container split**: the same image runs twice — web (`cistory`, port 3000, `DISABLE_CRON=true`) and cron (`cistory-cron`, no published port). Jenkins stops/removes both on each deploy
 - **Docker Compose**: `cistory` + `cistory-cron` + `postgis/postgis:17-3.5-alpine` with external volume `cistory_postgres_data`
 - **Timezone**: production containers run with `TZ=Asia/Seoul` (KST, UTC+9)
