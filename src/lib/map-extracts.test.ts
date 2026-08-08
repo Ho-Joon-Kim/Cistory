@@ -2,6 +2,7 @@ process.env.TZ = "Asia/Seoul";
 
 import { describe, expect, it } from "vitest";
 import {
+  coveringExtract,
   extractsFingerprint,
   fingerprintOf,
   isPointCovered,
@@ -97,6 +98,31 @@ describe("MAP_EXTRACTS", () => {
     for (const [label, lat, lon] of notCovered) {
       expect(isPointCovered(lat, lon), `${label} should NOT be covered`).toBe(false);
     }
+  });
+
+  // coveringExtract is what scripts/calibrate-mode-vs-road-class.ts's regional
+  // roll-up table (fix round 4) reads: not just "is this point covered" but
+  // "which extract's tiles is it built from".
+  describe("coveringExtract", () => {
+    it("names the extract that covers a real visited point", () => {
+      expect(coveringExtract(37.5665, 126.978)).toBe("south-korea"); // Seoul
+      expect(coveringExtract(35.4437, 139.638)).toBe("kanto"); // Yokohama
+    });
+
+    it("returns null for a point outside every extract", () => {
+      // Osaka: the exact city the old vertex-min/max kanto bbox wrongly
+      // claimed as covered (see the file-level comment). No Kansai extract
+      // exists yet, so this must resolve to null, not a false "kanto".
+      expect(coveringExtract(34.6937, 135.5023)).toBeNull();
+    });
+
+    it("resolves a point inside a non-first (secondary) box of an extract", () => {
+      // Minamitorishima sits in its own isolated bbox inside `kanto`'s
+      // bboxes array — geographically disjoint from the mainland
+      // Tokyo/Yokohama box. If coveringExtract only checked bboxes[0] per
+      // extract, this would wrongly resolve to null.
+      expect(coveringExtract(24.28, 153.98)).toBe("kanto");
+    });
   });
 
   // fingerprint는 tileVersion의 절반을 이룬다. 목록이 바뀌면 반드시 값이

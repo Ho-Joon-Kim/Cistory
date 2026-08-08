@@ -192,17 +192,30 @@ export const MAP_EXTRACTS: MapExtract[] = [
 ];
 
 /**
- * 어떤 좌표가 `MAP_EXTRACTS`의 bbox 중 하나에라도 들어가는지.
- * 현재 생산 경로에서는 사용하지 않지만, 향후 `no_road_match` 행을 현재
- * 추출본 기준으로 재평가하는 커버리지 선택기의 지리 판별을 위해 유지한다.
+ * 어떤 좌표를 덮는 추출본의 이름. 여러 추출본이 이론상 겹칠 일은 없지만,
+ * 겹치더라도 `MAP_EXTRACTS` 순서상 먼저 나오는 쪽을 반환한다. 어떤 bbox에도
+ * 들지 않으면 `null` — `scripts/calibrate-mode-vs-road-class.ts`의 네 번째
+ * 표가 "이 좌표는 어느 추출본 담당인가"를 물을 때 쓴다(그 표가 이 지리
+ * 판별 로직을 실제로 쓰는 첫 소비자다).
  */
-export function isPointCovered(lat: number, lon: number): boolean {
-  return MAP_EXTRACTS.some((extract) =>
-    extract.bboxes.some(
+export function coveringExtract(lat: number, lon: number): string | null {
+  for (const extract of MAP_EXTRACTS) {
+    const covered = extract.bboxes.some(
       ([minLon, minLat, maxLon, maxLat]) =>
         lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat
-    )
-  );
+    );
+    if (covered) return extract.name;
+  }
+  return null;
+}
+
+/**
+ * 어떤 좌표가 `MAP_EXTRACTS`의 bbox 중 하나에라도 들어가는지 — `coveringExtract`가
+ * `null`이 아닌지를 묻는 것과 같다. 향후 `no_road_match` 행을 현재 추출본
+ * 기준으로 재평가하는 커버리지 선택기의 지리 판별을 위해 유지한다.
+ */
+export function isPointCovered(lat: number, lon: number): boolean {
+  return coveringExtract(lat, lon) !== null;
 }
 
 /**
