@@ -94,11 +94,47 @@ fi
 # unconditionally (cheap, <1s) guarantees $CONFIG exists before the final exec
 # on BOTH the build and skip paths, rather than depending on a config file
 # that a prior run happened to leave behind.
+#
+# --mjolnir-concurrency bounds how many threads valhalla_build_tiles spends on
+# the concurrent parts of the build. Left unset, valhalla_build_tiles falls
+# back to std::thread::hardware_concurrency() — one thread per CPU — and each
+# thread holds its own tile-construction state, so peak memory scales with
+# thread count (confirmed against this image's own source,
+# src/argparse_utils.h: valhalla_build_tiles favors its own -j/--concurrency
+# CLI flag, then this config's mjolnir.concurrency, then hardware_concurrency()
+# only if neither is set).
+#
+# Real incident this guards against: on a 16-core server, an unbounded build
+# ran 16 threads and valhalla_build_tiles was SIGKILLed mid-build —
+#   [INFO] Building 1118 tiles with 16 threads...
+#   [INFO] Enhancing local graph...
+#   /entrypoint.sh: line 226: 86 Killed  valhalla_build_tiles -c "$CONFIG" ...
+# — on a box with 15 GiB total RAM, 8.8 GiB already used by other workloads
+# (6.9 GiB available) and swap fully exhausted (4.0 of 4.0 GiB), leaving the
+# kernel nowhere to page to. The identical five-extract build succeeds on a
+# machine with ~13.7 GiB available, so 16-thread peak memory sits somewhere
+# between those two figures — enough to OOM-kill 6.9 GiB, not enough to touch
+# 13.7 GiB.
+#
+# Default of 4, not 16 and not 1: this is a once-a-year rebuild
+# (TILE_MAX_AGE_DAYS below), so trading build time for headroom is a fair
+# trade — favor safety over the ~5 minutes an unbounded build otherwise takes.
+# Assuming peak memory scales roughly linearly with thread count (the premise
+# above), 4 threads targets on the order of a quarter of the 16-thread peak,
+# which should clear the 6.9 GiB host with real margin to spare even with zero
+# slack for the other 8.8 GiB of workloads to grow, while still finishing in
+# bounded minutes rather than stretching toward how long a single-threaded
+# build of ~1.4GB of merged PBF would take. Override per host via
+# VALHALLA_BUILD_CONCURRENCY in .env (see .env.example) if a box has memory to
+# spare or needs to be even more conservative — do NOT just delete this flag
+# because it looks like it's leaving cores idle on a 16-core box; using all of
+# them is exactly what got this build killed.
 mkdir -p "$TILE_DIR"
 valhalla_build_config \
   --mjolnir-tile-dir "$TILE_WORK_DIR" \
   --mjolnir-tile-extract "$TILE_ARTIFACT" \
   --mjolnir-admin "$ADMIN_DB" \
+  --mjolnir-concurrency "${VALHALLA_BUILD_CONCURRENCY:-4}" \
   -o "$CONFIG"
 
 needs_build() {
@@ -328,6 +364,18 @@ build_tiles() {
 
 on_build_error() {
   local exit_code=$?
+  if [ "$exit_code" -eq 137 ]; then
+    # 137 = 128 + SIGKILL(9). A bare "Killed" from bash with no context is
+    # what made the OOM incident documented at --mjolnir-concurrency above
+    # take a round trip to diagnose — a build this size dying with exit 137
+    # is almost always the kernel OOM killer, not a Valhalla crash, so say so
+    # and point at the knob that controls it instead of leaving a silent exit
+    # code for the backoff below to retry blindly against.
+    echo "[valhalla] build was killed (exit 137) — this is almost always the" \
+      "kernel OOM killer, not a Valhalla bug. Lower VALHALLA_BUILD_CONCURRENCY" \
+      "(currently ${VALHALLA_BUILD_CONCURRENCY:-4}) in .env, or free up host" \
+      "memory, then let the backoff below retry." >&2
+  fi
   record_failure
   exit "$exit_code"
 }

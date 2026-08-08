@@ -110,6 +110,14 @@ services:
       - EXTRACTS_FINGERPRINT=${EXTRACTS_FINGERPRINT:-}
       - VALHALLA_TILE_URLS=${VALHALLA_TILE_URLS:-}
       - VALHALLA_CONCURRENCY=2
+      # Tile *build* thread count — distinct from VALHALLA_CONCURRENCY above,
+      # which is valhalla_service's request-handling concurrency once tiles
+      # are already built. Bounded by default (not "all cores") because an
+      # unbounded build OOM-killed on a real, memory-constrained host — see
+      # the --mjolnir-concurrency comment in docker/valhalla/entrypoint.sh for
+      # the full incident and the reasoning behind the default of 4. Override
+      # per host via .env; memory available for this build varies by machine.
+      - VALHALLA_BUILD_CONCURRENCY=${VALHALLA_BUILD_CONCURRENCY:-4}
     # /status is confirmed real (not a gis-ops/docker-valhalla convenience endpoint that this
     # bare image doesn't have): docs/map-matching/valhalla-probe-findings.md ran `docker exec
     # cistory-valhalla curl localhost:8002/status` against the live container and got back the
