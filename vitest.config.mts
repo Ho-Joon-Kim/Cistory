@@ -1,11 +1,17 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     environment: "node",
     globals: false,
     include: ["src/**/*.{test,spec}.ts", "scripts/**/*.{test,spec}.ts"],
+    // *.integration.test.ts still matches the glob above (it ends in
+    // .test.ts) — exclude it explicitly so this suite stays DB-free. Those
+    // files run under vitest.integration.config.mts instead, against a real
+    // throwaway Postgres (see CLAUDE.md's Testing section / `yarn
+    // test:integration`), and must never run as a side effect of `yarn test`.
+    exclude: [...configDefaults.exclude, "src/**/*.integration.test.ts"],
     setupFiles: ["./vitest.setup.ts"],
     // Injected before any test module loads so module-scope reads don't throw.
     // src/lib/auth.ts calls getPool() at module scope, and 44/62 route modules

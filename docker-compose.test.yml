@@ -1,0 +1,54 @@
+# Throwaway Postgres for integration tests — the src/**/*.integration.test.ts
+# files that execute real SQL, run via `yarn test:integration` under
+# vitest.integration.config.mts. Entirely separate from the dev/prod stack in
+# docker-compose.yml: its own compose project (`name:` below), its own
+# container/network name, its own host port, its own storage. Nothing here
+# reads or writes cistory-db or cistory-valhalla.
+#
+# `yarn test:integration:db:down` (`docker compose -f docker-compose.test.yml
+# down`) removes the container and network in one shot. There is no named
+# volume to separately prune — see the tmpfs note below — so plain `down`
+# already leaves nothing behind.
+#
+# TZ=Asia/Seoul mirrors docker-compose.yml's `postgres` service on purpose,
+# not by habit. Postgres's `initdb` bakes the container's OS timezone into
+# postgresql.conf as the session-default `TimeZone` GUC (confirmed live
+# against this exact image: `SHOW timezone` -> `Asia/Seoul`, `pg_settings.source`
+# -> `configuration file`) — and that session default is *why* a bare `now()`
+# in raw SQL yields KST wall time in production while everything Drizzle
+# writes stays UTC wall time (see src/db/sql.ts's file header). A test
+# database left on the image's UTC default would make
+# src/db/sql.integration.test.ts pass while the real nine-hour trap it exists
+# to catch went right on shipping — so this line is load-bearing for test
+# validity, not a cosmetic match to prod.
+#
+# platform: linux/amd64 is pinned because postgis/postgis publishes no arm64
+# manifest at all — `docker pull postgis/postgis:17-3.5-alpine` fails
+# outright on Apple Silicon without this line. It's a no-op on the amd64
+# Jenkins agent (the same image already runs there unpinned, in
+# docker-compose.yml) and transparently runs under emulation on an arm64 dev
+# machine.
+name: cistory-test
+
+services:
+  postgres-test:
+    image: postgis/postgis:17-3.5-alpine
+    platform: linux/amd64
+    container_name: cistory-test-db
+    environment:
+      POSTGRES_DB: cistory_test
+      POSTGRES_USER: cistory_test
+      POSTGRES_PASSWORD: cistory_test
+      TZ: Asia/Seoul
+    ports:
+      - "${TEST_DB_PORT:-5433}:5432"
+    tmpfs:
+      # No named/external volume on purpose: this container is meant to be
+      # thrown away, and tmpfs keeps runs fast without ever touching disk.
+      # Schema is reapplied by `yarn db:test:migrate` on every fresh start.
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cistory_test -d cistory_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
