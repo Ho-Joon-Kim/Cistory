@@ -1,25 +1,22 @@
 pipeline {
     agent any
 
-    // The Integration Tests stage below runs a throwaway Postgres
-    // (docker-compose.test.yml) with a hardcoded container name and host
-    // port, torn down in `post { always }` as soon as that build's stage
-    // finishes. Two builds overlapping on this agent would share that one
-    // container — the second `up -d --wait` silently reuses the first
-    // build's instance rather than failing on the port — and then whichever
-    // build finishes first tears down the Postgres the other is still
-    // mid-suite against. The rest of the pipeline already isn't
-    // concurrency-safe either (Run Migrations and Deploy both use fixed
-    // container names/ports against cistory-db), so this pipeline has never
-    // actually supported concurrent runs — this just makes that assumption
-    // explicit instead of leaving it to accidentally hold. A build-scoped
-    // project name + dynamic port would fix the Integration Tests stage in
-    // isolation but leave every other stage's fixed-name assumption
-    // exactly as broken, so it wasn't worth the extra moving parts here: a
-    // queued second build costs a wait, not a wrong result.
-    options {
-        disableConcurrentBuilds()
-    }
+    // No disableConcurrentBuilds() here — it was tried in an earlier
+    // revision of this file and removed. This is a Multibranch Pipeline
+    // (env.BRANCH_NAME is read below, several stages gate on `when {
+    // branch 'main' }`), which gives every branch AND every open PR its own
+    // Jenkins job with its own build queue. disableConcurrentBuilds() only
+    // serializes builds *within one job* — it does nothing to stop two
+    // different jobs (two PRs pushed minutes apart, or a PR overlapping a
+    // main push) from running on this same `agent any` at the same time, so
+    // it never actually closed the race it was added for: two builds
+    // sharing the Integration Tests stage's throwaway Postgres. That race
+    // is closed properly instead, by giving every build its own compose
+    // project/container/port (see the per-build identity comment on the
+    // Integration Tests stage) — a fix that holds regardless of which job
+    // a build belongs to, so the blanket pipeline-wide serialization isn't
+    // buying anything anymore and isn't worth the queueing cost it would
+    // add to every push and every PR.
 
     triggers {
         githubPush()
@@ -55,16 +52,48 @@ pipeline {
 
         stage('Integration Tests') {
             steps {
+                script {
+                    // Per-build identity for the throwaway Postgres this stage
+                    // spins up, so two concurrent builds (see the pipeline-level
+                    // comment above on why disableConcurrentBuilds() couldn't be
+                    // relied on) never share one. BUILD_TAG
+                    // (jenkins-${JOB_NAME}-${BUILD_NUMBER}) is unique per running
+                    // build across every job on this Jenkins instance — sanitized
+                    // to lowercase alnum/dash so it's also a legal `docker
+                    // compose -p` project name (must match ^[a-z0-9][a-z0-9_-]*$;
+                    // the literal "jenkins-" prefix guarantees a safe first
+                    // character even after a branch name with leading/odd
+                    // characters is folded in). Passed as `-p` to every compose
+                    // invocation below, it scopes the project, and — since
+                    // docker-compose.test.yml no longer hardcodes
+                    // `container_name` — the container name too, because compose
+                    // derives it from the project by default.
+                    env.INTEGRATION_TEST_PROJECT = (env.BUILD_TAG ?: "cistory-it-${env.BUILD_NUMBER}")
+                        .toLowerCase()
+                        .replaceAll('[^a-z0-9_-]', '-')
+                }
                 // src/**/*.integration.test.ts execute real SQL against a real
                 // Postgres and cannot run inside `docker build` the way the Test
                 // stage above does — a build has no network route to a sibling
                 // service container. So this stage follows the same two-step
                 // shape as "Run Migrations" below: build an image that HAS the
                 // suite but doesn't run it, bring up a throwaway Postgres via
-                // docker-compose.test.yml (its own project/network/port, never
-                // cistory-db), then run the suite as a container reaching it over
-                // --network host. Ungated by branch, like the Test stage above —
-                // PRs get the same regression safety net as pushes to main.
+                // docker-compose.test.yml under this build's own project (never
+                // cistory-db, and never another build's project — see the
+                // per-build identity comment above), then run the suite as a
+                // container reaching it over --network host. Ungated by branch,
+                // like the Test stage above — PRs get the same regression safety
+                // net as pushes to main.
+                //
+                // TEST_DB_HOST_PORT=0 tells docker-compose.test.yml to publish
+                // the container's Postgres port onto an OS-assigned ephemeral
+                // host port rather than the fixed 5433 local dev uses — the
+                // kernel never hands out an already-bound port to a concurrent
+                // bind, so two builds requesting port 0 at the same time can't
+                // collide the way two builds both requesting 5433 could.
+                // `docker compose port` reads back whichever port the kernel
+                // actually chose.
+                //
                 // DATABASE_URL is passed to the `npx tsx scripts/migrate.ts`
                 // command only, not to the container (`-e` on `docker run`
                 // would put it in the whole process's environment, and from
@@ -89,18 +118,20 @@ pipeline {
                 sh """
                     docker build --target integration-tester -t ${IMAGE_NAME}:integration-tester .
 
-                    docker compose -f docker-compose.test.yml up -d --wait
+                    TEST_DB_HOST_PORT=0 docker compose -p ${env.INTEGRATION_TEST_PROJECT} -f docker-compose.test.yml up -d --wait
+
+                    TEST_DB_PORT=\$(docker compose -p ${env.INTEGRATION_TEST_PROJECT} -f docker-compose.test.yml port postgres-test 5432 | awk -F: '{print \$NF}')
 
                     docker run --rm \
                         --network host \
-                        -e TEST_DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:5433/cistory_test \
+                        -e TEST_DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:\${TEST_DB_PORT}/cistory_test \
                         ${IMAGE_NAME}:integration-tester \
-                        sh -c "DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:5433/cistory_test npx tsx scripts/migrate.ts && npx vitest run -c vitest.integration.config.mts"
+                        sh -c "DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:\${TEST_DB_PORT}/cistory_test npx tsx scripts/migrate.ts && npx vitest run -c vitest.integration.config.mts"
                 """
             }
             post {
                 always {
-                    sh "docker compose -f docker-compose.test.yml down || true"
+                    sh "docker compose -p ${env.INTEGRATION_TEST_PROJECT} -f docker-compose.test.yml down || true"
                 }
             }
         }

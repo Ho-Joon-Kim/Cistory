@@ -1,14 +1,28 @@
 # Throwaway Postgres for integration tests — the src/**/*.integration.test.ts
 # files that execute real SQL, run via `yarn test:integration` under
 # vitest.integration.config.mts. Entirely separate from the dev/prod stack in
-# docker-compose.yml: its own compose project (`name:` below), its own
-# container/network name, its own host port, its own storage. Nothing here
-# reads or writes cistory-db or cistory-valhalla.
+# docker-compose.yml: its own compose project (`name:` below — local dev
+# only, see the CI note below), its own network, its own host port, its own
+# storage. Nothing here reads or writes cistory-db or cistory-valhalla.
 #
 # `yarn db:test:down` (`docker compose -f docker-compose.test.yml down`)
 # removes the container and network in one shot. There is no named volume to
 # separately prune — see the tmpfs note below — so plain `down` already
 # leaves nothing behind.
+#
+# CI (the Jenkinsfile's "Integration Tests" stage) never uses this file's
+# `cistory-test` project/5433 defaults directly: two concurrent builds (this
+# is a Multibranch Pipeline — every branch and every open PR is its own job,
+# so "concurrent" is the normal case, not an edge case) sharing one project
+# name would share one container, and sharing one host port would make the
+# second build's `up` either collide or silently reuse the first build's
+# instance. Jenkins instead passes `-p <build-scoped-project>` (overriding
+# `name:` below) and `TEST_DB_HOST_PORT=0` (letting the OS assign a free
+# port, read back via `docker compose port`) so every build gets its own
+# project, container, and port. There's deliberately no `container_name:`
+# pinning this service to one fixed name — compose derives the container
+# name from the project, so it's automatically per-build in CI and a
+# predictable `cistory-test-postgres-test-1` locally.
 #
 # TZ=Asia/Seoul mirrors docker-compose.yml's `postgres` service on purpose,
 # not by habit. Postgres's `initdb` bakes the container's OS timezone into
@@ -34,19 +48,19 @@ services:
   postgres-test:
     image: postgis/postgis:17-3.5-alpine
     platform: linux/amd64
-    container_name: cistory-test-db
     environment:
       POSTGRES_DB: cistory_test
       POSTGRES_USER: cistory_test
       POSTGRES_PASSWORD: cistory_test
       TZ: Asia/Seoul
     ports:
-      # Hardcoded, not a ${VAR:-default} knob: package.json's fallback URLs
-      # and the Jenkinsfile both hardcode 5433 too, and a configurable port
-      # here without threading it through those as well would just move the
-      # container while every client stayed pointed at the old port. Change
-      # all three together if this ever needs to move.
-      - "5433:5432"
+      # 5433 is the local-dev default — package.json's fallback URLs hardcode
+      # it too (yarn test:integration stays a single command, no env vars to
+      # set). CI overrides via TEST_DB_HOST_PORT=0 (see the file header) to
+      # get a collision-proof ephemeral port instead; the Jenkinsfile reads
+      # the actual assigned port back with `docker compose port` and builds
+      # TEST_DATABASE_URL/DATABASE_URL from that, never from this literal 5433.
+      - "${TEST_DB_HOST_PORT:-5433}:5432"
     tmpfs:
       # No named/external volume on purpose: this container is meant to be
       # thrown away, and tmpfs keeps runs fast without ever touching disk.
