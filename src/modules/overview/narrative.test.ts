@@ -5,15 +5,20 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "@/db";
 import type { ApiError } from "@/lib/api-handler";
+import { logger } from "@/lib/logger";
 import {
   buildNarrativePrompt,
   createDatabaseNarrativeStore,
   createNarrativeService,
+  NARRATIVE_CHARS_PER_TOKEN,
   NARRATIVE_LEASE_MS,
   NARRATIVE_MAX_ATTEMPTS,
   NARRATIVE_MAX_INPUT_CHARS,
+  NARRATIVE_MAX_INPUT_TOKENS,
+  NARRATIVE_MAX_TOKEN_PROBES,
   type NarrativeClaim,
   type NarrativeStore,
+  serializeNarrativeInput,
 } from "./narrative";
 
 const NOW = new Date("2026-07-22T03:00:00.000Z");
@@ -38,6 +43,15 @@ function store(overrides: Partial<NarrativeStore> = {}): NarrativeStore {
   };
 }
 
+/**
+ * Stand-in for the real tokenizer. The measured ratio on real snapshots is
+ * 0.497–0.519 tokens per character, so half the character count is a faithful
+ * fake — close enough that tests exercise the same branch the API would.
+ */
+function fakeTokenCount({ prompt }: { prompt: string }) {
+  return Math.ceil(prompt.length / NARRATIVE_CHARS_PER_TOKEN);
+}
+
 function ai(content = "회고문") {
   return {
     generateText: vi.fn(async () => ({
@@ -45,6 +59,24 @@ function ai(content = "회고문") {
       usage: { inputTokens: 10, outputTokens: 20 },
       stopReason: "end_turn" as const,
     })),
+    countTokens: vi.fn(async (options: { prompt: string }) => fakeTokenCount(options)),
+  };
+}
+
+/** A snapshot whose single populated domain serializes to roughly `chars`. */
+function snapshotOfSize(chars: number) {
+  const filler = "x".repeat(Math.max(1, Math.ceil(chars / 60)));
+  return {
+    ...snapshot,
+    location: {
+      status: "ready" as const,
+      computedAt: NOW.toISOString(),
+      computeVersion: 1,
+      errorCode: null,
+      data: {
+        heatmap: Array.from({ length: 60 }, (_, index) => ({ index, value: filler })),
+      },
+    },
   };
 }
 
@@ -68,22 +100,21 @@ describe("narrative service", () => {
     expect(repository.find).toHaveBeenCalledWith("user-1", "month", "2026-06");
   });
 
-  it.each([
-    "recent",
-    "quarter",
-    "month/2026-6",
-  ])("rejects unsupported periods: %s", async (value) => {
-    const [periodType, periodKey = "2026-06"] = value.split("/");
-    await expect(
-      createNarrativeService(store(), ai()).get("user-1", periodType, periodKey)
-    ).rejects.toMatchObject({ status: 400, code: "INVALID_PERIOD" } satisfies Partial<ApiError>);
-  });
+  it.each(["recent", "quarter", "month/2026-6"])(
+    "rejects unsupported periods: %s",
+    async (value) => {
+      const [periodType, periodKey = "2026-06"] = value.split("/");
+      await expect(
+        createNarrativeService(store(), ai()).get("user-1", periodType, periodKey)
+      ).rejects.toMatchObject({ status: 400, code: "INVALID_PERIOD" } satisfies Partial<ApiError>);
+    }
+  );
 
-  it("uses distinct prompt assets for week, month, and year", () => {
+  it("uses distinct prompt assets for week, month, and year", async () => {
     const prompts = [
-      buildNarrativePrompt("week", "2026-W29", snapshot).system,
-      buildNarrativePrompt("month", "2026-06", snapshot).system,
-      buildNarrativePrompt("year", "2025", snapshot).system,
+      (await buildNarrativePrompt("week", "2026-W29", snapshot)).system,
+      (await buildNarrativePrompt("month", "2026-06", snapshot)).system,
+      (await buildNarrativePrompt("year", "2025", snapshot)).system,
     ];
     expect(new Set(prompts).size).toBe(3);
     expect(prompts[0]).toContain("한 주");
@@ -91,7 +122,8 @@ describe("narrative service", () => {
     expect(prompts[2]).toContain("한 해");
   });
 
-  it("projects oversized domain arrays into bounded valid JSON", () => {
+  it("projects oversized domain arrays into bounded valid JSON", async () => {
+    const adapter = ai();
     const largeSnapshot = {
       ...snapshot,
       location: {
@@ -104,10 +136,10 @@ describe("narrative service", () => {
         },
       },
     };
-    const prompt = buildNarrativePrompt("year", "2025", largeSnapshot).prompt;
+    const { prompt } = await buildNarrativePrompt("year", "2025", largeSnapshot, adapter);
     const serialized = prompt.split("확정된 대시보드 데이터:\n")[1];
 
-    expect(serialized.length).toBeLessThanOrEqual(NARRATIVE_MAX_INPUT_CHARS);
+    expect(fakeTokenCount({ prompt: serialized })).toBeLessThanOrEqual(NARRATIVE_MAX_INPUT_TOKENS);
     expect(() => JSON.parse(serialized)).not.toThrow();
     expect(JSON.parse(serialized).location.truncated).toBe(true);
     expect(NARRATIVE_LEASE_MS).toBe(8 * 60 * 1000);
@@ -279,6 +311,114 @@ describe("narrative service", () => {
     expect(adapter.generateText).toHaveBeenCalledTimes(1);
     const generatedPrompt = adapter.generateText.mock.calls[0][0].prompt as string;
     expect(generatedPrompt).toContain(claimTwo.periodKey);
+  });
+});
+
+describe("narrative input truncation", () => {
+  it("leaves an under-limit snapshot byte-identical and verifies it with a single count", async () => {
+    const adapter = ai();
+    const small = snapshotOfSize(1_000);
+
+    const serialized = await serializeNarrativeInput(small, adapter);
+
+    expect(serialized).toBe(JSON.stringify(small));
+    expect(adapter.countTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it("trims per-domain previews once the input exceeds the token limit", async () => {
+    const adapter = ai();
+    const huge = snapshotOfSize(NARRATIVE_MAX_INPUT_CHARS * 2);
+
+    const serialized = await serializeNarrativeInput(huge, adapter);
+    const parsed = JSON.parse(serialized);
+
+    expect(fakeTokenCount({ prompt: serialized })).toBeLessThanOrEqual(NARRATIVE_MAX_INPUT_TOKENS);
+    expect(parsed.location.truncated).toBe(true);
+    expect(typeof parsed.location.dataPreview).toBe("string");
+    // The envelope's own metadata survives — the narrative still knows the
+    // domain computed successfully, not just that something was cut.
+    expect(parsed.location.status).toBe("ready");
+    expect(parsed.coding).toBeNull();
+  });
+
+  it("re-narrows using the measured ratio when the character proxy was optimistic", async () => {
+    // Every character its own token: the input clears the character budget but
+    // blows the token limit, which is exactly the case a character-only
+    // truncation cannot see. The corrected second pass must trim it.
+    const adapter = {
+      countTokens: vi.fn(async ({ prompt }: { prompt: string }) => prompt.length),
+    };
+    const justUnderChars = snapshotOfSize(Math.floor(NARRATIVE_MAX_INPUT_CHARS * 0.9));
+
+    const serialized = await serializeNarrativeInput(justUnderChars, adapter);
+
+    expect(JSON.stringify(justUnderChars).length).toBeLessThanOrEqual(NARRATIVE_MAX_INPUT_CHARS);
+    expect(serialized.length).toBeLessThanOrEqual(NARRATIVE_MAX_INPUT_TOKENS);
+    expect(JSON.parse(serialized).location.truncated).toBe(true);
+    expect(adapter.countTokens).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the minimal form when even maximal trimming stays over the limit", async () => {
+    const adapter = { countTokens: vi.fn(async () => 10_000_000) };
+
+    const serialized = await serializeNarrativeInput(snapshotOfSize(1_000), adapter);
+
+    expect(JSON.parse(serialized)).toEqual({ truncated: true });
+  });
+
+  it("spends no more than the fixed probe budget on one reduction", async () => {
+    // The reduction loop walks the preview length down in 250-char steps —
+    // counting every candidate would be dozens of round trips per narrative.
+    const adapter = { countTokens: vi.fn(async () => 10_000_000) };
+
+    await serializeNarrativeInput(snapshotOfSize(NARRATIVE_MAX_INPUT_CHARS * 2), adapter);
+
+    expect(adapter.countTokens.mock.calls.length).toBeLessThanOrEqual(NARRATIVE_MAX_TOKEN_PROBES);
+  });
+
+  it("keeps truncating on the character budget when token counting fails", async () => {
+    // Losing the count must degrade to the old character-based behaviour, not
+    // sink narrative generation — the count is a refinement, not a dependency.
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const adapter = {
+      countTokens: vi.fn(async () => {
+        throw new Error("count_tokens unreachable");
+      }),
+    };
+    const huge = snapshotOfSize(NARRATIVE_MAX_INPUT_CHARS * 2);
+
+    const serialized = await serializeNarrativeInput(huge, adapter);
+
+    expect(serialized.length).toBeLessThanOrEqual(NARRATIVE_MAX_INPUT_CHARS);
+    expect(JSON.parse(serialized).location.truncated).toBe(true);
+    expect(adapter.countTokens).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Narrative token count failed — falling back to the character budget",
+      expect.objectContaining({ error: "count_tokens unreachable" })
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("truncates on the character budget alone when no counter is injected", async () => {
+    const huge = snapshotOfSize(NARRATIVE_MAX_INPUT_CHARS * 2);
+
+    const serialized = await serializeNarrativeInput(huge);
+
+    expect(serialized.length).toBeLessThanOrEqual(NARRATIVE_MAX_INPUT_CHARS);
+    expect(JSON.parse(serialized).location.truncated).toBe(true);
+    expect(await serializeNarrativeInput(snapshotOfSize(1_000))).toBe(
+      JSON.stringify(snapshotOfSize(1_000))
+    );
+  });
+
+  it("counts the serialized input, not the whole prompt, so the budget is the data budget", async () => {
+    const adapter = ai();
+
+    await buildNarrativePrompt("year", "2025", snapshotOfSize(1_000), adapter);
+
+    const counted = adapter.countTokens.mock.calls[0][0].prompt;
+    expect(counted).toBe(JSON.stringify(snapshotOfSize(1_000)));
+    expect(counted).not.toContain("확정된 대시보드 데이터");
   });
 });
 
