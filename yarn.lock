@@ -4230,8 +4230,8 @@ __metadata:
     react-map-gl: "npm:^8.1.2"
     recharts: "npm:2.15.4"
     sonner: "npm:^2.0.8"
-    stream-chain: "npm:^3.6.1"
-    stream-json: "npm:^2.1.0"
+    stream-chain: "npm:^4.2.5"
+    stream-json: "npm:^3.5.0"
     tailwind-merge: "npm:^3.0.0"
     tailwindcss: "npm:^4"
     typescript: "npm:^5"
@@ -6917,19 +6917,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"stream-chain@npm:^3.6.1":
-  version: 3.6.1
-  resolution: "stream-chain@npm:3.6.1"
-  checksum: 10c0/09e8b10c5dca2266be935a513a0ee4ac7dde3103d2e9d4e170a273022ce6d48e6a1661a61a384db52cfb23147e22be484387b1115f858d6adec25265ec02dfb4
+"stream-chain@npm:^4.2.5":
+  version: 4.2.5
+  resolution: "stream-chain@npm:4.2.5"
+  checksum: 10c0/c47e3895344e356d0aa641b08735c9f4cc7486a12275cef9549a114ea0e8348f75443f31f75053eefef0eee620a13bf6e9841479c64954b8d4dcc1a41a5511b8
   languageName: node
   linkType: hard
 
-"stream-json@npm:^2.1.0":
-  version: 2.1.0
-  resolution: "stream-json@npm:2.1.0"
+"stream-json@npm:^3.5.0":
+  version: 3.5.0
+  resolution: "stream-json@npm:3.5.0"
   dependencies:
-    stream-chain: "npm:^3.6.1"
-  checksum: 10c0/7ec5f0f7a795d5843c52c2f79383ee1c414d544b69e153b9f60869fee150597143a38e17fcf7ec4a0092732ed062c493559a29763b0f76481e72fde22c847af7
+    stream-chain: "npm:^4.2.5"
+  checksum: 10c0/208302af64f110b58bab68fa7a90439e5f7e7afe96cf2979b45b8259c738570aeee42affe2280cdcab1870c45db063ed0e93e71353bfdfe393157da71ca7ef14
   languageName: node
   linkType: hard
 
