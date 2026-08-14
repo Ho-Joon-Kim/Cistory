@@ -71,7 +71,7 @@ export function HealthImportSettings({ hasKey }: HealthImportSettingsProps) {
                   <code className="flex-1 p-2 rounded bg-muted text-sm font-mono break-all">
                     {newKey}
                   </code>
-                  <Button variant="outline" size="icon" onClick={() => handleCopy(newKey)}>
+                  <Button variant="outline" size="icon" aria-label="키 복사" onClick={() => handleCopy(newKey)}>
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
