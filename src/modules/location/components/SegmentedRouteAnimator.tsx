@@ -177,6 +177,19 @@ interface SegmentedRouteAnimatorProps {
   subscribeReplay: (listener: (frame: ReplayFrame) => void) => () => void;
 }
 
+/**
+ * A moving↔staying boundary. The coordinate alone cannot identify one: a
+ * one-point moving segment in the middle of the day contributes its single
+ * coord as both its entry and its exit, and a there-and-back revisits the same
+ * coord later in the day. The owning segment plus which end it is are unique by
+ * construction.
+ */
+interface TransitionPoint {
+  coord: Position;
+  segmentIndex: number;
+  edge: "enter" | "exit";
+}
+
 export function SegmentedRouteAnimator({
   locations,
   stayPoints,
@@ -192,7 +205,7 @@ export function SegmentedRouteAnimator({
   const replayMap = map?.getMap();
   const [markerState, setMarkerState] = useState<{
     lastPoint: Position | null;
-    transitionPoints: Position[];
+    transitionPoints: TransitionPoint[];
   }>({ lastPoint: null, transitionPoints: [] });
   const animationRef = useRef<number>(0);
   const prevDateRef = useRef(date);
@@ -221,7 +234,7 @@ export function SegmentedRouteAnimator({
     const lines: Position[][] = [];
     const indices: number[] = [];
     const flat: Position[] = [];
-    const trans: Position[] = [];
+    const trans: TransitionPoint[] = [];
 
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
@@ -232,10 +245,14 @@ export function SegmentedRouteAnimator({
           flat.push(c);
         }
         if (i > 0 && seg.coords.length > 0) {
-          trans.push(seg.coords[0]);
+          trans.push({ coord: seg.coords[0], segmentIndex: i, edge: "enter" });
         }
         if (i < segments.length - 1 && seg.coords.length > 0) {
-          trans.push(seg.coords[seg.coords.length - 1]);
+          trans.push({
+            coord: seg.coords[seg.coords.length - 1],
+            segmentIndex: i,
+            edge: "exit",
+          });
         }
       }
     }
@@ -581,11 +598,11 @@ export function SegmentedRouteAnimator({
       )}
       {/* Transition markers (moving↔staying boundaries) */}
       {!replayActive &&
-        markerState.transitionPoints.map((p, i) => (
+        markerState.transitionPoints.map((p) => (
           <Marker
-            key={`transition-${p[0]}-${p[1]}-${i}`}
-            longitude={p[0]}
-            latitude={p[1]}
+            key={`transition-${p.segmentIndex}-${p.edge}`}
+            longitude={p.coord[0]}
+            latitude={p.coord[1]}
             anchor="center"
           >
             <div className="transition-marker animate-bounce-in" />

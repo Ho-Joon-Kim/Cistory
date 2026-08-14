@@ -3,11 +3,14 @@ process.env.TZ = "Asia/Seoul";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createMock } = vi.hoisted(() => ({ createMock: vi.fn() }));
+const { createMock, countTokensMock } = vi.hoisted(() => ({
+  createMock: vi.fn(),
+  countTokensMock: vi.fn(),
+}));
 
 vi.mock("@anthropic-ai/sdk", () => ({
   default: class {
-    messages = { create: createMock };
+    messages = { create: createMock, countTokens: countTokensMock };
     constructor(_opts: unknown) {}
   },
 }));
@@ -28,8 +31,14 @@ function lastRequest(): Record<string, unknown> {
   return createMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
 }
 
+/** The request body the adapter passed to messages.countTokens on its last call. */
+function lastCountRequest(): Record<string, unknown> {
+  return countTokensMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+}
+
 beforeEach(() => {
   createMock.mockReset();
+  countTokensMock.mockReset();
 });
 
 afterEach(() => {
@@ -161,6 +170,26 @@ describe("ClaudeAdapter model capabilities", () => {
     });
   });
 
+  it("routes countTokens through the same capability table as generateText", async () => {
+    // countTokens must not become a parallel code path with its own rules: a
+    // count taken with a different parameter combination than the request it
+    // is sizing is a count of something the API will never be sent.
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    countTokensMock.mockResolvedValueOnce({ input_tokens: 4242 });
+
+    const tokens = await createClaudeAdapter("k", CLAUDE_MODELS.EXPENSE_CLASSIFIER).countTokens({
+      prompt: "p",
+      thinking: "adaptive",
+    });
+
+    expect(tokens).toBe(4242);
+    expect(lastCountRequest()).not.toHaveProperty("thinking");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Claude option dropped — model does not accept it",
+      expect.objectContaining({ model: CLAUDE_MODELS.EXPENSE_CLASSIFIER, option: "thinking" })
+    );
+  });
+
   it("sends outputSchema without effort for a model that rejects effort — the classifier's actual path", async () => {
     // Haiku 4.5 (the expense classifier) never sends effort — caps.effort is
     // false for it — but it does send outputSchema. The outputSchema branch
@@ -176,5 +205,50 @@ describe("ClaudeAdapter model capabilities", () => {
     expect(lastRequest().output_config).toEqual({
       format: { type: "json_schema", schema: { type: "object" } },
     });
+  });
+});
+
+describe("ClaudeAdapter countTokens", () => {
+  it("counts the prompt without generating, and never touches messages.create", async () => {
+    countTokensMock.mockResolvedValueOnce({ input_tokens: 1234 });
+
+    const tokens = await createClaudeAdapter("k", CLAUDE_MODELS.NARRATIVE).countTokens({
+      system: "sys",
+      prompt: "p",
+      thinking: "adaptive",
+    });
+
+    expect(tokens).toBe(1234);
+    expect(createMock).not.toHaveBeenCalled();
+    expect(lastCountRequest()).toEqual({
+      model: CLAUDE_MODELS.NARRATIVE,
+      system: "sys",
+      messages: [{ role: "user", content: "p" }],
+      thinking: { type: "adaptive" },
+    });
+  });
+
+  it("omits system when the caller gives none", async () => {
+    countTokensMock.mockResolvedValueOnce({ input_tokens: 7 });
+
+    await createClaudeAdapter("k", CLAUDE_MODELS.NARRATIVE).countTokens({ prompt: "p" });
+
+    expect(lastCountRequest().system).toBeUndefined();
+    expect(lastCountRequest()).not.toHaveProperty("thinking");
+  });
+
+  it("logs and rethrows instead of returning a fabricated count", async () => {
+    // A silently-zero count would read as "this input is tiny" to every
+    // caller — the opposite of the truth when the API is unreachable.
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+    countTokensMock.mockRejectedValueOnce(new Error("network down"));
+
+    await expect(
+      createClaudeAdapter("k", CLAUDE_MODELS.NARRATIVE).countTokens({ prompt: "p" })
+    ).rejects.toThrow("network down");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Claude token counting error",
+      expect.objectContaining({ model: CLAUDE_MODELS.NARRATIVE, error: "network down" })
+    );
   });
 });

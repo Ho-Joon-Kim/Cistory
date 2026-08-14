@@ -45,6 +45,18 @@ export interface AIGenerateOptions {
   outputSchema?: Record<string, unknown>;
 }
 
+export interface AICountTokensOptions {
+  /** System prompt to set context */
+  system?: string;
+  /** User prompt */
+  prompt: string;
+  /**
+   * generateText와 같은 capability 표를 통과한다 — 계수 요청이 실제 생성
+   * 요청과 다른 파라미터 조합으로 나가면 세는 값이 실제와 어긋난다.
+   */
+  thinking?: "adaptive" | "disabled";
+}
+
 export interface AIGenerateResult {
   content: string;
   usage: {
@@ -71,17 +83,22 @@ export class ClaudeAdapter {
     this.model = model;
   }
 
+  /**
+   * 지원하지 않는 파라미터는 요청에서 빼되 조용히 버리지 않는다. 호출부의
+   * 의도(예: temperature 0의 결정성)가 사라진 것을 운영자가 알아야 한다.
+   * generateText와 countTokens가 같은 표를 보므로 경고도 한 곳에서 낸다.
+   */
+  private dropOption(name: string) {
+    logger.warn("Claude option dropped — model does not accept it", {
+      model: this.model,
+      option: name,
+    });
+  }
+
   async generateText(options: AIGenerateOptions): Promise<AIGenerateResult> {
     const { system, prompt, maxTokens = 1024, stopSequences } = options;
     const caps = MODEL_CAPABILITIES[this.model];
-
-    // 지원하지 않는 파라미터는 요청에서 빼되 조용히 버리지 않는다. 호출부의
-    // 의도(예: temperature 0의 결정성)가 사라진 것을 운영자가 알아야 한다.
-    const drop = (name: string) =>
-      logger.warn("Claude option dropped — model does not accept it", {
-        model: this.model,
-        option: name,
-      });
+    const drop = (name: string) => this.dropOption(name);
 
     const body: Anthropic.MessageCreateParamsNonStreaming = {
       model: this.model,
@@ -132,6 +149,41 @@ export class ClaudeAdapter {
       };
     } catch (error) {
       logger.error("Claude API error", {
+        model: this.model,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * 생성하지 않고 입력 토큰 수만 센다(`POST /v1/messages/count_tokens`).
+   * generateText와 같은 capability 표를 통과하므로 모델이 거부하는
+   * 파라미터는 여기서도 똑같이 빠진다.
+   *
+   * **네트워크 왕복이다.** 호출부가 호출 횟수를 직접 관리해야 하며,
+   * 실패는 그대로 던진다 — 이 값 없이도 동작할 수 있는지(문자 수 폴백)는
+   * 호출부가 결정할 문제이지 어댑터가 삼킬 문제가 아니다.
+   */
+  async countTokens(options: AICountTokensOptions): Promise<number> {
+    const { system, prompt } = options;
+    const caps = MODEL_CAPABILITIES[this.model];
+
+    const body: Anthropic.MessageCountTokensParams = {
+      model: this.model,
+      system: system ?? undefined,
+      messages: [{ role: "user", content: prompt }],
+    };
+    if (options.thinking !== undefined) {
+      if (caps.thinking) body.thinking = { type: options.thinking };
+      else this.dropOption("thinking");
+    }
+
+    try {
+      const response = await this.client.messages.countTokens(body);
+      return response.input_tokens;
+    } catch (error) {
+      logger.error("Claude token counting error", {
         model: this.model,
         error: error instanceof Error ? error.message : String(error),
       });

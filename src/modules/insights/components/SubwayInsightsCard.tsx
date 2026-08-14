@@ -100,9 +100,12 @@ export function SubwayInsightsCard({ data, isLoading }: SubwayInsightsCardProps)
               자주 환승하는 패턴
             </div>
             <ul className="space-y-1.5 text-sm">
-              {data.transferPairs.map((pair, idx) => (
+              {data.transferPairs.map((pair) => (
+                // ref is nullable, so two unrelated lines can both key as
+                // "null"; the name is what separates them. Together these match
+                // the columns the pair query groups by.
                 <li
-                  key={`${pair.fromLineRef}-${pair.toLineRef}-${pair.stationName}-${idx}`}
+                  key={`${pair.fromLineRef}-${pair.fromLineName}-${pair.toLineRef}-${pair.toLineName}-${pair.stationName}`}
                   className="flex items-center gap-2"
                 >
                   <span

@@ -110,10 +110,26 @@ function SubwayLegBadge({ leg }: { leg: SubwayLegData }) {
   );
 }
 
+/**
+ * One leg tagged with the startTime of the segment that owns it. `legOrder` is
+ * segment-local — unique only per `(transportationSegmentId, legOrder)` — so it
+ * identifies a leg just within its own segment. Across a chunk's flattened
+ * transfer chain the same legOrder recurs, and so can the same lineId (a
+ * there-and-back rides one line twice), which is why the pair is what's stored.
+ */
+interface ChunkLeg {
+  segmentId: string;
+  leg: SubwayLegData;
+}
+
 interface SegmentChunk {
   kind: "regular" | "subway-session";
   segments: TrackSegmentData[];
-  legs: SubwayLegData[]; // flat ordered list across segments in the chunk
+  legs: ChunkLeg[]; // flat ordered list across segments in the chunk
+}
+
+function tagLegs(segment: TrackSegmentData): ChunkLeg[] {
+  return segment.subwayLegs.map((leg) => ({ segmentId: segment.id, leg }));
 }
 
 /**
@@ -136,12 +152,12 @@ function groupIntoChunks(segments: TrackSegmentData[]): SegmentChunk[] {
     // grouper hasn't run yet — treat null as standalone.)
     const sessionId = seg.subwayLegs[0].sessionId;
     if (!sessionId) {
-      chunks.push({ kind: "subway-session", segments: [seg], legs: [...seg.subwayLegs] });
+      chunks.push({ kind: "subway-session", segments: [seg], legs: tagLegs(seg) });
       cursor++;
       continue;
     }
     const groupSegments: TrackSegmentData[] = [seg];
-    const groupLegs: SubwayLegData[] = [...seg.subwayLegs];
+    const groupLegs: ChunkLeg[] = tagLegs(seg);
     let i = cursor + 1;
     while (
       i < segments.length &&
@@ -149,7 +165,7 @@ function groupIntoChunks(segments: TrackSegmentData[]): SegmentChunk[] {
       segments[i].subwayLegs[0].sessionId === sessionId
     ) {
       groupSegments.push(segments[i]);
-      groupLegs.push(...segments[i].subwayLegs);
+      groupLegs.push(...tagLegs(segments[i]));
       i++;
     }
     chunks.push({ kind: "subway-session", segments: groupSegments, legs: groupLegs });
@@ -174,12 +190,9 @@ export function TrackCard({ track }: TrackCardProps) {
       {chunks
         .filter((chunk) => chunk.kind === "subway-session")
         .map((chunk) => (
-          <span
-            key={chunk.legs.map((leg) => leg.lineId).join(":") || chunk.segments[0]?.startTime}
-            className="flex flex-wrap items-center gap-1"
-          >
-            {chunk.legs.map((leg, index) => (
-              <span key={`${leg.lineId}-${index}`} className="flex items-center gap-1">
+          <span key={chunk.segments[0]?.id} className="flex flex-wrap items-center gap-1">
+            {chunk.legs.map(({ segmentId, leg }, index) => (
+              <span key={`${segmentId}-${leg.legOrder}`} className="flex items-center gap-1">
                 {index > 0 && <ArrowLeftRight className="size-3 text-muted-foreground" />}
                 <SubwayLegBadge leg={leg} />
               </span>
@@ -237,15 +250,15 @@ export function TrackCard({ track }: TrackCardProps) {
     >
       {expanded && track.segments.length > 0 && (
         <div className="activity-expanded-details">
-          {track.segments.map((segment, index) => (
-            <div key={`${segment.startTime}-${index}`} className="activity-segment-row">
+          {track.segments.map((segment) => (
+            <div key={segment.id} className="activity-segment-row">
               <div className="flex min-w-0 items-center gap-1.5">
                 {MODE_ICONS[segment.mode] ?? null}
                 <span className="font-medium">{MODE_LABELS[segment.mode] ?? segment.mode}</span>
                 {segment.subwayLegs.length > 0 && (
                   <span className="ml-1 flex min-w-0 items-center gap-1">
-                    {segment.subwayLegs.map((leg, legIndex) => (
-                      <SubwayLegBadge key={`${leg.lineId}-${legIndex}`} leg={leg} />
+                    {segment.subwayLegs.map((leg) => (
+                      <SubwayLegBadge key={leg.legOrder} leg={leg} />
                     ))}
                   </span>
                 )}

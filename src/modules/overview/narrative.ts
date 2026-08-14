@@ -11,15 +11,66 @@ import {
 import type { ClaudeAdapter } from "@/lib/adapters/ai/claude";
 import { DEFAULT_CLAUDE_MODEL } from "@/lib/adapters/ai/claude";
 import { ApiError } from "@/lib/api-handler";
+import { logger } from "@/lib/logger";
 import { isCanonicalPeriodKey } from "./period";
 
 export type NarrativePeriodType = Exclude<PeriodType, "recent">;
+
+/**
+ * 절단이 문자 수가 아니라 실제 토큰 수를 기준으로 동작하려면 어댑터의
+ * `countTokens`가 필요하다. 프롬프트를 만드는 쪽은 계수만 있으면 되고,
+ * 서비스는 생성까지 하므로 둘 다 받는다.
+ */
+export type NarrativeTokenCounter = Pick<ClaudeAdapter, "countTokens">;
+export type NarrativeAI = Pick<ClaudeAdapter, "generateText" | "countTokens">;
 
 export const NARRATIVE_BATCH_SIZE = 5;
 export const NARRATIVE_MAX_ATTEMPTS = 3;
 export const NARRATIVE_LEASE_MS = 8 * 60 * 1000;
 export const NARRATIVE_MANUAL_COOLDOWN_MS = 5 * 60 * 1000;
-export const NARRATIVE_MAX_INPUT_CHARS = 24_000;
+
+/**
+ * 절단 기준. **문자 수가 아니라 토큰 수다** — 비용도 컨텍스트도 토큰으로
+ * 계산되므로 문자 수는 대리 지표일 뿐이다.
+ *
+ * 값의 근거는 실측이다. dev DB의 확정 스냅샷 전량(주 3 / 월 2 / 연 1)을
+ * 실제 프롬프트 형태 그대로 `count_tokens`에 넣어 재면 4,312 / 5,947 /
+ * 6,912 / 8,850 / 11,550 / 58,815 토큰이 나온다. 크기는 사실상 기간의
+ * 길이로 결정된다(고정분 약 8,000자 + 하루당 약 446자, 연 스냅샷은
+ * yearlyReport 약 9,500자가 더 붙는다). 이 분포의 P95는 연 스냅샷의
+ * 58,815 토큰이고, 60,000은 그것을 덮는 가장 작은 자리수 값이다.
+ *
+ * 상향분의 실제 비용은 크지 않다: 정상 상태의 생성량은 유저당 연
+ * 52(주) + 12(월) + 1(연) = 65건이고, 늘어나는 입력은 연 스냅샷 1건의
+ * 약 47,000 토큰 = Opus 5 입력가로 연 $0.25 수준이다. 반대로 종전
+ * 24,000자(약 12,000토큰) 기준에서는 118,240자짜리 연 스냅샷이 12,165자
+ * (원본의 10%)로 잘려 나갔다 — 한 해에 한 번뿐인, 가장 값비싼 회고문이
+ * 가장 심하게 잘렸다.
+ *
+ * n=6이므로 이 P95는 사실상 최댓값이다. 표본이 커지면 재측정할 것.
+ */
+export const NARRATIVE_MAX_INPUT_TOKENS = 60_000;
+
+/**
+ * 토큰당 문자 수 프록시. 위 6건에서 실측한 비율은 0.4974~0.5186 토큰/자로
+ * 좁게 모여 있어(=1.93~2.01 자/토큰) 2를 쓴다. 이 값은 두 곳에서 쓰인다:
+ * 축약 루프가 네트워크 호출 없이 후보를 좁힐 때, 그리고 `countTokens`가
+ * 없거나 실패했을 때의 폴백 기준으로.
+ */
+export const NARRATIVE_CHARS_PER_TOKEN = 2;
+
+/** 프록시가 만드는 문자 수 한도. countTokens 없이 동작할 때의 유일한 기준. */
+export const NARRATIVE_MAX_INPUT_CHARS = NARRATIVE_MAX_INPUT_TOKENS * NARRATIVE_CHARS_PER_TOKEN;
+
+/**
+ * 축약 한 번이 쓸 수 있는 `countTokens` 왕복 횟수의 상한. 축약 루프 안에서
+ * 매 후보마다 세면 왕복이 수십 번 난다 — 문자 수로 후보를 좁힌 뒤 한 번만
+ * 검증하고, 실측 비율이 프록시와 크게 어긋났을 때만 보정해서 한 번 더 센다.
+ */
+export const NARRATIVE_MAX_TOKEN_PROBES = 2;
+
+/** 도메인별 미리보기를 0까지 줄여도 한도를 넘을 때 내는 최소 형태. */
+const NARRATIVE_MINIMAL_INPUT = JSON.stringify({ truncated: true });
 
 export interface NarrativeSnapshotInput {
   coding: PeriodDomainEnvelope | null;
@@ -94,54 +145,146 @@ const promptFiles: Record<NarrativePeriodType, string> = {
   year: "overview-narrative-year.txt",
 };
 
-export function buildNarrativePrompt(
+export async function buildNarrativePrompt(
   periodType: NarrativePeriodType,
   periodKey: string,
-  snapshot: NarrativeSnapshotInput
+  snapshot: NarrativeSnapshotInput,
+  counter?: NarrativeTokenCounter | null
 ) {
   const system = readFileSync(
     join(process.cwd(), "prompts", promptFiles[periodType]),
     "utf8"
   ).trim();
-  const input = serializeNarrativeInput(snapshot);
+  const input = await serializeNarrativeInput(snapshot, counter);
   return {
     system,
     prompt: `기간: ${periodType} ${periodKey}\n\n확정된 대시보드 데이터:\n${input}`,
   };
 }
 
-function serializeNarrativeInput(snapshot: NarrativeSnapshotInput): string {
+/**
+ * 스냅샷을 문자 수 한도(`maxChars`) 안에 들어가는 JSON으로 줄인다. 순수
+ * 로컬 연산이라 몇 번을 돌려도 공짜이며, 토큰 검증의 후보를 만드는 것이
+ * 이 함수의 역할이다.
+ *
+ * 미리보기 길이는 **남은 예산에서 역산한다.** 고정 시작값에서 계단식으로
+ * 내려가면 절단이 불연속이 된다 — 한도를 1자 넘겼을 뿐인데 결과가 도메인
+ * 5개 × 고정값, 즉 약 12,000자로 한 번에 떨어졌다. 실제로 연 스냅샷은
+ * 118,240자에서 12,165자(원본의 10%)로 잘렸고, 한도를 60,000토큰으로 올린
+ * 뒤에도 그 스냅샷은 한도의 1.3% 아래에 있을 뿐이며 하루 약 446자씩 자란다.
+ * 즉 며칠 뒤면 같은 절벽으로 되돌아간다. 결과 길이는 미리보기 길이에 대해
+ * 단조증가하므로, 이분 탐색으로 한도에 들어가는 **최대** 미리보기를 찾으면
+ * 한도를 1자 넘길 때 1자만 잃는다. 한도 상수가 몇이든 이 성질이 유지되는
+ * 것이 핵심이다 — 한도를 더 키워 절벽을 미루는 것은 내년에 다시 만료된다.
+ */
+function reduceToCharBudget(snapshot: NarrativeSnapshotInput, maxChars: number): string {
   const original = JSON.stringify(snapshot);
-  if (original.length <= NARRATIVE_MAX_INPUT_CHARS) return original;
+  if (original.length <= maxChars) return original;
 
-  let previewLength = 2_000;
-  while (previewLength >= 0) {
-    const projected = Object.fromEntries(
-      Object.entries(snapshot).map(([domain, envelope]) => [
-        domain,
-        envelope
-          ? {
-              status: envelope.status,
-              computedAt: envelope.computedAt,
-              computeVersion: envelope.computeVersion,
-              errorCode: envelope.errorCode,
-              dataPreview: JSON.stringify(envelope.data).slice(0, previewLength),
-              truncated: true,
-            }
-          : null,
-      ])
+  // 도메인별 데이터는 한 번만 직렬화해 두고 이분 탐색은 slice만 반복한다.
+  const domains = Object.entries(snapshot).map(
+    ([domain, envelope]) => [domain, envelope, envelope ? JSON.stringify(envelope.data) : ""] as const
+  );
+  const project = (previewLength: number): string =>
+    JSON.stringify(
+      Object.fromEntries(
+        domains.map(([domain, envelope, data]) => [
+          domain,
+          envelope
+            ? {
+                status: envelope.status,
+                computedAt: envelope.computedAt,
+                computeVersion: envelope.computeVersion,
+                errorCode: envelope.errorCode,
+                dataPreview: data.slice(0, previewLength),
+                truncated: true,
+              }
+            : null,
+        ])
+      )
     );
-    const serialized = JSON.stringify(projected);
-    if (serialized.length <= NARRATIVE_MAX_INPUT_CHARS) return serialized;
-    previewLength -= 250;
-  }
 
-  return JSON.stringify({ truncated: true });
+  const floor = project(0);
+  if (floor.length > maxChars) return NARRATIVE_MINIMAL_INPUT;
+
+  let best = floor;
+  let lo = 1;
+  // 미리보기 하나가 예산 전체를 넘길 이유는 없다 — 원본이 이미 한도 초과다.
+  let hi = maxChars;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const serialized = project(mid);
+    if (serialized.length <= maxChars) {
+      best = serialized;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
+/**
+ * 기간 스냅샷을 `NARRATIVE_MAX_INPUT_TOKENS` 안에 들어가는 문자열로
+ * 직렬화한다.
+ *
+ * 토큰 계수는 네트워크 왕복이므로 축약 루프 안에서 매 후보마다 부르지
+ * 않는다. 문자 수 프록시로 후보를 한 번 좁히고, 그 후보 **하나만** 실제로
+ * 센다. 잰 값이 한도를 넘으면 그때 재본 실제 비율로 프록시를 보정해 다시
+ * 좁히고 한 번 더 센다 — 축약 한 번에 최대 `NARRATIVE_MAX_TOKEN_PROBES`회.
+ *
+ * `counter`가 없거나 계수가 실패하면 문자 수 기준 결과를 그대로 쓴다.
+ * 절단은 회고문 생성의 전제 조건이지 목적이 아니므로, 계수를 못 했다고
+ * 회고문 생성 전체가 실패해서는 안 된다.
+ */
+export async function serializeNarrativeInput(
+  snapshot: NarrativeSnapshotInput,
+  counter?: NarrativeTokenCounter | null
+): Promise<string> {
+  let charsPerToken = NARRATIVE_CHARS_PER_TOKEN;
+  let candidate = reduceToCharBudget(snapshot, NARRATIVE_MAX_INPUT_TOKENS * charsPerToken);
+  if (!counter) return candidate;
+
+  // 문자 수가 토큰 한도 이하이면 세지 않는다. 토크나이저가 한 글자를 여러
+  // 토큰으로 쪼개지 않는 한 토큰 수는 문자 수를 넘지 못하는데, 스냅샷의
+  // 비ASCII 비중은 실측 2.0~2.9%이고 최악의 비율도 1.93자/토큰이라 이 가정은
+  // 큰 여유를 두고 성립한다(한글이 지배적인 입력이라면 깨질 수 있는 가정이니,
+  // 도메인 데이터에 한국어 산문이 들어오기 시작하면 재검토할 것). 실측 27건
+  // 중 26건이 여기서 끝나 왕복이 사라지고, 리스 안에서 도는 왕복 수가 줄어
+  // 느린 계수 하나가 배치를 통째로 지연시키는 창도 함께 좁아진다.
+  if (candidate.length <= NARRATIVE_MAX_INPUT_TOKENS) return candidate;
+
+  for (let probe = 0; probe < NARRATIVE_MAX_TOKEN_PROBES; probe++) {
+    let tokens: number;
+    try {
+      tokens = await counter.countTokens({ prompt: candidate });
+    } catch (error) {
+      logger.warn("Narrative token count failed — falling back to the character budget", {
+        error: error instanceof Error ? error.message : String(error),
+        chars: candidate.length,
+      });
+      return candidate;
+    }
+    if (tokens <= NARRATIVE_MAX_INPUT_TOKENS) return candidate;
+    if (candidate === NARRATIVE_MINIMAL_INPUT) return candidate;
+
+    // 프록시가 낙관적이었다. 방금 잰 실제 비율로 갈아끼우고 다시 좁힌다.
+    // Math.min으로 눌러 두지 않으면 잘못 잰 값 하나가 한도를 넓힐 수 있다.
+    charsPerToken = Math.min(charsPerToken, candidate.length / tokens);
+    const next = reduceToCharBudget(
+      snapshot,
+      Math.floor(NARRATIVE_MAX_INPUT_TOKENS * charsPerToken)
+    );
+    // 더 줄지 않으면 한 번 더 세도 같은 답이 나온다 — 왕복만 낭비한다.
+    if (next === candidate) return candidate;
+    candidate = next;
+  }
+  return candidate;
 }
 
 export function createNarrativeService(
   store: NarrativeStore,
-  ai: Pick<ClaudeAdapter, "generateText"> | null,
+  ai: NarrativeAI | null,
   model = DEFAULT_CLAUDE_MODEL
 ) {
   async function get(userId: string, rawPeriodType: string, periodKey: string) {
@@ -163,7 +306,12 @@ export function createNarrativeService(
   async function generate(claim: NarrativeClaim, now: Date): Promise<boolean> {
     try {
       if (!ai) throw new Error("Narrative AI is not configured");
-      const prompt = buildNarrativePrompt(claim.periodType, claim.periodKey, claim.snapshot);
+      const prompt = await buildNarrativePrompt(
+        claim.periodType,
+        claim.periodKey,
+        claim.snapshot,
+        ai
+      );
       const result = await ai.generateText({
         ...prompt,
         maxTokens: 8000,

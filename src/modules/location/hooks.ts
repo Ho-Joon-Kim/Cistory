@@ -283,6 +283,7 @@ export interface SubwayLegData {
 }
 
 export interface TrackSegmentData {
+  id: string;
   mode: string;
   confidence: string;
   startTime: string;
