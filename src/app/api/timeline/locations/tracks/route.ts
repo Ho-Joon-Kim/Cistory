@@ -173,6 +173,9 @@ export async function GET(request: NextRequest) {
       elevationGain: track.elevationGain,
       elevationLoss: track.elevationLoss,
       segments: (segmentsByTrackId.get(track.id) ?? []).map((s) => ({
+        // 렌더 키의 근거. startTime은 유일하지 않다 — 한 track 안에 0초짜리
+        // stationary와 이동 세그먼트가 같은 시각에 시작하는 행이 실제로 있다.
+        id: s.id,
         mode: s.mode,
         confidence: s.confidence,
         startTime: s.startTime.toISOString(),

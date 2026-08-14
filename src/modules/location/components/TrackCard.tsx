@@ -118,7 +118,7 @@ function SubwayLegBadge({ leg }: { leg: SubwayLegData }) {
  * there-and-back rides one line twice), which is why the pair is what's stored.
  */
 interface ChunkLeg {
-  segmentStartTime: string;
+  segmentId: string;
   leg: SubwayLegData;
 }
 
@@ -129,7 +129,7 @@ interface SegmentChunk {
 }
 
 function tagLegs(segment: TrackSegmentData): ChunkLeg[] {
-  return segment.subwayLegs.map((leg) => ({ segmentStartTime: segment.startTime, leg }));
+  return segment.subwayLegs.map((leg) => ({ segmentId: segment.id, leg }));
 }
 
 /**
@@ -190,9 +190,9 @@ export function TrackCard({ track }: TrackCardProps) {
       {chunks
         .filter((chunk) => chunk.kind === "subway-session")
         .map((chunk) => (
-          <span key={chunk.segments[0]?.startTime} className="flex flex-wrap items-center gap-1">
-            {chunk.legs.map(({ segmentStartTime, leg }, index) => (
-              <span key={`${segmentStartTime}-${leg.legOrder}`} className="flex items-center gap-1">
+          <span key={chunk.segments[0]?.id} className="flex flex-wrap items-center gap-1">
+            {chunk.legs.map(({ segmentId, leg }, index) => (
+              <span key={`${segmentId}-${leg.legOrder}`} className="flex items-center gap-1">
                 {index > 0 && <ArrowLeftRight className="size-3 text-muted-foreground" />}
                 <SubwayLegBadge leg={leg} />
               </span>
@@ -251,7 +251,7 @@ export function TrackCard({ track }: TrackCardProps) {
       {expanded && track.segments.length > 0 && (
         <div className="activity-expanded-details">
           {track.segments.map((segment) => (
-            <div key={segment.startTime} className="activity-segment-row">
+            <div key={segment.id} className="activity-segment-row">
               <div className="flex min-w-0 items-center gap-1.5">
                 {MODE_ICONS[segment.mode] ?? null}
                 <span className="font-medium">{MODE_LABELS[segment.mode] ?? segment.mode}</span>

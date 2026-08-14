@@ -315,14 +315,32 @@ describe("narrative service", () => {
 });
 
 describe("narrative input truncation", () => {
-  it("leaves an under-limit snapshot byte-identical and verifies it with a single count", async () => {
+  it("leaves an under-limit snapshot byte-identical and spends no count on it", async () => {
     const adapter = ai();
     const small = snapshotOfSize(1_000);
 
     const serialized = await serializeNarrativeInput(small, adapter);
 
     expect(serialized).toBe(JSON.stringify(small));
-    expect(adapter.countTokens).toHaveBeenCalledTimes(1);
+    // 문자 수가 토큰 한도 이하면 토큰 수도 한도 이하다 — 왕복이 답을 바꿀 수
+    // 없으므로 아예 세지 않는다.
+    expect(adapter.countTokens).not.toHaveBeenCalled();
+  });
+
+  it("loses roughly what it overshoots instead of collapsing to a floor", async () => {
+    // 절단은 연속이어야 한다. 예산을 조금 넘겼다고 결과가 한도의 10%로
+    // 떨어지면 한도를 올려도 스냅샷이 자라는 순간 같은 절벽으로 돌아온다 —
+    // 실제로 연 스냅샷은 118,240자에서 12,165자로 잘렸고, 한도를 60,000토큰
+    // 으로 올린 뒤에도 한도의 1.3% 아래에서 하루 약 446자씩 자라고 있었다.
+    const adapter = ai();
+    const justOver = snapshotOfSize(NARRATIVE_MAX_INPUT_CHARS + 2_000);
+
+    const serialized = await serializeNarrativeInput(justOver, adapter);
+
+    expect(serialized.length).toBeLessThanOrEqual(NARRATIVE_MAX_INPUT_CHARS);
+    // `<= 한도` 만으로는 12,165자짜리 결과도 통과한다. 실제로 예산을 쓰는지
+    // 크기를 직접 고정한다.
+    expect(serialized.length).toBeGreaterThan(NARRATIVE_MAX_INPUT_CHARS * 0.9);
   });
 
   it("trims per-domain previews once the input exceeds the token limit", async () => {
@@ -361,14 +379,19 @@ describe("narrative input truncation", () => {
   it("falls back to the minimal form when even maximal trimming stays over the limit", async () => {
     const adapter = { countTokens: vi.fn(async () => 10_000_000) };
 
-    const serialized = await serializeNarrativeInput(snapshotOfSize(1_000), adapter);
+    // 토큰 한도를 넘는 크기여야 계수 왕복까지 도달한다 — 그 아래는 세지 않고
+    // 곧장 반환하므로 이 경로가 실행되지 않는다.
+    const serialized = await serializeNarrativeInput(
+      snapshotOfSize(NARRATIVE_MAX_INPUT_TOKENS + 1_000),
+      adapter
+    );
 
     expect(JSON.parse(serialized)).toEqual({ truncated: true });
   });
 
   it("spends no more than the fixed probe budget on one reduction", async () => {
-    // The reduction loop walks the preview length down in 250-char steps —
-    // counting every candidate would be dozens of round trips per narrative.
+    // 축약은 이분 탐색이라 후보가 수십 개 나온다 — 후보마다 세면 회고문 하나에
+    // 왕복이 수십 번 난다.
     const adapter = { countTokens: vi.fn(async () => 10_000_000) };
 
     await serializeNarrativeInput(snapshotOfSize(NARRATIVE_MAX_INPUT_CHARS * 2), adapter);
@@ -413,11 +436,14 @@ describe("narrative input truncation", () => {
 
   it("counts the serialized input, not the whole prompt, so the budget is the data budget", async () => {
     const adapter = ai();
+    // 토큰 한도를 넘되 문자 한도 안에 있는 크기 — 계수는 돌지만 축약은 없어
+    // 무엇을 세는지 원본과 바로 대조할 수 있다.
+    const sized = snapshotOfSize(NARRATIVE_MAX_INPUT_TOKENS + 1_000);
 
-    await buildNarrativePrompt("year", "2025", snapshotOfSize(1_000), adapter);
+    await buildNarrativePrompt("year", "2025", sized, adapter);
 
     const counted = adapter.countTokens.mock.calls[0][0].prompt;
-    expect(counted).toBe(JSON.stringify(snapshotOfSize(1_000)));
+    expect(counted).toBe(JSON.stringify(sized));
     expect(counted).not.toContain("확정된 대시보드 데이터");
   });
 });

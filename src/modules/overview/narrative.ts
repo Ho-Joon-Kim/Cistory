@@ -69,17 +69,6 @@ export const NARRATIVE_MAX_INPUT_CHARS = NARRATIVE_MAX_INPUT_TOKENS * NARRATIVE_
  */
 export const NARRATIVE_MAX_TOKEN_PROBES = 2;
 
-/**
- * 축약 루프의 시작 미리보기 길이. **한도와 무관한 고정값이라 절단은
- * 불연속적이다** — 한도를 1자만 넘어도 결과는 도메인 5개 × 이 값 +
- * 메타데이터, 즉 약 12,000자(약 6,000토큰)로 한 번에 떨어진다. 한도가
- * 60,000토큰이어도 잘린 스냅샷은 그중 10% 남짓만 쓴다는 뜻이다. 종전
- * 24,000자 기준에서도 같은 성질이었으므로(연 스냅샷 118,240자 → 12,165자)
- * 이번 변경이 만든 문제는 아니지만, 남은 예산만큼 미리보기를 늘리는 것은
- * 별도 과제다.
- */
-const NARRATIVE_PREVIEW_START_CHARS = 2_000;
-const NARRATIVE_PREVIEW_STEP_CHARS = 250;
 /** 도메인별 미리보기를 0까지 줄여도 한도를 넘을 때 내는 최소 형태. */
 const NARRATIVE_MINIMAL_INPUT = JSON.stringify({ truncated: true });
 
@@ -177,34 +166,62 @@ export async function buildNarrativePrompt(
  * 스냅샷을 문자 수 한도(`maxChars`) 안에 들어가는 JSON으로 줄인다. 순수
  * 로컬 연산이라 몇 번을 돌려도 공짜이며, 토큰 검증의 후보를 만드는 것이
  * 이 함수의 역할이다.
+ *
+ * 미리보기 길이는 **남은 예산에서 역산한다.** 고정 시작값에서 계단식으로
+ * 내려가면 절단이 불연속이 된다 — 한도를 1자 넘겼을 뿐인데 결과가 도메인
+ * 5개 × 고정값, 즉 약 12,000자로 한 번에 떨어졌다. 실제로 연 스냅샷은
+ * 118,240자에서 12,165자(원본의 10%)로 잘렸고, 한도를 60,000토큰으로 올린
+ * 뒤에도 그 스냅샷은 한도의 1.3% 아래에 있을 뿐이며 하루 약 446자씩 자란다.
+ * 즉 며칠 뒤면 같은 절벽으로 되돌아간다. 결과 길이는 미리보기 길이에 대해
+ * 단조증가하므로, 이분 탐색으로 한도에 들어가는 **최대** 미리보기를 찾으면
+ * 한도를 1자 넘길 때 1자만 잃는다. 한도 상수가 몇이든 이 성질이 유지되는
+ * 것이 핵심이다 — 한도를 더 키워 절벽을 미루는 것은 내년에 다시 만료된다.
  */
 function reduceToCharBudget(snapshot: NarrativeSnapshotInput, maxChars: number): string {
   const original = JSON.stringify(snapshot);
   if (original.length <= maxChars) return original;
 
-  let previewLength = NARRATIVE_PREVIEW_START_CHARS;
-  while (previewLength >= 0) {
-    const projected = Object.fromEntries(
-      Object.entries(snapshot).map(([domain, envelope]) => [
-        domain,
-        envelope
-          ? {
-              status: envelope.status,
-              computedAt: envelope.computedAt,
-              computeVersion: envelope.computeVersion,
-              errorCode: envelope.errorCode,
-              dataPreview: JSON.stringify(envelope.data).slice(0, previewLength),
-              truncated: true,
-            }
-          : null,
-      ])
+  // 도메인별 데이터는 한 번만 직렬화해 두고 이분 탐색은 slice만 반복한다.
+  const domains = Object.entries(snapshot).map(
+    ([domain, envelope]) => [domain, envelope, envelope ? JSON.stringify(envelope.data) : ""] as const
+  );
+  const project = (previewLength: number): string =>
+    JSON.stringify(
+      Object.fromEntries(
+        domains.map(([domain, envelope, data]) => [
+          domain,
+          envelope
+            ? {
+                status: envelope.status,
+                computedAt: envelope.computedAt,
+                computeVersion: envelope.computeVersion,
+                errorCode: envelope.errorCode,
+                dataPreview: data.slice(0, previewLength),
+                truncated: true,
+              }
+            : null,
+        ])
+      )
     );
-    const serialized = JSON.stringify(projected);
-    if (serialized.length <= maxChars) return serialized;
-    previewLength -= NARRATIVE_PREVIEW_STEP_CHARS;
-  }
 
-  return NARRATIVE_MINIMAL_INPUT;
+  const floor = project(0);
+  if (floor.length > maxChars) return NARRATIVE_MINIMAL_INPUT;
+
+  let best = floor;
+  let lo = 1;
+  // 미리보기 하나가 예산 전체를 넘길 이유는 없다 — 원본이 이미 한도 초과다.
+  let hi = maxChars;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const serialized = project(mid);
+    if (serialized.length <= maxChars) {
+      best = serialized;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
 }
 
 /**
@@ -227,6 +244,15 @@ export async function serializeNarrativeInput(
   let charsPerToken = NARRATIVE_CHARS_PER_TOKEN;
   let candidate = reduceToCharBudget(snapshot, NARRATIVE_MAX_INPUT_TOKENS * charsPerToken);
   if (!counter) return candidate;
+
+  // 문자 수가 토큰 한도 이하이면 세지 않는다. 토크나이저가 한 글자를 여러
+  // 토큰으로 쪼개지 않는 한 토큰 수는 문자 수를 넘지 못하는데, 스냅샷의
+  // 비ASCII 비중은 실측 2.0~2.9%이고 최악의 비율도 1.93자/토큰이라 이 가정은
+  // 큰 여유를 두고 성립한다(한글이 지배적인 입력이라면 깨질 수 있는 가정이니,
+  // 도메인 데이터에 한국어 산문이 들어오기 시작하면 재검토할 것). 실측 27건
+  // 중 26건이 여기서 끝나 왕복이 사라지고, 리스 안에서 도는 왕복 수가 줄어
+  // 느린 계수 하나가 배치를 통째로 지연시키는 창도 함께 좁아진다.
+  if (candidate.length <= NARRATIVE_MAX_INPUT_TOKENS) return candidate;
 
   for (let probe = 0; probe < NARRATIVE_MAX_TOKEN_PROBES; probe++) {
     let tokens: number;
