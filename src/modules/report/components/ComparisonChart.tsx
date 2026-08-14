@@ -104,7 +104,7 @@ export function ComparisonChart({ data }: ComparisonChartProps) {
             <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} tickFormatter={config.formatter} />
-            <Tooltip formatter={(value: number) => config.formatter(value)} />
+            <Tooltip formatter={(value) => config.formatter(Number(value ?? 0))} />
             <Legend />
             <Line
               type="monotone"

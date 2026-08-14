@@ -57,7 +57,7 @@
     "react-dom": "19.2.8",
     "react-is": "^19.2.8",
     "react-map-gl": "^8.1.2",
-    "recharts": "2.15.4",
+    "recharts": "3.8.0",
     "sonner": "^2.0.8",
     "stream-chain": "^4.2.5",
     "stream-json": "^3.5.0",
