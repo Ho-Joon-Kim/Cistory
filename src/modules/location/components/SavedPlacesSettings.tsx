@@ -142,6 +142,7 @@ export function SavedPlacesSettings() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label="장소 편집"
                       className="h-8 w-8"
                       onClick={() => handleEdit(place)}
                     >
@@ -150,6 +151,7 @@ export function SavedPlacesSettings() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label="장소 삭제"
                       className="h-8 w-8 text-destructive"
                       onClick={() => handleDelete(place)}
                       disabled={isSaving}

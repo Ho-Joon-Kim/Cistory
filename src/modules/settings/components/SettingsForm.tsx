@@ -1,6 +1,7 @@
 "use client";
 
-import { ExternalLink, Github, Loader2, RefreshCw } from "lucide-react";
+import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { GithubMark } from "@/components/GithubMark";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -153,7 +154,7 @@ export function SettingsForm() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-full bg-muted">
-                <Github className="h-5 w-5" />
+                <GithubMark className="h-5 w-5" />
               </div>
               <div>
                 <p className="font-medium">{githubUsername || "연결됨"}</p>

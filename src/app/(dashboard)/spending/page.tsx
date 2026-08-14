@@ -300,7 +300,7 @@ function TransactionRow({
         </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-6 w-6">
+            <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="거래 메뉴 열기">
               <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>
           </DropdownMenuTrigger>
@@ -990,6 +990,7 @@ export default function SpendingPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label="거래 기록 삭제"
                               className="h-6 w-6 text-muted-foreground hover:text-red-500"
                               disabled={isDeleting}
                               onClick={async () => {

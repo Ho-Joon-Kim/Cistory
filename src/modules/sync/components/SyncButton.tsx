@@ -59,6 +59,15 @@ export function SyncButton({
   const isActive = status?.hasActiveSync || isSyncing;
   const progress = status?.activeJobs?.[0]?.progress ?? 0;
 
+  // 상태 문구는 아이콘 모드에서 렌더되지 않으므로(아래 `size !== "icon"` 분기),
+  // 그 경우 버튼에 남는 이름이 없다. lucide 1.0부터 아이콘이 기본 aria-hidden이라
+  // 아이콘이 이름을 대신 메워 줄 여지도 없어, 같은 문구를 aria-label로 붙인다.
+  const label = completionState.showComplete
+    ? "동기화 완료"
+    : isActive
+      ? `동기화 중${progress > 0 ? ` ${progress}%` : ""}`
+      : "동기화";
+
   return (
     <Button
       variant={variant}
@@ -66,6 +75,7 @@ export function SyncButton({
       onClick={handleSync}
       disabled={isActive}
       className={className}
+      aria-label={size === "icon" ? label : undefined}
     >
       {completionState.showComplete ? (
         <Check

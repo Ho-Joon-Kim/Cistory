@@ -1,6 +1,7 @@
 "use client";
 
-import { Github, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { GithubMark } from "@/components/GithubMark";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,7 +30,7 @@ export default function LoginPage() {
             {isLoading ? (
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             ) : (
-              <Github className="mr-2 h-5 w-5" />
+              <GithubMark className="mr-2 h-5 w-5" />
             )}
             {isLoading ? "로그인 중..." : "GitHub로 로그인"}
           </Button>
