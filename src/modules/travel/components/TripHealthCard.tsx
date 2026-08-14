@@ -48,11 +48,11 @@ export function TripHealthCard({ health }: { health: TravelTripDetail["health"] 
       </CardHeader>
       <CardContent>
         <ul className="divide-y">
-          {health.map((summary, index) => {
+          {health.map((summary) => {
             const display = displayHealthValue(summary);
             return (
               <li
-                key={`${summary.day}-${summary.metric}-${index}`}
+                key={`${summary.day}-${summary.metric}`}
                 className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
               >
                 <div>

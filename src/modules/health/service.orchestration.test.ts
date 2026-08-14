@@ -175,7 +175,7 @@ describe("forward sync — page-cap truncation does not advance the watermark (f
     ).syncMetricForward(activeConn(), { key: "steps", agg: "sum", valueKey: "count" }, new Date());
     const syncStateWrite = rec.inserts.find((i) => i.table === healthSyncState);
     expect(syncStateWrite).toBeDefined();
-    expect((syncStateWrite?.values as { syncedThrough?: Date }).syncedThrough).toBeInstanceOf(Date);
+    expect((syncStateWrite!.values as { syncedThrough?: Date }).syncedThrough).toBeInstanceOf(Date);
   });
 });
 
@@ -255,7 +255,7 @@ describe("syncSessions — unfiltered structured session upsert", () => {
     expect(await runSession(svc, "exercise")).toBe(1);
     const ins = rec.inserts.find((i) => i.table === healthSamples);
     expect(ins).toBeDefined();
-    const row = (ins?.values as Array<Record<string, unknown>>)[0];
+    const row = (ins!.values as Array<Record<string, unknown>>)[0];
     expect(row.metric).toBe("exercise");
     expect(row.value).toBe(11); // 660s → 11 min
     expect((row.valueJson as { displayName?: string }).displayName).toBe("자전거");
@@ -281,7 +281,8 @@ describe("syncSessions — unfiltered structured session upsert", () => {
     // Unfiltered read: sleep rejects every time filter, so none may be sent.
     expect(listDataPoints.mock.calls[0][0].filter).toBe("");
     const ins = rec.inserts.find((i) => i.table === healthSamples);
-    const row = (ins?.values as Array<Record<string, unknown>>)[0];
+    expect(ins).toBeDefined();
+    const row = (ins!.values as Array<Record<string, unknown>>)[0];
     expect(row.metric).toBe("sleep");
     expect(row.value).toBe(172);
     expect((row.valueJson as { stages?: unknown[] }).stages).toHaveLength(1);

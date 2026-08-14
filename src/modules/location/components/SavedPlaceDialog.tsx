@@ -356,9 +356,9 @@ export function SavedPlaceDialog({
                 </div>
                 {state.showResults && state.searchResults.length > 0 && (
                   <div className="border rounded-lg bg-popover shadow-md max-h-36 overflow-y-auto">
-                    {state.searchResults.map((r, i) => (
+                    {state.searchResults.map((r) => (
                       <button
-                        key={`${r.lat}-${r.lon}-${i}`}
+                        key={`${r.lat}-${r.lon}-${r.name}`}
                         type="button"
                         className="w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors border-b last:border-b-0"
                         onClick={() => dispatch({ type: "SELECT_RESULT", result: r })}

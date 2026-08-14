@@ -317,7 +317,7 @@ describe("parseExerciseWorkout", () => {
     expect(w?.sampleAt.toISOString()).toBe("2026-07-11T09:30:00.000Z");
     expect(w?.source).toBe("com.sec.android.app.shealth");
     expect(w?.activeMinutes).toBe(11);
-    expect((w?.wrapper as { displayName?: string }).displayName).toBe("자전거");
+    expect((w!.wrapper as { displayName?: string }).displayName).toBe("자전거");
   });
 
   it("returns null without an exercise wrapper or start time", () => {
@@ -358,7 +358,7 @@ describe("parseSleepSession", () => {
     expect(s?.sampleAt.toISOString()).toBe("2026-07-26T07:24:00.000Z");
     expect(s?.activeMinutes).toBe(172); // 07:24 → 10:16
     expect(s?.source).toBe("FITBIT"); // no packageName → the platform identifies it
-    expect((s?.wrapper as { stages?: unknown[] }).stages).toHaveLength(2);
+    expect((s!.wrapper as { stages?: unknown[] }).stages).toHaveLength(2);
   });
 
   it("returns null without a sleep wrapper or start time", () => {

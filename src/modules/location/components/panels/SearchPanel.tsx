@@ -113,9 +113,9 @@ export function SearchPanel({ onPlaceSelect }: SearchPanelProps) {
 
       {!isLoading && results.length > 0 && (
         <div className="flex flex-col gap-0.5">
-          {results.map((r, i) => (
+          {results.map((r) => (
             <button
-              key={`${r.lat}-${r.lon}-${i}`}
+              key={`${r.lat}-${r.lon}-${r.name}`}
               type="button"
               className="flex items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50"
               onClick={() => onPlaceSelect({ lat: r.lat, lon: r.lon, name: r.name })}

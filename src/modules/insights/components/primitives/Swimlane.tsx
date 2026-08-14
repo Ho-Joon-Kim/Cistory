@@ -133,7 +133,11 @@ export function Swimlane({ streams, year, height = 200 }: SwimlaneProps) {
               className="stroke-[hsl(var(--hairline))]"
             />
 
-            {/* Daily ticks */}
+            {/* Daily ticks. `daily` is a dense positional series: index IS the
+                day-of-year, so `di` is a tick's identity rather than a slot it
+                happens to sit in. Fixed length (365/366) and never reordered,
+                so the stale-state hazard noArrayIndexKey guards against cannot
+                arise here — hence the suppression on the key below. */}
             {stream.daily.slice(0, days).map((v, di) => {
               if (v === 0) return null;
               const intensity = Math.min(v / max, 1);
@@ -141,6 +145,7 @@ export function Swimlane({ streams, year, height = 200 }: SwimlaneProps) {
               const x = labelW + di * dayW + dayW / 2;
               return (
                 <line
+                  // biome-ignore lint/suspicious/noArrayIndexKey: di is the day-of-year
                   key={`${stream.id}-${di}`}
                   x1={x}
                   x2={x}
