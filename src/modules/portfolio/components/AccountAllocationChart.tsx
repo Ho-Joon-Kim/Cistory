@@ -45,7 +45,7 @@ export function AccountAllocationChart({ accounts }: Props) {
                   <PieChart>
                     <ChartTooltip
                       content={<ChartTooltipContent hideLabel />}
-                      formatter={(value) => formatKRW(Number(value ?? 0))}
+                      formatter={(value: number) => formatKRW(value)}
                     />
                     <Pie
                       data={data}
