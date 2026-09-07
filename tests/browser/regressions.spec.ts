@@ -386,3 +386,36 @@ test.describe("KST search destinations outside Korea", () => {
     await expect(page.locator(".timeline-scroll-container")).toBeVisible();
   });
 });
+
+for (const authenticated of [false, true]) {
+  test(`delayed protected page hydrates after an ${authenticated ? "authenticated" : "anonymous"} session settles`, async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    if (!authenticated) {
+      await page.route("**/api/auth/get-session", (route) => route.fulfill({ json: null }));
+    }
+    await page.route("**/api/data-status?*", (route) =>
+      route.fulfill({ status: 503, json: { error: "unavailable" } })
+    );
+    const sessionResponse = page.waitForResponse("**/api/auth/get-session");
+    let delayed = false;
+    await page.route(/\/_next\/static\/chunks\/app\/data-status\/page[^/]*\.js/, async (route) => {
+      // The layout starts the session request before this page's code arrives.
+      await (await sessionResponse).finished();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      delayed = true;
+      await route.continue();
+    });
+    await page.goto("/data-status");
+    if (authenticated) {
+      await expect(page.locator("main [role=alert]")).toContainText("불러오지 못했습니다");
+      await expect(page).toHaveURL(/\/data-status$/);
+    } else {
+      await expect(page).toHaveURL(/\/login$/);
+    }
+    expect(delayed).toBe(true);
+    expect(errors).toEqual([]);
+  });
+}

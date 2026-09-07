@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { authClient } from "@/lib/auth-client";
 
 interface User {
@@ -30,8 +30,20 @@ interface UseAuthReturn {
   refresh: () => Promise<void>;
 }
 
+const subscribeToHydration = () => () => {};
+const clientHydrationSnapshot = () => true;
+const serverHydrationSnapshot = () => false;
+
 export function useAuth(): UseAuthReturn {
-  const { data: sessionData, isPending, refetch } = authClient.useSession();
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    clientHydrationSnapshot,
+    serverHydrationSnapshot
+  );
+  const { data, isPending, refetch } = authClient.useSession();
+  // The layout can settle the shared session before this page hydrates. Keep
+  // its first render identical to SSR; client navigation reads the session immediately.
+  const sessionData = hydrated ? data : null;
 
   const user: User | null = sessionData?.user
     ? {
@@ -75,7 +87,7 @@ export function useAuth(): UseAuthReturn {
   return {
     user,
     session,
-    isLoading: isPending,
+    isLoading: !hydrated || isPending,
     isAuthenticated: !!user,
     signIn,
     signOut,
