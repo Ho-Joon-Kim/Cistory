@@ -15,4 +15,8 @@ Sentry.init({
   beforeSendSpan: redactSearchSpan,
   beforeSend: redactSearchEvent,
   beforeSendTransaction: redactSearchEvent,
+  replaysSessionSampleRate: 0,
+  replaysOnErrorSampleRate: 0,
 });
+
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

@@ -17,7 +17,7 @@ for (const name of [
   "instrumentation.ts",
   "sentry.server.config.ts",
   "sentry.edge.config.ts",
-  "sentry.client.config.ts",
+  "instrumentation-client.ts",
 ]) {
   await cp(path.join(root, name), path.join(runtime, name), { recursive: true });
 }

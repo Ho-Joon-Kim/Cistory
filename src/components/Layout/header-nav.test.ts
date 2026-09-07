@@ -9,6 +9,7 @@ describe("header navigation", () => {
       "/travel",
       "/health",
       "/overview",
+      "/search",
     ]);
     expect(HEADER_NAV_ITEMS.filter((item) => item.href === "/overview")).toHaveLength(1);
   });

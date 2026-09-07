@@ -7,7 +7,8 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
-import { parseDateParam, toLocalDateString } from "@/lib/utils";
+import { toKstCalendarDate } from "@/lib/date-key";
+import { parseDateParam } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { MapSkeleton } from "@/modules/location/components/MapSkeleton";
 import { useSettings } from "@/modules/settings/hooks";
@@ -26,7 +27,7 @@ function DashboardContent() {
   const { settings } = useSettings();
 
   // Selected date for timeline + map (initialized from URL ?date= param)
-  const today = useMemo(() => toLocalDateString(new Date()), []);
+  const today = useMemo(() => toKstCalendarDate(new Date()), []);
   const [selectedDate, setSelectedDateRaw] = useState<string>(() =>
     parseDateParam(searchParams.get("date"))
   );

@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { toKstCalendarDate } from "./date-key";
 
 /**
  * Merge Tailwind CSS classes with clsx
@@ -104,9 +105,8 @@ export function sleep(ms: number): Promise<void> {
  * Returns today for null, empty, invalid, or future dates.
  */
 export function parseDateParam(param: string | null): string {
-  // Local (KST in production) calendar day — toISOString would report the UTC
-  // day, which is *yesterday* for the first 9 hours of every KST day.
-  const today = toLocalDateString(new Date());
+  // Record links use KST even when the browser is in another timezone.
+  const today = toKstCalendarDate(new Date());
   if (!param) return today;
 
   const trimmed = param.trim();
@@ -119,12 +119,12 @@ export function parseDateParam(param: string | null): string {
     candidate = trimmed;
   } else if (/^\d{1,2}-\d{2}$/.test(trimmed)) {
     // M-DD or MM-DD
-    const year = new Date().getFullYear();
+    const year = today.slice(0, 4);
     const [m, d] = trimmed.split("-");
     candidate = `${year}-${m.padStart(2, "0")}-${d}`;
   } else if (/^\d{4}$/.test(trimmed)) {
     // MMDD
-    const year = new Date().getFullYear();
+    const year = today.slice(0, 4);
     candidate = `${year}-${trimmed.slice(0, 2)}-${trimmed.slice(2)}`;
   } else {
     return today;

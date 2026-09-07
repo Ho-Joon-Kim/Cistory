@@ -23,6 +23,19 @@ function freezeAtKstMorning() {
 }
 
 describe("parseDateParam", () => {
+  it("preserves KST search links when the browser calendar is still the previous day or year", () => {
+    const originalTZ = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-12-31T15:30:00Z"));
+      expect(parseDateParam("2027-01-01")).toBe("2027-01-01");
+      expect(parseDateParam("0101")).toBe("2027-01-01");
+      expect(parseDateParam(null)).toBe("2027-01-01");
+    } finally {
+      process.env.TZ = originalTZ;
+    }
+  });
   it("resolves 'today' as the local (KST) day, not the UTC day", () => {
     freezeAtKstMorning();
     expect(parseDateParam(null)).toBe("2026-03-05");
