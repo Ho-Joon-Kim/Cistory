@@ -369,3 +369,20 @@ test("collection status retries errors and retains a queued recovery on reload",
   );
   await page.screenshot({ path: testInfo.outputPath("data-status.png"), fullPage: true });
 });
+
+test.describe("KST search destinations outside Korea", () => {
+  test.use({ timezoneId: "America/Los_Angeles" });
+  test("keeps a KST midnight date when opening the daily timeline", async ({ page }) => {
+    await page.clock.setFixedTime(new Date("2026-12-31T15:30:00Z"));
+    const request = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        url.pathname === "/api/timeline/locations/stay-points" &&
+        url.searchParams.get("date") === "2027-01-01"
+      );
+    });
+    await page.goto("/dashboard?date=2027-01-01");
+    await request;
+    await expect(page.locator(".timeline-scroll-container")).toBeVisible();
+  });
+});

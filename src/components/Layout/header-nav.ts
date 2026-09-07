@@ -4,4 +4,5 @@ export const HEADER_NAV_ITEMS = [
   { id: "travel", href: "/travel", label: "여행" },
   { id: "health", href: "/health", label: "건강" },
   { id: "overview", href: "/overview", label: "대시보드" },
+  { id: "search", href: "/search", label: "기록 검색" },
 ] as const;
