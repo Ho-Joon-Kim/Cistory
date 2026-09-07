@@ -30,6 +30,8 @@
 
 import { sql } from "drizzle-orm";
 import type { Database } from "@/db";
+import { healthSamples } from "@/db/schema";
+import { timestampFromDriver } from "@/db/sql";
 import { logger } from "@/lib/logger";
 
 /** Metrics dense enough to be worth compacting. Everything else stays raw. */
@@ -187,6 +189,9 @@ async function compactRange(
   to: Date
 ): Promise<{ rawDeleted: number; bucketsWritten: number }> {
   return await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`health-recovery:${userId}`}, 0))`
+    );
     const scope = sql`
       user_id = ${userId} AND metric = ${metric} AND value_json IS NULL
         AND sample_at >= ${from.toISOString()}::timestamp
@@ -265,7 +270,7 @@ export async function compactPendingSamples(
       const newestRaw = (newest.rows[0] as { at: string | Date | null } | undefined)?.at;
       if (!newestRaw) break; // nothing left older than the retention window
 
-      const { from, to } = compactionWindow(new Date(newestRaw));
+      const { from, to } = compactionWindow(timestampFromDriver(healthSamples.sampleAt, newestRaw));
       const { rawDeleted, bucketsWritten } = await compactRange(db, userId, metric, from, to);
       result.rawDeleted += rawDeleted;
       result.bucketsWritten += bucketsWritten;

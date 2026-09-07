@@ -7,6 +7,7 @@ import {
   inferCashflows,
   type ReturnExecution,
   type ReturnSnapshot,
+  settlementLookbackDate,
 } from "./returns";
 
 // Expected values here are derived by hand from the documented mechanics, not
@@ -198,5 +199,24 @@ describe("computeReturns", () => {
     const result = computeReturns({ snapshots: [snap("2026-01-01", 10000, 0)], executions: [] });
     expect(result.twr.totalReturn).toBeNull();
     expect(result.xirr).toBeNull();
+  });
+});
+
+describe("settlement lookback", () => {
+  it.each([
+    ["2026-06-02", "2026-05-29"],
+    ["2026-06-01", "2026-05-28"],
+    ["2026-06-07", "2026-06-04"],
+    ["2026-06-03", "2026-06-01"],
+  ])("includes pending trades before %s", (from, expected) => {
+    expect(settlementLookbackDate(from)).toBe(expected);
+  });
+  it("recognizes a prior-period purchase settling after the initial valuation", () => {
+    const result = computeReturns({
+      snapshots: [snap("2026-06-02", 1_000_000, 500_000), snap("2026-06-03", 1_000_000, 0)],
+      executions: [{ ordDt: "20260601", side: "buy", filledAmount: 500_000, cancelled: false }],
+    });
+    expect(result.twr.totalReturn).toBe(0);
+    expect(result.cashflows).toEqual([]);
   });
 });

@@ -21,6 +21,7 @@ import {
   verifyApiKey,
 } from "@/lib/api-auth";
 import { logger } from "@/lib/logger";
+import { recordSourceSuccess } from "@/modules/data-status/telemetry";
 import { parseTossNotification } from "@/modules/transaction/parser";
 
 /**
@@ -213,6 +214,8 @@ export async function POST(request: NextRequest) {
         error: parseError,
       });
     }
+
+    await recordSourceSuccess(db, userId, "toss", new Date());
 
     return NextResponse.json({ success: true, transactionParsed: parsed !== null });
   } catch (error) {

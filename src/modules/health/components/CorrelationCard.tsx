@@ -2,6 +2,7 @@
 
 import type { ActivityCorrelationDay } from "@/modules/health/types";
 import { InsightCard } from "@/modules/insights/components/primitives/InsightCard";
+import { activityObservation } from "../observation";
 import { HoverLayer } from "./HoverLayer";
 
 const GREEN = "hsl(153 70% 53%)";
@@ -21,18 +22,6 @@ function visitFill(v: number): string {
   if (v >= 7) return "hsl(210 90% 62% / 0.95)";
   if (v >= 3) return "hsl(210 80% 58% / 0.5)";
   return "hsl(210 40% 45% / 0.4)";
-}
-
-/** One data-grounded sentence: do busier-out days walk more? */
-function insight(days: ActivityCorrelationDay[]): string | null {
-  const withSteps = days.filter((d) => d.steps != null) as (ActivityCorrelationDay & {
-    steps: number;
-  })[];
-  if (withSteps.length < 3) return null;
-  const hi = withSteps.reduce((a, b) => (b.visits > a.visits ? b : a));
-  const lo = withSteps.reduce((a, b) => (b.visits < a.visits ? b : a));
-  if (hi.visits === lo.visits) return null;
-  return `외출한 장소가 많은 날일수록 걸음이 늘어납니다 — ${hi.visits}곳 방문 → ${hi.steps.toLocaleString("ko-KR")}보, ${lo.visits}곳 → ${lo.steps.toLocaleString("ko-KR")}보. 코딩 시간은 걸음과 무관하게 대체로 꾸준합니다.`;
 }
 
 function Columns({ days, active }: { days: ActivityCorrelationDay[]; active: number | null }) {
@@ -142,13 +131,24 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 export function CorrelationCard({
   days,
   isLoading,
+  error,
+  onRetry,
 }: {
   days: ActivityCorrelationDay[] | null;
   isLoading: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }) {
   return (
     <InsightCard title="연관성 · 건강 × 활동" subtitle="Cistory 교차 — 위치·코딩과 겹쳐보기">
-      {isLoading ? (
+      {error ? (
+        <div role="alert" className="py-6 text-sm">
+          {error}{" "}
+          <button type="button" onClick={onRetry} className="underline">
+            다시 시도
+          </button>
+        </div>
+      ) : isLoading ? (
         <div className="h-44 animate-pulse rounded bg-muted/30" />
       ) : !days || days.length === 0 ? (
         <div className="flex h-32 items-center justify-center text-xs text-ink-mute">
@@ -177,9 +177,9 @@ export function CorrelationCard({
               </span>
             )}
           />
-          {insight(days) ? (
+          {activityObservation(days) ? (
             <p className="mt-3.5 rounded-lg border border-hairline bg-white/[0.03] px-3 py-2.5 text-[12px] leading-relaxed text-ink-dim">
-              {insight(days)}
+              {activityObservation(days)}
             </p>
           ) : null}
         </>

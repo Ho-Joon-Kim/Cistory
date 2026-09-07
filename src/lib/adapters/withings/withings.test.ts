@@ -225,11 +225,33 @@ describe("WithingsAdapter.getMeasurements", () => {
     );
 
     const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
-    const { groups } = await adapter.getMeasurements({ accessToken: "acc", startdate: 0 });
+    await expect(adapter.getMeasurements({ accessToken: "acc", startdate: 0 })).rejects.toThrow(
+      "pagination did not advance"
+    );
 
     // Page 1 (offset 0 → 2) advances, page 2 (offset 2 → 2) does not → stop.
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(groups).toHaveLength(2);
+  });
+
+  it("sends bounded unix seconds and rejects page cap truncation", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        status: 0,
+        body: {
+          more: 1,
+          offset: fetchMock.mock.calls.length,
+          measuregrps: [],
+        },
+      })
+    );
+    const adapter = createWithingsAdapter("cid", "secret", { throttleMs: 0 });
+    await expect(
+      adapter.getMeasurements({ accessToken: "acc", startdate: 100, enddate: 200 })
+    ).rejects.toThrow("page limit");
+    expect(fetchMock).toHaveBeenCalledTimes(100);
+    const body = String(fetchMock.mock.calls[0][1]?.body);
+    expect(body).toContain("startdate=100");
+    expect(body).toContain("enddate=200");
   });
 
   it("retries a 601 rate-limit response and then succeeds", async () => {

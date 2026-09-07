@@ -1,5 +1,5 @@
 # Stage 1: Base image with Node.js and Yarn
-FROM node:22-alpine AS base
+FROM node:24.20.0-alpine AS base
 RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 WORKDIR /app
 
@@ -38,6 +38,15 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN yarn test
 
+# Chromium needs glibc; use Debian for the isolated browser regression target.
+FROM node:24.20.0-bookworm AS browser-tester
+RUN corepack enable && corepack prepare yarn@4.5.0 --activate
+WORKDIR /app
+COPY package.json yarn.lock .yarnrc.yml ./
+RUN yarn install --immutable && yarn exec playwright install --with-deps chromium
+COPY . .
+RUN BROWSER_TEST_PRODUCTION=true yarn test:browser
+
 # Stage: Integration test runner — has the full source + deps but does NOT
 # run tests at build time, unlike `tester` above. src/**/*.integration.test.ts
 # needs a real Postgres (docker-compose.test.yml), and a Docker build cannot
@@ -57,7 +66,7 @@ COPY drizzle ./drizzle
 COPY scripts/migrate.ts ./scripts/migrate.ts
 
 # Stage 4: Production runner
-FROM node:22-alpine AS runner
+FROM node:24.20.0-alpine AS runner
 WORKDIR /app
 
 # tzdata is required for Intl to resolve IANA zone names like "Asia/Seoul".

@@ -1,6 +1,7 @@
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createSummaryService } from "@/modules/summary/service";
 
 // Cron smoke: call the exported job bodies directly (the cron.schedule
 // registrations themselves are out of scope) and assert they wire the right
@@ -318,7 +319,13 @@ describe("syncAllUsers", () => {
     // ANTHROPIC_API_KEY is set by vitest.config.mts, so summaries are processed.
     expect(m.syncUserCommits).toHaveBeenCalledWith("u1", "octocat", "scheduled");
     expect(m.initialSync).not.toHaveBeenCalled();
-    expect(m.processPendingSummaries).toHaveBeenCalledWith(20, undefined, "u1");
+    expect(m.processPendingSummaries).toHaveBeenCalledWith(20);
+    expect(createSummaryService).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.any(String),
+      "u1"
+    );
   });
 
   it("runs initial sync for an uninitialized user instead of incremental", async () => {

@@ -98,6 +98,7 @@ export function CategorySpendingChart({ data }: CategorySpendingChartProps) {
             />
             {categories.map((item, index) => (
               <Bar
+                isAnimationActive={false}
                 key={item.category}
                 dataKey={item.category}
                 name={item.label}

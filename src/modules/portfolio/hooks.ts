@@ -319,6 +319,7 @@ export interface ReturnsPeriodPoint {
 }
 
 export interface ReturnsResponse {
+  coverage?: import("./return-coverage").ReturnCoverage;
   twr: {
     totalReturn: number | null;
     annualizedReturn: number | null;
@@ -336,6 +337,7 @@ export interface ReturnsResponse {
 export function useReturns(params: { accountId?: string; from?: string; to?: string }) {
   const [data, setData] = useState<ReturnsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -345,16 +347,28 @@ export function useReturns(params: { accountId?: string; from?: string; to?: str
     if (params.to) url.searchParams.set("to", params.to);
 
     setIsLoading(true);
+    setData(null);
+    setError(null);
     fetch(url.toString(), { signal: ctrl.signal })
-      .then((r) => r.json())
-      .then((d) => setData(d))
-      .catch(() => undefined)
-      .finally(() => setIsLoading(false));
+      .then(async (response) => {
+        if (!response.ok) throw new Error("수익률을 불러오지 못했습니다");
+        return response.json();
+      })
+      .then((result) => {
+        if (!ctrl.signal.aborted) setData(result);
+      })
+      .catch(() => {
+        if (!ctrl.signal.aborted)
+          setError("수익률을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setIsLoading(false);
+      });
 
     return () => ctrl.abort();
   }, [params.accountId, params.from, params.to]);
 
-  return { data, isLoading };
+  return { data, isLoading, error };
 }
 
 export async function saveTargetAllocations(

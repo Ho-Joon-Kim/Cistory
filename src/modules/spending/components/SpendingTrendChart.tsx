@@ -90,6 +90,7 @@ export function SpendingTrendChart({
               }}
             />
             <Area
+              isAnimationActive={false}
               type="monotone"
               dataKey="upper"
               stroke="none"
@@ -98,6 +99,7 @@ export function SpendingTrendChart({
               name="upper"
             />
             <Area
+              isAnimationActive={false}
               type="monotone"
               dataKey="lower"
               stroke="none"
@@ -107,6 +109,7 @@ export function SpendingTrendChart({
             />
             {activeCategories.map((category) => (
               <Line
+                isAnimationActive={false}
                 key={category}
                 type="monotone"
                 dataKey={(item: CumulativeDataPoint) =>
@@ -121,6 +124,7 @@ export function SpendingTrendChart({
               />
             ))}
             <Line
+              isAnimationActive={false}
               type="monotone"
               dataKey="actual"
               name="actual"
@@ -130,6 +134,7 @@ export function SpendingTrendChart({
               connectNulls={false}
             />
             <Line
+              isAnimationActive={false}
               type="monotone"
               dataKey="mid"
               name="mid"

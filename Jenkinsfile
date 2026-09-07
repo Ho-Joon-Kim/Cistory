@@ -64,6 +64,12 @@ pipeline {
             }
         }
 
+        stage('Browser Regression Tests') {
+            steps {
+                sh "docker build --target browser-tester -t ${IMAGE_NAME}:browser-tester ."
+            }
+        }
+
         stage('Integration Tests') {
             steps {
                 script {
@@ -118,7 +124,7 @@ pipeline {
                 // host is production's cistory-db. The guard turns that into
                 // an explicit, immediate stage failure instead.
                 //
-                // DATABASE_URL is passed to the `npx tsx scripts/migrate.ts`
+                // DATABASE_URL is passed to the `node node_modules/tsx/dist/cli.mjs scripts/migrate.ts`
                 // command only, not to the container (`-e` on `docker run`
                 // would put it in the whole process's environment, and from
                 // there vitest inherits it too). That distinction is
@@ -154,7 +160,7 @@ pipeline {
                         --network host \
                         -e TEST_DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:\${TEST_DB_PORT}/cistory_test \
                         ${IMAGE_NAME}:integration-tester \
-                        sh -c "DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:\${TEST_DB_PORT}/cistory_test npx tsx scripts/migrate.ts && npx vitest run -c vitest.integration.config.mts"
+                        sh -c "DATABASE_URL=postgresql://cistory_test:cistory_test@localhost:\${TEST_DB_PORT}/cistory_test node node_modules/tsx/dist/cli.mjs scripts/migrate.ts && node node_modules/vitest/vitest.mjs run -c vitest.integration.config.mts"
                 """
             }
             post {
@@ -213,7 +219,7 @@ pipeline {
                         --network host \
                         -e DATABASE_URL=postgresql://cistory:cistory@localhost:5432/cistory \
                         ${IMAGE_NAME}:migrator \
-                        npx tsx scripts/migrate.ts
+                        node node_modules/tsx/dist/cli.mjs scripts/migrate.ts
                 """
             }
         }
@@ -332,7 +338,7 @@ pipeline {
                 // adding a third reused tag would have evicted all of them.
                 sh """
                     docker images ${IMAGE_NAME} --format '{{.Tag}}' \
-                        | grep -vE '^(latest|tester|integration-tester|migrator)\$' \
+                        | grep -vE '^(latest|tester|browser-tester|integration-tester|migrator)\$' \
                         | sort -r \
                         | tail -n +4 \
                         | xargs -r -I {} docker rmi ${IMAGE_NAME}:{} 2>/dev/null || true

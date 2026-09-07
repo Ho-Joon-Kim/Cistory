@@ -58,6 +58,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
           ...(body.startDate != null ? { startDate: body.startDate } : {}),
           ...(body.endDate != null ? { endDate: body.endDate } : {}),
           ...(body.notes !== undefined ? { notes: body.notes } : {}),
+          // User edits become authoritative and survive automatic redetection.
+          autoDetected: false,
           updatedAt: new Date(),
         })
         .where(and(eq(trips.id, id), eq(trips.userId, user.id)))

@@ -12,9 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toLocalDateString } from "@/lib/utils";
 import { useSnapshots } from "../hooks";
 import { formatKRW, parseKstDate } from "../utils";
-import { toLocalDateString } from "@/lib/utils";
 
 const RANGES = [
   { key: "30", label: "30일", days: 30 },
@@ -168,6 +168,7 @@ export function AssetTimelineChart() {
                   }
                 />
                 <Area
+                  isAnimationActive={false}
                   type="monotone"
                   dataKey="total"
                   stroke="#2563eb"
@@ -175,6 +176,7 @@ export function AssetTimelineChart() {
                   fill="url(#totalGradient)"
                 />
                 <Area
+                  isAnimationActive={false}
                   type="monotone"
                   dataKey="purchase"
                   stroke="#94a3b8"
@@ -184,6 +186,7 @@ export function AssetTimelineChart() {
                 />
                 {showInflation && (
                   <Area
+                    isAnimationActive={false}
                     type="monotone"
                     dataKey="inflated"
                     stroke="#f97316"

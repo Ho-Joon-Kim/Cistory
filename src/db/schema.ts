@@ -1176,3 +1176,37 @@ export type HealthDailySummary = typeof healthDailySummaries.$inferSelect;
 export type NewHealthDailySummary = typeof healthDailySummaries.$inferInsert;
 export type HealthRawPage = typeof healthRawPages.$inferSelect;
 export type NewHealthRawPage = typeof healthRawPages.$inferInsert;
+
+// Recovery requests are durable and processed one KST day at a time by cron.
+export const dataRecoveryJobs = pgTable(
+  "data_recovery_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    fromDate: text("from_date").notNull(),
+    toDate: text("to_date").notNull(),
+    nextDate: text("next_date").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    error: text("error"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (t) => [index("idx_data_recovery_user_source").on(t.userId, t.source), index("idx_data_recovery_queue").on(t.status, t.leaseExpiresAt)]
+);
+
+export const sourceSyncStates = pgTable(
+  "source_sync_states",
+  {
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    lastAttemptAt: timestamp("last_attempt_at").notNull(),
+    lastSuccessAt: timestamp("last_success_at"),
+    error: text("error"),
+  },
+  (t) => [uniqueIndex("idx_source_sync_user_source").on(t.userId, t.source)]
+);

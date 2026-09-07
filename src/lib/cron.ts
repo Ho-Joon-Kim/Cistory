@@ -1,3 +1,4 @@
+import { registerDataRecoveryTask } from "@/modules/data-status/cron";
 /**
  * Cistory Cron Service
  *
@@ -274,9 +275,10 @@ async function _syncAllUsersInner() {
             const summaryService = createSummaryService(
               db,
               process.env.ANTHROPIC_API_KEY,
-              accessToken
+              accessToken,
+              user.id
             );
-            const processed = await summaryService.processPendingSummaries(20, undefined, user.id);
+            const processed = await summaryService.processPendingSummaries(20);
             if (processed > 0) {
               logger.info(`[Cron] Processed ${processed} summaries`, {
                 userId: user.id,
@@ -581,6 +583,8 @@ export async function reparseTodayNotifications() {
  * Initialize cron service
  * Should be called once when the server starts
  */
+let dataRecoveryTask: ReturnType<typeof registerDataRecoveryTask> | null = null;
+
 export function initializeCron() {
   if (isInitialized) {
     logger.info("[Cron] Already initialized. Skipping.");
@@ -604,6 +608,7 @@ export function initializeCron() {
   const TZ = "Asia/Seoul";
 
   overviewPrecomputeTask = registerOverviewPrecomputeTask(cron.schedule, TZ);
+  dataRecoveryTask = registerDataRecoveryTask(cron.schedule, TZ);
 
   cronTask = cron.schedule(
     CRON_SCHEDULE,
@@ -763,6 +768,8 @@ export function initializeCron() {
  * Used for graceful shutdown
  */
 export async function stopCron() {
+  dataRecoveryTask?.stop();
+  dataRecoveryTask = null;
   if (cronTask) {
     cronTask.stop();
     cronTask = null;

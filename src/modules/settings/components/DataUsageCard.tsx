@@ -90,7 +90,7 @@ export function DataUsageCard() {
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col md:flex-row items-center gap-4">
               {/* Pie donut chart (semi-circle) */}
               {/*
                 Semi-circle layout math:
@@ -136,6 +136,7 @@ export function DataUsageCard() {
                     }
                   />
                   <Pie
+                    isAnimationActive={false}
                     data={chartData}
                     dataKey="bytes"
                     nameKey="category"
@@ -180,7 +181,7 @@ export function DataUsageCard() {
               </ChartContainer>
 
               {/* Category list */}
-              <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="w-full flex-1 min-w-0 space-y-1.5">
                 {data!.categories.map((cat) => {
                   const pct =
                     data!.grandTotalBytes > 0

@@ -1,9 +1,10 @@
 "use client";
 
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
-import { GithubMark } from "@/components/GithubMark";
+import Link from "next/link";
 import { useEffect } from "react";
 import { toast } from "sonner";
+import { GithubMark } from "@/components/GithubMark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -129,6 +130,17 @@ export function SettingsForm() {
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="lg:col-span-2 rounded-lg border p-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">수집 상태</h2>
+          <p className="text-sm text-muted-foreground">
+            소스별 동기화 이력과 날짜별 공백을 확인하고 지원 소스를 재수집합니다.
+          </p>
+        </div>
+        <Button asChild variant="outline">
+          <Link href="/data-status">수집 상태 보기</Link>
+        </Button>
+      </div>
       {/* 데이터 용량 */}
       <div className="lg:col-span-2 [&>*]:h-full">
         <DataUsageCard />

@@ -1,92 +1,69 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-
-// Re-export the shared wire contract so existing importers of these types from
-// hooks keep working while the source of truth lives in one client-safe module.
-export type { HealthDayPoint, HealthMetricSeries, HealthSummary } from "./types";
-
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "@/lib/auth-client";
 import type { BodyResult } from "@/modules/insights/service";
 import type { ActivityCorrelationDay, HealthSummary } from "./types";
 
+export type { HealthDayPoint, HealthMetricSeries, HealthSummary } from "./types";
+
+export async function requestHealthData<T>(url: string, signal: AbortSignal): Promise<T> {
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error("건강 데이터를 불러오지 못했습니다.");
+  return response.json() as Promise<T>;
+}
+
+function useHealthQuery<T>(section: string, url: string) {
+  const { data: session } = useSession();
+  return useQuery({
+    queryKey: ["health", session?.session.id, section, url],
+    enabled: !!session?.user.id,
+    queryFn: ({ signal }) => requestHealthData<T>(url, signal),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useHealthSummary() {
-  const [summary, setSummary] = useState<HealthSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/fitbit/summary");
-      if (!res.ok) throw new Error("Failed to fetch health summary");
-      const data = (await res.json()) as HealthSummary;
-      setSummary(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  return { summary, isLoading, error, refresh };
+  const query = useHealthQuery<HealthSummary>("summary", "/api/fitbit/summary");
+  const client = useQueryClient();
+  return {
+    summary: query.data ?? null,
+    isLoading: query.isLoading,
+    error: query.error?.message ?? null,
+    refresh: () => {
+      void client.invalidateQueries({ queryKey: ["health"] });
+    },
+  };
 }
 
-/** Withings body-composition data (this year), for the 체성분 card on /health. */
 export function useBody() {
-  const [data, setData] = useState<BodyResult | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const year = new Date().getFullYear();
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/insights?section=body&year=${year}`);
-        if (!res.ok) throw new Error("failed");
-        const json = (await res.json()) as { data: BodyResult };
-        if (!cancelled) setData(json.data);
-      } catch {
-        if (!cancelled) setData(null);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return { data, isLoading };
+  const year = new Date().getFullYear();
+  const query = useHealthQuery<{ data: BodyResult }>(
+    "body",
+    `/api/insights?section=body&year=${year}`
+  );
+  return {
+    data: query.data?.data ?? null,
+    isLoading: query.isLoading,
+    error: query.error?.message ?? null,
+    refresh: () => {
+      void query.refetch();
+    },
+  };
 }
 
-/** 건강 × 활동 교차 (걸음·외출·코딩) for the last 14 days. */
 export function useActivityCorrelation() {
-  const [days, setDays] = useState<ActivityCorrelationDay[] | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/fitbit/activity-correlation");
-        if (!res.ok) throw new Error("failed");
-        const json = (await res.json()) as { days: ActivityCorrelationDay[] };
-        if (!cancelled) setDays(json.days);
-      } catch {
-        if (!cancelled) setDays(null);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return { days, isLoading };
+  const query = useHealthQuery<{ days: ActivityCorrelationDay[] }>(
+    "correlation",
+    "/api/fitbit/activity-correlation"
+  );
+  return {
+    days: query.data?.days ?? null,
+    isLoading: query.isLoading,
+    error: query.error?.message ?? null,
+    refresh: () => {
+      void query.refetch();
+    },
+  };
 }

@@ -447,8 +447,10 @@ export function Timeline({
   // Group by date and fill range
   const filledDates = useMemo(() => {
     const grouped = groupCommitsByDate(commits);
+    // Life records must have a date row even before the first GitHub commit.
+    grouped[selectedDate] ??= [];
     return fillDateRange(grouped);
-  }, [commits]);
+  }, [commits, selectedDate]);
 
   // Compute date range for daily distances
   const { dateFrom, dateTo } = useMemo(() => {
@@ -488,7 +490,12 @@ export function Timeline({
   const { stayPoints: selectedDateStayPoints } = useStayPoints(selectedDate);
 
   // Transactions for selected date
-  const { transactions: selectedDateTransactions } = useTransactionsForDate(selectedDate);
+  const {
+    transactions: selectedDateTransactions,
+    isLoading: transactionsLoading,
+    error: transactionsError,
+    refresh: refreshTransactions,
+  } = useTransactionsForDate(selectedDate);
 
   // Fallback: compute coding seconds from sessions for selected date badge
   const selectedDateSessionSeconds = useMemo(() => {
@@ -531,17 +538,21 @@ export function Timeline({
     return <TimelineSkeleton />;
   }
 
-  if (commits.length === 0) {
-    return (
-      <div className="text-center py-16 text-muted-foreground">
-        <p className="text-lg">커밋이 없습니다</p>
-        <p className="text-sm mt-2">레포지토리를 추적하면 커밋 타임라인이 여기에 표시됩니다</p>
-      </div>
-    );
-  }
-
   return (
     <div ref={containerRef} className="timeline-master-feed relative">
+      {transactionsError ? (
+        <div role="alert" className="mb-3 text-sm text-destructive">
+          {selectedDate} · {transactionsError}{" "}
+          <button type="button" onClick={refreshTransactions} className="underline">
+            다시 시도
+          </button>
+        </div>
+      ) : null}
+      {transactionsLoading ? (
+        <p role="status" className="mb-3 text-sm text-muted-foreground">
+          {selectedDate} 거래를 불러오는 중입니다.
+        </p>
+      ) : null}
       <div className="timeline-master-line" aria-hidden="true" />
       <div className="space-y-4">
         {filledDates.map((entry) => (

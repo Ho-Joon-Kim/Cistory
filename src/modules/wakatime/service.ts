@@ -8,8 +8,11 @@ import { eq, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
 import { createWakaTimeAdapter, type WakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
+import { ApiError } from "@/lib/api-handler";
+import { dateKeyToUtcMillis } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 import { sleep, toLocalDateString } from "@/lib/utils";
+import { trackSourceSync } from "@/modules/data-status/telemetry";
 
 export class WakaTimeSyncService {
   private db: Database;
@@ -26,8 +29,7 @@ export class WakaTimeSyncService {
     if (durations.length === 0) return 0;
 
     // Batch insert — one round-trip per day instead of N per-duration inserts.
-    // onConflictDoNothing + returning lets Postgres tell us exactly which rows
-    // were new, so we don't have to track individual results in JS.
+    // Durations keep growing while coding; refresh mutable fields on the stable identity.
     const now = new Date();
     const rows = durations.map((d) => ({
       userId,
@@ -44,8 +46,15 @@ export class WakaTimeSyncService {
     const result = await this.db
       .insert(codingSessions)
       .values(rows)
-      .onConflictDoNothing({
+      .onConflictDoUpdate({
         target: [codingSessions.userId, codingSessions.startedAt, codingSessions.project],
+        set: {
+          durationSeconds: sql`excluded.duration_seconds`,
+          humanAdditions: sql`excluded.human_additions`,
+          humanDeletions: sql`excluded.human_deletions`,
+          aiAdditions: sql`excluded.ai_additions`,
+          aiDeletions: sql`excluded.ai_deletions`,
+        },
       })
       .returning({ id: codingSessions.id });
 
@@ -90,7 +99,24 @@ export class WakaTimeSyncService {
     return upserted;
   }
 
-  async syncUser(
+  async recoverDay(userId: string, date: string): Promise<number> {
+    if (dateKeyToUtcMillis(date) === null) throw new ApiError(400, "올바른 날짜가 아닙니다");
+    const rows = await this.db
+      .select({ apiKey: users.wakatimeApiKey })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!rows[0]?.apiKey) throw new ApiError(409, "WakaTime 연동이 필요합니다");
+    const sessions = await this.syncDurations(userId, date);
+    await this.syncSummaries(userId, date, date);
+    return sessions;
+  }
+
+  async syncUser(userId: string) {
+    return trackSourceSync(this.db, userId, "wakatime", () => this.runUserSync(userId));
+  }
+
+  private async runUserSync(
     userId: string
   ): Promise<{ syncedDays: number; totalSessions: number; totalSummaries: number }> {
     // Catch-up window: from wakatime_last_synced_at (minus 1 day overlap) to today.

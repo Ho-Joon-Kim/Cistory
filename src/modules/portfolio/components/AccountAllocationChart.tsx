@@ -45,14 +45,15 @@ export function AccountAllocationChart({ accounts }: Props) {
                   <PieChart>
                     <ChartTooltip
                       content={<ChartTooltipContent hideLabel />}
-                      formatter={(value: number) => formatKRW(value)}
+                      formatter={(value) => formatKRW(Number(value))}
                     />
                     <Pie
+                      isAnimationActive={false}
                       data={data}
                       dataKey="value"
                       nameKey="name"
-                      innerRadius={45}
-                      outerRadius={75}
+                      innerRadius="60%"
+                      outerRadius="95%"
                       strokeWidth={2}
                     >
                       {data.map((d) => (

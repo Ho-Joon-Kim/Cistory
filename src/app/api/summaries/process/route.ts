@@ -4,13 +4,13 @@
  * Manually trigger processing of pending summaries for the authenticated user
  */
 
-import { eq, inArray, sql } from "drizzle-orm";
-import { type NextRequest, NextResponse } from "next/server";
+import { eq, sql } from "drizzle-orm";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
-import { createSummaryService } from "@/modules/summary/service";
 import { logger } from "@/lib/logger";
+import { createSummaryService } from "@/modules/summary/service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +20,10 @@ export async function POST(request: NextRequest) {
 
     // Get limit from request body (default 50)
     const body = await request.json().catch(() => ({}));
-    const limit = Math.min(body.limit ?? 50, 100); // Max 100
+    const limit = body.limit ?? 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return NextResponse.json({ error: "limit은 1~100 사이 정수여야 합니다" }, { status: 400 });
+    }
 
     // Get user's GitHub token
     const accessToken = await getGitHubToken(user.id);
@@ -31,10 +34,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const summaryService = createSummaryService(db, process.env.ANTHROPIC_API_KEY!, accessToken);
+    const summaryService = createSummaryService(
+      db,
+      process.env.ANTHROPIC_API_KEY!,
+      accessToken,
+      user.id
+    );
 
     // Process in background
-    (async () => {
+    after(async () => {
       try {
         const processed = await summaryService.processPendingSummaries(limit);
         logger.info(`[Summaries] Processed ${processed} pending summaries`, { userId: user.id });
@@ -43,7 +51,7 @@ export async function POST(request: NextRequest) {
           error: error instanceof Error ? error.message : String(error),
         });
       }
-    })();
+    });
 
     return NextResponse.json(
       {
@@ -69,36 +77,21 @@ export async function GET(request: NextRequest) {
     if (authError) return authError;
     const db = getDb();
 
-    // Get user's commit IDs
-    const userCommits = await db
-      .select({ id: commits.id })
-      .from(commits)
-      .where(eq(commits.userId, user.id));
-
-    const commitIds = userCommits.map((c) => c.id);
-
-    if (commitIds.length === 0) {
-      return NextResponse.json({
-        total: 0,
-        pending: 0,
-        processing: 0,
-        completed: 0,
-        failed: 0,
-      });
-    }
-
-    // Get summary stats
+    // Aggregate in PostgreSQL instead of materializing every commit ID and
+    // sending a potentially unbounded IN list back to the database. A left
+    // join retains the historical total (all commits, even without a summary).
     const stats = await db
       .select({
         status: commitSummaries.status,
         count: sql<number>`count(*)`,
       })
-      .from(commitSummaries)
-      .where(inArray(commitSummaries.commitId, commitIds))
+      .from(commits)
+      .leftJoin(commitSummaries, eq(commitSummaries.commitId, commits.id))
+      .where(eq(commits.userId, user.id))
       .groupBy(commitSummaries.status);
 
     const result = {
-      total: commitIds.length,
+      total: stats.reduce((total, stat) => total + Number(stat.count), 0),
       pending: 0,
       processing: 0,
       completed: 0,

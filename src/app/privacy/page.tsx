@@ -70,9 +70,10 @@ export default function PrivacyPolicyPage() {
             <li>월간·연간 개인 리포트 및 인사이트 생성</li>
           </ul>
           <p>
-            서비스는 이 데이터를 <strong>제3자에게 판매·양도·공유하지 않으며</strong>, 광고 목적으로
-            사용하지 않고, 인간이 열람하지 않으며(운영·보안·법적 요구 또는 사용자 동의 시 제외),
-            일반화된 AI/ML 모델의 학습에 사용하지 않습니다.
+            서비스는 이 데이터를 판매하거나 광고 목적으로 제공하지 않습니다. 개인 회고를 생성할 때는
+            건강 지표의 기간별 집계와 코딩·위치·소비·자산 집계를 Anthropic의 Claude API로
+            전송합니다. 광고 목적으로 사용하지 않고, 인간이 열람하지 않으며(운영·보안·법적 요구 또는
+            사용자 동의 시 제외), 일반화된 AI/ML 모델의 학습에 사용하지 않습니다.
           </p>
           <div className="rounded-lg border border-border bg-muted/40 p-4 text-foreground">
             <p className="text-sm">
@@ -94,10 +95,24 @@ export default function PrivacyPolicyPage() {
           </div>
         </Section>
 
+        <Section title="외부 AI 처리">
+          <p>
+            커밋 요약에는 커밋 메시지·변경 코드와 저장소 설명이, 소비 분류에는 거래의 분류에 필요한
+            정보가 Anthropic으로 전송됩니다. 기간 회고에는 건강·활동·소비·자산 등의 집계가
+            포함됩니다. API 키와 연동 액세스 토큰은 AI 입력에 포함하지 않습니다.
+          </p>
+          <p>
+            AI 기능은 ANTHROPIC_API_KEY가 설정된 서버에서 동작합니다. 외부 AI 전송 없이 사용하려면
+            운영 설정에서 이 키를 제거해야 합니다. 이미 생성된 요약은 별도로 삭제하기 전까지
+            남습니다.
+          </p>
+        </Section>
+
         <Section title="3. 저장·보안">
           <p>
-            연동 계정의 액세스·리프레시 토큰은 AES-256-GCM으로 암호화하여 서비스 데이터베이스에
-            저장합니다. 원본 건강 데이터 페이로드는 애플리케이션 로그나 오류 추적(Sentry)에 남기지
+            Withings·Google Health·KIS의 액세스·리프레시 토큰은 AES-256-GCM으로 암호화하여 서비스
+            데이터베이스에 저장합니다. GitHub OAuth 토큰은 Better Auth 계정 저장소에서 별도로
+            관리합니다. 원본 건강 데이터 페이로드는 애플리케이션 로그나 오류 추적(Sentry)에 남기지
             않습니다. 데이터는 운영자가 관리하는 인프라에 저장됩니다.
           </p>
         </Section>
