@@ -43,7 +43,13 @@ vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock("@/modules/data-status/telemetry", () => ({
+  recordSourceSuccess: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { transactions } from "@/db/schema";
+import { verifyApiKey } from "@/lib/api-auth";
+import { recordSourceSuccess } from "@/modules/data-status/telemetry";
 import { POST } from "./route";
 
 function postRequest(body: string): NextRequest {
@@ -55,6 +61,8 @@ function postRequest(body: string): NextRequest {
 
 describe("POST /api/toss-notifications", () => {
   beforeEach(() => {
+    vi.mocked(recordSourceSuccess).mockClear();
+    vi.mocked(verifyApiKey).mockResolvedValue({ id: "u1", tossMyName: "홍길동" });
     insertCalls.length = 0;
     selectState.rows = [];
   });
@@ -67,6 +75,12 @@ describe("POST /api/toss-notifications", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ success: true, transactionParsed: true });
 
+    expect(recordSourceSuccess).toHaveBeenCalledWith(
+      expect.anything(),
+      "u1",
+      "toss",
+      expect.any(Date)
+    );
     const txInsert = insertCalls.find((c) => c.table === transactions);
     expect(txInsert).toBeTruthy();
     expect(txInsert?.values).toMatchObject({
@@ -96,6 +110,14 @@ describe("POST /api/toss-notifications", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ transactionParsed: false });
     expect(insertCalls.some((c) => c.table === transactions)).toBe(false);
+  });
+
+  it("does not record rejected authentication as a source attempt", async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce(null);
+    const res = await POST(postRequest("{}"));
+    expect(res.status).toBe(401);
+    expect(recordSourceSuccess).not.toHaveBeenCalled();
+    expect(insertCalls).toHaveLength(0);
   });
 
   it("handles a malformed (non-JSON) payload without a 500", async () => {

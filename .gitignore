@@ -49,3 +49,7 @@ client_secret_*.json
 
 # U1 Google Health spike — holds a live refresh token (never commit)
 .google-health-spike-tokens.json
+
+# Browser regression artifacts
+/test-results/
+/playwright-report/

@@ -104,6 +104,7 @@ export class WithingsAdapter {
     accessToken: string;
     lastupdate?: number | null;
     startdate?: number;
+    enddate?: number;
     meastypes?: number[];
   }): Promise<{ groups: ParsedMeasureGroup[]; updatetime: number }> {
     const meastypes = (opts.meastypes ?? BODY_SMART_MEASURE_TYPES).join(",");
@@ -124,6 +125,7 @@ export class WithingsAdapter {
       } else {
         params.startdate = String(opts.startdate ?? 0);
       }
+      if (opts.enddate != null) params.enddate = String(opts.enddate);
       if (offset > 0) params.offset = String(offset);
 
       const body = await this.request<WithingsMeasureBody>("/measure", params, opts.accessToken);
@@ -136,19 +138,16 @@ export class WithingsAdapter {
       // infinite loop on a non-advancing offset; treating any truthy `more`
       // (not just === 1) avoids stopping early on an unexpected shape.
       const nextOffset = body.offset ?? 0;
-      more = Boolean(body.more) && nextOffset > offset;
+      if (body.more && nextOffset <= offset) {
+        throw new WithingsApiError("Measurement pagination did not advance", 0);
+      }
+      more = Boolean(body.more);
       offset = nextOffset;
       page++;
     } while (more && page < MAX_MEASURE_PAGES);
 
     if (more) {
-      // Should be unreachable for a real (solo) history — surface it if a
-      // malformed response ever pins `more` so a truncated page isn't mistaken
-      // for a complete sync.
-      logger.warn("[Withings] getmeas hit page cap; returning partial history", {
-        pages: page,
-        groups: groups.length,
-      });
+      throw new WithingsApiError("Measurement pagination exceeded page limit", 0);
     }
 
     return { groups, updatetime };

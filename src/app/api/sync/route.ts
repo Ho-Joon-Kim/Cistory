@@ -5,7 +5,7 @@
  */
 
 import { eq } from "drizzle-orm";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { syncJobs, users } from "@/db/schema";
 import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
@@ -48,10 +48,15 @@ export async function POST(request: NextRequest) {
     }
 
     const syncService = createSyncService(db, accessToken);
-    const summaryService = createSummaryService(db, process.env.ANTHROPIC_API_KEY!, accessToken);
+    const summaryService = createSummaryService(
+      db,
+      process.env.ANTHROPIC_API_KEY!,
+      accessToken,
+      user.id
+    );
 
     // Execute sync in background (respond immediately)
-    (async () => {
+    after(async () => {
       let syncJobId: string | null = null;
 
       try {
@@ -90,7 +95,7 @@ export async function POST(request: NextRequest) {
           error: error instanceof Error ? error.message : String(error),
         });
       }
-    })();
+    });
 
     return NextResponse.json(
       {

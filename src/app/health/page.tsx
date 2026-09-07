@@ -196,10 +196,20 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
             <SleepCard sessions={summary.sleepSessions} />
           </div>
           <div className="mb-8">
-            <BodyCard data={body.data} isLoading={body.isLoading} />
+            <BodyCard
+              data={body.data}
+              isLoading={body.isLoading}
+              error={body.error}
+              onRetry={body.refresh}
+            />
           </div>
           <div className="mb-8">
-            <CorrelationCard days={correlation.days} isLoading={correlation.isLoading} />
+            <CorrelationCard
+              days={correlation.days}
+              isLoading={correlation.isLoading}
+              error={correlation.error}
+              onRetry={correlation.refresh}
+            />
           </div>
 
           <Section
@@ -222,7 +232,7 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
 export default function HealthPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
-  const { summary, isLoading, refresh } = useHealthSummary();
+  const { summary, isLoading, error, refresh } = useHealthSummary();
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) {
@@ -256,6 +266,11 @@ export default function HealthPage() {
           </Button>
         </div>
 
+        {error ? (
+          <p role="alert" className="mb-4 text-sm text-destructive">
+            {error} 위의 새로고침 버튼으로 다시 시도하세요.
+          </p>
+        ) : null}
         {isLoading && !summary ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

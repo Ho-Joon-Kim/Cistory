@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   type HealthConnection,
@@ -18,7 +18,9 @@ import {
   type GoogleHealthDataPoint,
   type ListResult,
 } from "@/lib/adapters/google-health/interface";
+import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { dateKeyToUtcMillis, getKstDateWindow } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 
 // ── Tuning constants ─────────────────────────────────────────────────────────
@@ -440,7 +442,10 @@ export function buildTimeFilter(config: MetricConfig, since: Date, until?: Date)
     const lower = `${config.filterField} >= "${kstDay(since)}"`;
     if (!until) return lower;
     // Ceil: the upper bound is exclusive, so include the day `until` falls in.
-    const end = kstDay(new Date(until.getTime() + 86_400_000));
+    const midnight = getKstDateWindow(kstDay(until), kstDay(until)).start;
+    const end = kstDay(
+      new Date(until.getTime() + (until.getTime() === midnight.getTime() ? 0 : 86_400_000))
+    );
     return `${lower} AND ${config.filterField} < "${end}"`;
   }
   const lower = `${config.filterField} >= "${since.toISOString()}"`;
@@ -478,6 +483,112 @@ export class HealthSyncService {
     this.clientId = options.clientId;
     this.clientSecret = options.clientSecret;
     this.adapterOptions = options.adapterOptions;
+  }
+
+  async recoverDay(userId: string, date: string): Promise<number> {
+    if (dateKeyToUtcMillis(date) === null) throw new ApiError(400, "올바른 날짜가 아닙니다");
+    const connection = await this.getConnection(userId);
+    if (connection?.status !== "active") {
+      throw new ApiError(409, "건강 연동을 확인해 주세요");
+    }
+    const { start, end } = getKstDateWindow(date, date);
+    let total = 0;
+    for (const config of HEALTH_METRICS) {
+      const pages = await this.fetchRecoveryWindow(connection, config, start, end);
+      total += await this.replaceRecoveryWindow(connection, config, pages, start, end);
+    }
+    return total;
+  }
+
+  private async fetchRecoveryWindow(
+    connection: HealthConnection,
+    config: MetricConfig,
+    start: Date,
+    end: Date
+  ): Promise<ListResult[]> {
+    const pages: ListResult[] = [];
+    let pageToken: string | undefined;
+    do {
+      const page = await this.listPageWithAuth(
+        connection,
+        config,
+        buildTimeFilter(config, start, end),
+        pageToken
+      );
+      pages.push(page);
+      pageToken = page.nextPageToken;
+      if (pageToken && pages.length >= MAX_PAGES_PER_WINDOW) {
+        throw new ApiError(502, "건강 데이터 조회가 완료되지 않았습니다");
+      }
+    } while (pageToken);
+    return pages;
+  }
+
+  private async replaceRecoveryWindow(
+    connection: HealthConnection,
+    config: MetricConfig,
+    pages: ListResult[],
+    start: Date,
+    end: Date
+  ): Promise<number> {
+    // Only a fully fetched window can replace existing minute buckets. A source
+    // absent from the response may be device-only; never delete its history.
+    const unique = new Map<string, NewHealthSample>();
+    for (const page of pages) {
+      for (const point of page.dataPoints) {
+        const sample = parseSample(config, point);
+        if (!sample || sample.sampleAt < start || sample.sampleAt >= end) continue;
+        unique.set(JSON.stringify([sample.source, sample.sampleAt.toISOString()]), {
+          userId: connection.userId,
+          metric: config.key,
+          ...sample,
+        });
+      }
+    }
+    const rows = [...unique.values()];
+    const sources = [...new Set(rows.map((row) => row.source ?? "unknown"))];
+    await this.db.transaction(async (tx) => {
+      // Compaction takes this same lock before reading its input, so its merge
+      // cannot race a replacement and resurrect the old bucket's sample count.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`health-recovery:${connection.userId}`}, 0))`
+      );
+      const [active] = await tx
+        .select({ status: healthConnections.status })
+        .from(healthConnections)
+        .where(eq(healthConnections.userId, connection.userId))
+        .for("share");
+      if (active?.status !== "active") throw new ApiError(409, "건강 연동을 확인해 주세요");
+      if (sources.length) {
+        await tx
+          .delete(healthSamples)
+          .where(
+            and(
+              eq(healthSamples.userId, connection.userId),
+              eq(healthSamples.metric, config.key),
+              inArray(healthSamples.source, sources),
+              gte(healthSamples.sampleAt, start),
+              lt(healthSamples.sampleAt, end)
+            )
+          );
+        for (let offset = 0; offset < rows.length; offset += 500) {
+          await tx.insert(healthSamples).values(rows.slice(offset, offset + 500));
+        }
+      }
+      for (const page of pages) {
+        if (page.dataPoints.length)
+          await tx.insert(healthRawPages).values({
+            userId: connection.userId,
+            dataType: config.dataType,
+            method: "list",
+            windowStart: start,
+            windowEnd: end,
+            rawJson: page.dataPoints,
+          });
+      }
+      await this.recomputeDailySummaries(connection.userId, config, start, end, tx);
+    });
+    return rows.length;
   }
 
   private getAdapter(): GoogleHealthAdapter {
@@ -617,7 +728,7 @@ export class HealthSyncService {
     opts: { skipIfSyncedWithinMs?: number } = {}
   ): Promise<HealthSyncResult> {
     const connection = await this.getConnection(userId);
-    if (!connection || connection.status !== "active") {
+    if (connection?.status !== "active") {
       return { userId, samplesUpserted: 0, skipped: true };
     }
     if (
@@ -751,7 +862,7 @@ export class HealthSyncService {
    */
   async backfillPendingConnections(userId: string): Promise<HealthSyncResult> {
     const connection = await this.getConnection(userId);
-    if (!connection || connection.status !== "active") {
+    if (connection?.status !== "active") {
       return { userId, samplesUpserted: 0, skipped: true };
     }
 
@@ -1057,7 +1168,8 @@ export class HealthSyncService {
     userId: string,
     config: MetricConfig,
     windowStart: Date,
-    windowEnd: Date
+    windowEnd: Date,
+    executor: Pick<Database, "execute"> = this.db
   ): Promise<void> {
     // The KST day is derived in SQL (localDayRawSql form) — never the UTC day.
     const kstDay = sql.raw(localDayRawSql("sample_at"));
@@ -1078,7 +1190,7 @@ export class HealthSyncService {
     // `timestampParam` binds a JS Date through the column's own driver mapping, which
     // is the one thing guaranteed to match the builder. Same fix as 7790bb5.
     const stamp = timestampParam(healthDailySummaries.updatedAt, new Date());
-    await this.db.execute(sql`
+    await executor.execute(sql`
       WITH per_source AS (
         -- A row is either a raw sample or a compacted minute bucket carrying
         -- { min, max, n } in value_json (see modules/health/compaction.ts). Weighting

@@ -47,9 +47,8 @@ const MS_PER_DAY = 86_400_000;
 const DAYS_PER_YEAR = 365.25;
 
 // KRX uses T+2 *business-day* settlement. Without a full Korean market holiday
-// calendar we approximate by skipping weekends only. (Public holidays will
-// shift settlement by an extra day; the residual either gets re-classified as
-// noise via CASHFLOW_NOISE_THRESHOLD or washes out across multi-day periods.)
+// calendar we approximate by skipping weekends only. Public holidays can
+// cause misclassification of cashflows and inaccurate short-period returns.
 const SETTLEMENT_BUSINESS_DAYS = 2;
 
 function isoToParts(iso: string): { y: number; m: number; d: number } {
@@ -74,6 +73,17 @@ function addBusinessDaysIso(iso: string, businessDays: number): string {
     if (dow !== 0 && dow !== 6) remaining--;
   }
   return partsToIso(date.getFullYear(), date.getMonth() + 1, date.getDate());
+}
+
+/** Earliest fill needed by the same weekend-aware T+2 settlement model. */
+export function settlementLookbackDate(from: string): string {
+  const date = new Date(`${from}T00:00:00Z`);
+  let remaining = SETTLEMENT_BUSINESS_DAYS;
+  while (remaining > 0) {
+    date.setUTCDate(date.getUTCDate() - 1);
+    if (date.getUTCDay() !== 0 && date.getUTCDay() !== 6) remaining--;
+  }
+  return date.toISOString().slice(0, 10);
 }
 
 function aggregateExecutionsByDate(executions: ReturnExecution[]): Map<string, number> {
@@ -117,9 +127,8 @@ function ordDtToIso(ordDt: string): string {
  * Caveats:
  *   - Dividends/interest/taxes still pass through deposit and will be
  *     mis-classified — filtered by CASHFLOW_NOISE_THRESHOLD when small.
- *   - We approximate "settlement date" as fill date + 2 calendar days; KRX
- *     skips weekends/holidays but we don't have a calendar. Multi-day periods
- *     wash this out; very short periods around weekends may show residual.
+ *   - Settlement skips weekends, but Korean market holidays are not modeled.
+ *     Around holidays, inferred cashflows and returns can be inaccurate.
  */
 export function inferCashflows(
   snapshots: ReturnSnapshot[],

@@ -13,10 +13,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { toLocalDateString } from "@/lib/utils";
 import type { SummaryAccount } from "../hooks";
 import { useReturns } from "../hooks";
 import { formatKRW, pnlColorClass } from "../utils";
-import { toLocalDateString } from "@/lib/utils";
 
 interface Props {
   accounts: SummaryAccount[];
@@ -59,7 +59,7 @@ export function ReturnsCard({ accounts }: Props) {
     };
   }, [accountId, rangeKey]);
 
-  const { data, isLoading } = useReturns(params);
+  const { data, isLoading, error } = useReturns(params);
 
   const hasData = data && data.twr.totalReturn !== null;
   const shortPeriod = data && data.twr.days < 30;
@@ -121,13 +121,24 @@ export function ReturnsCard({ accounts }: Props) {
         </div>
       </CardHeader>
       <CardContent>
+        {data?.coverage && data.coverage.excludedDates.length > 0 && (
+          <p className="mb-4 text-xs text-muted-foreground" role="status">
+            일부 계좌 기록이 없는 {data.coverage.excludedDates.length}일을 제외했습니다. 선택한 모든
+            계좌의 기록이 있는 날짜만 비교하므로 실제 계산 기간이 짧아질 수 있습니다. 계좌별
+            수익률은 계좌를 선택해 확인할 수 있습니다.
+          </p>
+        )}
         {isLoading && !data ? (
           <div className="text-sm text-muted-foreground py-8 text-center">불러오는 중…</div>
+        ) : error ? (
+          <p className="text-sm text-destructive py-8 text-center" role="alert">
+            {error}
+          </p>
         ) : !hasData ? (
           <div className="text-sm text-muted-foreground py-8 text-center space-y-1">
             <p>계산에 필요한 스냅샷 데이터가 부족합니다 (2일 이상 필요)</p>
             <p className="text-xs">
-              수익률은 2026-05-12 기준으로 산출됩니다. 매일 동기화되면 곧 표시됩니다.
+              2026-05-12 이후 선택한 모든 계좌의 기록이 있는 날짜가 2일 이상 필요합니다.
             </p>
           </div>
         ) : (
@@ -215,8 +226,8 @@ export function ReturnsCard({ accounts }: Props) {
                       </div>
                     ))}
                     <p className="pt-1 text-[10px] text-muted-foreground">
-                      예수금·매입금액 변화로 역산한 추정치입니다. 배당/이자/수수료가 큰 경우 1~2%
-                      노이즈가 섞일 수 있습니다.
+                      예수금 변화와 체결의 결제 시점을 대조한 추정치입니다. 공휴일 결제 지연,
+                      배당·이자·수수료는 현금흐름 및 수익률에 오차를 만들 수 있습니다.
                     </p>
                   </div>
                 )}

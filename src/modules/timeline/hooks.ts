@@ -1,6 +1,9 @@
 "use client";
 
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSession } from "@/lib/auth-client";
+import { toLocalDateString } from "@/lib/utils";
 import type { TransactionItem } from "@/modules/spending/hooks";
 
 export interface Repository {
@@ -245,52 +248,37 @@ export function useTimeline(options: UseTimelineOptions = {}): UseTimelineReturn
 
 // --- Transactions for a single date (used in unified timeline) ---
 
+export function transactionsForDateOptions(sessionId: string | undefined, date: string) {
+  return queryOptions({
+    queryKey: ["transactions", sessionId, date],
+    enabled: !!sessionId && !!date,
+    queryFn: async ({ signal }): Promise<TransactionItem[]> => {
+      const params = new URLSearchParams({ from: date, to: date, limit: "100", offset: "0" });
+      const response = await fetch(`/api/spending?${params}`, { signal });
+      if (!response.ok) throw new Error("거래 내역을 불러오지 못했습니다.");
+      const data = (await response.json()) as { transactions: TransactionItem[] };
+      return data.transactions;
+    },
+    staleTime: 30_000,
+    refetchInterval: date === toLocalDateString(new Date()) ? 30_000 : false,
+    refetchOnWindowFocus: true,
+  });
+}
+
 export function useTransactionsForDate(date: string) {
-  const [transactions, setTransactions] = useState<TransactionItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const cache = useRef<Map<string, TransactionItem[]>>(new Map());
+  const { data: session } = useSession();
+  const query = useQuery(transactionsForDateOptions(session?.session.id, date));
+  return {
+    transactions: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error?.message ?? null,
+    refresh: () => {
+      void query.refetch();
+    },
+  };
+}
 
-  useEffect(() => {
-    if (!date) return;
-
-    const cached = cache.current.get(date);
-    if (cached) {
-      setTransactions(cached);
-      return;
-    }
-
-    const controller = new AbortController();
-    setIsLoading(true);
-
-    async function fetchTransactions() {
-      try {
-        const params = new URLSearchParams({
-          from: date,
-          to: date,
-          limit: "100",
-          offset: "0",
-        });
-        const response = await fetch(`/api/spending?${params}`, {
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error("Failed to fetch transactions");
-
-        const data = (await response.json()) as {
-          transactions: TransactionItem[];
-        };
-        cache.current.set(date, data.transactions);
-        setTransactions(data.transactions);
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        console.error("Failed to fetch transactions for date:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    fetchTransactions();
-    return () => controller.abort();
-  }, [date]);
-
-  return { transactions, isLoading };
+export async function startInitialSync() {
+  const response = await fetch("/api/sync", { method: "POST" });
+  if (!response.ok) throw new Error("동기화 시작에 실패했습니다");
 }

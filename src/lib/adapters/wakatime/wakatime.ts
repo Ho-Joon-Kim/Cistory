@@ -113,7 +113,9 @@ export class WakaTimeAdapter {
       ai_deletions?: number | null;
     }
 
-    const data = await this.fetch<{ data: RawDuration[] }>(`/users/current/durations?date=${date}`);
+    const data = await this.fetch<{ data: RawDuration[] }>(
+      `/users/current/durations?date=${date}&timezone=Asia%2FSeoul`
+    );
 
     return data.data.map((d) => ({
       project: d.project,
@@ -141,7 +143,7 @@ export class WakaTimeAdapter {
     }
 
     const data = await this.fetch<{ data: RawDaySummary[] }>(
-      `/users/current/summaries?start=${start}&end=${end}`
+      `/users/current/summaries?start=${start}&end=${end}&timezone=Asia%2FSeoul`
     );
 
     const mapItems = (items: RawSummaryItem[]) =>

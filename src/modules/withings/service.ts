@@ -7,7 +7,9 @@ import {
   type WithingsAdapter,
   WithingsAuthError,
 } from "@/lib/adapters/withings/interface";
+import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { dateKeyToUtcMillis, getKstDateWindow } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 
 const TOKEN_REFRESH_GRACE_MS = 60_000;
@@ -201,7 +203,7 @@ export class WithingsSyncService {
     opts: { skipIfSyncedWithinMs?: number } = {}
   ): Promise<WithingsSyncResult> {
     const connection = await this.getConnection(userId);
-    if (!connection || connection.status !== "active") {
+    if (connection?.status !== "active") {
       return { userId, measurementsUpserted: 0, skipped: true };
     }
     if (
@@ -215,10 +217,39 @@ export class WithingsSyncService {
     return this.runSync(connection, connection.lastMeasureUpdate == null);
   }
 
+  async recoverDay(userId: string, date: string): Promise<number> {
+    if (dateKeyToUtcMillis(date) === null) throw new ApiError(400, "올바른 날짜가 아닙니다");
+    const connection = await this.getConnection(userId);
+    if (connection?.status !== "active") {
+      throw new ApiError(409, "Withings 연동을 확인해 주세요");
+    }
+    const { start, end } = getKstDateWindow(date, date);
+    const result = await this.fetchGroups(connection, false, {
+      startdate: start.getTime() / 1000,
+      enddate: end.getTime() / 1000,
+    });
+    const groups = result.groups.filter((g) => g.measuredAt >= start && g.measuredAt < end);
+    if (groups.length === 0) return 0;
+    await this.db.transaction(async (tx) => {
+      for (const group of groups) {
+        const values = buildMeasurementValues(userId, group);
+        const { userId: _u, withingsGroupId: _g, ...updatable } = values;
+        await tx
+          .insert(bodyMeasurements)
+          .values(values)
+          .onConflictDoUpdate({
+            target: [bodyMeasurements.userId, bodyMeasurements.withingsGroupId],
+            set: updatable,
+          });
+      }
+    });
+    return groups.length;
+  }
+
   /** Full historical backfill (from startdate=0). Idempotent via upsert. */
   async backfillUser(userId: string): Promise<WithingsSyncResult> {
     const connection = await this.getConnection(userId);
-    if (!connection || connection.status !== "active") {
+    if (connection?.status !== "active") {
       return { userId, measurementsUpserted: 0, skipped: true };
     }
     return this.runSync(connection, true);
@@ -226,12 +257,12 @@ export class WithingsSyncService {
 
   private async fetchGroups(
     connection: WithingsConnection,
-    full: boolean
+    full: boolean,
+    window?: { startdate: number; enddate: number }
   ): Promise<{ groups: ParsedMeasureGroup[]; updatetime: number }> {
     const adapter = this.getAdapter();
-    const fetchOpts = full
-      ? { startdate: 0 as number }
-      : { lastupdate: connection.lastMeasureUpdate };
+    const fetchOpts =
+      window ?? (full ? { startdate: 0 as number } : { lastupdate: connection.lastMeasureUpdate });
     let token = await this.getValidToken(connection);
     try {
       return await adapter.getMeasurements({ accessToken: token, ...fetchOpts });

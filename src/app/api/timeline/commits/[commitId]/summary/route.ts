@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { commits } from "@/db/schema";
 import { getAuthenticatedUser, getGitHubToken } from "@/lib/auth-helpers";
-import { createSummaryService } from "@/modules/summary/service";
 import { logger } from "@/lib/logger";
+import { createSummaryService } from "@/modules/summary/service";
 
 // 요약 재생성 요청
 export async function POST(
@@ -38,13 +38,22 @@ export async function POST(
       return NextResponse.json({ error: "커밋을 찾을 수 없습니다" }, { status: 404 });
     }
 
-    const summaryService = createSummaryService(db, process.env.ANTHROPIC_API_KEY!, accessToken);
+    const summaryService = createSummaryService(
+      db,
+      process.env.ANTHROPIC_API_KEY!,
+      accessToken,
+      user.id
+    );
 
     // 비동기로 요약 생성 시작 (응답은 즉시 반환)
-    summaryService.regenerateSummary(commitId).catch((error) => {
-      logger.error("Summary regeneration failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+    after(async () => {
+      try {
+        await summaryService.regenerateSummary(commitId);
+      } catch (error) {
+        logger.error("Summary regeneration failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     });
 
     return NextResponse.json({ message: "요약 생성이 시작되었습니다" }, { status: 202 });

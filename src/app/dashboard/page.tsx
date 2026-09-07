@@ -7,14 +7,13 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseDateParam, toLocalDateString } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { MapSkeleton } from "@/modules/location/components/MapSkeleton";
 import { useSettings } from "@/modules/settings/hooks";
 import { type RecentSyncJob, SyncStatusProvider } from "@/modules/sync/hooks";
 import { Timeline } from "@/modules/timeline/components/Timeline";
-import { useRepositories, useTimeline } from "@/modules/timeline/hooks";
+import { startInitialSync, useRepositories, useTimeline } from "@/modules/timeline/hooks";
 
 const LocationMap = dynamic(
   () => import("@/modules/location/components/LocationMap").then((m) => m.LocationMap),
@@ -47,7 +46,7 @@ function DashboardContent() {
     [today]
   );
 
-  const { commits, isLoading, hasNext, loadMore, refresh } = useTimeline();
+  const { commits, isLoading, error, hasNext, loadMore, refresh } = useTimeline();
 
   const mapInitialCenter = useMemo(() => {
     if (settings?.lastLat != null && settings?.lastLon != null) {
@@ -111,58 +110,57 @@ function DashboardContent() {
 
         {/* Main content */}
         <main className="flex-1 overflow-hidden flex flex-col container mx-auto px-4 py-4">
-          {showEmptyState ? (
-            // Empty state - first time user
-            <div className="flex-1 flex items-center justify-center">
-              <Card className="max-w-md">
-                <CardHeader className="text-center">
-                  <CardTitle>커밋 동기화하기</CardTitle>
-                </CardHeader>
-                <CardContent className="text-center space-y-4">
-                  <p className="text-muted-foreground">
-                    아직 동기화된 커밋이 없습니다.
-                    <br />
-                    동기화 버튼을 눌러 GitHub 커밋을 가져오세요.
-                  </p>
-                  <Button
-                    onClick={() => {
-                      fetch("/api/sync", { method: "POST" })
-                        .then(() => {
-                          toast.success("동기화가 시작되었습니다");
-                        })
-                        .catch(() => toast.error("동기화 시작에 실패했습니다"));
-                    }}
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    커밋 동기화 시작
-                  </Button>
-                </CardContent>
-              </Card>
+          {error ? (
+            <div role="alert" className="mb-3 text-sm text-destructive">
+              커밋을 불러오지 못했습니다.{" "}
+              <button type="button" onClick={refresh} className="underline">
+                다시 시도
+              </button>
             </div>
-          ) : (
-            <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
-              {/* Map */}
-              <div className="flex-[2] min-h-0 lg:flex-1 rounded-lg overflow-hidden border">
-                <LocationMap
-                  date={selectedDate}
-                  className="h-full w-full"
-                  initialCenter={mapInitialCenter}
-                />
-              </div>
+          ) : null}
+          {showEmptyState && !error ? (
+            <div className="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-lg border p-3">
+              <p className="text-sm text-muted-foreground">
+                아직 동기화된 커밋이 없습니다. 생활 기록은 아래에서 확인하세요.
+              </p>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await startInitialSync();
+                    toast.success("동기화가 시작되었습니다");
+                  } catch {
+                    toast.error("동기화 시작에 실패했습니다");
+                  }
+                }}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                커밋 동기화
+              </Button>
+            </div>
+          ) : null}
+          <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
+            {/* Map */}
+            <div className="flex-[2] min-h-0 lg:flex-1 rounded-lg overflow-hidden border">
+              <LocationMap
+                date={selectedDate}
+                className="h-full w-full"
+                initialCenter={mapInitialCenter}
+              />
+            </div>
 
-              {/* Timeline (only scrollable area) */}
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain lg:flex-1 pt-3 lg:pl-3 timeline-scroll-container">
-                <Timeline
-                  commits={commits}
-                  isLoading={isLoading}
-                  hasNext={hasNext}
-                  onLoadMore={loadMore}
-                  selectedDate={selectedDate}
-                  onSelectedDateChange={setSelectedDate}
-                />
-              </div>
+            {/* Timeline (only scrollable area) */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain lg:flex-1 pt-3 lg:pl-3 timeline-scroll-container">
+              <Timeline
+                commits={commits}
+                isLoading={isLoading}
+                hasNext={hasNext}
+                onLoadMore={loadMore}
+                selectedDate={selectedDate}
+                onSelectedDateChange={setSelectedDate}
+              />
             </div>
-          )}
+          </div>
         </main>
       </div>
     </SyncStatusProvider>

@@ -20,6 +20,7 @@ import {
 } from "@/lib/api-auth";
 import { roundCoord } from "@/lib/geo";
 import { logger } from "@/lib/logger";
+import { recordSourceSuccess } from "@/modules/data-status/telemetry";
 
 interface OwnTracksPayload {
   _type: string;
@@ -102,6 +103,8 @@ export async function POST(request: NextRequest) {
       .update(users)
       .set({ lastLat: latest.lat, lastLon: latest.lon, updatedAt: now })
       .where(eq(users.id, userId));
+
+    await recordSourceSuccess(db, userId, "location", new Date());
 
     return emptyResponse();
   } catch (error) {

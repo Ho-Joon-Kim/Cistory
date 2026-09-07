@@ -36,7 +36,13 @@ export class SummaryService {
   private anthropicApiKey: string;
   private githubAccessToken: string;
 
-  constructor(db: Database, anthropicApiKey: string, githubAccessToken: string) {
+  constructor(
+    db: Database,
+    anthropicApiKey: string,
+    githubAccessToken: string,
+    private readonly userId: string
+  ) {
+    if (!userId) throw new Error("Summary processing requires a user");
     this.db = db;
     this.anthropicApiKey = anthropicApiKey;
     this.githubAccessToken = githubAccessToken;
@@ -55,7 +61,8 @@ export class SummaryService {
    */
   async generateSummary(
     commitId: string,
-    useEnhancedContext: boolean = true
+    useEnhancedContext: boolean = true,
+    regenerate: boolean = false
   ): Promise<SummaryResult> {
     // 커밋 정보 조회
     const commitResult = await this.db
@@ -69,7 +76,7 @@ export class SummaryService {
         repoFullName: commits.repoFullName,
       })
       .from(commits)
-      .where(eq(commits.id, commitId));
+      .where(and(eq(commits.id, commitId), eq(commits.userId, this.userId)));
 
     if (commitResult.length === 0) {
       throw new Error("Commit not found");
@@ -78,11 +85,7 @@ export class SummaryService {
     const commit = commitResult[0];
     const { owner, repo } = parseRepoFullName(commit.repoFullName);
 
-    // 요약 상태를 processing으로 업데이트
-    await this.db
-      .update(commitSummaries)
-      .set({ status: "processing", updatedAt: now() })
-      .where(eq(commitSummaries.commitId, commitId));
+    const leaseFilter = await this.claimSummary(commitId, regenerate);
 
     try {
       // diff 가져오기
@@ -165,14 +168,17 @@ export class SummaryService {
       };
 
       // 요약 저장
-      await this.db
+      const [saved] = await this.db
         .update(commitSummaries)
         .set({
           summary: result.summary,
+          errorMessage: null,
           status: "completed",
           updatedAt: now(),
         })
-        .where(eq(commitSummaries.commitId, commitId));
+        .where(leaseFilter)
+        .returning({ id: commitSummaries.id });
+      if (!saved) throw new Error("Summary processing lease expired");
 
       return result;
     } catch (error) {
@@ -190,7 +196,7 @@ export class SummaryService {
           errorMessage: errorMessage.slice(0, 1000),
           updatedAt: now(),
         })
-        .where(eq(commitSummaries.commitId, commitId));
+        .where(leaseFilter);
 
       // Visibility: the cron path used to swallow these into a console.error
       // that never reached Better Stack. Surface them.
@@ -203,6 +209,39 @@ export class SummaryService {
 
       throw error;
     }
+  }
+
+  private async claimSummary(commitId: string, regenerate: boolean) {
+    // Claim only an eligible row. Concurrent manual/cron workers race on this
+    // UPDATE; exactly one receives the lease. updatedAt fences an old worker
+    // after stale processing is reclaimed, including its failure/retry writes.
+    const lease = now();
+    const [claimed] = await this.db
+      .update(commitSummaries)
+      .set({
+        status: "processing",
+        updatedAt: lease,
+        ...(regenerate ? { retryCount: 0, errorMessage: null } : {}),
+      })
+      .where(
+        and(
+          eq(commitSummaries.commitId, commitId),
+          regenerate
+            ? sql`${commitSummaries.status} IN ('pending','failed','completed')`
+            : and(
+                sql`${commitSummaries.status} IN ('pending','failed')`,
+                lt(commitSummaries.retryCount, MAX_RETRY_COUNT)
+              )
+        )
+      )
+      .returning({ id: commitSummaries.id });
+    if (!claimed) throw new Error("Summary is already processing or not eligible");
+
+    return and(
+      eq(commitSummaries.id, claimed.id),
+      eq(commitSummaries.status, "processing"),
+      eq(commitSummaries.updatedAt, lease)
+    );
   }
 
   /**
@@ -239,42 +278,23 @@ export class SummaryService {
    * retries are handled by MAX_RETRY_COUNT inside generateSummary's catch.
    */
   async regenerateSummary(commitId: string): Promise<SummaryResult> {
-    const [summary] = await this.db
-      .select({ id: commitSummaries.id })
-      .from(commitSummaries)
-      .where(eq(commitSummaries.commitId, commitId))
-      .limit(1);
-
-    if (!summary) {
-      throw new Error("Summary record not found");
-    }
-
-    await this.db
-      .update(commitSummaries)
-      .set({
-        status: "processing",
-        retryCount: 0,
-        errorMessage: null,
-        updatedAt: now(),
-      })
-      .where(eq(commitSummaries.commitId, commitId));
-
-    return this.generateSummary(commitId);
+    return this.generateSummary(commitId, true, true);
   }
 
   /**
    * Process queued summaries (status pending or failed-but-retriable).
    *
-   * Caller can scope to a single user via `userId`; `limit` caps work per
+   * The service is always scoped to its token owner; `limit` caps work per
    * invocation so the cron tick can't spend its whole budget on one user.
    * Rows past MAX_RETRY_COUNT stay `failed` and are skipped here.
    */
   async processPendingSummaries(
     limit: number = 10,
-    onProgress?: (processed: number, total: number) => void,
-    userId?: string
+    onProgress?: (processed: number, total: number) => void
   ): Promise<number> {
-    const userFilter = userId ? eq(commits.userId, userId) : undefined;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error("Summary limit must be an integer between 1 and 100");
+    }
     const queued = await this.db
       .select({ commitId: commitSummaries.commitId })
       .from(commitSummaries)
@@ -283,7 +303,7 @@ export class SummaryService {
         and(
           sql`${commitSummaries.status} IN ('pending','failed')`,
           lt(commitSummaries.retryCount, MAX_RETRY_COUNT),
-          ...(userFilter ? [userFilter] : [])
+          eq(commits.userId, this.userId)
         )
       )
       .orderBy(commits.committedAt)
@@ -315,7 +335,8 @@ export class SummaryService {
 export function createSummaryService(
   db: Database,
   anthropicApiKey: string,
-  githubAccessToken: string
+  githubAccessToken: string,
+  userId: string
 ): SummaryService {
-  return new SummaryService(db, anthropicApiKey, githubAccessToken);
+  return new SummaryService(db, anthropicApiKey, githubAccessToken, userId);
 }

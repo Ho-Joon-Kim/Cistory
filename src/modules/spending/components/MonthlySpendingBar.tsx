@@ -71,7 +71,7 @@ export function MonthlySpendingBar({ data }: MonthlySpendingBarProps) {
                 color: "hsl(var(--foreground))",
               }}
               cursor={{ fill: "hsl(var(--muted))", opacity: 0.5 }}
-              labelFormatter={(label) => `${Number.parseInt(label, 10)}월`}
+              labelFormatter={(label) => `${Number.parseInt(String(label), 10)}월`}
               formatter={(value, name) => [
                 `${Number(value).toLocaleString("ko-KR")}원`,
                 String(name),
@@ -79,6 +79,7 @@ export function MonthlySpendingBar({ data }: MonthlySpendingBarProps) {
             />
             {activeCategories.map((category) => (
               <Bar
+                isAnimationActive={false}
                 key={category}
                 dataKey={(item: MonthlyBarDataPoint) => item.categories[category] ?? 0}
                 name={SPENDING_CATEGORY_LABELS[category]}

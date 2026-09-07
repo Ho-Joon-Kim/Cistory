@@ -126,9 +126,10 @@ export function AccountHoldingsPieChart({ accounts, latestSnapshots, positions }
                   <PieChart>
                     <ChartTooltip
                       content={<ChartTooltipContent hideLabel />}
-                      formatter={(value: number) => formatKRW(value)}
+                      formatter={(value) => formatKRW(Number(value))}
                     />
                     <Pie
+                      isAnimationActive={false}
                       data={data}
                       dataKey="value"
                       nameKey="name"

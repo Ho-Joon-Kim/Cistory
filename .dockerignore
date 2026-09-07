@@ -19,3 +19,6 @@ Jenkinsfile
 docker-compose.yml
 deploy.sh
 ecosystem.config.js
+
+test-results/
+playwright-report/

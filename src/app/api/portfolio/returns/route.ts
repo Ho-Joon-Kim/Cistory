@@ -2,10 +2,11 @@ import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { brokerageAccounts, brokerageExecutions, getDb, holdingSnapshots } from "@/db";
 import { withAuth } from "@/lib/api-handler";
+import { aggregateReturnSnapshots } from "@/modules/portfolio/return-coverage";
 import {
   computeReturns,
   type ReturnExecution,
-  type ReturnSnapshot,
+  settlementLookbackDate,
 } from "@/modules/portfolio/returns";
 
 function ymdToOrdDt(ymd: string): string {
@@ -24,6 +25,18 @@ export const GET = withAuth(async ({ user, request }) => {
   const from = url.searchParams.get("from"); // YYYY-MM-DD
   const to = url.searchParams.get("to");
 
+  const isDate = (value: string) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(`${value}T00:00:00Z`)) &&
+    new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+  if (
+    (from !== null && !isDate(from)) ||
+    (to !== null && !isDate(to)) ||
+    (from && to && from > to)
+  ) {
+    return NextResponse.json({ error: "올바른 날짜 범위를 입력해 주세요" }, { status: 400 });
+  }
+
   const db = getDb();
 
   const userAccounts = await db
@@ -31,6 +44,9 @@ export const GET = withAuth(async ({ user, request }) => {
     .from(brokerageAccounts)
     .where(eq(brokerageAccounts.userId, user.id));
   const ids = userAccounts.map((a) => a.id);
+  if (accountId && !ids.includes(accountId)) {
+    return NextResponse.json({ error: "계좌를 찾을 수 없습니다" }, { status: 404 });
+  }
   if (ids.length === 0) {
     return NextResponse.json({
       twr: { totalReturn: null, annualizedReturn: null, days: 0, periods: [] },
@@ -40,11 +56,8 @@ export const GET = withAuth(async ({ user, request }) => {
       endDate: null,
       startValue: 0,
       endValue: 0,
+      coverage: { accountCount: 0, completeDates: 0, excludedDates: [] },
     });
-  }
-
-  if (accountId && !ids.includes(accountId)) {
-    return NextResponse.json({ error: "계좌를 찾을 수 없습니다" }, { status: 404 });
   }
 
   const accountFilter = accountId
@@ -62,8 +75,11 @@ export const GET = withAuth(async ({ user, request }) => {
   snapConditions.push(gte(holdingSnapshots.asOfDate, effectiveFrom));
   if (to) snapConditions.push(lte(holdingSnapshots.asOfDate, to));
 
+  // Fills before the first valuation can still change deposit through T+2 settlement.
   const execConditions = [...execAccountFilter];
-  execConditions.push(gte(brokerageExecutions.ordDt, ymdToOrdDt(effectiveFrom)));
+  execConditions.push(
+    gte(brokerageExecutions.ordDt, ymdToOrdDt(settlementLookbackDate(effectiveFrom)))
+  );
   if (to) execConditions.push(lte(brokerageExecutions.ordDt, ymdToOrdDt(to)));
 
   const snapRows = await db
@@ -88,31 +104,7 @@ export const GET = withAuth(async ({ user, request }) => {
     .from(brokerageExecutions)
     .where(and(...execConditions));
 
-  // When accountId is null we aggregate across all user accounts by date.
-  const byDate = new Map<
-    string,
-    { totalEvalAmount: number; deposit: number; totalPurchaseAmount: number }
-  >();
-  for (const r of snapRows) {
-    const cur = byDate.get(r.asOfDate) ?? {
-      totalEvalAmount: 0,
-      deposit: 0,
-      totalPurchaseAmount: 0,
-    };
-    cur.totalEvalAmount += Number(r.totalEvalAmount);
-    cur.deposit += Number(r.deposit);
-    cur.totalPurchaseAmount += Number(r.totalPurchaseAmount);
-    byDate.set(r.asOfDate, cur);
-  }
-
-  const snapshots: ReturnSnapshot[] = Array.from(byDate.entries())
-    .map(([asOfDate, v]) => ({
-      asOfDate,
-      totalEvalAmount: v.totalEvalAmount,
-      deposit: v.deposit,
-      totalPurchaseAmount: v.totalPurchaseAmount,
-    }))
-    .sort((a, b) => a.asOfDate.localeCompare(b.asOfDate));
+  const { snapshots, coverage } = aggregateReturnSnapshots(snapRows, accountId ? [accountId] : ids);
 
   const executions: ReturnExecution[] = execRows.map((e) => ({
     ordDt: e.ordDt,
@@ -123,5 +115,5 @@ export const GET = withAuth(async ({ user, request }) => {
 
   const result = computeReturns({ snapshots, executions });
 
-  return NextResponse.json(result);
+  return NextResponse.json({ ...result, coverage });
 });

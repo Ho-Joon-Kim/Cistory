@@ -16,8 +16,8 @@ export const auth = betterAuth({
   },
   session: {
     cookieCache: {
-      enabled: true,
-      maxAge: 300,
+      // Always verify the database session so deletion revokes every device.
+      enabled: false,
     },
   },
   advanced: {
