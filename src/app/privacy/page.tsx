@@ -13,6 +13,10 @@ export const metadata: Metadata = {
 
 // EDIT ME: contact + effective date before publishing to the OAuth consent screen.
 const CONTACT_EMAIL = "liam@everex.co.kr";
+// Cloudflare must leave this React-rendered contact unchanged: its deferred
+// email decoder can otherwise race hydration. Only this source constant enters
+// the HTML; never interpolate user input or environment configuration here.
+const CONTACT_HTML = `<!--email_off--><a class="underline" href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a><!--/email_off-->`;
 const EFFECTIVE_DATE = "2026년 7월 10일";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://cistory.app";
 
@@ -146,10 +150,10 @@ export default function PrivacyPolicyPage() {
         <Section title="6. 문의 및 변경">
           <p>
             본 방침에 대한 문의는{" "}
-            <a className="underline" href={`mailto:${CONTACT_EMAIL}`}>
-              {CONTACT_EMAIL}
-            </a>
-            로 연락 주십시오. 방침이 변경되면 본 페이지({APP_URL}/privacy)를 갱신합니다.
+            {/* Raw HTML is required to emit Cloudflare's opt-out comments. */}
+            {/* biome-ignore lint/security/noDangerouslySetInnerHtml: trusted static contact markup only */}
+            <span dangerouslySetInnerHTML={{ __html: CONTACT_HTML }} />로 연락 주십시오. 방침이
+            변경되면 본 페이지({APP_URL}/privacy)를 갱신합니다.
           </p>
         </Section>
 
