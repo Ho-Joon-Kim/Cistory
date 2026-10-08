@@ -8,7 +8,8 @@ export type Bucket = "spending" | "income" | "ignore";
 
 export interface TransactionItem {
   id: string;
-  type: "withdrawal" | "deposit";
+  /** "cancel" is a 결제 취소 row; it voids the matching earlier withdrawal. */
+  type: "withdrawal" | "deposit" | "cancel";
   amount: number;
   merchant: string;
   accountName: string;

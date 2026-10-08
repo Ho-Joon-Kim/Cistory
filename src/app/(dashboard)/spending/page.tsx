@@ -64,6 +64,12 @@ import {
 
 type Tab = "transactions" | "notifications";
 
+const TYPE_LABEL: Record<string, string> = {
+  withdrawal: "출금",
+  deposit: "입금",
+  cancel: "결제 취소",
+};
+
 function getDefaultDateRange() {
   const now = new Date();
   const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -195,8 +201,8 @@ function ReparseItemRow({ item }: { item: ReparseItem }) {
           </span>
           {item.parsed && (
             <span className="text-xs text-muted-foreground">
-              {item.parsed.type === "withdrawal" ? "출금" : "입금"}{" "}
-              {formatAmount(item.parsed.amount)}원 · {item.parsed.merchant}
+              {TYPE_LABEL[item.parsed.type] ?? item.parsed.type} {formatAmount(item.parsed.amount)}
+              원 · {item.parsed.merchant}
             </span>
           )}
         </div>

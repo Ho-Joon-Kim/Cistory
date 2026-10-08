@@ -21,7 +21,7 @@ export function TransactionCard({ transaction }: TransactionCardProps) {
   return (
     <ActivityCard
       accent={isWithdrawal ? "expense" : "income"}
-      kind={isWithdrawal ? "지출" : "입금"}
+      kind={isWithdrawal ? "지출" : type === "cancel" ? "결제 취소" : "입금"}
       icon={isWithdrawal ? <ArrowUpRight size={12} /> : <ArrowDownLeft size={12} />}
       title={merchant}
       trailing={

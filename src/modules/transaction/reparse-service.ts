@@ -15,8 +15,9 @@
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import type { Database } from "@/db";
 import { notificationLogs, transactions } from "@/db/schema";
-import { parseTossNotification } from "@/modules/transaction/parser";
 import { toLocalDateString } from "@/lib/utils";
+import { parseTossNotification } from "@/modules/transaction/parser";
+import { decodeNotificationPayload } from "@/modules/transaction/payload";
 
 export type ReparseAction = "create" | "update" | "skip";
 
@@ -66,10 +67,17 @@ interface TxKey {
   amount: number;
   merchant: string;
   type: string;
+  /**
+   * Full notification body. A MacroDroid retry repeats it byte for byte, while
+   * two real same-amount purchases differ in the trailing card balance — once
+   * the parser strips that balance from `merchant`, this is what keeps
+   * back-to-back purchases (vending machines) from being dropped as dups.
+   */
+  rawText: string;
 }
 
 function txWindowKey(k: TxKey): string {
-  return `${k.ymd}:${k.type}:${k.amount}:${k.merchant}`;
+  return `${k.ymd}:${k.type}:${k.amount}:${k.merchant}:${k.rawText}`;
 }
 
 function dateToYmd(d: Date): string {
@@ -144,6 +152,7 @@ export async function reparseNotifications(
       amount: transactions.amount,
       merchant: transactions.merchant,
       accountName: transactions.accountName,
+      rawText: transactions.rawText,
       transactedAt: transactions.transactedAt,
     })
     .from(transactions)
@@ -156,6 +165,7 @@ export async function reparseNotifications(
       amount: tx.amount,
       merchant: tx.merchant,
       type: tx.type,
+      rawText: tx.rawText,
     });
     const arr = txByWindowKey.get(key);
     if (arr) arr.push({ notificationLogId: tx.notificationLogId, transactedAt: tx.transactedAt });
@@ -182,9 +192,7 @@ export async function reparseNotifications(
     let text = "";
 
     try {
-      const payload = JSON.parse(log.rawPayload);
-      title = typeof payload.title === "string" ? payload.title : "";
-      text = typeof payload.text === "string" ? payload.text : "";
+      ({ title, text } = decodeNotificationPayload(log.rawPayload));
     } catch {
       totals.skipped++;
       onItem?.({
@@ -231,7 +239,7 @@ export async function reparseNotifications(
       continue;
     }
 
-    // Duplicate check: same-amount same-merchant same-type, received within
+    // Duplicate check: same-amount same-merchant same-type same-body, received within
     // ±2min, and linked to a *different* log. Day buckets are a lookup
     // optimization only, so a window straddling local midnight must consult
     // both adjacent day buckets or 23:59/00:01 pairs dodge the check.
@@ -243,7 +251,13 @@ export async function reparseNotifications(
     const candidates = Array.from(bucketDays).flatMap(
       (ymd) =>
         txByWindowKey.get(
-          txWindowKey({ ymd, amount: parsed.amount, merchant: parsed.merchant, type: parsed.type })
+          txWindowKey({
+            ymd,
+            amount: parsed.amount,
+            merchant: parsed.merchant,
+            type: parsed.type,
+            rawText: text,
+          })
         ) ?? []
     );
     const dup = candidates.find(
@@ -309,6 +323,7 @@ export async function reparseNotifications(
       amount: parsed.amount,
       merchant: parsed.merchant,
       type: parsed.type,
+      rawText: text,
     });
     const selfArr = txByWindowKey.get(selfKey);
     const selfEntry = { notificationLogId: log.id, transactedAt: log.receivedAt };
