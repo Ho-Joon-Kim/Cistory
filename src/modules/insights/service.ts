@@ -1009,7 +1009,13 @@ export class InsightsService {
 
     for (const r of rows) {
       const m = r.transactedAt.getMonth();
-      if (r.type === "withdrawal") {
+      if (r.type === "cancel") {
+        // 결제 취소 voids an earlier withdrawal — net it out of spend.
+        totalOut -= r.amount;
+        monthlyOut[m] -= r.amount;
+        if (!merchAgg[r.merchant]) merchAgg[r.merchant] = { amount: 0, count: 0 };
+        merchAgg[r.merchant].amount -= r.amount;
+      } else if (r.type === "withdrawal") {
         totalOut += r.amount;
         monthlyOut[m] += r.amount;
         if (!merchAgg[r.merchant]) merchAgg[r.merchant] = { amount: 0, count: 0 };

@@ -23,55 +23,7 @@ import {
 import { logger } from "@/lib/logger";
 import { recordSourceSuccess } from "@/modules/data-status/telemetry";
 import { parseTossNotification } from "@/modules/transaction/parser";
-
-/**
- * MacroDroid forwards Toss notification text with literal LF/CR/TAB inside
- * JSON string values (e.g. multi-line receipts: "체크카드 | 가게\n..."), which
- * makes the payload invalid JSON. JSON.parse throws on the first 0x0a and the
- * caller's silent catch block was dropping every transaction since 4/20. This
- * scanner walks the raw bytes and escapes control chars only while inside a
- * JSON string, leaving structure ("`{`/`}`/`,`/whitespace) untouched. Cheap
- * (single pass) and never makes valid input invalid.
- */
-function sanitizeMacrodroidJson(raw: string): string {
-  let out = "";
-  let inString = false;
-  let inEscape = false;
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw[i];
-    if (inEscape) {
-      out += c;
-      inEscape = false;
-      continue;
-    }
-    if (c === "\\") {
-      out += c;
-      inEscape = true;
-      continue;
-    }
-    if (c === '"') {
-      out += c;
-      inString = !inString;
-      continue;
-    }
-    if (inString) {
-      if (c === "\n") {
-        out += "\\n";
-        continue;
-      }
-      if (c === "\r") {
-        out += "\\r";
-        continue;
-      }
-      if (c === "\t") {
-        out += "\\t";
-        continue;
-      }
-    }
-    out += c;
-  }
-  return out;
-}
+import { decodeNotificationPayload } from "@/modules/transaction/payload";
 
 export async function POST(request: NextRequest) {
   try {
@@ -136,9 +88,7 @@ export async function POST(request: NextRequest) {
     let parseTextLen = 0;
     let parseError: string | null = null;
     try {
-      const payload = JSON.parse(sanitizeMacrodroidJson(rawPayload));
-      const title = typeof payload.title === "string" ? payload.title : "";
-      const text = typeof payload.text === "string" ? payload.text : "";
+      const { title, text } = decodeNotificationPayload(rawPayload);
       parseTitleLen = title.length;
       parseTextLen = text.length;
 
@@ -158,7 +108,8 @@ export async function POST(request: NextRequest) {
           // MacroDroid retries re-deliver the same notification as a *new*
           // log row, so the (userId, notificationLogId) unique constraint
           // can't catch them — without this, every retry double-counts the
-          // spend.
+          // spend. The body must match too: retries repeat it exactly, while
+          // real back-to-back purchases differ in the trailing card balance.
           const DUP_WINDOW_MS = 2 * 60 * 1000;
           const dup = await db
             .select({ id: transactions.id })
@@ -169,6 +120,7 @@ export async function POST(request: NextRequest) {
                 eq(transactions.type, parsed.type),
                 eq(transactions.amount, parsed.amount),
                 eq(transactions.merchant, parsed.merchant),
+                eq(transactions.rawText, text),
                 gte(transactions.transactedAt, new Date(now.getTime() - DUP_WINDOW_MS)),
                 lte(transactions.transactedAt, new Date(now.getTime() + DUP_WINDOW_MS))
               )

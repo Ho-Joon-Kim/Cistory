@@ -15,8 +15,11 @@ import type { PeriodAggregateInput, PeriodAggregatePayload } from "./types";
 // (2026-08): fix/geocoding-region-fields changed `visits.city`/`country_name`
 // from address-string-split fragments (postal codes, building names) to the
 // geocoding adapters' structured region/country fields, which
-// aggregate/location.ts's `visitedRegions` reads directly.
-export const OVERVIEW_COMPUTE_VERSION = 3;
+// aggregate/location.ts's `visitedRegions` reads directly. v4 (2026-10):
+// fix/toss-transfer-parsing changed spending's `bucketSql` (pooled-account
+// deposits count only the user's own unmirrored ones; cancelled payments drop
+// out), which aggregate/spending.ts classifies with.
+export const OVERVIEW_COMPUTE_VERSION = 4;
 export const PRECOMPUTE_CLAIM_LIMIT = 5;
 export const PRECOMPUTE_MAX_ATTEMPTS = 3;
 export const PRECOMPUTE_USER_BATCH_LIMIT = 250;

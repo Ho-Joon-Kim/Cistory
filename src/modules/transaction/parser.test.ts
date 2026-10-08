@@ -93,4 +93,106 @@ describe("parseTossNotification", () => {
   it("returns null when the arrow destination is empty", () => {
     expect(parseTossNotification("6,900원 출금", "내 토스뱅크 통장 → ")).toBeNull();
   });
+
+  it("parses a bill auto-payment titled 요금납부", () => {
+    expect(parseTossNotification("요금납부 31,980원 출금", "내 토스뱅크 통장 → 9월전기료")).toEqual(
+      {
+        type: "withdrawal",
+        amount: 31980,
+        merchant: "9월전기료",
+        accountName: "내 토스뱅크 통장",
+        isSelfTransfer: false,
+      }
+    );
+  });
+
+  it("strips the trailing balance line from a card payment merchant", () => {
+    expect(
+      parseTossNotification("162,500원 결제", "토스뱅크 체크카드 | 갓포아키제주도점\n잔액 49,034원")
+    ).toEqual({
+      type: "withdrawal",
+      amount: 162500,
+      merchant: "갓포아키제주도점",
+      accountName: "토스뱅크 체크카드",
+      isSelfTransfer: false,
+    });
+    expect(
+      parseTossNotification("49,000원 결제", "토스뱅크 체크카드 | 정기과금_카카오페이 잔액 111원")
+        ?.merchant
+    ).toBe("정기과금_카카오페이");
+  });
+
+  it("keeps a merchant whose own name contains 잔액", () => {
+    expect(
+      parseTossNotification("5,000원 결제", "토스뱅크 체크카드 | 잔액부족카페")?.merchant
+    ).toBe("잔액부족카페");
+  });
+
+  it("parses a completed auto-transfer to another person as a withdrawal", () => {
+    expect(
+      parseTossNotification("200,000원 자동이체", "홍금숙님에게 200,000원이 자동이체되었어요.", {
+        myName: "김호준",
+      })
+    ).toEqual({
+      type: "withdrawal",
+      amount: 200000,
+      merchant: "홍금숙",
+      accountName: "내 토스뱅크 통장",
+      isSelfTransfer: false,
+    });
+  });
+
+  it("keeps the (모임통장) suffix on an auto-transfer recipient", () => {
+    expect(
+      parseTossNotification(
+        "100,000원 자동이체",
+        "김지현(모임통장)님에게 100,000원이 자동이체되었어요."
+      )?.merchant
+    ).toBe("김지현(모임통장)");
+  });
+
+  it("flags an auto-transfer to the user's own savings account as a self-transfer", () => {
+    expect(
+      parseTossNotification(
+        "700,000원 자동이체",
+        "김호준님에게 700,000원이 자동이체되었어요. KB청년도약계좌",
+        { myName: "김호준" }
+      )
+    ).toEqual({
+      type: "withdrawal",
+      amount: 700000,
+      merchant: "김호준",
+      accountName: "내 토스뱅크 통장",
+      isSelfTransfer: true,
+    });
+  });
+
+  it("ignores auto-transfer reminders and failures", () => {
+    expect(
+      parseTossNotification("자동이체 안내", "내일 박주성선배님에게 20,000원 보낼게요.")
+    ).toBeNull();
+    expect(
+      parseTossNotification("자동이체 실패", "박주성선배님에게 20,000원을 자동이체하지 못했어요.")
+    ).toBeNull();
+    expect(parseTossNotification("200,000원 자동이체", "내일 자동이체 예정이에요")).toBeNull();
+  });
+
+  it("parses a payment cancellation as a cancel row with the balance stripped", () => {
+    expect(
+      parseTossNotification(
+        "12,800원 결제 취소",
+        "토스뱅크 체크카드 | 카카오T택시_가승인 잔액 30,100원"
+      )
+    ).toEqual({
+      type: "cancel",
+      amount: 12800,
+      merchant: "카카오T택시_가승인",
+      accountName: "토스뱅크 체크카드",
+      isSelfTransfer: false,
+    });
+  });
+
+  it("does not parse an amount-less 결제 취소 that cannot be matched to a payment", () => {
+    expect(parseTossNotification("결제 취소", "계좌 | 한국철도공사_토스 원클릭결제")).toBeNull();
+  });
 });
