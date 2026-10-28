@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a personal life-logging application that aggregates several private data streams into one dashboard: GitHub commits with AI-powered summaries, location via OwnTracks (visit/track/transport-mode/trip/subway detection), coding activity via WakaTime, Toss financial transactions via MacroDroid push notifications (with AI expense categorization), brokerage portfolio data via the Korea Investment & Securities (KIS) API, body composition via Withings, and health/fitness (steps, heart rate, sleep, workouts) via the Google Health API (Fitbit) plus an on-device Health Connect importer. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. The reporting surface is a single `/overview` dashboard over precomputed period snapshots with AI narratives (it replaced the separate `/insights` and `/report` pages), plus a `/travel` trip browser, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and background sync via node-cron (dedicated container in production, in-process during dev), with Sentry error tracking and Better Stack structured logging.
+Cistory is a personal life-logging application that aggregates several private data streams into one dashboard: GitHub commits with AI-powered summaries, location via OwnTracks (visit/track/transport-mode/trip/subway detection), coding activity via WakaTime, Toss financial transactions via MacroDroid push notifications (with AI expense categorization), brokerage portfolio data via the Korea Investment & Securities (KIS) API, body composition via Withings, and health/fitness (steps, heart rate, sleep, workouts) via the Google Health API (Fitbit) plus an on-device Health Connect importer. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. The reporting surface is a single `/overview` dashboard over precomputed period snapshots with AI narratives (it replaced the separate `/insights` and `/report` pages), plus a `/travel` trip browser, a cross-source `/search`, a `/data-status` collection-status/recovery page, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and background sync via node-cron (dedicated container in production, in-process during dev), with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -14,6 +14,9 @@ yarn dev
 
 # Build for production
 yarn build
+
+# Type check (tsc --noEmit)
+yarn typecheck
 
 # Linting and formatting (uses Biome)
 yarn lint              # Check for lint errors
@@ -27,7 +30,7 @@ yarn db:migrate        # Run migrations
 yarn db:studio         # Open Drizzle Studio
 
 # Testing (Vitest, node environment)
-yarn test              # Run all tests once (vitest run) — no DB, ~990 tests
+yarn test              # Run all tests once (vitest run) — no DB, ~1,100 tests
 yarn test:watch        # Watch mode
 yarn test src/lib/geo.test.ts             # Run a single test file
 yarn test -t "visit detector"             # Run tests matching a name
@@ -39,6 +42,11 @@ yarn db:test:migrate    # Just apply migrations to it
 yarn db:test:down       # Tears the throwaway Postgres down when you're done
 # test:integration composes db:test:up + db:test:migrate + the suite; run those two individually
 # only when driving the throwaway DB by hand. Override TEST_DATABASE_URL to point elsewhere.
+
+# Browser regression tests (Playwright, desktop 1440×1000 + mobile 390×844)
+yarn exec playwright install chromium     # Once
+yarn test:browser                         # Dev-mode server on :3210
+BROWSER_TEST_PRODUCTION=true yarn test:browser   # Optimized build first (what Jenkins runs)
 
 # One-off operational scripts
 yarn spending:backfill-categories         # Backfill AI expense categories
@@ -52,13 +60,15 @@ yarn start             # Start production server (binds to 0.0.0.0, includes Cro
 
 Tests are colocated `*.test.ts` files (e.g. `src/lib/cron.test.ts`, `src/modules/transaction/parser.test.ts`). The `include` glob covers **`scripts/**` as well as `src/**`**, so the five `scripts/*.test.ts` files run under `yarn test` too. `vitest.config.mts` injects fake `DATABASE_URL`/auth/API-key env vars before test modules load — `src/lib/auth.ts` constructs a `pg.Pool` at module scope and most route modules transitively import it, but pool construction opens no connection, so no real DB is needed. `src/app/api/_routes-import.test.ts` is a glob-driven smoke test asserting every `src/app/api/**/route.ts` imports cleanly and exports at least one HTTP verb — it catches import-time crashes across all routes at once.
 
-**Integration tests are a separate, opt-in suite that does need a database.** Colocated `*.integration.test.ts` files (`src/db/sql.integration.test.ts`, `src/modules/location/services/subway-match/usage.integration.test.ts`) run under `vitest.integration.config.mts` against a disposable PostGIS Postgres, and execute real SQL — the properties they pin (session-timezone behavior, join direction, cross-user row isolation) are facts about Postgres, not about TypeScript, so no mock or unit test can establish them. `vitest.config.mts` explicitly excludes `*.integration.test.ts` (it would otherwise match the unit glob too, since it ends in `.test.ts`), so `yarn test` never opens a connection and stays fast and DB-free.
+**Integration tests are a separate, opt-in suite that does need a database.** Colocated `*.integration.test.ts` files (10 of them, ~32 tests: `src/db/sql`, `subway-match/usage`, `search/service`, `summary/service` (atomic claims), `data-status/{service,telemetry}`, `lib/account-deletion`, `lib/auth-compatibility` (real signed Better Auth cookies against the legacy schema), `spending/classify` (`bucketSql` mirror/cancel correlation), `transaction/reparse-service`) run under `vitest.integration.config.mts` against a disposable PostGIS Postgres, and execute real SQL — the properties they pin (session-timezone behavior, join direction, cross-user row isolation) are facts about Postgres, not about TypeScript, so no mock or unit test can establish them. `vitest.config.mts` explicitly excludes `*.integration.test.ts` (it would otherwise match the unit glob too, since it ends in `.test.ts`), so `yarn test` never opens a connection and stays fast and DB-free.
 
 `yarn test:integration` does the whole cycle: `docker compose -f docker-compose.test.yml up -d --wait` (an ephemeral, tmpfs-backed container — its own compose project, network, and port `5433`, never `cistory-db`), applies the real Drizzle migrations via `scripts/migrate.ts` against it (exercising the same migration path production uses, not a `drizzle-kit push` shortcut that could drift from the SQL actually shipped), then runs the suite. `yarn db:test:down` removes it; leaving it up between runs is fine and faster for iteration since `yarn test:integration` re-migrates idempotently on every invocation. **`docker-compose.test.yml` sets `TZ: Asia/Seoul` on the container, matching `docker-compose.yml`'s production `postgres` service exactly, and this is not cosmetic** — Postgres bakes the container's OS timezone into `postgresql.conf` as the session-default `TimeZone` GUC, and that default is the entire reason a bare `now()` in raw SQL yields KST wall time in production while everything Drizzle writes stays UTC wall time (the **Timestamps in SQL** bullets under Code Style below are the only written record of this — `src/db/sql.ts`'s header covers the UTC convention but never mentions `now()`). A test database left on UTC would make the integration suite pass while the real nine-hour trap it exists to catch stayed uncaught.
 
-Isolation is transaction-per-test (`src/db/testing/transactional-db.ts`): each test file opens one dedicated `pg.Client`, wraps every test in `BEGIN`/`ROLLBACK`, and never commits — so tests never leak state into each other regardless of execution order, without per-table cleanup code to keep in sync as tables are added. This suite is intentionally narrow (two files, both with prior incident history — see `usage.test.ts`'s own header for the defects it documents itself unable to catch) rather than a blanket integration layer over the ~50 files in `src/` that build raw SQL; extend it by adding another `*.integration.test.ts` file, not by broadening these two.
+Isolation is transaction-per-test (`src/db/testing/transactional-db.ts`): each test file opens one dedicated `pg.Client`, wraps every test in `BEGIN`/`ROLLBACK`, and never commits — so tests never leak state into each other regardless of execution order, without per-table cleanup code to keep in sync as tables are added. This suite is intentionally targeted — each file pins a Postgres-level property (timezone, tenant isolation, lease/claim races, cascade/rollback) that a mock can't — rather than a blanket integration layer over the ~50 files in `src/` that build raw SQL; extend it by adding another focused `*.integration.test.ts` file, not by broadening existing ones. Use only a disposable database for `TEST_DATABASE_URL`.
 
-Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `yarn` for all package operations.
+**Browser tests** (`tests/browser/*.spec.ts`, `playwright.config.ts`) run against `scripts/browser-server.mjs`, which copies `src/` + config into a temp dir (never `.env*`), symlinks `node_modules`, swaps `output: "standalone"` off, injects `tests/browser/chart-page.tsx` as a `/browser-charts` gallery (only in the copy, never shipped), and starts with dummy auth, an unreachable loopback DB and `DISABLE_CRON=true`. Every API call is a fixture and external requests are blocked. They cover chart geometry for all seven live recharts components, mobile width, KST date links from a non-KST browser, search, data-status recovery flows, and SSR/hydration ordering. When adding files that the app needs at boot (like `instrumentation-client.ts`), add them to the browser-server copy list too. Artifacts land in gitignored `test-results/` and `playwright-report/`.
+
+Package manager is **Yarn 4.5.0** (Berry, via Corepack, node-modules linker). Use `yarn` for all package operations. Node is pinned to **24.20.0** in `.node-version` (also `engines`, Docker); `yarn dev`/`yarn build` call `scripts/check-node-version.mjs` explicitly and exit if the running Node is older or a different major — Yarn 4 doesn't run implicit `predev`/`prebuild` hooks, so that guard must stay inline in the script.
 
 ## Architecture Overview
 
@@ -70,10 +80,11 @@ Package manager is **Yarn 4** (Berry, via Corepack, node-modules linker). Use `y
 - **Anthropic SDK** - Claude for commit summaries, period narratives, and expense categorization. `src/lib/adapters/ai/claude.ts` holds a per-model capability table (which params each model accepts) behind a single adapter; `CLAUDE_MODELS` there names the three workload models — `claude-sonnet-5` for commit summaries, `claude-opus-5` for narratives (`src/modules/overview/narrative.ts` for `/overview` and `src/modules/report/service.ts` for monthly/yearly reports), `claude-haiku-4-5` for expense categorization (`src/modules/spending/category-classifier.ts`)
 - **shadcn/ui** + **Tailwind CSS v4** - UI components and styling
 - **Biome** - Linter and formatter (replaces ESLint + Prettier)
-- **Vitest** - Test runner (colocated `*.test.ts` files, node environment)
+- **Vitest** - Test runner (colocated `*.test.ts` files, node environment); **Playwright** for browser regressions
+- **TanStack Query** - Client data fetching for transactions, health auxiliaries and collection status. `src/components/QueryProvider.tsx` keys the `QueryClient` on the Better Auth session id, so the whole cache remounts at every auth boundary (including a new session for the same user). SSE streams and map state keep their own lifecycles
 - **node-cron** - Background sync scheduler. Runs in a **dedicated cron container** in production (the web container sets `DISABLE_CRON=true`); runs in-process during `yarn dev`
 - **Mapbox GL** + **react-map-gl** - Map visualization for location tracking
-- **Sentry** (`@sentry/nextjs`) - Error tracking (server, client, edge configs)
+- **Sentry** (`@sentry/nextjs`) - Error tracking: `sentry.server.config.ts`, `sentry.edge.config.ts`, and `instrumentation-client.ts` for the browser (there is no `sentry.client.config.ts` — Turbopack needs the instrumentation-client form)
 - **Better Stack** (`@logtail/node`) - Structured logging via `src/lib/logger.ts`
 - **recharts** - Charts, pinned to `3.10.1`. The earlier 3.x rollout regressed charts; desktop/mobile production-build browser regression checks now cover all seven chart components. Keep measured containers, responsive radii and geometry assertions when changing charts
 
@@ -84,17 +95,19 @@ src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
 │   ├── (dashboard)/         # Dashboard route group (settings, repositories, spending)
-│   ├── api/                 # API routes (~80 endpoints)
+│   ├── api/                 # API routes (~83 endpoints)
 │   ├── dashboard/           # Main dashboard page
 │   ├── health/              # Health/fitness dashboard (Google Health + Withings)
 │   ├── overview/            # Unified period dashboard (recent/week/month/year)
 │   ├── travel/              # Trip list + /travel/[tripId] detail
 │   ├── portfolio/           # KIS brokerage portfolio page
+│   ├── search/              # Cross-source record search (commits/transactions/visits/trips)
+│   ├── data-status/         # Per-source collection status + date-range recovery (linked from Settings)
 │   ├── insights/, report/   # Redirect-only shims → /overview (see legacy-routes.ts)
 │   └── privacy|terms/       # Static pages required by the Google/Withings OAuth reviews
 ├── components/              # Shared components (Layout/, map/, ui/ shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (40 app tables)
+│   ├── schema.ts            # Drizzle schema (42 app tables)
 │   ├── sql.ts               # KST-aware SQL helpers (localDaySql, numericToNumber)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
@@ -117,6 +130,8 @@ src/
 │   ├── crypto.ts            # AES-256-GCM secret encryption (KIS/Withings/Google tokens)
 │   ├── oauth-state.ts       # Signed stateless OAuth state codec (per-provider context)
 │   ├── sentry-scrub.ts      # Drops raw health payloads before they reach Sentry
+│   ├── telemetry-privacy.ts # Strips /search query strings from Sentry events/spans/breadcrumbs
+│   ├── account-deletion.ts  # One-transaction delete of app rows + Better Auth session/account/user
 │   ├── data-usage.ts        # Per-user per-table row/byte estimates → dataUsageCache
 │   ├── date-key.ts          # "YYYY-MM-DD" key math + getKstDateWindow
 │   ├── hooks/               # Shared client hooks (useCountUp, useNdjsonStream, …)
@@ -129,6 +144,7 @@ src/
 │   └── utils.ts             # cn, generateId, date helpers (parseDateLocal, …)
 ├── modules/                 # Feature modules (service.ts always; hooks.ts/components/ vary)
 │   ├── auth/               # Session hook + UserMenu (Better Auth client surface)
+│   ├── data-status/        # /data-status: source status, recovery queue (recovery.ts), source sync telemetry
 │   ├── health/             # Google Health sync, Health Connect import, /health UI
 │   │                       #   compaction.ts (heart-rate minute buckets),
 │   │                       #   sessions.ts (multi-source sleep/exercise dedup)
@@ -136,6 +152,7 @@ src/
 │   ├── location/           # Location tracking + processing pipeline (services/)
 │   ├── overview/           # /overview: period snapshots, precompute, narratives, legacy redirects
 │   ├── portfolio/          # KIS brokerage portfolio (returns.ts for TWR)
+│   ├── search/             # searchRecords(): owner-scoped UNION ALL search + input parsing
 │   ├── report/             # Monthly/yearly aggregation behind /api/reports/* — server-only
 │   │                       #   (all 31 chart components + hooks.ts deleted in 45b8799)
 │   ├── settings/           # User settings + integration connection cards
@@ -211,7 +228,7 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (40 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (42 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 
 *Core / GitHub*
 - `users` - Extended user data with `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `healthImportApiKey`, `wakatimeApiKey`, `lastLat`/`lastLon`, `syncIntervalHours` (UUID PK, references Better Auth `user.id`)
@@ -253,9 +270,11 @@ const db = getDb();
 - `periodNarratives` - AI narrative per `(userId, periodType, periodKey)`, unique on that triple, `periodType` excluding `recent`. Same lease shape (`status` `pending`|`generating`|`ready`|`failed`), plus the `model` that produced it
 
 *Meta*
+- `dataRecoveryJobs` - Durable date-range recovery queue (0042): `fromDate`/`toDate`/`nextDate` are KST date-key **text**, `nextDate` is the per-day cursor; `status` `pending`|`running`|`completed`|`failed`, `attempts`, `leaseToken`/`leaseExpiresAt`. See **Collection Status & Recovery** below
+- `sourceSyncStates` - One row per `(userId, source)` (unique): `lastAttemptAt`/`lastSuccessAt`/`error`. Written by `trackSourceSync()` around pull syncs (currently WakaTime) and `recordSourceSuccess()` after successful OwnTracks/Toss ingestion. `error` is always a fixed Korean message — never a provider payload
 - `dataUsageCache` - Per-user per-table row count and estimated byte size. `estimatedBytes` is **bigint** (0036): it was `integer` until `location_points` reached 75% of int4's 2 GB ceiling, and the per-category `SUM(...)::int` in `insights/service.ts` would have thrown `integer out of range`. Cast byte sums to `::bigint`, never `::int`
 
-PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` lat/lon, while the `subway*` tables (0019/0020) use real PostGIS `geometry` columns. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (commit `a3df73a`), so don't reintroduce it. 0021 `account_roles`; 0022 brokerage tables; 0023 target allocations; 0024 backfill watermarks; 0025 transaction category columns; 0026 Withings; 0027 health; 0028 added `health_samples.source` to the unique key; 0029 `users.health_import_api_key`; 0030 `period_snapshots`; 0031 `location_heatmap_daily`; 0032 `location_processing_days`; 0033 `period_narratives`; 0034 saved-place trip exclusions + `trips.auto_detected`; 0035 relabelled Fitbit-native `health_samples.source` from `'unknown'` to `'FITBIT'` (data-only; must stay paired with the `sampleSource()` parser change, since `source` is part of the sample identity); 0036 widened `data_usage_cache.estimated_bytes` to bigint; 0037 tuned `location_points` autovacuum (scale factor 0.2 → 0.02 — the daily `SET anomaly` rewrite can never be HOT because `anomaly` sits in the `idx_location_points_not_anomaly` predicate, so the table accumulated 15% dead tuples before ever crossing the default threshold); 0038 dropped `idx_location_points_lonlat` — zero scans over the DB's whole life, because `lonlat` is only ever read as `ST_Distance(lonlat, LAG(lonlat))`, which a GiST index cannot serve. The column and its `set_lonlat` trigger stay; recreate the index if a real spatial predicate is ever added; 0039 added `location_processing_days.point_count` **and backfilled the 443 pre-0032 days** by reading the very column it retires (`anomaly IS NULL` = unscanned), which is why that backfill had to land before any reader switched over — days with even one unscanned point were deliberately left absent so the pipeline still picks them up, and `completed_at` stays NULL rather than inventing a completion time; 0040 `place_cache.region`/`country`; 0041 `segment_route_matches`
+PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` lat/lon, while the `subway*` tables (0019/0020) use real PostGIS `geometry` columns. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (commit `a3df73a`), so don't reintroduce it. 0021 `account_roles`; 0022 brokerage tables; 0023 target allocations; 0024 backfill watermarks; 0025 transaction category columns; 0026 Withings; 0027 health; 0028 added `health_samples.source` to the unique key; 0029 `users.health_import_api_key`; 0030 `period_snapshots`; 0031 `location_heatmap_daily`; 0032 `location_processing_days`; 0033 `period_narratives`; 0034 saved-place trip exclusions + `trips.auto_detected`; 0035 relabelled Fitbit-native `health_samples.source` from `'unknown'` to `'FITBIT'` (data-only; must stay paired with the `sampleSource()` parser change, since `source` is part of the sample identity); 0036 widened `data_usage_cache.estimated_bytes` to bigint; 0037 tuned `location_points` autovacuum (scale factor 0.2 → 0.02 — the daily `SET anomaly` rewrite can never be HOT because `anomaly` sits in the `idx_location_points_not_anomaly` predicate, so the table accumulated 15% dead tuples before ever crossing the default threshold); 0038 dropped `idx_location_points_lonlat` — zero scans over the DB's whole life, because `lonlat` is only ever read as `ST_Distance(lonlat, LAG(lonlat))`, which a GiST index cannot serve. The column and its `set_lonlat` trigger stay; recreate the index if a real spatial predicate is ever added; 0039 added `location_processing_days.point_count` **and backfilled the 443 pre-0032 days** by reading the very column it retires (`anomaly IS NULL` = unscanned), which is why that backfill had to land before any reader switched over — days with even one unscanned point were deliberately left absent so the pipeline still picks them up, and `completed_at` stays NULL rather than inventing a completion time; 0040 `place_cache.region`/`country`; 0041 `segment_route_matches`; 0042 `data_recovery_jobs` + `source_sync_states` (both `ON DELETE cascade` from `users`)
 
 `location_velocity_migration_20260710_backup` is a leftover backup table from a one-off data fix, not part of the schema — don't build on it. Likewise `supabase-rls-policies.sql` at the repo root: this project runs its own Postgres, nothing references that file, and it predates the current stack.
 
@@ -264,6 +283,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 - Client: `createAuthClient()` exports `signIn`, `signOut`, `useSession`
 - API catch-all route: `src/app/api/auth/[...all]/route.ts` handles login, callback, session, signout
 - Database hook: `session.create.after` syncs GitHub user data to app `users` table on each sign-in
+- `useAuth()` (`src/modules/auth/hooks.ts`) masks session data to `null` and reports `isLoading: true` until hydration (`useSyncExternalStore` server/client snapshots). `QueryProvider` starts the shared session request before a protected page's chunk loads, so without this an anonymous session that settled first made the first client render differ from SSR (React #418). Keep any new session-derived first render identical to SSR the same way
 - The GitHub access token lives **only** in Better Auth's `account` table; `getGitHubToken(userId)` is the single accessor. The cron worker filters users via `EXISTS (SELECT 1 FROM account WHERE providerId = 'github' AND accessToken IS NOT NULL)` rather than reading a column on `users`
 
 **Sync Strategy** (`src/modules/sync/service.ts`):
@@ -276,6 +296,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 | Schedule | Job | What it does |
 |---|---|---|
 | `*/10 * * * *` | `syncAllUsers` | Per-user commit sync (gated by `syncIntervalHours`), pending AI summaries (20/user), WakaTime sync, Withings sync (24h-gated), Google Health forward sync + `backfillPendingConnections`, KIS portfolio sync + `backfillPendingAccounts`, data-usage refresh, deletes sync jobs older than 7 days |
+| `* * * * *` | `data-recovery` (`src/modules/data-status/cron.ts`) | `processRecoveryQueue` — claims and recovers up to 3 days per tick from `data_recovery_jobs` |
 | `*/10 * * * *` | `categorizePendingSpending` | AI expense categorization of uncategorized transactions (100/user, Haiku) |
 | `0 23 * * *` | `reparseTodayNotifications` | Reparses today's Toss notifications to pick up parser improvements |
 | `*/5 * * * *` | `precomputeOverviewSnapshots` → `generateOverviewNarratives` | Claims leased `period_snapshots` rows and publishes them, then generates pending `period_narratives`. 5 minutes so UI-triggered recompute lands inside the client's ten-minute poll window |
@@ -285,7 +306,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 | `0 4 * * *` | `compactHealthSamples` | Compacts settled `heart_rate` rows into per-minute buckets (7 days/run, **newest first**, never touching anything under `RAW_RETENTION_DAYS`). Newest-first because density is uneven — an oldest-first walk spent its first week on sparse Samsung-era days while half the remaining rows sat in the 13 most recent Fitbit days at the back of the queue. Daily rather than in the 10-min loop because it only ever touches ranges the sync has finished with; 04:00 keeps the heavy DELETE/INSERT clear of the 01:00 location and 03:00 subway windows |
 | `0 3 1 1 *` | `runSubwayRefresh` | Yearly OSM subway refresh, plus a boot catch-up for any system older than ~350 days |
 
-Most jobs have a module-level single-flight boolean guard, but **not all** — `reparseTodayNotifications` has none, and the two overview jobs deliberately use DB leases instead (`period_snapshots`/`period_narratives` lease columns), which is what makes them safe across processes rather than merely within one. The seven booleans that do exist are `isSyncAllRunning`/`isSpendingCategoryRunning`/`isHealthCompactionRunning`/`isSubwayRefreshRunning` (`src/lib/cron.ts:39-42`), `isTripDetectionRunning` (`src/lib/trip-detection-cron.ts:8`), and `isLocationProcessingRunning`/`isRouteMatchPostProcessingRunning` (`src/modules/location/cron-processing.ts:9-10`) — the second of those is a separate guard, so a `processYesterdayLocations` run can skip route matching and still complete. `seedSubwaySystemsIfEmpty()` runs on every boot and is idempotent. Boot-time catch-up also runs location processing and overdue commit sync so a long outage auto-heals; `RUN_ON_START=true` forces an immediate `syncAllUsers`.
+Most jobs have a module-level single-flight boolean guard, but **not all** — `reparseTodayNotifications` has none, and the two overview jobs deliberately use DB leases instead (`period_snapshots`/`period_narratives` lease columns), which is what makes them safe across processes rather than merely within one. The seven booleans that do exist are `isSyncAllRunning`/`isSpendingCategoryRunning`/`isHealthCompactionRunning`/`isSubwayRefreshRunning` (`src/lib/cron.ts:40-43`), `isTripDetectionRunning` (`src/lib/trip-detection-cron.ts:8`), and `isLocationProcessingRunning`/`isRouteMatchPostProcessingRunning` (`src/modules/location/cron-processing.ts:9-10`) — the second of those is a separate guard, so a `processYesterdayLocations` run can skip route matching and still complete. The `data-recovery` task has its own closure-local `running` flag inside `registerDataRecoveryTask`, on top of DB leases. `seedSubwaySystemsIfEmpty()` runs on every boot and is idempotent. Boot-time catch-up also runs location processing and overdue commit sync so a long outage auto-heals; `RUN_ON_START=true` forces an immediate `syncAllUsers`.
 
 **Cron Initialization**: `instrumentation.ts` (project root, not `src/`) uses the Next.js instrumentation hook to call `initializeCron()` on server boot. Only runs under `NEXT_RUNTIME === 'nodejs'`, and is **skipped entirely when `DISABLE_CRON=true`**. In production the web and cron workloads are separate containers built from the same image: the web container sets `DISABLE_CRON=true`, and a dedicated cron container (no published port) leaves it unset. This split exists because cron jobs (AI summaries, location/subway processing) do multi-second synchronous CPU work that blocks the Node event loop — running them in the web process stalled all HTTP requests. **Don't move background jobs back into the web container.** Note: the ingestion rate limiter (`src/lib/api-auth.ts`) and the cron single-flight guards are in-memory, single-process state — scaling either container beyond one replica multiplies the effective rate-limit quota and breaks the guards; use a shared store (or pg advisory locks, as KIS sync already does) before adding replicas. `instrumentation.ts` also initializes Sentry — unconditionally — but registers the SIGINT/SIGTERM shutdown handlers and writes the `/tmp/cistory-cron-ready` readiness marker **only in the cron branch**, so the web container has no shutdown handler and never flushes the logger on SIGTERM.
 
@@ -312,7 +333,7 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - **Compaction** — `src/modules/health/compaction.ts` buckets settled `heart_rate` rows by minute (see the `healthSamples` note above). Compacts *closed* ranges out of stored rows rather than bucketing at ingest: a sync window can end mid-minute, so ingest-time bucketing builds one bucket twice from partial data, and an associative merge there breaks idempotency because a re-fetched window double-counts `n`. Here the contributing raw rows are deleted in the same transaction, so the merge can't double-count. `RAW_RETENTION_DAYS = 3` and `MAX_DAYS_PER_RUN = 7`.
 - **On-device import** — `/api/health-import?apikey={key}` (`src/modules/health/import.ts`) ingests raw Health Connect records pushed by a phone automation, backfilling sleep/exercise that Google's cloud sync does not carry — Google's cloud never held the Samsung-era sleep sessions at all, so this endpoint is the only route to that history. Idempotent via `onConflictDoNothing` on the `(userId, metric, sampleAt, source)` key. Its payload is raw Health Connect shape (epoch-millis times, numeric stage codes), distinct from the cloud shape; `src/modules/health/sleep.ts` normalizes both. `pickSource` falls back to `'healthconnect'`, never `'unknown'` — which is what makes `source = 'unknown'` a safe proxy for "cloud-path, unattributed". `GET /api/health-import` is a session-authed verification view.
 - **Withings** — `src/modules/withings/service.ts` syncs measurement groups incrementally off `lastMeasureUpdate`; display formatting is centralized in `src/lib/body-format.ts` so insights and reports never diverge.
-- **Privacy**: `src/lib/sentry-scrub.ts` is wired into `sentry.server.config.ts`'s `beforeSend`/`beforeSendTransaction` and drops raw health payloads (URL markers, breadcrumb data, denylisted `extra` keys). Any new field carrying health values must be added to its denylist.
+- **Privacy**: `src/lib/telemetry-privacy.ts` (`redactSearchEvent`/`redactSearchSpan`/`redactSearchBreadcrumb`) is wired into **all three** Sentry inits and strips query strings from any `/search` or `/api/search` URL in requests, referrers, breadcrumbs, child spans and the root trace context — search terms are personal data. `src/lib/sentry-scrub.ts` is wired into `sentry.server.config.ts`'s `beforeSend`/`beforeSendTransaction` and drops raw health payloads (URL markers, breadcrumb data, denylisted `extra` keys). Any new field carrying health values must be added to its denylist.
 
 **Overview** (`src/modules/overview/`) — the unified reporting surface, and the piece most likely to surprise you:
 - `/overview?periodType=&periodKey=` renders one of four period types (`recent`|`week`|`month`|`year`). `/insights`, `/report` and `/report/comparison` are **redirect-only shims**: `legacy-routes.ts` maps their old query params onto overview params. Don't add UI to those pages — they render nothing
@@ -328,11 +349,25 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - `/travel` lists trips (cursor-paginated on `(endDate, startDate, id)`) and `/travel/[tripId]` shows one, joining visits, commits, coding, spending and health for the trip window
 - `POST /api/trips/[id]/not-a-trip` is the correction path for a false positive: rather than just deleting the trip, `not-a-trip.ts` creates a `savedPlaces` exclusion around the trip's dominant visit (10 km radius, or 100 m when pinned to an existing saved place) so auto-detection stops re-detecting it on the next weekly run
 
+**Search** (`src/modules/search/`, `/search`, `GET /api/search`):
+- `searchRecords()` builds one `UNION ALL` over commits, transactions, visits (with the owner's current saved-place name) and trips, every branch filtered by `user_id`, ordered `occurred_at DESC, source, id` and paginated in Postgres (30/page, max 100 pages). `q` is a **literal** `ILIKE` — `\`, `%`, `_` are escaped
+- Range bounds are bound as `toISOString()` and cast `::timestamp` explicitly so the connection's session timezone can't reinterpret them (the integration test runs under a non-UTC session). Visits match by interval **overlap** and link to their actual start day; trips compare KST date strings directly
+- `parseSearchInput()` (`input.ts`) defaults to the last 30 KST days, caps the range at 366 days and `q` at 200 chars, and throws `ApiError(400)` with Korean messages. The route rethrows DB errors as a generic error because Drizzle errors can embed the query parameters, i.e. the search term, and responds `Cache-Control: private, no-store`
+- Result links: commits → the GitHub commit, trips → `/travel/[id]`, everything else → `/dashboard?date=` (KST day)
+
+**Collection Status & Recovery** (`src/modules/data-status/`, `/data-status`):
+- `GET /api/data-status` reports seven sources (`github`, `location`, `toss`, `wakatime`, `kis`, `withings`, `health`): connection/reauth state, `sourceSyncStates` timestamps, last record, and a per-KST-day grid over a ≤31-day range ending today. A day with zero records is `unknown`, not "empty" — only a completed recovery can mark it `checked` (`model.ts`). A connected source with no success in 48h is `stale`
+- `POST /api/data-status/recover` (202) only accepts `RECOVERABLE_SOURCES` = `wakatime`, `withings`, `health` (Google Health scalar metrics). Other sources get source-specific instructions instead — phone-only Health Connect data, sleep/exercise sessions, missed Toss notifications and historical KIS snapshots can't be re-fetched and are never fabricated
+- `enqueueRecovery` serializes per user+source with `pg_advisory_xact_lock` (409 `RECOVERY_ACTIVE` if one is pending/running). The cron worker claims one day at a time with `SKIP LOCKED` and a UUID lease token (5-min lease, heartbeat-extended), advances `nextDate`, and completes with a fenced write; abandoned jobs are retried up to 3 times. Completion or failure invalidates the affected `period_snapshots`/`period_narratives` so `/overview` recomputes
+- Health recovery stages a full metric-day response, then replaces that source's rows and rebuilds the daily summary in one transaction, sharing a per-user lock with heart-rate compaction. An empty provider response never deletes existing history
+
 **Toss Transaction Tracking**:
 - MacroDroid forwards Toss push notifications to `/api/toss-notifications?apikey={key}`
-- Raw notification stored in `notificationLogs`, then parsed by `src/modules/transaction/parser.ts` (type, amount, merchant, account name)
-- Deduplication: unique constraint on `(userId, notificationLogId)` plus a ±2 minute time-window duplicate check
+- MacroDroid sends multi-line notification text as literal LF/CR/TAB inside JSON strings, i.e. invalid JSON. `sanitizeMacrodroidJson()` (`src/modules/transaction/payload.ts`) escapes control chars only inside strings, and the ingestion route **and** `reparse-service.ts` both decode through `decodeNotificationPayload()` there — the reparse path couldn't decode any multi-line notification before they shared it
+- Raw notification stored in `notificationLogs`, then parsed by `src/modules/transaction/parser.ts` (type `deposit`/`withdrawal`/`cancel`, amount, merchant, account name, `isSelfTransfer`). Beyond card payments/transfers it parses completed 자동이체, 요금납부 출금 and "N원 결제 취소"; self auto-transfers (적금/투자) are flagged `isSelfTransfer`. The trailing card balance ("잔액 N원") is stripped from payment merchants
+- Deduplication: unique constraint on `(userId, notificationLogId)` plus a ±2 minute time-window duplicate check that **includes the notification body** — with the balance stripped from the merchant, back-to-back same-amount purchases would otherwise collapse into one
 - Daily 23:00 reparse picks up notifications that failed with older parser versions
+- **Spending buckets** (`src/modules/spending/classify.ts`): `classify()` (JS) and `bucketSql()` (SQL `CASE`, needs the `account_roles` LEFT JOIN in scope) must stay in lockstep — both resolve a row to `spending`|`income`|`ignore`. Order: `spendingOverride` → `cancel` rows ignored → a withdrawal voided by a later same-account/merchant/amount `cancel` within `CANCEL_WINDOW` (30 days, `cancelledSql()`) ignored → account role. A `spending`-role (pooled) account counts **only** the user's own deposits into it (`isSelfTransfer` or merchant = `tossMyName`) that are *not* mirrored by a same-amount withdrawal from another account (`mirrorWithdrawalExistsSql()`) — otherwise money moved in and then spent was counted twice. Changing these rules requires bumping `OVERVIEW_COMPUTE_VERSION` (now 4) so spending snapshots recompute
 - Categorization is a separate async pass: `src/modules/spending/category-classifier.ts` batches 25 transactions per Haiku call into the fixed `EXPENSE_CATEGORIES` list (`categories.ts`), records confidence/model/attempts, and never blocks ingestion
 
 **KIS Brokerage Portfolio** (`src/modules/portfolio/`):
@@ -344,7 +379,9 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 
 ### API Routes
 
-- `/api/auth/[...all]` - Better Auth catch-all; `/api/auth/disconnect` - DELETE account
+- `/api/auth/[...all]` - Better Auth catch-all; `/api/auth/disconnect` - DELETE account (`deleteAccount()` removes app rows, every session, OAuth credentials and the Better Auth user in one transaction)
+- `/api/search` - GET owner-scoped record search (`?q=&from=&to=&source=all|commit|spending|visit|trip&page=`)
+- `/api/data-status` - GET collection status (`?from=&to=`); `/api/data-status/recover` - POST enqueue recovery (202)
 - `/api/settings` - GET/PUT settings; `/api/settings/{owntracks-key,wakatime-key,toss-key,health-import-key}` - POST/DELETE API keys; `/api/settings/wakatime-sync` - manual sync; `/api/settings/data-usage`; `/api/settings/db-benchmark`; `/api/settings/location-backfill` - GET dry-run / POST re-run pipeline (SSE); `/api/settings/subway-match-backfill`; `/api/settings/transportation-reclassify`; `/api/settings/trip-regenerate`; `/api/settings/account-roles`
 - `/api/sync` - POST manual sync; `/api/sync/status`; `/api/sync/jobs`
 - `/api/timeline` - GET paginated commits; `/api/timeline/{repos,stats,current-activity}`; `/api/timeline/commits/[commitId]{,/stats,/summary}`; `/api/timeline/locations{,/stay-points,/distances,/tracks,/import}`; `/api/timeline/{coding-sessions,coding-stats}`
@@ -424,7 +461,7 @@ CI/production uses `scripts/migrate.ts` (`npx tsx scripts/migrate.ts`) rather th
 
 ### CI/CD & Deployment
 
-- **Jenkins pipeline** (`Jenkinsfile`): GitHub webhook → **Test** (`docker build --target tester`, whose `RUN yarn test` fails the build on any Vitest failure, before the image is built) → **Integration Tests** → Docker build → Drizzle migrations (separate `migrator` stage container) → deploy web + cron containers → health check against `/api/health` (15 attempts, 5s interval) → Telegram notification. Everything from Run Migrations onward is gated on `when { branch 'main' }`, so PR builds test and build but never deploy.
+- **Jenkins pipeline** (`Jenkinsfile`): GitHub webhook → **Test** (`docker build --target tester`, whose `RUN yarn test` fails the build on any Vitest failure, before the image is built) → **Browser Regression Tests** (`docker build --target browser-tester`, Debian, production-mode Playwright) → **Integration Tests** → Docker build → Drizzle migrations (separate `migrator` stage container) → deploy web + cron containers → health check against `/api/health` (15 attempts, 5s interval) → Telegram notification. Everything from Run Migrations onward is gated on `when { branch 'main' }`, so PR builds test and build but never deploy.
 - **Integration Tests stage**: `src/**/*.integration.test.ts` execute real SQL and can't run inside `docker build` the way the Test stage does — a build has no network route to a sibling service container. This stage instead mirrors the "Run Migrations" stage's own shape: build the `integration-tester` target (full source + deps, nothing run at build time), bring up `docker-compose.test.yml`'s throwaway Postgres, then `docker run --network host` the image against it, migrating then running the suite inside the container. Because this is a Multibranch Pipeline — every branch and every open PR is its own Jenkins job, so concurrent builds on the shared agent are the normal case, not an edge case — CI never uses the compose file's local-dev defaults directly: it passes `-p <BUILD_TAG, sanitized>` to scope the compose project (and, since the service has no hardcoded `container_name`, the container too) per build, and `TEST_DB_HOST_PORT=0` to get an OS-assigned ephemeral port instead of the fixed `5433` local dev uses, reading the real port back via `docker compose port` to build `TEST_DATABASE_URL`/`DATABASE_URL`. `post { always { docker compose -p ... down } }` tears down that build's own throwaway DB whether the stage passes or fails, without touching any other build's — including two builds of the *same* job, since `BUILD_TAG` carries `BUILD_NUMBER`. Ungated by branch, like Test — PRs get the same regression coverage as pushes to main. The port resolution is guarded explicitly (`docker compose port | awk ...` has no `pipefail`, so a failed lookup would otherwise leave `TEST_DB_PORT` empty and `pg.Client` would silently default to port 5432 — this host's production `cistory-db`); an empty result fails the stage immediately instead. Note `options { disableConcurrentBuilds() }` on the pipeline exists for a *different* reason than this stage — see its comment in the Jenkinsfile: it serializes the deploy path (Run Migrations/Deploy/Cleanup, which still hardcode `cistory-db` and `:latest`), not the integration database, which doesn't need it.
 - **Docker** (`Dockerfile`): multi-stage on Node 24.20.0 Alpine (browser tests use Debian) — `base → deps → builder → tester → browser-tester → integration-tester → migrator → runner`. `.env` mounted as a build secret; only `NEXT_PUBLIC_*` vars are extracted for the build. Runs as non-root `nextjs` (UID 1001), using `output: "standalone"` from `next.config.ts`
 - **Web/cron container split**: the same image runs twice — web (`cistory`, port 3000, `DISABLE_CRON=true`) and cron (`cistory-cron`, no published port). Jenkins stops/removes both on each deploy
