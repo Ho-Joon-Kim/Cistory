@@ -1,21 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "@/db";
-import { WakaTimeSyncService } from "./service";
+import { createWakaTimeSyncServiceForUser, WakaTimeSyncService } from "./service";
 
-const { getDurations } = vi.hoisted(() => ({ getDurations: vi.fn() }));
-vi.mock("@/lib/adapters/wakatime/wakatime", () => ({
-  createWakaTimeAdapter: () => ({ getDurations }),
-}));
+const getDurations = vi.fn();
+const source = { getDurations, getSummaries: vi.fn() };
 
 describe("WakaTime day recovery", () => {
   it("fetches durations and summary only for requested day without changing watermark", async () => {
-    const db = {
-      select: () => ({
-        from: () => ({ where: () => ({ limit: async () => [{ apiKey: "linked" }] }) }),
-      }),
-      update: vi.fn(),
-    };
-    const service = new WakaTimeSyncService(db as unknown as Database, "key");
+    const db = { update: vi.fn() };
+    const service = new WakaTimeSyncService(db as unknown as Database, source);
     const durations = vi.spyOn(service, "syncDurations").mockResolvedValue(2);
     const summaries = vi.spyOn(service, "syncSummaries").mockResolvedValue(1);
     expect(await service.recoverDay("u", "2026-08-01")).toBe(2);
@@ -39,7 +32,7 @@ describe("WakaTime day recovery", () => {
     const values = vi.fn(() => ({ onConflictDoUpdate: update }));
     const service = new WakaTimeSyncService(
       { insert: () => ({ values }) } as unknown as Database,
-      "key"
+      source
     );
     expect(await service.syncDurations("u", "2026-08-01")).toBe(1);
     expect(values).toHaveBeenCalledWith([expect.objectContaining({ durationSeconds: 240 })]);
@@ -54,10 +47,31 @@ describe("WakaTime day recovery", () => {
     );
   });
 
-  it("rejects invalid dates and disconnected users", async () => {
-    const db = { select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }) };
-    const service = new WakaTimeSyncService(db as unknown as Database, "key");
+  it("rejects invalid dates", async () => {
+    const service = new WakaTimeSyncService({} as unknown as Database, source);
     await expect(service.recoverDay("u", "2026-02-30")).rejects.toThrow("날짜");
-    await expect(service.recoverDay("u", "2026-08-01")).rejects.toThrow("연동");
+  });
+});
+
+describe("createWakaTimeSyncServiceForUser", () => {
+  const dbWith = (rows: unknown[]) =>
+    ({
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => rows }) }) }),
+    }) as unknown as Database;
+
+  it("returns null without an OAuth connection, even if a legacy API key exists", async () => {
+    expect(await createWakaTimeSyncServiceForUser(dbWith([]), "u")).toBeNull();
+  });
+
+  it("returns null when the connection needs re-authentication", async () => {
+    expect(
+      await createWakaTimeSyncServiceForUser(dbWith([{ status: "needs_reauth" }]), "u")
+    ).toBeNull();
+  });
+
+  it("builds a service over an active connection", async () => {
+    expect(
+      await createWakaTimeSyncServiceForUser(dbWith([{ status: "active" }]), "u")
+    ).toBeInstanceOf(WakaTimeSyncService);
   });
 });

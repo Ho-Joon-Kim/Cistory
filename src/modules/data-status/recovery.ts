@@ -6,7 +6,7 @@ import {
   healthConnections,
   periodNarratives,
   periodSnapshots,
-  users,
+  wakatimeConnections,
   withingsConnections,
 } from "@/db/schema";
 import { ApiError } from "@/lib/api-handler";
@@ -53,11 +53,11 @@ export async function enqueueRecovery(
       throw new ApiError(409, "이 소스의 재수집이 이미 진행 중입니다.", "RECOVERY_ACTIVE");
     let connected = false;
     if (source === "wakatime") {
-      const [user] = await tx
-        .select({ key: users.wakatimeApiKey })
-        .from(users)
-        .where(eq(users.id, userId));
-      connected = !!user?.key;
+      const [row] = await tx
+        .select({ status: wakatimeConnections.status })
+        .from(wakatimeConnections)
+        .where(eq(wakatimeConnections.userId, userId));
+      connected = row?.status === "active";
     } else if (source === "withings") {
       const [row] = await tx
         .select({ status: withingsConnections.status })
@@ -228,13 +228,10 @@ export async function finishRecoveryDay(
 
 async function defaultRecover(db: Database, claim: RecoveryClaim): Promise<void> {
   if (claim.source === "wakatime") {
-    const [user] = await db
-      .select({ key: users.wakatimeApiKey })
-      .from(users)
-      .where(eq(users.id, claim.userId));
-    if (!user?.key) throw new Error("Source disconnected");
-    const { createWakaTimeSyncService } = await import("@/modules/wakatime/service");
-    await createWakaTimeSyncService(db, user.key).recoverDay(claim.userId, claim.nextDate);
+    const { createWakaTimeSyncServiceForUser } = await import("@/modules/wakatime/service");
+    const service = await createWakaTimeSyncServiceForUser(db, claim.userId);
+    if (!service) throw new Error("Source disconnected");
+    await service.recoverDay(claim.userId, claim.nextDate);
   } else if (claim.source === "withings") {
     const { createWithingsSyncService } = await import("@/modules/withings/service");
     await createWithingsSyncService(db).recoverDay(claim.userId, claim.nextDate);

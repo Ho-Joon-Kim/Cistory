@@ -1,68 +1,32 @@
 /**
- * WakaTime API Key Management
+ * DEPRECATED WakaTime API-key management.
  *
- * POST /api/settings/wakatime-key - Verify and save API key
- * DELETE /api/settings/wakatime-key - Remove API key
+ * WakaTime now rejects API keys for reads ("API Keys are only for plugins, use
+ * your personal oauth token"), so WakaTime is linked via OAuth instead
+ * (/api/wakatime/authorize → /api/wakatime/callback, DELETE /api/wakatime).
+ *
+ * POST /api/settings/wakatime-key   - 410: API keys can no longer be linked
+ * DELETE /api/settings/wakatime-key - clears a leftover legacy key
  */
 
 import { eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
-import { createWakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
-import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
 export async function POST(request: NextRequest) {
-  try {
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError) return authError;
-
-    const body = (await request.json()) as { apiKey?: string };
-    const apiKey = body.apiKey?.trim();
-
-    if (!apiKey) {
-      return NextResponse.json({ error: "API 키를 입력해주세요" }, { status: 400 });
-    }
-
-    const adapter = createWakaTimeAdapter(apiKey);
-    const isValid = await adapter.verifyApiKey();
-
-    if (!isValid) {
-      return NextResponse.json({ error: "유효하지 않은 API 키입니다" }, { status: 400 });
-    }
-
-    const wakatimeUser = await adapter.getCurrentUser();
-
-    const db = getDb();
-    await db
-      .update(users)
-      .set({ wakatimeApiKey: apiKey, updatedAt: new Date() })
-      .where(eq(users.id, user.id));
-
-    // Fire-and-forget: initial sync for all commit dates
-    const syncService = createWakaTimeSyncService(db, apiKey);
-    syncService.syncAllCommitDates(user.id).catch((error) => {
-      logger.error("[WakaTime] Background initial sync failed", {
-        userId: user.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-
-    return NextResponse.json({
-      success: true,
-      wakatimeUser: {
-        displayName: wakatimeUser.displayName,
-        email: wakatimeUser.email,
-      },
-    });
-  } catch (error) {
-    logger.error("Save WakaTime key error", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return NextResponse.json({ error: "WakaTime API 키 저장에 실패했습니다" }, { status: 500 });
-  }
+  const { error: authError } = await getAuthenticatedUser(request);
+  if (authError) return authError;
+  return NextResponse.json(
+    {
+      error:
+        "WakaTime API 키 연동은 더 이상 지원되지 않습니다. 설정에서 WakaTime 계정을 연결해주세요",
+      code: "WAKATIME_OAUTH_REQUIRED",
+    },
+    { status: 410 }
+  );
 }
 
 export async function DELETE(request: NextRequest) {
@@ -70,14 +34,9 @@ export async function DELETE(request: NextRequest) {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError) return authError;
 
-    const db = getDb();
-    await db
+    await getDb()
       .update(users)
-      .set({
-        wakatimeApiKey: null,
-        wakatimeLastSyncedAt: null,
-        updatedAt: new Date(),
-      })
+      .set({ wakatimeApiKey: null, updatedAt: new Date() })
       .where(eq(users.id, user.id));
 
     return NextResponse.json({ success: true });

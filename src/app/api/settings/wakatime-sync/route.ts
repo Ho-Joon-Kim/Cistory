@@ -10,8 +10,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 import { logger } from "@/lib/logger";
+import { createWakaTimeSyncServiceForUser } from "@/modules/wakatime/service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,10 +22,7 @@ export async function GET(request: NextRequest) {
 
     const [sessionCount, dayCount, userRow, unsyncedCount] = await Promise.all([
       // Total coding sessions
-      db
-        .select({ count: count() })
-        .from(codingSessions)
-        .where(eq(codingSessions.userId, user.id)),
+      db.select({ count: count() }).from(codingSessions).where(eq(codingSessions.userId, user.id)),
 
       // Total days with stats
       db
@@ -77,19 +74,13 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
 
-    // Get user's WakaTime API key
-    const userRow = await db
-      .select({ wakatimeApiKey: users.wakatimeApiKey })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .limit(1);
-
-    const apiKey = userRow[0]?.wakatimeApiKey;
-    if (!apiKey) {
-      return NextResponse.json({ error: "WakaTime API 키가 설정되지 않았습니다" }, { status: 400 });
+    const service = await createWakaTimeSyncServiceForUser(db, user.id);
+    if (!service) {
+      return NextResponse.json(
+        { error: "WakaTime 계정이 연결되지 않았거나 다시 연결이 필요합니다" },
+        { status: 400 }
+      );
     }
-
-    const service = createWakaTimeSyncService(db, apiKey);
 
     if (mode === "initial") {
       const result = await service.syncAllCommitDates(user.id);

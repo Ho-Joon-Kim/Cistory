@@ -9,8 +9,9 @@
  *   const { POST, DELETE } = createApiKeyRoute({ column: "ownTracksApiKey", prefix: "ot_" });
  *   export { POST, DELETE };
  *
- * WakaTime is *not* a simple prefix route (external verification + initial
- * sync) and intentionally stays hand-written.
+ * WakaTime is *not* an API-key route any more: it links via OAuth
+ * (/api/wakatime/*), and /api/settings/wakatime-key only rejects new keys and
+ * clears a leftover legacy one.
  */
 
 import { randomUUID } from "node:crypto";

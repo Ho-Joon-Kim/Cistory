@@ -302,6 +302,13 @@
       "when": 1788753514284,
       "tag": "0042_data_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794239610298,
+      "tag": "0043_wakatime_oauth",
+      "breakpoints": true
     }
   ]
 }
