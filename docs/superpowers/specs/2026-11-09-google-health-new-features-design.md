@@ -531,7 +531,8 @@ INDEX (status, received_at)
    `health_raw_pages`는 지금처럼 원문을 보관한다. IRN `heartBeats`는 `health_samples`에 저장하지 않는다(원문에는 남음).
    `/overview` AI 내러티브 입력에서 ECG/IRN을 제외하고, payload 키를 sentry-scrub denylist에 추가한다.
    소유자 기기(Fitbit Air)에는 ECG가 없으므로 파서는 문서상 형태 기준으로 관대하게 만들고, 실제 형태는 재동의 후 확인한다.
-10. **세션 sync 수정(§0)**: 별도 PR(`fix/health-session-sync`)로 분리해 진행 중이다. 이 작업은 세션 코드를 건드리지 않는다.
+10. **세션 sync 수정(§0)**: 별도 PR(#55 `fix/health-session-sync`)로 먼저 머지됐다. 세션은 `SYNCED_METRICS`(= `HEALTH_METRICS` + `SESSION_CONFIGS`)로
+    스칼라와 같은 정방향/백필 경로를 탄다. 이 작업은 그 위에 rebase했고 세션 코드는 바꾸지 않는다.
 11. **롤업 백필 하한**: "가장 오래된 관측일" − 1일(제안대로).
 12. **weight/body-fat의 shealth 출처 47건**: 가져오지 않는다(Withings가 체성분을 담당).
 
