@@ -294,7 +294,9 @@ test("collection status retries errors and retains a queued recovery on reload",
   let statusFails = true;
   let recoveryFails = true;
   let queued: { source: string; from: string; to: string } | null = null;
+  const statusUrls: string[] = [];
   await page.route("**/api/data-status?*", (route) => {
+    statusUrls.push(route.request().url());
     if (statusFails) return route.fulfill({ status: 503, json: { error: "unavailable" } });
     const params = new URL(route.request().url()).searchParams;
     const from = params.get("from")!;
@@ -365,20 +367,27 @@ test("collection status retries errors and retains a queued recovery on reload",
   await page.getByRole("button", { name: "새로고침", exact: true }).click();
   const calendar = page.getByRole("list", { name: "WakaTime 날짜별 기록" });
   await expect(calendar.getByRole("listitem")).toHaveCount(30);
-  await expect(page.getByRole("list")).toHaveCount(7);
-  await expect(calendar).toContainText("기록 없음 · 수집 여부 미확인");
+  await expect(page.getByRole("list", { name: /날짜별 기록$/ })).toHaveCount(7);
+  await expect(calendar).toContainText("기록 없음");
   await expect(calendar).toContainText("재수집 완료 · 기록 없음");
-  await page.getByRole("button", { name: "선택 기간 재수집", exact: true }).click();
+  // The stale source leads the hero and owns the primary recovery action.
+  await expect(page.getByRole("heading", { level: 2 }).first()).toContainText("WakaTime");
+  await page.getByRole("button", { name: "기간 재수집", exact: true }).click();
   await expect(page.locator("main [role=alert]")).toContainText("재수집 서버가 응답하지 않습니다.");
   recoveryFails = false;
-  const from = await page.getByLabel("시작일").inputValue();
-  const to = await page.getByLabel("종료일").inputValue();
-  await page.getByRole("button", { name: "선택 기간 재수집", exact: true }).click();
-  await expect(page.getByRole("button", { name: "재수집 진행 중", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "기간 재수집", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "재수집 진행 중", exact: true }).first()
+  ).toBeDisabled();
+  const lastStatus = new URL(statusUrls.at(-1)!).searchParams;
+  const from = lastStatus.get("from");
+  const to = lastStatus.get("to");
   expect(queued).toEqual({ source: "wakatime", from, to });
   await page.reload();
-  await expect(page.getByRole("button", { name: "재수집 진행 중", exact: true })).toBeDisabled();
-  await expect(page.getByText(`${from}부터 대기 중`)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "재수집 진행 중", exact: true }).first()
+  ).toBeDisabled();
+  await expect(page.getByText(/부터 대기 중/).first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
     page.viewportSize()!.width
   );

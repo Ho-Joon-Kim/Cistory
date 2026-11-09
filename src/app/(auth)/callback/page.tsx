@@ -1,9 +1,8 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingState } from "@/components/ds";
 
 export default function CallbackPage() {
   const router = useRouter();
@@ -15,17 +14,14 @@ export default function CallbackPage() {
   }, [router]);
 
   return (
-    <main id="main" className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-xl">로그인 처리 중…</CardTitle>
-          <CardDescription>잠시만 기다려 주세요.</CardDescription>
-        </CardHeader>
-        <CardContent role="status" className="flex justify-center">
-          <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
-          <span className="sr-only">로그인 처리 중…</span>
-        </CardContent>
-      </Card>
+    <main id="main" className="flex min-h-screen items-center justify-center bg-page p-4">
+      <div className="surface flex w-full max-w-[400px] flex-col gap-4 p-6 sm:p-8">
+        <h1 className="m-0 font-serif text-2xl leading-8 font-bold tracking-[-0.02em]">
+          로그인 처리 중…
+        </h1>
+        <p className="m-0 text-sm text-ink-2">잠시만 기다려 주세요.</p>
+        <LoadingState variant="rows" rows={2} label="로그인 처리 중" />
+      </div>
     </main>
   );
 }

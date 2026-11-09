@@ -4,52 +4,53 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { GithubMark } from "@/components/GithubMark";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/modules/auth/hooks";
 
 export default function LoginPage() {
   const { signIn, isLoading } = useAuth();
 
-  const handleGitHubLogin = async () => {
-    await signIn();
-  };
-
   return (
-    <main id="main" className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Cistory</CardTitle>
-          <CardDescription>
-            GitHub 커밋 히스토리를 AI 요약과 함께
-            <br />
-            타임라인으로 확인하세요
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Button onClick={handleGitHubLogin} className="w-full" size="lg" disabled={isLoading}>
+    <div className="flex min-h-screen flex-col bg-page">
+      <header className="border-b border-line">
+        <div className="mx-auto flex h-[52px] max-w-[1440px] items-center px-page lg:h-16">
+          <span className="font-serif text-lg font-bold tracking-[-0.02em] text-ink lg:text-xl">
+            Cistory
+          </span>
+        </div>
+      </header>
+      <main id="main" className="flex flex-1 items-center justify-center px-4 py-12">
+        <div className="ds-enter surface flex w-full max-w-[400px] flex-col gap-6 p-6 sm:p-8">
+          <div className="flex flex-col gap-1.5">
+            <h1 className="m-0 font-serif text-[26px] leading-[34px] font-bold tracking-[-0.02em] sm:text-[32px] sm:leading-10">
+              로그인
+            </h1>
+            <p className="m-0 text-sm leading-[22px] text-ink-2">
+              커밋·위치·소비·건강 기록을 한 곳에 모아 하루와 기간을 돌아봐요.
+            </p>
+          </div>
+          <Button onClick={() => signIn()} className="h-11 w-full" disabled={isLoading}>
             {isLoading ? (
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              <Loader2 aria-hidden="true" className="animate-spin" />
             ) : (
-              <GithubMark className="mr-2 h-5 w-5" />
+              <GithubMark className="size-5" />
             )}
             {isLoading ? "로그인 중…" : "GitHub로 로그인"}
           </Button>
-          <p className="text-xs text-muted-foreground text-center">
-            로그인 시 레포지토리 접근 권한을 요청합니다.
-            <br />
-            비공개 레포지토리도 추적할 수 있습니다.
+          <p className="m-0 text-[13px] leading-5 text-ink-3">
+            로그인할 때 레포지토리 읽기 권한을 요청해요. 비공개 레포지토리의 커밋도 기록할 수
+            있어요.
           </p>
-          <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
-            <Link href="/privacy" className="hover:underline">
+          <div className="flex items-center gap-3 border-t border-line pt-4 text-xs text-ink-3">
+            <Link href="/privacy" className="text-ink-2 hover:underline">
               개인정보처리방침
             </Link>
-            <span aria-hidden>·</span>
-            <Link href="/terms" className="hover:underline">
+            <span aria-hidden="true">·</span>
+            <Link href="/terms" className="text-ink-2 hover:underline">
               이용약관
             </Link>
           </div>
-        </CardContent>
-      </Card>
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }
