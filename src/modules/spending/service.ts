@@ -68,6 +68,7 @@ export class SpendingTrendService {
     // Build monthly bars (include current month)
     const monthlyBars: MonthlyBarDataPoint[] = monthlyTotals.map((m) => ({
       month: m.month.slice(5), // "MM"
+      key: m.month,
       total: m.total,
       isCurrent: m.month === currentMonthKey,
       categories: m.categories ?? {},
@@ -78,6 +79,7 @@ export class SpendingTrendService {
     if (!monthlyTotals.some((m) => m.month === currentMonthKey)) {
       monthlyBars.push({
         month: currentMonthKey.slice(5),
+        key: currentMonthKey,
         total: currentMonthTotal,
         isCurrent: true,
         categories: {},
@@ -95,6 +97,9 @@ export class SpendingTrendService {
         todayDayNumber,
         daysInMonth,
         currentMonthActualTotal: currentMonthTotal,
+        oneOffTotal: forecastResult.oneOffTotal,
+        oneOffCount: forecastResult.oneOffCount,
+        oneOffThreshold: forecastResult.oneOffThreshold,
       },
     };
   }
