@@ -553,6 +553,21 @@ INDEX (status, received_at)
 - 마이그레이션 번호: 이 PR을 쓰는 동안 main에 `0043_narrative_input_hash`·`0044_wakatime_oauth`가 먼저 들어가서, `health_user_id`
   마이그레이션은 main 위로 다시 쌓으면서 `yarn db:generate`로 `0045_health_user_id`로 재생성했다(SQL은 원래 0043과 동일).
 
+**PR B — 웹훅**
+- `health_webhook_events.record_id`는 nullable + `coalesce` 표현식 인덱스 대신 `NOT NULL DEFAULT ''`로 두고 평범한 unique 인덱스를 쓴다(의미는 같다).
+  행은 알림 항목이 아니라 **interval 하나당 1행**이다.
+- **재전송 처리(설계보다 보수적)**: 같은 키로 다시 들어오면 `ON CONFLICT`가 행을 새로 만들지 않는다. 대신 done/failed였던 행을 `pending`으로 되돌린다.
+  일별 interval("오늘의 steps")은 하루 동안 값이 바뀌며 반복해서 알림이 오는데, `DO NOTHING`이면 첫 처리 이후의 갱신을 놓치기 때문이다.
+  처리 중에 재전송이 오면 `received_at > claimed_at`이 되어 완료 대신 다시 큐에 들어간다. `claimed_at`/`processed_at` 컬럼을 추가했다.
+- 소비자의 `/overview` 무효화는 **과거 KST 날짜에 닿은 창만** 처리하고 **스냅샷만** 무효화한다(`invalidateRecoveredPeriods(…, { narratives: false })`).
+  오늘 데이터는 활성 기간이라 precompute가 알아서 갱신한다. heart-rate 알림이 분 단위로 오므로 매번 연도 스냅샷과 Opus 내러티브를 다시 만드는 것을 피했다.
+- `sleep`/`exercise` 알림도 #55 이후로는 스칼라와 같이 알림 구간만 다시 읽는다(`SYNCED_METRICS`에서 dataType으로 찾는다). sleep은 `end_time`으로 필터되므로 ±1시간 패딩으로 구간 끝을 덮는다.
+- `weight` 알림 → Withings `syncUser(skipIfSyncedWithinMs: 15분)`. 같은 tick 안의 연속 알림은 (user, type) 그룹 하나로 묶이고, tick 사이에서는 Withings의 `lastSyncedAt`이 디바운스 역할을 한다.
+- 서명 모드 `log-only`에서는 keyset을 가져오지 못해도 수신을 막지 않는다. 503은 `enforce`에서만 준다.
+- `GOOGLE_HEALTH_WEBHOOKS_ENABLED`가 아니면 cron 작업 자체를 등록하지 않는다. 그동안 라우트는 큐에 쌓기만 한다(done/failed 행은 7일/30일 뒤 정리).
+- 구독자 스크립트는 서비스 계정 대신 운영자의 gcloud 로그인 토큰을 쓰고, 프로젝트 **번호**와 `x-goog-user-project` 헤더를 사용한다. `list`로 읽기 전용 확인만 했다(현재 `{}`).
+- 큐 테이블 마이그레이션도 같은 이유로 main 위에서 `yarn db:generate`로 `0046_health_webhook_events`로 재생성했다(SQL은 원래 0044와 동일).
+
 ## 범위 밖
 
 - `skin-temperature-sensors`(v4beta), nutrition/hydration, women's health, `pairedDevices`(추가 스코프), MANUAL 구독, `reconcile` 기반 저장으로의 전환.

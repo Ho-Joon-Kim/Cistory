@@ -1,6 +1,15 @@
 "use client";
 
-import { Activity, AlertTriangle, Check, Clock, Loader2, RotateCw, Trash2 } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Check,
+  Clock,
+  Loader2,
+  Radio,
+  RotateCw,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,10 +19,17 @@ import { useHealth } from "../hooks";
 interface HealthSettingsProps {
   hasConnection: boolean;
   lastSyncedAt: string | null;
+  /** Latest real-time (webhook) notification; null until the subscriber is live. */
+  lastWebhookAt?: string | null;
   needsReauth: boolean;
 }
 
-export function HealthSettings({ hasConnection, lastSyncedAt, needsReauth }: HealthSettingsProps) {
+export function HealthSettings({
+  hasConnection,
+  lastSyncedAt,
+  lastWebhookAt = null,
+  needsReauth,
+}: HealthSettingsProps) {
   const { hasHealthConnection, isDisconnecting, isSyncing, disconnect, syncNow } =
     useHealth(hasConnection);
 
@@ -112,6 +128,12 @@ export function HealthSettings({ hasConnection, lastSyncedAt, needsReauth }: Hea
               <Clock className="h-3.5 w-3.5" />
               마지막 동기화: {lastSyncedAt ? formatRelativeTime(lastSyncedAt) : "없음"}
             </div>
+            {lastWebhookAt ? (
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Radio className="h-3.5 w-3.5" />
+                실시간 동기화 마지막 수신: {formatRelativeTime(lastWebhookAt)}
+              </div>
+            ) : null}
           </div>
         )}
       </CardContent>

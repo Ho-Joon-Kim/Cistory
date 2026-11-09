@@ -306,6 +306,7 @@ export function SettingsForm() {
       <HealthSettings
         hasConnection={settings.hasHealthConnection}
         lastSyncedAt={settings.healthLastSyncedAt}
+        lastWebhookAt={settings.healthLastWebhookAt}
         needsReauth={settings.healthNeedsReauth}
       />
 

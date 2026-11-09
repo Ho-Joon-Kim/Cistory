@@ -32,6 +32,10 @@ const HEALTH_EXTRA_KEY_DENYLIST = [
   "rollup",
   "kcalsum",
   "bloodglucose",
+  // Webhook payloads (design §6): no values, but the user id and activity times
+  // themselves are personal data.
+  "healthuserid",
+  "intervals",
 ];
 
 /** Structural subset of a Sentry event — only the fields we scrub. */
