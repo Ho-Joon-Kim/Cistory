@@ -33,7 +33,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header showSync={false} />
+      <Header />
 
       {/* 메인 컨텐츠 */}
       <main id="main" className="container mx-auto max-w-6xl px-4 py-6">

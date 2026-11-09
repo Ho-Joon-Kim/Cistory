@@ -71,9 +71,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" suppressHydrationWarning>
+    <html
+      lang="ko"
+      suppressHydrationWarning
+      className={`${pretendard.variable} ${notoSerifKr.variable} ${geistMono.variable}`}
+    >
       <body
-        className={`${pretendard.variable} ${notoSerifKr.variable} ${geistMono.variable} antialiased min-h-screen bg-background`}
+        className="antialiased min-h-screen bg-background"
       >
         <ThemeProvider
           attribute="class"

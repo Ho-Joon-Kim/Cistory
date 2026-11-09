@@ -127,7 +127,7 @@ export default function DataStatusPage() {
   if (!isAuthenticated) return null;
   return (
     <div className="min-h-screen bg-background">
-      <Header showSync={false} />
+      <Header />
       <main id="main" className="container mx-auto max-w-6xl p-4 py-6 space-y-5">
         <div className="flex flex-wrap justify-between gap-3 items-center">
           <h1 className="text-2xl font-bold">수집 상태</h1>

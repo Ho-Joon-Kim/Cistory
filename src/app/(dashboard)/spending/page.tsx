@@ -537,7 +537,7 @@ export default function SpendingPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header showSync={false} />
+      <Header />
 
       <main id="main" className="container mx-auto px-4 py-6">
         <div className="mb-6">

@@ -33,10 +33,16 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" aria-label="계정 메뉴" className="relative h-9 w-9 rounded-full">
-          <Avatar className="h-9 w-9">
+        <Button
+          variant="ghost"
+          aria-label="계정 메뉴"
+          className="relative size-9 rounded-full p-0 hover:bg-transparent"
+        >
+          <Avatar className="size-8 shadow-[inset_0_0_0_1px_var(--line)]">
             <AvatarImage src={user.image ?? undefined} alt={user.name} />
-            <AvatarFallback>{initials}</AvatarFallback>
+            <AvatarFallback className="bg-sunken text-xs font-semibold text-ink-2">
+              {initials}
+            </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>

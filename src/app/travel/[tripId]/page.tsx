@@ -93,7 +93,7 @@ export default function TravelDetailPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <Header showSync={false} />
+      <Header />
       <main id="main" className="flex-1 container mx-auto px-4 py-6">
         <TravelDetailState
           detail={detail}

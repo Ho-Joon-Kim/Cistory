@@ -33,7 +33,7 @@ export default function TravelPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <Header showSync={false} />
+      <Header />
       <main id="main" className="flex-1 container mx-auto px-4 py-6">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>

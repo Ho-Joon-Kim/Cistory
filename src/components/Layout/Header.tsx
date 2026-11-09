@@ -1,90 +1,83 @@
 "use client";
 
-import { Activity, LayoutDashboard, PieChart, Plane, Search, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CommitHeatmap } from "@/components/CommitHeatmap";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { cn } from "@/lib/utils";
 import { UserMenu } from "@/modules/auth/components/UserMenu";
-import { SyncButton } from "@/modules/sync/components/SyncButton";
-import { SyncStatus } from "@/modules/sync/components/SyncStatus";
-import { HEADER_NAV_ITEMS } from "./header-nav";
+import { CommitGraph } from "./CommitGraph";
+import { HeaderSync } from "./HeaderSync";
+import { HEADER_NAV_ITEMS, isNavItemActive } from "./header-nav";
 
 interface HeaderProps {
-  showSync?: boolean;
+  /** Called after a manual sync was accepted (the timeline refreshes on it). */
   onSyncStarted?: () => void;
 }
 
-export function Header({ showSync = true, onSyncStarted }: HeaderProps) {
+/**
+ * The app bar shared by every page.
+ *
+ * PC (≥1024): one 64px row — serif wordmark + commit graph, the seven nav pills,
+ * then sync status · refresh · theme · account on the right.
+ * Mobile: row 1 (52px) wordmark + graph + refresh + theme + account; row 2
+ * (44px) the same nav as a horizontally scrolling pill strip. The nav and the
+ * sync cluster render once and are re-flowed with CSS order, so there is a
+ * single navigation landmark and a single sync connection.
+ */
+export function Header({ onSyncStarted }: HeaderProps) {
   const pathname = usePathname();
-  const icons = {
-    spending: Wallet,
-    portfolio: PieChart,
-    travel: Plane,
-    health: Activity,
-    overview: LayoutDashboard,
-    search: Search,
-  };
 
   return (
     <>
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-md focus:outline-2 focus:outline-offset-2 focus:outline-ring"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-pop focus:outline-2 focus:outline-offset-2 focus:outline-ring"
       >
         본문으로 건너뛰기
       </a>
-      <header className="shrink-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto px-4 flex flex-wrap items-center justify-between gap-x-3 sm:h-14 sm:flex-nowrap">
-          {/* 로고 */}
-          <div className="flex h-14 shrink-0 items-center gap-4">
-            <Link href="/" className="font-semibold text-lg">
+      <header className="relative z-50 shrink-0 border-b border-line bg-page">
+        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center lg:h-16 lg:flex-nowrap lg:gap-8 lg:px-page">
+          <span className="flex h-[52px] shrink-0 items-center gap-2.5 pl-4 lg:h-auto lg:gap-3.5 lg:pl-0">
+            <Link
+              href="/dashboard"
+              className="rounded-sm font-serif text-lg font-bold tracking-[-0.02em] text-ink lg:text-xl"
+            >
               Cistory
             </Link>
-            {/* 30일 커밋 히트맵 */}
-            <div className="hidden xl:block">
-              <CommitHeatmap />
-            </div>
-          </div>
+            <CommitGraph />
+          </span>
 
-          {/* 액션 버튼들 */}
           <nav
             aria-label="주요 메뉴"
-            className="order-last flex w-full justify-between border-t py-1 sm:order-none sm:ml-auto sm:w-auto sm:justify-start sm:gap-1 sm:border-0 sm:py-0 lg:gap-2"
+            className="order-last flex h-11 w-full items-center gap-1 overflow-x-auto px-3 [scrollbar-width:none] lg:order-none lg:h-auto lg:w-auto lg:gap-0.5 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden"
           >
             {HEADER_NAV_ITEMS.map((item) => {
-              const Icon = icons[item.id];
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const active = isNavItemActive(pathname, item.href);
               return (
                 <Link
                   key={item.id}
                   href={item.href}
-                  aria-label={item.label}
-                  title={item.label}
                   aria-current={active ? "page" : undefined}
-                  className={`flex h-9 min-w-9 items-center justify-center gap-1.5 rounded px-2 text-sm transition-colors ${
+                  className={cn(
+                    "relative inline-flex h-8 flex-none items-center whitespace-nowrap rounded-md px-3 text-sm transition-[background-color,color] duration-150 ease-out",
+                    "after:absolute after:inset-x-0 after:-inset-y-1.5 lg:after:hidden",
                     active
-                      ? "font-medium text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+                      ? "bg-track font-semibold text-ink"
+                      : "font-medium text-ink-2 hover:text-ink"
+                  )}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span className="hidden lg:inline">{item.label}</span>
+                  {item.label}
                 </Link>
               );
             })}
           </nav>
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            {showSync && (
-              <>
-                <div className="hidden lg:block">
-                  <SyncStatus />
-                </div>
-                <SyncButton size="icon" variant="ghost" onSyncStarted={onSyncStarted} />
-              </>
-            )}
+
+          <div className="ml-auto flex items-center gap-1 pr-3 lg:pr-0">
+            <HeaderSync onSyncStarted={onSyncStarted} />
             <ThemeToggle />
-            <UserMenu />
+            <span className="ml-1 inline-flex size-9 items-center justify-center lg:ml-1.5">
+              <UserMenu />
+            </span>
           </div>
         </div>
       </header>
