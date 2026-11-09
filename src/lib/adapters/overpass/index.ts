@@ -1,7 +1,7 @@
 import { Agent, fetch as undiciFetch } from "undici";
+import { distanceM } from "@/lib/geo";
 import { logger } from "@/lib/logger";
 import { normalizeOsmColour } from "./colour";
-import { distanceM } from "@/lib/geo";
 import type {
   OverpassAdapter,
   SubwayFetchResult,
@@ -16,10 +16,24 @@ export type {
   SubwayStationData,
 } from "./interface";
 
-const OVERPASS_ENDPOINTS = [
+// Public global-coverage instances, tried in order. See
+// https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances
+//   - overpass-api.de (FOSSGIS): fair use, asks for an identifying User-Agent.
+//   - maps.mail.ru (VK Maps): no request limits.
+//   - overpass.private.coffee: no rate limit; the successor of the former
+//     overpass.kumi.systems (that hostname now CNAMEs to it). Kept last because
+//     it accepted TCP but never answered HTTP when checked on 2026-11-09.
+// Our load is a yearly subway refresh plus a few capped discovery probes, which
+// fits every one of these policies.
+export const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-];
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+] as const;
+
+// overpass-api.de's usage policy asks clients to identify themselves, and it
+// answers the anonymous "node" fetch User-Agent with an instant 406.
+export const OVERPASS_USER_AGENT = "Cistory/1.0 (+https://github.com/Ho-Joon-Kim/Cistory)";
 
 const OVERPASS_TIMEOUT_SEC = 180;
 const FETCH_TIMEOUT_MS = (OVERPASS_TIMEOUT_SEC + 30) * 1000;
@@ -82,17 +96,19 @@ const SUBWAY_LIKE_ROUTES = new Set(["subway", "light_rail", "monorail", "train"]
 async function callOverpass(query: string): Promise<OverpassResponse> {
   let lastError: unknown;
   for (const endpoint of OVERPASS_ENDPOINTS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       const res = await undiciFetch(endpoint, {
         method: "POST",
         body: `data=${encodeURIComponent(query)}`,
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": OVERPASS_USER_AGENT,
+        },
         signal: controller.signal,
         dispatcher: ipv4Dispatcher,
       });
-      clearTimeout(timer);
       if (!res.ok) {
         lastError = new Error(`Overpass ${endpoint} responded ${res.status}`);
         logger.warn("overpass non-ok", { endpoint, status: res.status });
@@ -107,6 +123,8 @@ async function callOverpass(query: string): Promise<OverpassResponse> {
         error: err instanceof Error ? err.message : String(err),
         cause: cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause),
       });
+    } finally {
+      clearTimeout(timer);
     }
   }
   throw new Error(

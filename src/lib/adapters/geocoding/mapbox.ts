@@ -5,9 +5,20 @@
  * Reuses NEXT_PUBLIC_MAPBOX_TOKEN or MAPBOX_ACCESS_TOKEN.
  */
 
+import { logger } from "@/lib/logger";
 import type { GeocodingAdapter, GeocodingResult } from "./interface";
 
 const MAPBOX_API_BASE = "https://api.mapbox.com/search/geocode/v6";
+
+/**
+ * Geocoding v6 has no `poi` type (POIs moved to the Search Box API) and answers
+ * an unknown type with 422, which used to make every reverse lookup fail.
+ * With multiple types, reverse returns at most one feature per type ordered
+ * most-specific first, so `features[0]` is the address when one exists and
+ * otherwise degrades to street → neighborhood → locality → place. Region and
+ * country stay available through each feature's `context`.
+ */
+export const MAPBOX_REVERSE_TYPES = "address,street,neighborhood,locality,place";
 
 interface MapboxFeature {
   properties: {
@@ -36,11 +47,21 @@ export class MapboxGeocodingAdapter implements GeocodingAdapter {
   }
 
   async reverseGeocode(lat: number, lon: number): Promise<GeocodingResult | null> {
-    const url = `${MAPBOX_API_BASE}/reverse?longitude=${lon}&latitude=${lat}&types=poi,address&access_token=${this.accessToken}`;
+    const params = new URLSearchParams({
+      longitude: String(lon),
+      latitude: String(lat),
+      types: MAPBOX_REVERSE_TYPES,
+      access_token: this.accessToken,
+    });
 
-    const res = await fetch(url);
+    // Never log this URL: it carries the access token.
+    const res = await fetch(`${MAPBOX_API_BASE}/reverse?${params}`);
     if (!res.ok) {
-      console.error("Mapbox reverse geocode error:", res.status);
+      const body = await res.text().catch(() => "");
+      logger.warn("[Mapbox] reverse geocode failed", {
+        status: res.status,
+        body: body.slice(0, 500),
+      });
       return null;
     }
 
@@ -61,7 +82,6 @@ export class MapboxGeocodingAdapter implements GeocodingAdapter {
     return {
       placeName,
       address,
-      category: props.feature_type === "poi" ? "POI" : undefined,
       provider: "mapbox",
       region: props.context?.region?.name ?? null,
       country: props.context?.country?.name ?? null,
