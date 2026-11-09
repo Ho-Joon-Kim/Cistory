@@ -16,6 +16,10 @@ import type {
  *
  * Keep it simple: scale current cumulative by days-remaining, then derive a
  * confidence band from the stddev of past monthly totals (when available).
+ *
+ * One-off large charges (a single transaction above `oneOffThreshold`) are not
+ * a run-rate: they are added back once instead of being extrapolated, so one
+ * 1,800,000원 payment on day 4 doesn't project as ~6M by month end.
  */
 export function forecastMonthEnd(input: ForecastInput): ForecastResult {
   const { monthlyHistory, currentMonthDays, daysInMonth, todayDayNumber } = input;
@@ -42,8 +46,17 @@ export function forecastMonthEnd(input: ForecastInput): ForecastResult {
     };
   }
 
+  const threshold = oneOffThreshold(monthlyHistory);
+  const oneOffTotal =
+    threshold === null
+      ? 0
+      : (input.currentMonthAmounts ?? [])
+          .filter((amount) => amount > threshold)
+          .reduce((s, amount) => s + amount, 0);
+  const runRateTotal = Math.max(currentTotal - oneOffTotal, 0);
+
   const ratio = daysInMonth / Math.max(todayDayNumber, 1);
-  const predicted = Math.round(currentTotal * ratio);
+  const predicted = oneOffTotal + Math.round(runRateTotal * ratio);
 
   const { upper, lower } = confidenceBand(
     predicted,
@@ -67,6 +80,24 @@ export function forecastMonthEnd(input: ForecastInput): ForecastResult {
     ),
   };
 }
+
+/**
+ * A single transaction larger than this is a one-off. 20% of the median past
+ * monthly total: backtested on the owner's 2026-03..10 data (every completed
+ * month, forecast made on days 3..end-1), fractions 0.15–0.5 all gave the same
+ * best error (median APE 0.253 vs 0.284 naive; days 3–10: 0.346 vs 0.514)
+ * because everyday purchases top out near 450k while one-offs start at 720k.
+ * 0.2 sits inside that plateau. Null without history (nothing to compare to).
+ */
+export function oneOffThreshold(history: MonthlyTotal[]): number | null {
+  const totals = history.map((m) => m.total).sort((a, b) => a - b);
+  if (totals.length === 0) return null;
+  const mid = Math.floor(totals.length / 2);
+  const median = totals.length % 2 === 0 ? (totals[mid - 1] + totals[mid]) / 2 : totals[mid];
+  return Math.round(ONE_OFF_FRACTION_OF_MEDIAN_MONTH * median);
+}
+
+const ONE_OFF_FRACTION_OF_MEDIAN_MONTH = 0.2;
 
 function confidenceBand(
   predicted: number,
