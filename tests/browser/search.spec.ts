@@ -187,13 +187,17 @@ test("all primary navigation links remain named and reachable at 320 pixels", as
   );
   await page.goto("/search");
   const navigation = page.getByRole("navigation", { name: "주요 메뉴" });
-  for (const name of ["소비", "포트폴리오", "여행", "건강", "대시보드", "기록 검색"]) {
-    await expect(navigation.getByRole("link", { name, exact: true })).toBeVisible();
-    const bounds = await navigation.getByRole("link", { name, exact: true }).boundingBox();
+  // Phones get the app bar's second row: a horizontally scrolling pill strip.
+  for (const name of ["타임라인", "개요", "소비", "포트폴리오", "여행", "건강", "검색"]) {
+    const link = navigation.getByRole("link", { name, exact: true });
+    await link.scrollIntoViewIfNeeded();
+    await expect(link).toBeVisible();
+    const bounds = await link.boundingBox();
     expect(bounds!.width).toBeGreaterThanOrEqual(36);
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
   }
-  await expect(navigation.getByRole("link", { name: "기록 검색" })).toHaveAttribute(
+  await expect(navigation.getByRole("link", { name: "검색", exact: true })).toHaveAttribute(
     "aria-current",
     "page"
   );
