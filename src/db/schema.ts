@@ -42,6 +42,10 @@ export const users = pgTable(
     // POST /api/health-import), used to backfill sleep/exercise that Google's
     // cloud sync doesn't carry.
     healthImportApiKey: text("health_import_api_key"),
+    // DEPRECATED: WakaTime now rejects API keys for reads ("API Keys are only for
+    // plugins, use your personal oauth token"). Kept only so the settings card can
+    // prompt the user to reconnect via OAuth (wakatime_connections); never used
+    // for API calls.
     wakatimeApiKey: text("wakatime_api_key"),
     wakatimeLastSyncedAt: timestamp("wakatime_last_synced_at"),
     lastLat: doublePrecision("last_lat"),
@@ -279,6 +283,37 @@ export const codingSessions = pgTable(
     uniqueIndex("idx_coding_session_unique").on(table.userId, table.startedAt, table.project),
   ]
 );
+
+// ============ WakaTime OAuth connection ============
+// One connection row per user. Access + refresh tokens are AES-256-GCM encrypted
+// via src/lib/crypto.ts (same key as KIS/Withings/Google Health). WakaTime's docs
+// don't say whether a refresh rotates the refresh token, so a returned one
+// replaces the stored token and an omitted one preserves it. `status` flips to
+// needs_reauth only on a CONFIRMED auth failure (invalid_grant on refresh, or a
+// 401 from a freshly refreshed token) so a transient error never forces
+// re-linking. The sync watermark stays on users.wakatimeLastSyncedAt.
+export const wakatimeConnections = pgTable(
+  "wakatime_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // WakaTime account id (`uid` on the token response), for reference only.
+    wakatimeUserId: text("wakatime_user_id"),
+    accessTokenEnc: text("access_token_enc").notNull(),
+    refreshTokenEnc: text("refresh_token_enc").notNull(),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    scope: text("scope"),
+    status: text("status").notNull().default("active"), // "active" | "needs_reauth"
+    lastSyncError: text("last_sync_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("idx_wakatime_conn_user").on(t.userId)]
+);
+
+export type WakaTimeConnection = typeof wakatimeConnections.$inferSelect;
 
 // ============ Coding Daily Stats (WakaTime) ============
 export const codingDailyStats = pgTable(
@@ -1189,7 +1224,9 @@ export const dataRecoveryJobs = pgTable(
   "data_recovery_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     source: text("source").notNull(),
     fromDate: text("from_date").notNull(),
     toDate: text("to_date").notNull(),
@@ -1203,13 +1240,18 @@ export const dataRecoveryJobs = pgTable(
     updatedAt: timestamp("updated_at").notNull(),
     completedAt: timestamp("completed_at"),
   },
-  (t) => [index("idx_data_recovery_user_source").on(t.userId, t.source), index("idx_data_recovery_queue").on(t.status, t.leaseExpiresAt)]
+  (t) => [
+    index("idx_data_recovery_user_source").on(t.userId, t.source),
+    index("idx_data_recovery_queue").on(t.status, t.leaseExpiresAt),
+  ]
 );
 
 export const sourceSyncStates = pgTable(
   "source_sync_states",
   {
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     source: text("source").notNull(),
     lastAttemptAt: timestamp("last_attempt_at").notNull(),
     lastSuccessAt: timestamp("last_success_at"),

@@ -16,6 +16,7 @@ const m = vi.hoisted(() => ({
   syncUserCommits: vi.fn(),
   processPendingSummaries: vi.fn(),
   syncUser: vi.fn(),
+  wakatimeService: null as { syncUser: ReturnType<typeof vi.fn> } | null,
   hasActiveAccounts: vi.fn(),
   syncUserAccounts: vi.fn(),
   backfillPendingAccounts: vi.fn(),
@@ -75,7 +76,7 @@ vi.mock("@/modules/sync/service", () => ({
   })),
 }));
 vi.mock("@/modules/wakatime/service", () => ({
-  createWakaTimeSyncService: vi.fn(() => ({ syncUser: m.syncUser })),
+  createWakaTimeSyncServiceForUser: vi.fn(async () => m.wakatimeService),
 }));
 vi.mock("@/modules/portfolio/service", () => ({
   createPortfolioSyncService: vi.fn(() => ({
@@ -155,7 +156,6 @@ function syncUser(overrides: Record<string, unknown> = {}) {
     syncIntervalHours: 1,
     lastSyncedAt: null,
     initialSyncCompleted: true,
-    wakatimeApiKey: null,
     wakatimeLastSyncedAt: null,
     ...overrides,
   };
@@ -168,6 +168,7 @@ beforeEach(() => {
   m.dbExecRowBatches = [];
   m.dbExecQueries = [];
   m.getGitHubToken.mockResolvedValue("gh-token");
+  m.wakatimeService = null;
   m.processPendingSummaries.mockResolvedValue(0);
   m.hasActiveAccounts.mockResolvedValue(false);
   m.syncUserAccounts.mockResolvedValue([]);
@@ -354,6 +355,24 @@ describe("syncAllUsers", () => {
       skipIfSyncedWithinMs: 24 * 60 * 60 * 1000,
     });
     expect(m.backfillPendingAccounts).toHaveBeenCalledWith("u1");
+  });
+
+  it("syncs WakaTime over the OAuth connection when the 24h gate has passed", async () => {
+    m.wakatimeService = { syncUser: m.syncUser };
+    m.dbUsers = [syncUser({ wakatimeLastSyncedAt: new Date(Date.now() - 25 * 3_600_000) })];
+    await syncAllUsers();
+    expect(m.syncUser).toHaveBeenCalledWith("u1");
+  });
+
+  it("skips WakaTime when there is no active OAuth connection or the gate hasn't passed", async () => {
+    m.dbUsers = [syncUser()];
+    await syncAllUsers();
+    expect(m.syncUser).not.toHaveBeenCalled();
+
+    m.wakatimeService = { syncUser: m.syncUser };
+    m.dbUsers = [syncUser({ wakatimeLastSyncedAt: new Date() })];
+    await syncAllUsers();
+    expect(m.syncUser).not.toHaveBeenCalled();
   });
 
   it("syncs Withings body data for each user behind the 24h gate", async () => {

@@ -48,6 +48,13 @@ const HEALTH_ERROR_MESSAGES: Record<string, string> = {
   exchange_failed: "Google Health (Fitbit)을 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
 };
 
+const WAKATIME_ERROR_MESSAGES: Record<string, string> = {
+  denied: "WakaTime 연동이 취소되었습니다",
+  state_invalid: "WakaTime 연동 요청이 만료되었거나 유효하지 않습니다. 다시 시도해주세요",
+  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
+  exchange_failed: "WakaTime 연동에 실패했습니다. 다시 시도해주세요",
+};
+
 const OAUTH_PROVIDERS: {
   param: string;
   connectedMsg: string;
@@ -66,10 +73,16 @@ const OAUTH_PROVIDERS: {
     errors: HEALTH_ERROR_MESSAGES,
     fallback: "Google Health (Fitbit)을 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
   },
+  {
+    param: "wakatime",
+    connectedMsg: "WakaTime이 연결되었습니다",
+    errors: WAKATIME_ERROR_MESSAGES,
+    fallback: "WakaTime 연동에 실패했습니다",
+  },
 ];
 
 /**
- * Surface the Withings/Fitbit OAuth callback outcome (?withings= | ?health=,
+ * Surface the Withings/Fitbit/WakaTime OAuth callback outcome (?withings= | ?health= | ?wakatime=,
  * connected | error&reason=...), then strip the params so a refresh doesn't
  * re-fire the toast. Module-level so it doesn't inflate SettingsForm's complexity.
  * Returns true if a connection succeeded (caller refreshes settings).
@@ -272,7 +285,11 @@ export function SettingsForm() {
       {settings.hasTossKey && <AccountRolesCard />}
 
       {/* Coding */}
-      <WakaTimeSettings hasKey={settings.hasWakaTimeKey} />
+      <WakaTimeSettings
+        hasConnection={settings.hasWakaTimeConnection}
+        needsReauth={settings.wakatimeNeedsReauth}
+        hasLegacyKey={settings.hasLegacyWakaTimeKey}
+      />
 
       {/* 포트폴리오 (KIS) */}
       <KISAccountSettingsCard />
