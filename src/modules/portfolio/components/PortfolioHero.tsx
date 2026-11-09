@@ -182,7 +182,7 @@ export function PortfolioHero({
 
         {fact ? (
           <div className="mt-4 max-w-[640px] lg:mt-5">
-            <AiLine fact={fact} rows={fact.rows} />
+            <AiLine fact={fact} rows={fact.rows} className="max-lg:text-wrap" />
           </div>
         ) : null}
       </div>

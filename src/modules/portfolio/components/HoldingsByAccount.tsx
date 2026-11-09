@@ -70,7 +70,7 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
       </div>
       {fact ? (
         <div className="mt-1.5 max-w-[900px]">
-          <AiLine fact={fact} rows={fact.rows} />
+          <AiLine fact={fact} rows={fact.rows} className="max-lg:text-wrap" />
         </div>
       ) : null}
 

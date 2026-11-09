@@ -87,6 +87,121 @@ function useWidth<T extends HTMLElement>(fallback: number) {
   return { ref, width };
 }
 
+type Rect = { x: number; y: number; w: number; h: number };
+type Segment = [{ x: number; y: number }, { x: number; y: number }];
+
+/**
+ * Approximate rendered width of a label: Hangul/CJK glyphs are about one em,
+ * Latin letters and digits a little over half, punctuation and spaces less.
+ */
+export function textWidth(text: string, px: number): number {
+  let em = 0;
+  for (const ch of text) {
+    if (/[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af]/u.test(ch)) em += 1;
+    else if (/[\s·.,:'()-]/u.test(ch)) em += 0.32;
+    else em += 0.6;
+  }
+  return Math.ceil(em * px) + 2;
+}
+
+function discRect(x: number, y: number): Rect {
+  return { x: x - 6, y: y - 6, w: 12, h: 12 };
+}
+
+function overlaps(a: Rect, b: Rect, gap: number): boolean {
+  return (
+    a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap
+  );
+}
+
+/** Whether a segment passes through (or ends inside) a rect, padded by 1.5px for the stroke. */
+export function crosses([a, b]: Segment, r: Rect): boolean {
+  const pad = 1.5;
+  const x0 = r.x - pad;
+  const x1 = r.x + r.w + pad;
+  const y0 = r.y - pad;
+  const y1 = r.y + r.h + pad;
+  // Liang–Barsky clip of the segment against the rect.
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  let t0 = 0;
+  let t1 = 1;
+  const edges: [number, number][] = [
+    [-dx, a.x - x0],
+    [dx, x1 - a.x],
+    [-dy, a.y - y0],
+    [dy, y1 - a.y],
+  ];
+  for (const [p, q] of edges) {
+    if (p === 0) {
+      if (q < 0) return false;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+  }
+  return t0 <= t1;
+}
+
+type Spot = { tx: number; ty: number; anchor: "start" | "end" | "middle"; rect: Rect };
+
+/** Candidate label positions around a marker, nearest first, then a step further out. */
+function labelSpots(x: number, y: number, w: number): Spot[] {
+  const h = 14;
+  const spots: Spot[] = [];
+  for (const d of [0, 10]) {
+    const right = x + 8 + d;
+    const left = x - 8 - d;
+    spots.push(
+      { tx: right, ty: y + 4, anchor: "start", rect: { x: right, y: y - 7, w, h } },
+      { tx: left, ty: y + 4, anchor: "end", rect: { x: left - w, y: y - 7, w, h } },
+      { tx: x, ty: y - 9 - d, anchor: "middle", rect: { x: x - w / 2, y: y - 20 - d, w, h } },
+      { tx: x, ty: y + 19 + d, anchor: "middle", rect: { x: x - w / 2, y: y + 8 + d, w, h } },
+      { tx: right, ty: y - 6 - d, anchor: "start", rect: { x: right, y: y - 17 - d, w, h } },
+      { tx: left, ty: y - 6 - d, anchor: "end", rect: { x: left - w, y: y - 17 - d, w, h } },
+      { tx: right, ty: y + 14 + d, anchor: "start", rect: { x: right, y: y + 3 + d, w, h } },
+      { tx: left, ty: y + 14 + d, anchor: "end", rect: { x: left - w, y: y + 3 + d, w, h } }
+    );
+  }
+  return spots;
+}
+
+/**
+ * The hero-day callout: a two-line note up and to the open side of its point,
+ * with the text block clamped inside the sketch (a narrow phone sketch used to
+ * push it past the left edge) and the leader drawn to the block's near edge.
+ */
+export function placeCallout(
+  p: { x: number; y: number },
+  h: { title: string; sub: string },
+  width: number,
+  height: number
+) {
+  const w = Math.max(textWidth(h.title, 12), textWidth(h.sub, 11));
+  const reach = Math.min(140, Math.max(40, width / 3));
+  const left = p.x > width / 2;
+  const ly = Math.min(height - 8, Math.max(28, p.y - 24));
+  const ideal = left ? p.x - reach - w : p.x + reach;
+  const textX = Math.max(8, Math.min(width - 8 - w, ideal));
+  const nearEdge = textX + w < p.x ? textX + w : textX > p.x ? textX : textX + w / 2;
+  return {
+    title: h.title,
+    sub: h.sub,
+    textX,
+    titleY: ly - 10,
+    subY: ly + 4,
+    lineX: nearEdge,
+    lineY: ly + 7,
+    box: { x: textX - 2, y: ly - 22, w: w + 4, h: 30 } satisfies Rect,
+  };
+}
+
 const STROKE: Record<RouteDay["role"], { color: string; width: number; dash?: string }> = {
   out: { color: "var(--place)", width: 2.5 },
   back: { color: "var(--ink2)", width: 2, dash: "5 4" },
@@ -126,15 +241,18 @@ export function TripRouteSketch({
   }
   const height = sketchHeight(all, width, minHeight, maxHeight);
   const project = fitProjection(all, width, height, 40);
-  type Box = { x: number; y: number; w: number };
-  const placed: Box[] = [];
-  const free = (x: number, y: number, w: number, own?: Box) =>
-    placed.every(
-      (p) => p === own || Math.abs(p.y - y) > 14 || x + w < p.x - 4 || x > p.x + p.w + 4
-    );
-  const textWidth = (text: string, px: number) => text.length * px + 8;
+  // Route polylines in screen space: labels are placed off them, not just off
+  // each other, so no route line strikes through a name.
+  const segments: Segment[] = days.flatMap((day) => {
+    const pts = day.points.map(project);
+    return pts.slice(1).map((b, i) => [pts[i], b] as Segment);
+  });
+  const placed: Rect[] = [];
+  const hitsLabel = (r: Rect, own?: Rect) => placed.some((p) => p !== own && overlaps(p, r, 3));
+  const routeHits = (r: Rect) => segments.reduce((n, sg) => n + (crosses(sg, r) ? 1 : 0), 0);
 
   // Markers: one per spot (two saved places a few px apart read as one blob).
+  // Labels arrive in priority order (home first), so the earlier one names it.
   const markers: { label: SketchLabel; x: number; y: number }[] = [];
   for (const label of labels) {
     const { x, y } = project(label);
@@ -142,50 +260,60 @@ export function TripRouteSketch({
     markers.push({ label, x, y });
   }
   // Marker discs and the highlight callout are obstacles for every label.
-  const discs = markers.map((m) => ({ x: m.x - 5, y: m.y, w: 10 }));
+  const discs = markers.map((m) => discRect(m.x, m.y));
   placed.push(...discs);
   const hl = highlight ? project(highlight) : null;
-  if (hl) placed.push({ x: hl.x - 5, y: hl.y, w: 10 });
+  const callout = hl && highlight ? placeCallout(hl, highlight, width, height) : null;
+  if (hl) placed.push(discRect(hl.x, hl.y));
+  if (callout && hl) {
+    placed.push(callout.box);
+    // The leader is a line like any route: no name sits across it.
+    segments.push([hl, { x: callout.lineX, y: callout.lineY }]);
+  }
 
-  // Saved places first: they always get a name (right, left, above, below —
-  // the first free spot, else right anyway since text draws on top). Stations
-  // are optional context: no free spot, no label and no marker.
+  // Saved places first: they always get a name (the free spot crossing the
+  // fewest route lines, else the first spot since text draws on top). Stations
+  // are optional context: no spot clear of labels and routes, no label and no
+  // marker.
   const ordered = markers
     .map((m, i) => ({ ...m, disc: discs[i] }))
     .sort((p, q) => (p.label.kind === "station" ? 1 : 0) - (q.label.kind === "station" ? 1 : 0));
   const markerText = ordered.flatMap((m) => {
     const w = textWidth(m.label.text, 12);
-    type Spot = { tx: number; ty: number; anchor: "start" | "end" | "middle"; box: number };
-    const spots: Spot[] = (
-      [
-        { tx: m.x + 8, ty: m.y + 4, anchor: "start", box: m.x + 8 },
-        { tx: m.x - 8, ty: m.y + 4, anchor: "end", box: m.x - 8 - w },
-        { tx: m.x, ty: m.y - 9, anchor: "middle", box: m.x - w / 2 },
-        { tx: m.x, ty: m.y + 19, anchor: "middle", box: m.x - w / 2 },
-      ] satisfies Spot[]
-    ).filter((c) => c.box >= 4 && c.box + w <= width - 4 && c.ty > 12 && c.ty < height - 4);
-    const spot = spots.find((c) => free(c.box, c.ty - 4, w, m.disc));
+    const spots = labelSpots(m.x, m.y, w).filter(
+      (c) =>
+        c.rect.x >= 4 &&
+        c.rect.x + w <= width - 4 &&
+        c.rect.y >= 2 &&
+        c.rect.y + c.rect.h <= height - 2
+    );
     const station = m.label.kind === "station";
-    if (!spot && station) {
+    const scored = spots
+      .filter((c) => !hitsLabel(c.rect, m.disc))
+      .map((c, i) => ({ c, cost: routeHits(c.rect) * 100 + i }))
+      .sort((a, b) => a.cost - b.cost);
+    const best = scored[0];
+    if (station && (!best || best.cost >= 100)) {
       placed.splice(placed.indexOf(m.disc), 1);
       return [];
     }
-    const chosen: Spot = spot ??
-      spots[0] ?? { tx: m.x + 8, ty: m.y + 4, anchor: "start", box: m.x + 8 };
-    placed.push({ x: chosen.box, y: chosen.ty - 4, w });
-    return [{ ...m, ...chosen }];
+    const chosen = best?.c ?? spots[0] ?? labelSpots(m.x, m.y, w)[0];
+    placed.push(chosen.rect);
+    return [{ ...m, tx: chosen.tx, ty: chosen.ty, anchor: chosen.anchor }];
   });
   const drawn = new Set(markerText.map((m) => m.label.key));
 
+  // Reference cities are faint context: only where they clear every label and route.
   const refs = references
     .map((r) => ({ r, ...project(r) }))
     .filter((r) => r.x > 16 && r.x < width - 16 && r.y > 14 && r.y < height - 10)
     .filter((r) => !labels.some((l) => l.text.startsWith(r.r.name)))
     .flatMap((r) => {
-      const w = textWidth(r.r.name, 11);
-      const box = r.x - w / 2;
-      if (box < 4 || box + w > width - 4 || !free(box, r.y, w)) return [];
-      placed.push({ x: box, y: r.y, w });
+      // A small dot at the city with its name to the right, as in the mock.
+      const w = textWidth(r.r.name, 11) + 6;
+      const rect = { x: r.x - 3, y: r.y - 7, w, h: 14 };
+      if (rect.x < 4 || rect.x + w > width - 4 || hitsLabel(rect) || routeHits(rect) > 0) return [];
+      placed.push(rect);
       return [r];
     });
 
@@ -222,16 +350,17 @@ export function TripRouteSketch({
           );
         })}
         {refs.map(({ r, x, y }) => (
-          <text
-            key={`ref-${r.name}`}
-            x={x}
-            y={y + 4}
-            textAnchor="middle"
-            className="fill-ink-3 text-[11px] tracking-[0.04em]"
-            style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
-          >
-            {r.name}
-          </text>
+          <g key={`ref-${r.name}`}>
+            <circle cx={x} cy={y} r={1.8} className="fill-ink-3" />
+            <text
+              x={x + 5}
+              y={y + 4}
+              className="fill-ink-3 text-[11px] tracking-[0.04em]"
+              style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
+            >
+              {r.name}
+            </text>
+          </g>
         ))}
         {markers
           .filter(({ label }) => drawn.has(label.key))
@@ -260,38 +389,35 @@ export function TripRouteSketch({
               />
             )
           )}
-        {highlight
-          ? (() => {
-              const { x, y } = hl ?? project(highlight);
-              const left = x > width / 2;
-              const lx = left ? Math.max(12, x - 140) : Math.min(width - 12, x + 140);
-              const ly = Math.max(28, y - 24);
-              return (
-                <g>
-                  <line x1={x} y1={y} x2={lx} y2={ly + 4} stroke="var(--ink2)" strokeWidth={1} />
-                  <circle cx={x} cy={y} r={5} fill="var(--health)" />
-                  <text
-                    x={lx + (left ? -4 : 4)}
-                    y={ly - 10}
-                    textAnchor={left ? "end" : "start"}
-                    className="fill-ink text-xs font-semibold"
-                    style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
-                  >
-                    {highlight.title}
-                  </text>
-                  <text
-                    x={lx + (left ? -4 : 4)}
-                    y={ly + 4}
-                    textAnchor={left ? "end" : "start"}
-                    className="num fill-ink-2 text-[11px]"
-                    style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
-                  >
-                    {highlight.sub}
-                  </text>
-                </g>
-              );
-            })()
-          : null}
+        {hl && callout ? (
+          <g>
+            <line
+              x1={hl.x}
+              y1={hl.y}
+              x2={callout.lineX}
+              y2={callout.lineY}
+              stroke="var(--ink2)"
+              strokeWidth={1}
+            />
+            <circle cx={hl.x} cy={hl.y} r={5} fill="var(--health)" />
+            <text
+              x={callout.textX}
+              y={callout.titleY}
+              className="fill-ink text-xs font-semibold"
+              style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
+            >
+              {callout.title}
+            </text>
+            <text
+              x={callout.textX}
+              y={callout.subY}
+              className="num fill-ink-2 text-[11px]"
+              style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
+            >
+              {callout.sub}
+            </text>
+          </g>
+        ) : null}
         {/* Label text last, so a marker or callout never covers a name. */}
         {markerText.map(({ label, tx, ty, anchor }) => (
           <text

@@ -224,7 +224,29 @@ function regionWord(visit: TravelTripVisit): string | null {
   return dong ?? visit.city ?? null;
 }
 
+const LANDMARK_WORD = /^[가-힣]{1,6}(?:산|공원|숲|오름|계곡|해변|해수욕장|호수|폭포)$/u;
+
+/**
+ * A named landmark the walk was on — "식장산 무장애나눔길" (관광명소) → 식장산.
+ * Only a stop the geocoder tagged as a sight counts, and a word that is the
+ * address's own city ("부산 …") is not a landmark.
+ */
+function landmarkOf(stops: TravelTripVisit[]): string | null {
+  for (const stop of stops) {
+    if (stop.category !== "관광명소" || !stop.placeName) continue;
+    const city = (stop.address ?? "").split(/\s+/)[0] ?? "";
+    const word = stop.placeName
+      .trim()
+      .split(/\s+/)
+      .find((t) => LANDMARK_WORD.test(t));
+    if (word && !city.startsWith(word)) return word;
+  }
+  return null;
+}
+
 function runLabel(stops: TravelTripVisit[]): string {
+  const landmark = landmarkOf(stops);
+  if (landmark) return landmark.endsWith("산") ? `${landmark} 산행` : `${landmark} 일대`;
   const counts = new Map<string, number>();
   for (const stop of stops) {
     const word = regionWord(stop);
@@ -420,6 +442,31 @@ export function stationOf(name: string): string | null {
   return null;
 }
 
+const SRT_STATIONS = new Set(["수서역", "동탄역", "평택지제역"]);
+const KTX_STATIONS = new Set(["서울역", "용산역", "광명역", "행신역"]);
+
+/**
+ * The high-speed rail service a day's journey used, read off the stations it
+ * stopped at (수서 is SRT-only, 서울/광명 KTX-only) or a "SRT"/"KTX" in a stop
+ * name. Null when the trip recorded no train mode or the stops don't say.
+ */
+export function railServiceOn(detail: TravelTripDetail, day: string): "KTX" | "SRT" | null {
+  if (!detail.transport.modes.some((m) => m.mode === "train" && m.distanceMeters > 0)) return null;
+  let srt = false;
+  let ktx = false;
+  for (const v of detail.visits) {
+    if (kstDay(v.startTime) !== day) continue;
+    const name = visitName(v);
+    const station = stationOf(name);
+    if (/SRT/iu.test(name) || (station && SRT_STATIONS.has(station))) srt = true;
+    if (/KTX/iu.test(name) || (station && KTX_STATIONS.has(station))) ktx = true;
+  }
+  // An SRT-only station or SRT-named stop settles it; a "KTX" concession can sit
+  // in a station both services stop at (대전KTX점), so it only counts alone.
+  if (srt) return "SRT";
+  return ktx ? "KTX" : null;
+}
+
 const TRANSFER_MAX_GAP_MS = 20 * MINUTE;
 
 /**
@@ -496,6 +543,15 @@ export function mapLabels(detail: TravelTripDetail): MapLabel[] {
     labels.push({ key: v.id, lat: v.centerLat, lon: v.centerLon, text, kind });
   };
   const sorted = [...detail.visits].sort((a, b) => b.durationSeconds - a.durationSeconds);
+  // Home comes first: the itinerary opens with "집에서 출발", so when home and the
+  // office sit close enough to share one marker at map scale, it is 집 the map
+  // names, not whichever place the trip lingered at longer.
+  const window = tripWindow(detail.visits);
+  if (window.departFromHome || window.arriveHome) {
+    for (const v of sorted) {
+      if (isHome(v) && v.savedPlaceName?.trim()) add(v, v.savedPlaceName.trim(), "anchor");
+    }
+  }
   for (const v of sorted) {
     if (v.savedPlaceName?.trim()) add(v, v.savedPlaceName.trim(), "anchor");
   }

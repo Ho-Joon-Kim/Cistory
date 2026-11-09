@@ -13,6 +13,11 @@ export interface AssetPoint {
   value: number;
   /** Purchase amount (매입금액) summed over accounts. */
   invested: number;
+  /**
+   * Cash deposit (예수금) summed over accounts, included in `value`. 평가손익 is
+   * `value − deposit − invested` — the stock-only figure the hero reports.
+   */
+  deposit?: number;
 }
 
 interface SnapshotLike {
@@ -20,6 +25,7 @@ interface SnapshotLike {
   asOfDate: string;
   totalEvalAmount: number;
   totalPurchaseAmount: number;
+  deposit?: number;
 }
 
 /**
@@ -45,11 +51,13 @@ export function buildAssetSeries(
     if (day.size !== expected.size) continue;
     let value = 0;
     let invested = 0;
+    let deposit = 0;
     for (const s of day.values()) {
       value += Number(s.totalEvalAmount);
       invested += Number(s.totalPurchaseAmount);
+      deposit += Number(s.deposit ?? 0);
     }
-    out.push({ date, value, invested });
+    out.push({ date, value, invested, deposit });
   }
   return out;
 }
@@ -258,4 +266,9 @@ export function ordDateKey(ordDt: string): string {
 export function ordTime(ordTm: string | null): string {
   if (!ordTm || ordTm.length < 4) return "";
   return `${ordTm.slice(0, 2)}:${ordTm.slice(2, 4)}`;
+}
+
+/** Unrealized P&L on the holdings alone (cash excluded), as the hero defines it. */
+export function pointPnl(p: AssetPoint): number {
+  return p.value - (p.deposit ?? 0) - p.invested;
 }

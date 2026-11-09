@@ -125,7 +125,7 @@ export function TargetDrift({
       </div>
       {fact ? (
         <div className="mt-2 max-w-[900px] lg:mt-1.5">
-          <AiLine fact={fact} rows={fact.rows} />
+          <AiLine fact={fact} rows={fact.rows} className="max-lg:text-wrap" />
         </div>
       ) : null}
 
@@ -168,7 +168,7 @@ export function TargetDrift({
         <button
           type="button"
           onClick={onEdit}
-          className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-control border-0 bg-surface text-[13px] font-semibold text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
+          className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-control border-0 bg-surface text-base font-normal text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           목표 비중 수정
         </button>

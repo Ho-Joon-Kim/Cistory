@@ -7,6 +7,7 @@ import {
   mergeTransfers,
   mergeVisits,
   pickHeroDay,
+  railServiceOn,
   routeByDay,
   routineInsight,
   shortCity,
@@ -403,6 +404,40 @@ describe("transfers and map labels", () => {
       ["본가", "anchor"],
       ["서울역", "station"],
     ]);
+  });
+
+  it("names the shared home/office marker 집 when the trip leaves from home", () => {
+    const labels = mapLabels(
+      detail([
+        visit("2026-09-23", "09:00", "18:00", "회사", { savedPlaceName: "회사", centerLat: 37.5 }),
+        visit("2026-09-23", "18:30", "18:40", "집", { savedPlaceName: "집", centerLat: 37.51 }),
+        visit("2026-09-23", "21:00", "23:00", "본가", { savedPlaceName: "본가", centerLat: 36.3 }),
+      ])
+    );
+    expect(labels[0].text).toBe("집");
+  });
+
+  it("names the rail service from the day's stations", () => {
+    const d = detail([
+      visit("2026-09-23", "18:00", "18:10", "서울역 경부선"),
+      visit("2026-09-24", "15:00", "15:20", "공차 SRT수서역점"),
+    ]);
+    d.transport.modes = [
+      { mode: "train", distanceMeters: 300000, durationSeconds: 7200, segmentCount: 2 },
+    ];
+    expect(railServiceOn(d, "2026-09-23")).toBe("KTX");
+    expect(railServiceOn(d, "2026-09-24")).toBe("SRT");
+    d.transport.modes = [];
+    expect(railServiceOn(d, "2026-09-23")).toBeNull();
+  });
+
+  it("names a walk after the landmark it was on", () => {
+    const trail = trailVisits().map((v) =>
+      v.placeName === "무장애나눔길"
+        ? { ...v, placeName: "식장산 무장애나눔길", category: "관광명소" }
+        : v
+    );
+    expect(buildItinerary(detail(trail)).runs[0].label).toBe("식장산 산행");
   });
 
   it("reads stations off station concessions", () => {
