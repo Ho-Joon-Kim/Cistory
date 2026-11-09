@@ -167,6 +167,16 @@ export function parseDateLocal(str: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Inclusive upper bound for a date filter: "YYYY-MM-DD" → the end of that local
+ * day (23:59:59.999), so `lte(col, bound)` keeps the whole day. A full timestamp
+ * is used as the exact instant; invalid input → null.
+ */
+export function parseDateLocalEnd(str: string): Date | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return endOfLocalDay(str);
+  return parseDateLocal(str);
+}
+
 /** Start of the given local day ("YYYY-MM-DD" → that day 00:00:00 local time). */
 export function startOfLocalDay(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);

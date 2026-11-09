@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import { commitSummaries, commits } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
-import { parseDateLocal } from "@/lib/utils";
+import { parseDateLocal, parseDateLocalEnd } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -54,11 +54,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (toDate) {
-      const parsed = parseDateLocal(toDate);
+      const parsed = parseDateLocalEnd(toDate);
       if (!parsed) {
         return NextResponse.json({ error: "'to' 날짜 형식이 유효하지 않습니다" }, { status: 400 });
       }
-      // Include the entire "to" day
+      // Include the entire "to" day (date-only → end of that local day)
       conditions.push(lte(commits.committedAt, parsed));
     }
 

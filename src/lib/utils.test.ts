@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   endOfLocalDay,
   parseDateLocal,
+  parseDateLocalEnd,
   parseDateParam,
   startOfLocalDay,
   toLocalDateString,
@@ -112,5 +113,22 @@ describe("startOfLocalDay / endOfLocalDay", () => {
     expect(toLocalDateString(start)).toBe("2026-03-04");
     expect(toLocalDateString(end)).toBe("2026-03-04");
     expect(end.getTime() - start.getTime()).toBe(86_400_000 - 1);
+  });
+});
+
+describe("parseDateLocalEnd", () => {
+  it("treats a date-only value as the end of that local day (inclusive upper bound)", () => {
+    const end = parseDateLocalEnd("2026-11-09");
+    expect(end?.getTime()).toBe(endOfLocalDay("2026-11-09").getTime());
+  });
+
+  it("keeps a full timestamp as the exact instant", () => {
+    expect(parseDateLocalEnd("2026-11-09T12:00:00Z")?.toISOString()).toBe(
+      "2026-11-09T12:00:00.000Z"
+    );
+  });
+
+  it("returns null for invalid input", () => {
+    expect(parseDateLocalEnd("not-a-date")).toBeNull();
   });
 });
