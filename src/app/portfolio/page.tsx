@@ -124,7 +124,7 @@ function PortfolioContent() {
                 <AccountAllocationChart accounts={accountAllocations} />
               </div>
 
-              <InflationAdjustedReturnCard summary={summary} />
+              <InflationAdjustedReturnCard />
 
               <ReturnsCard accounts={summary.accounts} />
 

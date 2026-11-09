@@ -10,6 +10,7 @@ import {
 } from "@/modules/insights/components/primitives/InsightCard";
 import { Pill } from "@/modules/insights/components/primitives/Pill";
 import { Stat, type StatTone } from "@/modules/insights/components/primitives/Stat";
+import { MIN_ANNUALIZE_DAYS } from "@/modules/portfolio/returns";
 import type { PeriodType } from "../../period";
 import type { OverviewSnapshotDomains } from "../../service";
 import type {
@@ -501,11 +502,17 @@ function PortfolioCards({ data }: { data: PortfolioAggregate }) {
               value={percent(data.twr.totalReturn)}
               tone={returnTone(data.twr.totalReturn)}
             />
+            {/* Snapshots computed before compute version 5 can still carry a
+                sub-year annualized figure; never show one, whatever is stored. */}
             <Stat
               label="연환산"
-              value={percent(data.twr.annualizedReturn)}
-              tone={returnTone(data.twr.annualizedReturn)}
-              caption={`${data.twr.days}일 기준`}
+              value={data.twr.days >= MIN_ANNUALIZE_DAYS ? percent(data.twr.annualizedReturn) : "—"}
+              tone={data.twr.days >= MIN_ANNUALIZE_DAYS ? returnTone(data.twr.annualizedReturn) : undefined}
+              caption={
+                data.twr.days >= MIN_ANNUALIZE_DAYS
+                  ? `${Math.round(data.twr.days)}일 기준`
+                  : `${Math.round(data.twr.days)}일 · 1년 미만 생략`
+              }
             />
           </div>
           <div role="img" className="mt-5 flex h-20 items-end gap-1" aria-label="평가액 추이">

@@ -195,6 +195,31 @@ describe("computeReturns", () => {
     expect(result.endValue).toBe(12000);
   });
 
+  it("does not annualize TWR or XIRR over a window shorter than a year", () => {
+    // 30 days of −2.7% must not be shown as ≈ −28% "연환산".
+    const result = computeReturns({
+      snapshots: [snap("2026-10-01", 10000, 0, 10000), snap("2026-10-31", 9730, 0, 10000)],
+      executions: [],
+    });
+    expect(result.twr.totalReturn).toBeCloseTo(-0.027, 6);
+    expect(result.twr.days).toBe(30);
+    expect(result.twr.annualizedReturn).toBeNull();
+    expect(result.xirr).toBeNull();
+  });
+
+  it("does not annualize a 181-day TWR", () => {
+    const result = computeTWR([snap("2026-05-12", 1000, 0), snap("2026-11-09", 900, 0)], []);
+    expect(result.days).toBe(181);
+    expect(result.totalReturn).toBeCloseTo(-0.1, 6);
+    expect(result.annualizedReturn).toBeNull();
+  });
+
+  it("annualizes once the window reaches a full year", () => {
+    const result = computeTWR([snap("2025-01-01", 1000, 0), snap("2026-01-01", 1100, 0)], []);
+    expect(result.days).toBe(365);
+    expect(result.annualizedReturn as number).toBeCloseTo(1.1 ** (365.25 / 365) - 1, 10);
+  });
+
   it("returns a null result shape for fewer than two snapshots", () => {
     const result = computeReturns({ snapshots: [snap("2026-01-01", 10000, 0)], executions: [] });
     expect(result.twr.totalReturn).toBeNull();

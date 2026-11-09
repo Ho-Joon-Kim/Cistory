@@ -45,6 +45,9 @@ export interface TwrResult {
 const CASHFLOW_NOISE_THRESHOLD = 1000;
 const MS_PER_DAY = 86_400_000;
 const DAYS_PER_YEAR = 365.25;
+// Annualizing a sub-year window extrapolates noise: a 30-day −2.7% became a
+// "연환산" −28%. Below a full year, only the period return is meaningful.
+export const MIN_ANNUALIZE_DAYS = 365;
 
 // KRX uses T+2 *business-day* settlement. Without a full Korean market holiday
 // calendar we approximate by skipping weekends only. Public holidays can
@@ -267,7 +270,8 @@ export function computeTWR(snapshots: ReturnSnapshot[], cashflows: CashflowEntry
   const endDate = parseKstDate(sorted[sorted.length - 1].asOfDate).getTime();
   const days = Math.max(1, (endDate - startDate) / MS_PER_DAY);
 
-  const annualizedReturn = days >= 1 ? (1 + totalReturn) ** (DAYS_PER_YEAR / days) - 1 : null;
+  const annualizedReturn =
+    days >= MIN_ANNUALIZE_DAYS ? (1 + totalReturn) ** (DAYS_PER_YEAR / days) - 1 : null;
 
   return { totalReturn, annualizedReturn, days, periods };
 }
@@ -434,7 +438,12 @@ export function computeReturns(input: ComputeReturnsInput): ComputeReturnsResult
     },
     ...cashflows,
   ];
-  const xirr = computeXIRR(xirrCashflows, endValue, endDate);
+  // XIRR is an annual rate by definition; withhold it for sub-year windows for
+  // the same reason as the annualized TWR.
+  const spanDays =
+    (parseKstDate(endDate).getTime() - parseKstDate(startDate).getTime()) / MS_PER_DAY;
+  const xirr =
+    spanDays >= MIN_ANNUALIZE_DAYS ? computeXIRR(xirrCashflows, endValue, endDate) : null;
 
   return {
     twr,

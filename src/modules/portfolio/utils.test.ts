@@ -23,9 +23,9 @@ describe("computeInflationAdjusted", () => {
     // inflated = 10,000 × 1.1^4 = 14,641; current = 10,000 × 1.1^5 = 16,105.1
     // → realGain = 1,464.1, realGainRate = exactly 10%.
     const r = computeInflationAdjusted({
-      startPurchase: 10_000,
+      startValue: 10_000,
       startDate: "2022-01-01",
-      currentTotal: 16_105.1,
+      endValue: 16_105.1,
       inflationRate: 0.1,
       endDate: "2026-01-01",
     });
@@ -38,9 +38,9 @@ describe("computeInflationAdjusted", () => {
 
   it("applies no inflation when start and end dates are the same day", () => {
     const r = computeInflationAdjusted({
-      startPurchase: 1_000_000,
+      startValue: 1_000_000,
       startDate: "2026-06-01",
-      currentTotal: 900_000,
+      endValue: 900_000,
       inflationRate: 0.05,
       endDate: "2026-06-01",
     });
@@ -52,9 +52,9 @@ describe("computeInflationAdjusted", () => {
 
   it("clamps a start date after the end date to 0 years", () => {
     const r = computeInflationAdjusted({
-      startPurchase: 1_000,
+      startValue: 1_000,
       startDate: "2026-06-10",
-      currentTotal: 1_100,
+      endValue: 1_100,
       inflationRate: 0.05,
       endDate: "2026-06-01",
     });
@@ -64,9 +64,9 @@ describe("computeInflationAdjusted", () => {
 
   it("measures a single day as 1/365.25 years", () => {
     const r = computeInflationAdjusted({
-      startPurchase: 1_000,
+      startValue: 1_000,
       startDate: "2026-06-01",
-      currentTotal: 1_000,
+      endValue: 1_000,
       inflationRate: 0.03,
       endDate: "2026-06-02",
     });
@@ -75,9 +75,9 @@ describe("computeInflationAdjusted", () => {
 
   it("returns a null realGainRate when the inflated base is 0", () => {
     const r = computeInflationAdjusted({
-      startPurchase: 0,
+      startValue: 0,
       startDate: "2026-01-01",
-      currentTotal: 500,
+      endValue: 500,
       inflationRate: 0.03,
       endDate: "2026-06-01",
     });
@@ -92,12 +92,68 @@ describe("computeInflationAdjusted", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-01T03:00:00Z"));
     const r = computeInflationAdjusted({
-      startPurchase: 1_000,
+      startValue: 1_000,
       startDate: "2026-06-01",
-      currentTotal: 1_000,
+      endValue: 1_000,
       inflationRate: 0.03,
     });
     expect(r.years).toBeCloseTo(30 / 365.25, 12);
+  });
+
+  it("inflates each later contribution from its own date, not counting it as gain", () => {
+    // Start 10,000 on 2022-01-01; +10,000 deposited 2024-01-01, which is 731
+    // days (2024 is a leap year) before the end. Market return 0: end = 20,000.
+    // Benchmark = 10,000×1.1^4 + 10,000×1.1^(731/365.25).
+    const r = computeInflationAdjusted({
+      startValue: 10_000,
+      startDate: "2022-01-01",
+      endValue: 20_000,
+      inflationRate: 0.1,
+      endDate: "2026-01-01",
+      cashflows: [{ date: "2024-01-01", amount: 10_000 }],
+    });
+    const expected = 10_000 * 1.1 ** 4 + 10_000 * 1.1 ** (731 / 365.25);
+    expect(r.contributed).toBe(20_000);
+    expect(r.inflated).toBeCloseTo(expected, 6);
+    expect(r.realGain).toBeCloseTo(20_000 - expected, 6);
+    expect(r.outperformedInflation).toBe(false);
+  });
+
+  it("treats withdrawals as negative contributions", () => {
+    const r = computeInflationAdjusted({
+      startValue: 10_000,
+      startDate: "2026-01-01",
+      endValue: 6_000,
+      inflationRate: 0,
+      endDate: "2026-06-01",
+      cashflows: [{ date: "2026-03-01", amount: -4_000 }],
+    });
+    expect(r.contributed).toBe(6_000);
+    expect(r.inflated).toBeCloseTo(6_000, 6);
+    expect(r.realGain).toBeCloseTo(0, 6);
+  });
+
+  it("does not report deposits as real gain (regression: +22% on a losing portfolio)", () => {
+    // Real /api/portfolio/returns shape from 2026-11-09: tracked value fell
+    // while ₩5.02M was deposited. A deposit-only "gain" must not appear.
+    const r = computeInflationAdjusted({
+      startValue: 53_677_984,
+      startDate: "2026-05-12",
+      endValue: 50_164_726,
+      inflationRate: 0.03,
+      endDate: "2026-11-09",
+      cashflows: [
+        { date: "2026-06-26", amount: 1_000_000 },
+        { date: "2026-07-26", amount: 1_000_000 },
+        { date: "2026-08-26", amount: 1_000_000 },
+        { date: "2026-09-26", amount: 1_000_000 },
+        { date: "2026-10-26", amount: 1_024_078 },
+      ],
+    });
+    expect(r.contributed).toBe(53_677_984 + 5_024_078);
+    expect(r.realGain).toBeLessThan(0);
+    expect(r.outperformedInflation).toBe(false);
+    expect(r.realGainRate as number).toBeLessThan(-14);
   });
 });
 
