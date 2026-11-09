@@ -22,8 +22,10 @@ import type { PeriodAggregateInput, PeriodAggregatePayload } from "./types";
 // `twr.annualizedReturn` is null for windows under MIN_ANNUALIZE_DAYS (365) —
 // a 30-day −2.7% had been stored as a "연환산" −28.1% the narrative could quote;
 // aggregate/health.ts reads sleep from deduped sessions, reports steps/sleep
-// stats per day rather than per sample, skips weight-less body rows, and binds
-// its body window as UTC wall time (it was landing 9h late).
+// stats per day rather than per sample, skips weight-less body rows; and
+// coding, spending and health body windows were bound as bare JS Dates, which
+// Postgres read 9h late against the UTC-wall columns — every snapshot dropped
+// 00:00-09:00 KST of its first day and took 00:00-09:00 KST of the day after it.
 export const OVERVIEW_COMPUTE_VERSION = 5;
 export const PRECOMPUTE_CLAIM_LIMIT = 5;
 export const PRECOMPUTE_MAX_ATTEMPTS = 3;
