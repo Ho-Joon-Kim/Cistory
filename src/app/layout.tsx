@@ -76,9 +76,7 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${pretendard.variable} ${notoSerifKr.variable} ${geistMono.variable}`}
     >
-      <body
-        className="antialiased min-h-screen bg-background"
-      >
+      <body className="antialiased min-h-screen bg-background">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
