@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HEADER_NAV_ITEMS, isNavItemActive, navScrollLeftFor } from "./header-nav";
+import { HEADER_NAV_ITEMS, isNavItemActive, navEdges, navScrollLeftFor } from "./header-nav";
 
 describe("header navigation", () => {
   it("lists the seven destinations in the app-bar order", () => {
@@ -45,10 +45,19 @@ describe("navScrollLeftFor", () => {
     expect(navScrollLeftFor({ ...strip, itemLeft: 12, itemWidth: 72 })).toBe(0);
   });
 
-  it("centres an item in the middle of the strip", () => {
-    expect(navScrollLeftFor({ ...strip, scrollWidth: 600, itemLeft: 300, itemWidth: 60 })).toBe(
-      135
-    );
+  it("keeps the strip at the first tab when the active pill already shows (mock)", () => {
+    // 여행 at 277–326 on a 390px strip: visible, so no scroll (QA: "임라인" clip).
+    expect(navScrollLeftFor({ ...strip, itemLeft: 277, itemWidth: 49 })).toBe(0);
+  });
+
+  it("nudges a pill out of the right fade without snapping back under it", () => {
+    // 건강 at 328–376: 376 + 20 - 390 = 6 (only 타임라인's padding goes under the left fade).
+    expect(navScrollLeftFor({ ...strip, itemLeft: 328, itemWidth: 48 })).toBe(6);
+  });
+
+  it("scrolls just far enough for an off-screen pill to clear the edge fade", () => {
+    // 여행 ends at 400: 400 + 20 - 390 = 30.
+    expect(navScrollLeftFor({ ...strip, itemLeft: 352, itemWidth: 48 })).toBe(30);
   });
 
   it("clamps the last item to the end of the scroll range", () => {
@@ -56,9 +65,30 @@ describe("navScrollLeftFor", () => {
     expect(navScrollLeftFor({ ...strip, itemLeft: 434, itemWidth: 56 })).toBe(130);
   });
 
+  it("scrolls back left for a pill hidden behind the left edge", () => {
+    expect(navScrollLeftFor({ ...strip, itemLeft: 60, itemWidth: 50, scrollLeft: 130 })).toBe(40);
+  });
+
   it("never scrolls a strip that fits", () => {
     expect(
       navScrollLeftFor({ itemLeft: 300, itemWidth: 60, viewportWidth: 600, scrollWidth: 520 })
     ).toBe(0);
+  });
+});
+
+describe("navEdges", () => {
+  it("fades only the edges with hidden pills", () => {
+    expect(navEdges({ scrollLeft: 0, clientWidth: 390, scrollWidth: 520 })).toEqual({
+      left: false,
+      right: true,
+    });
+    expect(navEdges({ scrollLeft: 130, clientWidth: 390, scrollWidth: 520 })).toEqual({
+      left: true,
+      right: false,
+    });
+    expect(navEdges({ scrollLeft: 0, clientWidth: 600, scrollWidth: 600 })).toEqual({
+      left: false,
+      right: false,
+    });
   });
 });

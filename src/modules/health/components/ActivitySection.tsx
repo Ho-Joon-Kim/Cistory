@@ -8,7 +8,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { AiLine, EvidenceScope, Segmented, useEvidence } from "@/components/ds";
+import {
+  AiLine,
+  EvidenceScope,
+  Segmented,
+  useDismissOnEvidence,
+  useEvidence,
+} from "@/components/ds";
 import { evidenceMatches } from "@/lib/facts/evidence";
 import { formatDay, formatMonthDay, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -122,6 +128,7 @@ function Bars({
 }) {
   const { active } = useEvidence();
   const [hover, setHover] = useState<number | null>(null);
+  useDismissOnEvidence(() => setHover(null));
   // Bars grow in once on entrance; the class is dropped afterwards so a bar that
   // starts off-screen (whose animation the browser may never tick) still paints.
   const [grown, setGrown] = useState(false);

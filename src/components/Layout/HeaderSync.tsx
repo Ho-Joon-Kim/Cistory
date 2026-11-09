@@ -36,7 +36,8 @@ function SyncText({ short = false }: { short?: boolean }) {
       className="mr-1.5 inline-flex items-center gap-1.5 text-[13px] text-ink-3"
       title={formatDateTime(last, { now })}
     >
-      <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />
+      {/* The phone bar shows just the time, as in the mobile mocks. */}
+      {short ? null : <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />}
       {formatRelative(last, now)}
       {short ? null : " 동기화"}
     </span>

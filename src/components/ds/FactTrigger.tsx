@@ -1,11 +1,12 @@
 "use client";
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useRef, useState } from "react";
 import type { FactEvidence, FactRow } from "@/lib/facts/types";
 import { cn } from "@/lib/utils";
-import { useEvidencePopover } from "./evidence";
-import { chooseFactPopoverPlacement, pageGutter, type Rect } from "./fact-placement";
+import { announceEvidenceOpen, useEvidencePopover } from "./evidence";
+import { chooseFactPopoverPlacement, factPopoverBounds, type Rect } from "./fact-placement";
+import { isMonoFactValue } from "./fact-text";
 
 /**
  * The evidence list: "이 문장에 쓴 사실" + metric/period → value rows + optional
@@ -25,7 +26,7 @@ export function FactPopover({
   return (
     <div
       className={cn(
-        "w-80 max-w-[calc(100vw-32px)] rounded-xl bg-surface px-4 py-3.5 font-sans text-xs leading-[18px] font-normal tracking-normal text-ink shadow-pop",
+        "w-80 max-w-[min(calc(100vw-32px),var(--fact-pop-max,100vw))] rounded-xl bg-surface px-4 py-3.5 font-sans text-xs leading-[18px] font-normal tracking-normal text-ink shadow-pop",
         className
       )}
     >
@@ -37,7 +38,14 @@ export function FactPopover({
         {rows.map((row) => (
           <div key={`${row.label}|${row.value}`} className="flex items-baseline gap-4">
             <dt className="max-w-[60%] shrink-0 text-ink-2 [overflow-wrap:normal]">{row.label}</dt>
-            <dd className="num m-0 min-w-0 flex-1 text-right text-ink">{row.value}</dd>
+            <dd
+              className={cn(
+                "m-0 min-w-0 flex-1 text-right text-ink",
+                isMonoFactValue(row.value) && "num"
+              )}
+            >
+              {row.value}
+            </dd>
           </div>
         ))}
       </dl>
@@ -56,6 +64,34 @@ function rectOf(el: Element): Rect {
   return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
 }
 
+/** Chart-like things a popover shouldn't cover. `data-evidence-avoid` lets a host
+ * mark anything else (a hypnogram made of spans, a map …). */
+const CHART_SELECTOR =
+  'svg, canvas, [role="img"], .recharts-wrapper, [data-chart], [data-evidence-avoid]';
+const MIN_CHART_W = 80;
+const MIN_CHART_H = 40;
+const MAX_HOST_DEPTH = 5;
+
+/**
+ * The nearest ancestor of the sentence that also holds a visible chart (the AI
+ * line's host card/column) and that chart's rects. A host can name itself with
+ * `data-fact-host`.
+ */
+function chartHost(trigger: Element, sentence: Element): { host: Element | null; charts: Rect[] } {
+  const declared = trigger.closest("[data-fact-host]");
+  let node: Element | null = declared ?? sentence.parentElement;
+  for (let depth = 0; node && depth < MAX_HOST_DEPTH; depth++) {
+    if (node === document.body || node.tagName === "MAIN") break;
+    const charts = Array.from(node.querySelectorAll(CHART_SELECTOR))
+      .filter((el) => !el.contains(trigger) && !sentence.contains(el))
+      .map(rectOf)
+      .filter((r) => r.right - r.left >= MIN_CHART_W && r.bottom - r.top >= MIN_CHART_H);
+    if (charts.length > 0 || declared) return { host: node, charts };
+    node = node.parentElement;
+  }
+  return { host: null, charts: [] };
+}
+
 /**
  * The one dotted-underlined fact inside an AI sentence. Click/tap (or Enter)
  * opens the evidence popover; outside click, Escape or a second click closes it.
@@ -63,7 +99,11 @@ function rectOf(el: Element): Rect {
  *
  * Placement: the popover clears the whole sentence (not just the trigger, so a
  * two-line sentence stays readable) and opens on the side away from the
- * highlighted evidence; it flips/shifts to stay inside the page gutters. While
+ * highlighted evidence — or, when the host lights nothing with `data-evidence`,
+ * away from the host's charts (svg/canvas/role=img/`data-evidence-avoid`) — even
+ * when there is room on the other side. It stays inside its host column in a
+ * multi-column row and flips/shifts to stay inside the page gutters. Opening it
+ * fires EVIDENCE_OPEN_EVENT so chart hover tooltips close. While
  * open, the fact's evidence stays lit; closing clears it.
  */
 export function FactTrigger({
@@ -98,7 +138,13 @@ export function FactTrigger({
   const mono = numeric ?? (text === undefined || hasDigit(text));
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [placement, setPlacement] = useState({ side, sideOffset: 6, gutter: 16 });
+  const [placement, setPlacement] = useState<{
+    side: "top" | "bottom";
+    sideOffset: number;
+    left: number;
+    right: number;
+    maxWidth: number | null;
+  }>({ side, sideOffset: 6, left: 16, right: 16, maxWidth: null });
   const onEvidence = useEvidencePopover(evidence);
 
   const onOpenChange = useCallback(
@@ -115,15 +161,24 @@ export function FactTrigger({
           ),
         ];
         const lit = avoid.map(rectOf).filter((r) => r.bottom > r.top && r.right > r.left);
+        // Hosts that light evidence without data-evidence attributes (health's
+        // hypnogram, HR and weight plots): stay off the host's charts instead.
+        // Annotations live inside their chart, so they rely on lit evidence only.
+        const { host, charts } = own ? { host: null, charts: [] } : chartHost(trigger, sentence);
         setPlacement({
           ...chooseFactPopoverPlacement({
             trigger: rectOf(trigger),
             sentence: rectOf(sentence),
             evidence: lit,
+            regions: charts,
             preferred: side,
           }),
-          gutter: pageGutter(window.innerWidth),
+          ...factPopoverBounds({
+            viewportWidth: document.documentElement.clientWidth,
+            column: host ? rectOf(host) : null,
+          }),
         });
+        announceEvidenceOpen();
       }
       setOpen(next);
       onEvidence(next);
@@ -149,9 +204,14 @@ export function FactTrigger({
           collisionPadding={{
             top: 16,
             bottom: 16,
-            left: placement.gutter,
-            right: placement.gutter,
+            left: placement.left,
+            right: placement.right,
           }}
+          style={
+            placement.maxWidth
+              ? ({ "--fact-pop-max": `${placement.maxWidth}px` } as CSSProperties)
+              : undefined
+          }
           aria-label="근거"
           className="ds-pop z-50 origin-(--radix-popover-content-transform-origin) outline-none"
         >

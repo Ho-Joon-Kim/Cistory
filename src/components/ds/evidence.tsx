@@ -119,6 +119,33 @@ export function EvidenceScope({ children }: { children: ReactNode }) {
   return <EvidenceContext.Provider value={value}>{children}</EvidenceContext.Provider>;
 }
 
+/**
+ * Fired on window when an evidence popover opens or an AI line / chart annotation
+ * is activated (hover/focus). Chart hosts with their own hover tooltip listen
+ * (useDismissOnEvidence) and clear it, so a stale day tooltip never sits next to
+ * — or reappears after — an evidence popover.
+ */
+export const EVIDENCE_OPEN_EVENT = "ds:evidence-open";
+
+export function announceEvidenceOpen() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(EVIDENCE_OPEN_EVENT));
+}
+
+/**
+ * For chart hosts with a hover/tap tooltip: `dismiss` runs whenever an evidence
+ * popover opens or any AI line/annotation lights its evidence. Typically
+ * `useDismissOnEvidence(() => setHover(null))`.
+ */
+export function useDismissOnEvidence(dismiss: () => void) {
+  const ref = useRef(dismiss);
+  ref.current = dismiss;
+  useEffect(() => {
+    const on = () => ref.current();
+    window.addEventListener(EVIDENCE_OPEN_EVENT, on);
+    return () => window.removeEventListener(EVIDENCE_OPEN_EVENT, on);
+  }, []);
+}
+
 /** Read side for hosts; safe outside a scope (never highlights). */
 export function useEvidence() {
   const ctx = useContext(EvidenceContext);
@@ -139,9 +166,15 @@ export function useEvidenceTrigger(evidence: FactEvidence | null | undefined) {
   return useMemo(() => {
     if (!activate || !deactivate || !evidence) return {};
     return {
-      onMouseEnter: () => activate(evidence, "pointer"),
+      onMouseEnter: () => {
+        announceEvidenceOpen();
+        activate(evidence, "pointer");
+      },
       onMouseLeave: deactivate,
-      onFocus: () => activate(evidence, "focus"),
+      onFocus: () => {
+        announceEvidenceOpen();
+        activate(evidence, "focus");
+      },
       onBlur: deactivate,
     };
   }, [activate, deactivate, evidence]);

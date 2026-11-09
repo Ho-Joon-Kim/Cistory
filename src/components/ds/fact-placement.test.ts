@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseFactPopoverPlacement, pageGutter } from "./fact-placement";
+import { chooseFactPopoverPlacement, factPopoverBounds, pageGutter } from "./fact-placement";
 
 const rect = (top: number, bottom: number, left = 0, right = 100) => ({ top, bottom, left, right });
 
@@ -42,6 +42,70 @@ describe("chooseFactPopoverPlacement", () => {
     expect(chooseFactPopoverPlacement({ trigger, sentence: oneLine, evidence: self }).side).toBe(
       "bottom"
     );
+  });
+});
+
+describe("chooseFactPopoverPlacement · chart regions", () => {
+  const trigger = rect(345, 365, 750, 840);
+  const sentence = rect(345, 390, 750, 1000);
+  const chart = rect(420, 690, 750, 1000);
+
+  it("opens above when the host's chart sits below, even with room below (health HR)", () => {
+    expect(
+      chooseFactPopoverPlacement({ trigger, sentence, evidence: [], regions: [chart] }).side
+    ).toBe("top");
+  });
+
+  it("opens below when the chart is above the line (mobile HR sparkline)", () => {
+    const above = rect(250, 330, 200, 380);
+    expect(
+      chooseFactPopoverPlacement({
+        trigger,
+        sentence,
+        evidence: [],
+        regions: [above],
+        preferred: "top",
+      }).side
+    ).toBe("bottom");
+  });
+
+  it("lets lit evidence win over chart regions (spending keeps its behaviour)", () => {
+    const litAbove = rect(100, 300, 750, 1000);
+    expect(
+      chooseFactPopoverPlacement({ trigger, sentence, evidence: [litAbove], regions: [chart] }).side
+    ).toBe("bottom");
+  });
+});
+
+describe("factPopoverBounds", () => {
+  it("uses the page gutters without a column", () => {
+    expect(factPopoverBounds({ viewportWidth: 1440 })).toEqual({
+      left: 96,
+      right: 96,
+      maxWidth: null,
+    });
+  });
+
+  it("keeps the popover inside a middle column of a three-column row", () => {
+    expect(factPopoverBounds({ viewportWidth: 1440, column: rect(200, 700, 720, 1032) })).toEqual({
+      left: 720,
+      right: 408,
+      maxWidth: 312,
+    });
+  });
+
+  it("ignores a full-width host (mobile)", () => {
+    expect(factPopoverBounds({ viewportWidth: 390, column: rect(0, 900, 0, 390) })).toEqual({
+      left: 16,
+      right: 16,
+      maxWidth: null,
+    });
+  });
+
+  it("ignores a column too narrow to read in", () => {
+    expect(
+      factPopoverBounds({ viewportWidth: 1440, column: rect(0, 100, 600, 800) }).maxWidth
+    ).toBeNull();
   });
 });
 

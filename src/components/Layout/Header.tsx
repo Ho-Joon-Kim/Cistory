@@ -2,13 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "@/modules/auth/components/UserMenu";
 import { CommitGraph } from "./CommitGraph";
 import { HeaderSync } from "./HeaderSync";
-import { HEADER_NAV_ITEMS, isNavItemActive, navScrollLeftFor } from "./header-nav";
+import {
+  HEADER_NAV_ITEMS,
+  isNavItemActive,
+  NAV_FADE_PX,
+  navEdges,
+  navScrollLeftFor,
+} from "./header-nav";
 
 interface HeaderProps {
   /** Called after a manual sync was accepted (the timeline refreshes on it). */
@@ -28,22 +34,43 @@ interface HeaderProps {
 export function Header({ onSyncStarted }: HeaderProps) {
   const pathname = usePathname();
   const navRef = useRef<HTMLElement>(null);
+  // Mobile strip edges with hidden pills: those edges fade out (mask) so a pill
+  // cut by the edge reads as "more this way", not as a clipped label.
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const syncEdges = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const next = navEdges(nav);
+    setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+  }, []);
 
   // Mobile: the pill strip scrolls horizontally; bring the current page's pill
-  // into view (no-op on PC, where the strip doesn't overflow).
+  // into view with the least movement (no-op on PC, where the strip doesn't
+  // overflow, and for pills that already show — the strip starts at the first tab).
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-run on every navigation
   useEffect(() => {
     const nav = navRef.current;
     const active = nav?.querySelector<HTMLElement>('a[aria-current="page"]');
-    if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
-    nav.scrollLeft = navScrollLeftFor({
-      itemLeft:
-        active.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft,
-      itemWidth: active.offsetWidth,
-      viewportWidth: nav.clientWidth,
-      scrollWidth: nav.scrollWidth,
-    });
+    if (nav && active && nav.scrollWidth > nav.clientWidth) {
+      nav.scrollLeft = navScrollLeftFor({
+        itemLeft:
+          active.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft,
+        itemWidth: active.offsetWidth,
+        viewportWidth: nav.clientWidth,
+        scrollWidth: nav.scrollWidth,
+        scrollLeft: nav.scrollLeft,
+      });
+    }
+    syncEdges();
   }, [pathname]);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const ro = new ResizeObserver(syncEdges);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, [syncEdges]);
 
   return (
     <>
@@ -68,7 +95,11 @@ export function Header({ onSyncStarted }: HeaderProps) {
           <nav
             ref={navRef}
             aria-label="주요 메뉴"
-            className="order-last flex h-11 w-full items-center gap-0.5 overflow-x-auto px-4 [scrollbar-width:none] lg:order-none lg:h-auto lg:w-auto lg:gap-0.5 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden"
+            onScroll={syncEdges}
+            data-fade-left={edges.left ? "" : undefined}
+            data-fade-right={edges.right ? "" : undefined}
+            style={{ "--nav-fade": `${NAV_FADE_PX}px` } as CSSProperties}
+            className="ds-nav-strip order-last flex h-11 w-full items-center gap-0.5 overflow-x-auto px-4 [scrollbar-width:none] lg:order-none lg:h-auto lg:w-auto lg:gap-0.5 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden"
           >
             {HEADER_NAV_ITEMS.map((item) => {
               const active = isNavItemActive(pathname, item.href);

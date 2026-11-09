@@ -29,17 +29,23 @@ export function chooseFactPopoverPlacement({
   trigger,
   sentence,
   evidence,
+  regions = [],
   preferred = "bottom",
 }: {
   trigger: Rect;
   sentence: Rect;
   evidence: Rect[];
+  /** Fallback when no lit evidence sits outside the sentence: the host's charts
+   * (a chart that lights its evidence without `data-evidence` attributes still
+   * shouldn't be covered by the popover explaining it). */
+  regions?: Rect[];
   preferred?: "top" | "bottom";
 }): { side: "top" | "bottom"; sideOffset: number } {
   let side = preferred;
-  const others = evidence.filter(
-    (r) => !(r.top >= sentence.top - 1 && r.bottom <= sentence.bottom + 1)
-  );
+  const outside = (list: Rect[]) =>
+    list.filter((r) => !(r.top >= sentence.top - 1 && r.bottom <= sentence.bottom + 1));
+  const litOutside = outside(evidence);
+  const others = litOutside.length > 0 ? litOutside : outside(regions);
   if (others.length > 0) {
     const triggerMid = (trigger.top + trigger.bottom) / 2;
     let below = 0;
@@ -55,4 +61,36 @@ export function chooseFactPopoverPlacement({
   const clearance =
     side === "bottom" ? sentence.bottom - trigger.bottom : trigger.top - sentence.top;
   return { side, sideOffset: GAP + Math.min(MAX_OFFSET, Math.max(0, Math.round(clearance))) };
+}
+
+/** Narrowest column the popover is squeezed into before it may overflow it. */
+const MIN_COLUMN = 260;
+
+/**
+ * Horizontal room for the popover: the page gutters, narrowed to the host column
+ * when the host is a column of a multi-column row (so a popover in the middle
+ * column doesn't spill over the next column's chart). Returns viewport-relative
+ * collision padding plus a max width when the column is the binding limit.
+ */
+export function factPopoverBounds({
+  viewportWidth,
+  column,
+}: {
+  viewportWidth: number;
+  column?: Rect | null;
+}): { left: number; right: number; maxWidth: number | null } {
+  const gutter = pageGutter(viewportWidth);
+  let left = gutter;
+  let right = viewportWidth - gutter;
+  if (column) {
+    const l = Math.max(left, Math.round(column.left));
+    const r = Math.min(right, Math.round(column.right));
+    // Only a real column (narrower than the content area) and wide enough to read in.
+    if (r - l >= MIN_COLUMN && r - l < right - left - 1) {
+      left = l;
+      right = r;
+      return { left, right: viewportWidth - right, maxWidth: right - left };
+    }
+  }
+  return { left, right: viewportWidth - right, maxWidth: null };
 }
