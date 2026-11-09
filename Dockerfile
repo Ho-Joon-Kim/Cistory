@@ -1,5 +1,5 @@
 # Stage 1: Base image with Node.js and Yarn
-FROM node:24.20.0-alpine AS base
+FROM node:24.22.2-alpine AS base
 RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 WORKDIR /app
 
@@ -39,7 +39,7 @@ COPY . .
 RUN yarn test
 
 # Chromium needs glibc; use Debian for the isolated browser regression target.
-FROM node:24.20.0-bookworm AS browser-tester
+FROM node:24.22.2-bookworm AS browser-tester
 RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 WORKDIR /app
 COPY package.json yarn.lock .yarnrc.yml ./
@@ -67,7 +67,7 @@ COPY scripts/migrate.ts ./scripts/migrate.ts
 COPY scripts/lib/postgis-extensions.ts ./scripts/lib/postgis-extensions.ts
 
 # Stage 4: Production runner
-FROM node:24.20.0-alpine AS runner
+FROM node:24.22.2-alpine AS runner
 WORKDIR /app
 
 # tzdata is required for Intl to resolve IANA zone names like "Asia/Seoul".

@@ -31,7 +31,7 @@ interface Options {
 }
 
 export function createApiKeyRoute({ column, prefix, label }: Options) {
-  async function POST(request: NextRequest) {
+  async function generateKey(request: NextRequest) {
     try {
       const { user, error: authError } = await getAuthenticatedUser(request);
       if (authError) return authError;
@@ -56,7 +56,7 @@ export function createApiKeyRoute({ column, prefix, label }: Options) {
     }
   }
 
-  async function DELETE(request: NextRequest) {
+  async function revokeKey(request: NextRequest) {
     try {
       const { user, error: authError } = await getAuthenticatedUser(request);
       if (authError) return authError;
@@ -79,5 +79,7 @@ export function createApiKeyRoute({ column, prefix, label }: Options) {
     }
   }
 
-  return { POST, DELETE };
+  // Lower-case locals: Biome 2.6 noComponentHookFactories treats PascalCase
+  // inner functions as React components.
+  return { POST: generateKey, DELETE: revokeKey };
 }
