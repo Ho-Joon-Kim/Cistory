@@ -22,4 +22,10 @@ describe("countUpFrame", () => {
   it("jumps to the target when there is no duration", () => {
     expect(countUpFrame(3, 7, 0, 0)).toBe(7);
   });
+
+  it("keeps the requested decimals mid-animation", () => {
+    const mid = countUpFrame(0, 541.7, 200, 400, 1);
+    expect(Math.abs(mid * 10 - Math.round(mid * 10))).toBeLessThan(1e-9);
+    expect(countUpFrame(0, 541.7, 400, 400, 1)).toBe(541.7);
+  });
 });
