@@ -69,6 +69,28 @@ export const NARRATIVE_MAX_INPUT_CHARS = NARRATIVE_MAX_INPUT_TOKENS * NARRATIVE_
  */
 export const NARRATIVE_MAX_TOKEN_PROBES = 2;
 
+/**
+ * 깨끗하게 끝난 응답만 회고문으로 게시한다. `max_tokens`(적응형 사고가 같은
+ * 예산에서 빠져나간다)·`refusal`·그 밖의 낯선 종료는 문장 중간에서 잘렸거나
+ * 회고문이 아닌 응답이므로 재시도 가능한 실패로 처리한다 — 종전에는 그대로
+ * `ready`로 저장돼 dev DB의 2026-07, 2026-W31 회고문이 문장 중간에서 끝났다.
+ */
+const NARRATIVE_COMPLETE_STOP_REASONS = new Set(["end_turn", "stop_sequence"]);
+
+/**
+ * 회고문 입력의 지문. 다섯 도메인 envelope에서 재계산마다 바뀌는
+ * `computedAt`/`computeVersion`만 빼고 md5를 낸다 — 그래서 버전 상승이
+ * 이 기간의 숫자를 실제로 바꿨을 때만 지문이 달라지고, 숫자가 같으면
+ * 유료 재생성을 하지 않는다. jsonb의 텍스트 표현은 키 순서가 정규화되어
+ * 있어 같은 데이터는 항상 같은 지문을 낸다. NULL 도메인은
+ * `jsonb_build_array`가 JSON null로 남겨 자리가 밀리지 않는다.
+ */
+const narrativeInputHashSql = sql.raw(
+  `md5(jsonb_build_array(${["coding", "location", "health", "spending", "assets"]
+    .map((domain) => `s.${domain} - 'computedAt' - 'computeVersion'`)
+    .join(", ")})::text)`
+);
+
 /** 도메인별 미리보기를 0까지 줄여도 한도를 넘을 때 내는 최소 형태. */
 const NARRATIVE_MINIMAL_INPUT = JSON.stringify({ truncated: true });
 
@@ -183,7 +205,8 @@ function reduceToCharBudget(snapshot: NarrativeSnapshotInput, maxChars: number):
 
   // 도메인별 데이터는 한 번만 직렬화해 두고 이분 탐색은 slice만 반복한다.
   const domains = Object.entries(snapshot).map(
-    ([domain, envelope]) => [domain, envelope, envelope ? JSON.stringify(envelope.data) : ""] as const
+    ([domain, envelope]) =>
+      [domain, envelope, envelope ? JSON.stringify(envelope.data) : ""] as const
   );
   const project = (previewLength: number): string =>
     JSON.stringify(
@@ -318,6 +341,9 @@ export function createNarrativeService(
         thinking: "adaptive",
         effort: "medium",
       });
+      if (!NARRATIVE_COMPLETE_STOP_REASONS.has(result.stopReason)) {
+        throw new Error(`AI narrative did not finish cleanly (stop_reason: ${result.stopReason})`);
+      }
       const content = result.content.trim();
       if (!content) throw new Error("AI returned an empty narrative");
       return store.complete(claim, content, model, now);
@@ -460,10 +486,12 @@ export function createDatabaseNarrativeStore(db: Database): NarrativeStore {
       return db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 1))`);
         const snapshot = await tx.execute<Record<string, unknown>>(sql`
-          SELECT coding, location, health, spending, assets
-          FROM period_snapshots
-          WHERE user_id = ${userId} AND period_type = ${periodType} AND period_key = ${periodKey}
-            AND status = 'ready' AND finalized_at IS NOT NULL
+          SELECT s.coding, s.location, s.health, s.spending, s.assets,
+            ${narrativeInputHashSql} AS "inputHash"
+          FROM period_snapshots s
+          WHERE s.user_id = ${userId} AND s.period_type = ${periodType}
+            AND s.period_key = ${periodKey}
+            AND s.status = 'ready' AND s.finalized_at IS NOT NULL
           FOR SHARE
         `);
         const snapshotRow = snapshot.rows[0];
@@ -497,18 +525,20 @@ export function createDatabaseNarrativeStore(db: Database): NarrativeStore {
         }
 
         const leaseExpiresAt = new Date(now.getTime() + NARRATIVE_LEASE_MS);
+        const inputHash = (snapshotRow.inputHash as string | null | undefined) ?? null;
         await tx.execute(sql`
           INSERT INTO period_narratives (
             user_id, period_type, period_key, status, generation_started_at,
-            lease_expires_at, attempt_count, updated_at
+            lease_expires_at, attempt_count, input_hash, updated_at
           ) VALUES (
             ${userId}, ${periodType}, ${periodKey}, 'generating', ${now},
-            ${leaseExpiresAt}, 1, ${now}
+            ${leaseExpiresAt}, 1, ${inputHash}, ${now}
           )
           ON CONFLICT (user_id, period_type, period_key) DO UPDATE SET
             status = 'generating', generation_started_at = EXCLUDED.generation_started_at,
             lease_expires_at = EXCLUDED.lease_expires_at,
             attempt_count = period_narratives.attempt_count + 1,
+            input_hash = EXCLUDED.input_hash,
             last_error = NULL, updated_at = EXCLUDED.updated_at
         `);
         return {
@@ -544,6 +574,24 @@ export function createDatabaseNarrativeStore(db: Database): NarrativeStore {
           LIMIT ${limit}
           ON CONFLICT (user_id, period_type, period_key) DO NOTHING
         `);
+        // Settled narratives whose finalized snapshot input changed since
+        // they were last claimed (a compute-version bump that moved the
+        // numbers, or a pre-0043 row with no recorded input) go back to the
+        // queue with a fresh attempt budget. Content is kept so the old
+        // narrative stays visible until the new one lands. `generating` rows
+        // are left alone; once claimed, input_hash matches and the row is
+        // not re-queued again for the same input.
+        await tx.execute(sql`
+          UPDATE period_narratives n SET status = 'pending', attempt_count = 0,
+            last_error = NULL, updated_at = ${now}
+          FROM period_snapshots s
+          WHERE s.user_id = n.user_id AND s.period_type = n.period_type
+            AND s.period_key = n.period_key
+            AND n.status IN ('ready', 'failed')
+            AND s.status = 'ready' AND s.finalized_at IS NOT NULL
+            AND s.period_type IN ('week', 'month', 'year')
+            AND n.input_hash IS DISTINCT FROM ${narrativeInputHashSql}
+        `);
 
         const leaseExpiresAt = new Date(now.getTime() + NARRATIVE_LEASE_MS);
         const claimed = await tx.execute<Record<string, unknown>>(sql`
@@ -562,7 +610,7 @@ export function createDatabaseNarrativeStore(db: Database): NarrativeStore {
           )
           UPDATE period_narratives n SET status = 'generating', generation_started_at = ${now},
             lease_expires_at = ${leaseExpiresAt}, attempt_count = n.attempt_count + 1,
-            last_error = NULL, updated_at = ${now}
+            input_hash = ${narrativeInputHashSql}, last_error = NULL, updated_at = ${now}
           FROM candidates c, period_snapshots s
           WHERE n.id = c.id AND s.user_id = n.user_id
             AND s.period_type = n.period_type AND s.period_key = n.period_key
@@ -606,7 +654,8 @@ export function createDatabaseNarrativeStore(db: Database): NarrativeStore {
     async fail(claim, error, now) {
       await db.execute(sql`
         UPDATE period_narratives
-        SET status = CASE WHEN content IS NULL THEN 'failed' ELSE 'ready' END,
+        SET status = CASE WHEN content IS NULL THEN 'failed'
+            WHEN attempt_count < ${NARRATIVE_MAX_ATTEMPTS} THEN 'pending' ELSE 'ready' END,
           lease_expires_at = NULL, last_error = ${error.slice(0, 2000)}, updated_at = ${now}
         WHERE user_id = ${claim.userId} AND period_type = ${claim.periodType}
           AND period_key = ${claim.periodKey} AND status = 'generating'
