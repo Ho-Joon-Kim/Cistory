@@ -72,10 +72,12 @@ export function AccountAllocationChart({ accounts }: Props) {
                     style={{ backgroundColor: d.fill }}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{d.name}</div>
+                    <div className="font-medium truncate" title={d.name}>
+                      {d.name}
+                    </div>
                     <div className="text-xs text-muted-foreground">{d.type}</div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right tabular-nums">
                     <div className="font-semibold">{d.pct.toFixed(1)}%</div>
                     <div className="text-xs text-muted-foreground">
                       {formatKRW(d.value, { compact: true })}

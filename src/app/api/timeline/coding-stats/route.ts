@@ -77,6 +77,9 @@ export async function GET(request: NextRequest) {
     logger.error("Get coding stats error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "코딩 통계 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "코딩 통계를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

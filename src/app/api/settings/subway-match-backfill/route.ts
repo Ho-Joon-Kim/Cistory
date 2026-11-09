@@ -63,6 +63,9 @@ export async function POST(request: NextRequest) {
     logger.error("subway-match-backfill failed", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ error: "지하철 매칭 백필에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "지하철 매칭을 다시 처리하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

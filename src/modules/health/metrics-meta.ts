@@ -48,12 +48,12 @@ export const METRIC_ACCENT: Record<string, string> = {
   active_energy: "hsl(18 90% 58%)", // ember — sibling of exercise orange
   active_zone_minutes: "hsl(340 78% 62%)", // pink — effort intensity
   heart_rate: "hsl(0 72% 62%)", // red
-  resting_heart_rate: "hsl(0 72% 62%)", // red (dim in use)
+  resting_heart_rate: "hsl(355 60% 76%)", // light rose — lighter sibling of heart rate red
   hrv: "hsl(285 68% 68%)", // magenta-violet — recovery
   spo2: "hsl(263 72% 72%)", // violet
   vo2_max: "hsl(45 100% 60%)", // amber
   respiratory_rate: "hsl(190 78% 58%)", // cyan — breath
-  skin_temperature: "hsl(15 82% 62%)", // warm coral — temperature
+  skin_temperature: "hsl(75 62% 50%)", // lime — kept clear of the ember/orange movement hues
   sleep: "hsl(235 66% 62%)", // indigo — matches the hypnogram's deep-sleep hue
 };
 

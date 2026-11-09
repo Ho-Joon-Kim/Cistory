@@ -5,6 +5,7 @@ import type { GeoJSONSource, MapMouseEvent } from "mapbox-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayerProps } from "react-map-gl/mapbox";
 import { Layer, Marker, Source, useMap } from "react-map-gl/mapbox";
+import { cameraDuration } from "../camera";
 import type { LocationData, SavedPlaceData, StayPointData } from "../hooks";
 import type { ReplayFrame } from "../replay-timeline";
 import {
@@ -471,7 +472,7 @@ export function SegmentedRouteAnimator({
       map.flyTo({
         center: [allCoords[0][0], allCoords[0][1]],
         zoom: 15,
-        duration: 1000,
+        duration: cameraDuration(1000),
       });
     } else {
       const lngs = allCoords.map((c) => c[0]);
@@ -481,7 +482,7 @@ export function SegmentedRouteAnimator({
           [Math.min(...lngs), Math.min(...lats)],
           [Math.max(...lngs), Math.max(...lats)],
         ],
-        { padding: 50, duration: 1000 }
+        { padding: 50, duration: cameraDuration(1000) }
       );
     }
   }, [map, allCoords]);

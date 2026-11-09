@@ -45,7 +45,7 @@ describe("health day recovery", () => {
     const { service, fetch } = setup();
     await expect(service.recoverDay("u", "2026-02-30")).rejects.toThrow("날짜");
     vi.mocked(service.getConnection).mockResolvedValue(null);
-    await expect(service.recoverDay("u", "2026-08-01")).rejects.toThrow("연동");
+    await expect(service.recoverDay("u", "2026-08-01")).rejects.toThrow("연결을 확인");
     expect(fetch).not.toHaveBeenCalled();
   });
   it("keeps midnight upper bounds exclusive for daily metrics", () => {

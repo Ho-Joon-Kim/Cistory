@@ -188,7 +188,7 @@ export function CommitCard({
 
   return (
     <div
-      className={`commit-feed-row ${isMerge && !isExpanded ? "is-dimmed" : ""} ${isNew ? "animate-slide-up-fade animate-highlight" : ""}`}
+      className={`commit-feed-row ${isMerge && !isExpanded ? "is-dimmed" : ""} ${isNew ? "animate-commit-new" : ""}`}
       style={style}
     >
       <div className="commit-graph-rail" aria-hidden="true">
@@ -223,7 +223,9 @@ export function CommitCard({
         <span className="commit-meta-row">
           <span className="commit-repo">
             <span className="commit-repo-dot" />
-            <span className="truncate">{repoName}</span>
+            <span className="truncate" title={commit.repository.fullName}>
+              {repoName}
+            </span>
           </span>
           <time dateTime={commit.committedAt}>{formatCommitTime(commit.committedAt)}</time>
         </span>
@@ -238,7 +240,9 @@ export function CommitCard({
               {type}
             </span>
           )}
-          <span className={`commit-message ${isMerge ? "is-merge" : ""}`}>{message}</span>
+          <span className={`commit-message ${isMerge ? "is-merge" : ""}`} title={message}>
+            {message}
+          </span>
         </span>
 
         {isExpanded && (
@@ -255,7 +259,7 @@ export function CommitCard({
             )}
             {isProcessing && (
               <span className="commit-summary-loading">
-                <Loader2 size={12} className="animate-spin" /> 요약 생성 중...
+                <Loader2 size={12} className="animate-spin" /> 요약 생성 중…
               </span>
             )}
             {!summary && !isPending && !isProcessing && <span>요약이 없습니다</span>}

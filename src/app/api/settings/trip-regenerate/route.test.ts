@@ -78,6 +78,8 @@ describe("POST /api/settings/trip-regenerate", () => {
     const response = await POST(request("{}"));
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ error: "여행 재생성에 실패했습니다" });
+    await expect(response.json()).resolves.toEqual({
+      error: "자동 여행을 다시 만들지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    });
   });
 });

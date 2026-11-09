@@ -11,8 +11,9 @@ import { useTravelTrips } from "@/modules/travel/hooks";
 
 function CenteredSpinner() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    <div role="status" className="min-h-screen flex items-center justify-center">
+      <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+      <span className="sr-only">로딩 중…</span>
     </div>
   );
 }
@@ -33,8 +34,8 @@ export default function TravelPage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header showSync={false} />
-      <main className="flex-1 container mx-auto px-4 py-6">
-        <div className="mb-6 flex items-start justify-between gap-4">
+      <main id="main" className="flex-1 container mx-auto px-4 py-6">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">여행</h1>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -43,9 +44,9 @@ export default function TravelPage() {
           </div>
           <Button onClick={refresh} disabled={isLoading} size="sm" variant="outline">
             {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
             ) : (
-              <RefreshCw className="h-4 w-4" />
+              <RefreshCw aria-hidden="true" className="h-4 w-4" />
             )}
             새로고침
           </Button>

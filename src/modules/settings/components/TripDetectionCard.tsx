@@ -13,7 +13,9 @@ export function getTripConfirmationErrorMessage(error: unknown): string {
   if (error instanceof TripConfirmationError && error.code === "STALE_DETECTION") {
     return "여행 후보가 만료되었습니다. 취소한 뒤 여행을 다시 감지해 주세요.";
   }
-  return error instanceof Error ? error.message : "여행 저장에 실패했습니다";
+  return error instanceof Error
+    ? error.message
+    : "여행을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
 function TripRegenerationSection() {
@@ -25,7 +27,7 @@ function TripRegenerationSection() {
 
   const handleRegenerate = async () => {
     const confirmed = window.confirm(
-      "2025-03-08부터 현재까지 자동 감지된 여행을 모두 최신 규칙으로 교체합니다. 수동으로 만든 여행은 보존됩니다. 계속할까요?"
+      "2025-03-08 이후 자동 감지된 여행을 모두 최신 규칙으로 다시 만들까요? 기존 자동 여행은 삭제되고 새로 감지한 여행으로 바뀝니다. 직접 만든 여행은 유지됩니다."
     );
     if (!confirmed) return;
 
@@ -43,15 +45,21 @@ function TripRegenerationSection() {
         replaced?: number;
         skipped?: number;
       };
-      if (!response.ok) throw new Error(data.error ?? "여행 재생성에 실패했습니다");
+      if (!response.ok)
+        throw new Error(
+          data.error ?? "자동 여행을 다시 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+        );
 
       const message = `자동 여행 ${data.inserted ?? 0}건을 생성하고 기존 ${
         data.replaced ?? 0
       }건을 교체했습니다.${data.skipped ? ` 수동 여행과 겹친 ${data.skipped}건은 건너뛰었습니다.` : ""}`;
       setStatus({ kind: "success", message });
-      toast.success("여행 재생성이 완료되었습니다");
+      toast.success("자동 여행이 다시 만들어졌습니다.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "여행 재생성에 실패했습니다";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "자동 여행을 다시 만들지 못했습니다. 잠시 후 다시 시도해 주세요.";
       setStatus({ kind: "error", message });
       toast.error(message);
     } finally {
@@ -64,7 +72,7 @@ function TripRegenerationSection() {
       <div>
         <p className="text-sm font-medium">자동 여행 전체 재생성</p>
         <p className="text-sm text-muted-foreground">
-          2025-03-08 이후 자동 감지 여행을 최신 판정 규칙으로 원자적으로 교체합니다. 수동 여행은
+          2025-03-08 이후 자동 감지 여행을 최신 판정 규칙으로 한 번에 교체합니다. 직접 만든 여행은
           삭제하지 않습니다.
         </p>
       </div>
@@ -72,7 +80,7 @@ function TripRegenerationSection() {
         {isRegenerating ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            후보 분석 및 교체 중...
+            후보 분석 및 교체 중…
           </>
         ) : (
           <>
@@ -117,7 +125,7 @@ export function TripDetectionCard() {
     if (results.length > 0) {
       setShowDialog(true);
     } else {
-      toast.info("감지된 여행이 없습니다");
+      toast.info(`${currentYear}년에 감지된 여행이 없습니다.`);
     }
   };
 
@@ -126,7 +134,7 @@ export function TripDetectionCard() {
     try {
       const saved = await confirmTrips(trips);
       if (saved > 0) {
-        toast.success(`${saved}건의 여행이 저장되었습니다`);
+        toast.success(`여행 ${saved}건이 저장되었습니다.`);
       }
       setShowDialog(false);
     } catch (error) {
@@ -137,6 +145,12 @@ export function TripDetectionCard() {
   };
 
   const handleReclassify = async () => {
+    if (
+      !window.confirm(
+        `${reclassifyFrom} ~ ${reclassifyTo} 기간의 교통수단을 다시 판정할까요? 이 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다.`
+      )
+    )
+      return;
     setIsReclassifying(true);
     setReclassificationStatus(null);
     try {
@@ -154,16 +168,21 @@ export function TripDetectionCard() {
       };
       if (!response.ok) {
         const progress = data.daysProcessed ? ` (${data.daysProcessed}일 처리 후 중단)` : "";
-        throw new Error(`${data.error ?? "교통수단 재분류에 실패했습니다"}${progress}`);
+        throw new Error(
+          `${data.error ?? "교통수단을 다시 판정하지 못했습니다. 잠시 후 다시 시도해 주세요."}${progress}`
+        );
       }
 
       const message = `${data.daysProcessed ?? 0}일, 이동 ${data.trackCount ?? 0}건, 구간 ${
         data.segmentCount ?? 0
-      }건을 재분류했습니다.`;
+      }건을 다시 판정했습니다.`;
       setReclassificationStatus({ kind: "success", message });
-      toast.success("교통수단 재분류가 완료되었습니다");
+      toast.success("교통수단 판정이 완료되었습니다.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "교통수단 재분류에 실패했습니다";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "교통수단을 다시 판정하지 못했습니다. 잠시 후 다시 시도해 주세요.";
       setReclassificationStatus({ kind: "error", message });
       toast.error(message);
     } finally {
@@ -190,7 +209,7 @@ export function TripDetectionCard() {
               {isDetecting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  분석 중...
+                  분석 중…
                 </>
               ) : (
                 <>
@@ -225,7 +244,8 @@ export function TripDetectionCard() {
           <div>
             <p className="text-sm font-medium">교통수단 다시 판정</p>
             <p className="text-sm text-muted-foreground">
-              선택한 기간의 이동 구간을 최신 비행 판정 기준으로 다시 계산합니다.
+              선택한 기간의 이동 구간을 최신 비행 판정 기준으로 다시 계산합니다. 이 기간의 도로 경로
+              매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -252,6 +272,7 @@ export function TripDetectionCard() {
           </div>
           <Button
             variant="outline"
+            className="text-destructive hover:text-destructive"
             disabled={
               isReclassifying || !reclassifyFrom || !reclassifyTo || reclassifyFrom > reclassifyTo
             }
@@ -260,12 +281,12 @@ export function TripDetectionCard() {
             {isReclassifying ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                날짜별 이동 구간 재분류 중...
+                날짜별 이동 구간 판정 중…
               </>
             ) : (
               <>
                 <RefreshCw className="h-4 w-4 mr-2" />
-                선택 기간 재분류
+                선택 기간 다시 판정
               </>
             )}
           </Button>

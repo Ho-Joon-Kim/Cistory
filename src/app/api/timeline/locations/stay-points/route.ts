@@ -11,12 +11,12 @@ import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, visits } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
 import {
   detectAndPersistVisits,
   type EnrichedVisit,
 } from "@/modules/location/services/visit-persister";
-import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -94,6 +94,9 @@ export async function GET(request: NextRequest) {
     logger.error("Stay points error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "Stay point 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "체류 지점을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

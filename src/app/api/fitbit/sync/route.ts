@@ -16,5 +16,5 @@ export const POST = withAuth(
       : await health.backfillPendingConnections(user.id);
     return NextResponse.json({ sync, backfill });
   },
-  { errorMessage: "동기화에 실패했습니다" }
+  { errorMessage: "동기화하지 못했습니다. 잠시 후 다시 시도해 주세요." }
 );

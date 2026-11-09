@@ -52,7 +52,7 @@ export async function POST(
     const accessToken = await getGitHubToken(user.id);
     if (!accessToken) {
       return NextResponse.json(
-        { error: "GitHub 액세스 토큰이 없습니다. 다시 로그인해주세요" },
+        { error: "GitHub 로그인이 만료되었습니다. 다시 로그인해 주세요." },
         { status: 400 }
       );
     }
@@ -82,6 +82,9 @@ export async function POST(
     logger.error("Get commit stats error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "커밋 통계 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "커밋 통계를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

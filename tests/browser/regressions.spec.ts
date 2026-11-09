@@ -293,7 +293,7 @@ test("collection status retries errors and retains a queued recovery on reload",
           ["wakatime", "WakaTime"],
           ["github", "GitHub 커밋"],
           ["location", "위치 기록"],
-          ["toss", "토스 알림"],
+          ["toss", "Toss 알림"],
           ["kis", "KIS 자산"],
           ["withings", "Withings 체성분"],
           ["health", "건강 · Google Health / Health Connect"],
@@ -310,7 +310,7 @@ test("collection status retries errors and retains a queued recovery on reload",
           canRecover: id === "wakatime",
           recoveryHelp:
             id === "wakatime"
-              ? "선택 기간을 다시 조회합니다."
+              ? "선택 기간을 다시 수집합니다."
               : "설정에서 소스별 연결과 복구 방법을 확인하세요.",
           days: Array.from(
             { length: Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 },
@@ -352,7 +352,7 @@ test("collection status retries errors and retains a queued recovery on reload",
   await expect(calendar.getByRole("listitem")).toHaveCount(30);
   await expect(page.getByRole("list")).toHaveCount(7);
   await expect(calendar).toContainText("기록 없음 · 수집 여부 미확인");
-  await expect(calendar).toContainText("재조회 완료 · 기록 없음");
+  await expect(calendar).toContainText("재수집 완료 · 기록 없음");
   await page.getByRole("button", { name: "선택 기간 재수집", exact: true }).click();
   await expect(page.locator("main [role=alert]")).toContainText("재수집 서버가 응답하지 않습니다.");
   recoveryFails = false;

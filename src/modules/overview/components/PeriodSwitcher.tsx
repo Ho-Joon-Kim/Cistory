@@ -34,16 +34,13 @@ export function PeriodSwitcher({
   return (
     <fieldset className="space-y-3">
       <legend className="sr-only">대시보드 기간 선택</legend>
-      <div
-        role="tablist"
-        aria-label="기간 유형"
-        className="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-1"
-      >
+      <fieldset className="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-1">
+        <legend className="sr-only">기간 유형</legend>
         {(Object.keys(periodLabels) as PeriodType[]).map((type) => (
           <Button
             key={type}
-            role="tab"
-            aria-selected={type === periodType}
+            type="button"
+            aria-pressed={type === periodType}
             variant={type === periodType ? "secondary" : "ghost"}
             size="sm"
             onClick={() =>
@@ -53,7 +50,7 @@ export function PeriodSwitcher({
             {periodLabels[type]}
           </Button>
         ))}
-      </div>
+      </fieldset>
 
       <div className="flex items-center justify-between gap-3">
         <Button

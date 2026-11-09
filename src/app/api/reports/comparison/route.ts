@@ -7,8 +7,8 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { compareYears } from "@/modules/report/comparison-service";
 import { logger } from "@/lib/logger";
+import { compareYears } from "@/modules/report/comparison-service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
     logger.error("Year comparison error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "연도 비교에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "연도별 비교를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

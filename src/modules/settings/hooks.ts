@@ -469,7 +469,9 @@ export function useDbBenchmark() {
       const response = await fetch("/api/settings/db-benchmark", { method: "POST" });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
-        throw new Error(data.error || "벤치마크 실행에 실패했습니다");
+        throw new Error(
+          data.error || "벤치마크를 실행하지 못했습니다. 잠시 후 다시 시도해 주세요."
+        );
       }
       const data = (await response.json()) as {
         dbHost: string;
@@ -488,7 +490,11 @@ export function useDbBenchmark() {
       setHistory(updated);
       return run;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "알 수 없는 오류");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "벤치마크를 실행하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      );
       return null;
     } finally {
       setIsRunning(false);
@@ -561,7 +567,9 @@ export function useWakaTimeKey(hasKey: boolean) {
         });
         if (!response.ok) {
           const data = (await response.json()) as { error?: string };
-          throw new Error(data.error || "동기화에 실패했습니다");
+          throw new Error(
+            data.error || "WakaTime을 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요."
+          );
         }
         // Refresh stats after sync
         await fetchSyncStats();
@@ -583,7 +591,9 @@ export function useWakaTimeKey(hasKey: boolean) {
       });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
-        throw new Error(data.error || "Failed to connect");
+        throw new Error(
+          data.error || "WakaTime을 연결하지 못했습니다. API 키를 확인한 뒤 다시 시도해 주세요."
+        );
       }
       const data = (await response.json()) as { wakatimeUser: WakaTimeUser };
       setWakatimeUser(data.wakatimeUser);

@@ -16,7 +16,10 @@ export async function getAuthenticatedUser(_request: NextRequest) {
   if (!session?.user) {
     return {
       user: null,
-      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      error: NextResponse.json(
+        { error: "로그인이 만료되었습니다. 다시 로그인해 주세요." },
+        { status: 401 }
+      ),
     };
   }
 

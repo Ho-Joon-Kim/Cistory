@@ -33,7 +33,7 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+        <Button variant="ghost" aria-label="계정 메뉴" className="relative h-9 w-9 rounded-full">
           <Avatar className="h-9 w-9">
             <AvatarImage src={user.image ?? undefined} alt={user.name} />
             <AvatarFallback>{initials}</AvatarFallback>
@@ -43,9 +43,9 @@ export function UserMenu() {
       <DropdownMenuContent className="w-56 max-w-[calc(100vw-1rem)]" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">{user.name}</p>
+            <p className="text-sm font-medium leading-snug break-words">{user.name}</p>
             {user.email && (
-              <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+              <p className="text-xs leading-snug text-muted-foreground break-all">{user.email}</p>
             )}
           </div>
         </DropdownMenuLabel>

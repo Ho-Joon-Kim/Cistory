@@ -31,7 +31,7 @@ function Delta({
 }) {
   const label = formatSignedDelta(value, unit, digits);
   if (!label) return null;
-  return <span className="text-[11px] text-ink-mute tabular-mono">{label}</span>;
+  return <span className="text-xs text-ink-mute tabular-mono">{label}</span>;
 }
 
 /** One composition metric — value + neutral delta (or a caption fallback). */
@@ -53,15 +53,15 @@ function Tile({
   const deltaLabel = formatSignedDelta(delta, unit, digits);
   return (
     <div className="rounded-lg bg-muted/40 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-[0.08em] text-ink-mute">{label}</div>
+      <div className="text-xs text-ink-mute">{label}</div>
       <div className="mt-1 tabular-mono text-lg font-semibold leading-none text-foreground">
         {value}
       </div>
       <div className="mt-1 h-3.5 leading-none">
         {deltaLabel ? (
-          <span className="text-[11px] text-ink-mute tabular-mono">{deltaLabel}</span>
+          <span className="text-xs text-ink-mute tabular-mono">{deltaLabel}</span>
         ) : caption ? (
-          <span className="text-[10px] text-ink-mute">{caption}</span>
+          <span className="text-xs text-ink-mute">{caption}</span>
         ) : null}
       </div>
     </div>
@@ -77,7 +77,7 @@ function Tile({
 function WeightTrend({ series }: { series: { date: string; weight: number }[] }) {
   if (series.length < 2) {
     return (
-      <div className="flex h-20 items-center justify-center text-[11px] text-ink-mute">
+      <div className="flex h-20 items-center justify-center text-xs text-ink-mute">
         추이를 표시할 측정이 부족합니다
       </div>
     );
@@ -156,7 +156,7 @@ export function BodyCard({ data, isLoading, error, onRetry }: BodyCardProps) {
       {/* ① Headline — 체중(큼) + 체지방률 + 직전 대비 델타(중립) */}
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.08em] text-ink-mute">체중</div>
+          <div className="text-xs text-ink-mute">체중</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="tabular-mono text-3xl font-semibold text-foreground">
               {formatKg(weight.latest)}
@@ -164,13 +164,13 @@ export function BodyCard({ data, isLoading, error, onRetry }: BodyCardProps) {
             <Delta value={weight.delta} unit="kg" />
           </div>
           {data.latestMeasuredAt ? (
-            <div className="mt-1 text-[11px] text-ink-mute">
+            <div className="mt-1 text-xs text-ink-mute">
               {formatRelativeTime(data.latestMeasuredAt)}
             </div>
           ) : null}
         </div>
         <div className="text-right">
-          <div className="text-[10px] uppercase tracking-[0.08em] text-ink-mute">체지방률</div>
+          <div className="text-xs text-ink-mute">체지방률</div>
           <div className="mt-1 flex items-baseline justify-end gap-2">
             <span className="tabular-mono text-2xl font-semibold text-foreground">
               {formatPct(fatRatioPct.latest)}
@@ -182,7 +182,7 @@ export function BodyCard({ data, isLoading, error, onRetry }: BodyCardProps) {
 
       {/* ② 체중 추이 — 원시 측정점 + 부드러운 추세선 */}
       <WeightTrend series={data.weightSeries} />
-      <div className="mt-1.5 flex items-center justify-between text-[11px] text-ink-mute tabular-mono">
+      <div className="mt-1.5 flex items-center justify-between text-xs text-ink-mute tabular-mono">
         <span>최소 {formatKg(weight.min)}</span>
         <span>{data.measurementCount}회 측정</span>
         <span>최대 {formatKg(weight.max)}</span>
@@ -221,19 +221,19 @@ export function BodyCard({ data, isLoading, error, onRetry }: BodyCardProps) {
       {/* ④ 보조 스탯 — 기초대사량 · 대사나이 · 심박 */}
       <div className="mt-4 grid grid-cols-3 gap-3 border-t border-hairline pt-3">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.08em] text-ink-mute">기초대사량</div>
+          <div className="text-xs text-ink-mute">기초대사량</div>
           <div className="mt-1 tabular-mono text-base font-semibold text-foreground">
             {formatKcal(bmrKcal.latest)}
           </div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-[0.08em] text-ink-mute">대사나이</div>
+          <div className="text-xs text-ink-mute">대사나이</div>
           <div className="mt-1 tabular-mono text-base font-semibold text-foreground">
             {metabolicAge.latest == null ? "—" : `${Math.round(metabolicAge.latest)}세`}
           </div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-[0.08em] text-ink-mute">심박</div>
+          <div className="text-xs text-ink-mute">심박</div>
           <div className="mt-1 tabular-mono text-base font-semibold text-foreground">
             {heartRateBpm.latest == null ? "—" : `${Math.round(heartRateBpm.latest)}bpm`}
           </div>

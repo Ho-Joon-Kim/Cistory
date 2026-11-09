@@ -143,7 +143,8 @@ describe("OverviewCards", () => {
     const markup = renderCards(payload, "week");
 
     expect(markup.match(/data-overview-slot=/g)).toHaveLength(5);
-    expect(markup.match(/이 영역의 요약을 계산하지 못했거나 데이터가 없습니다\./g)).toHaveLength(2);
+    expect(markup).toContain("이 영역을 계산하지 못했습니다. 다시 계산을 요청해 주세요.");
+    expect(markup).toContain("이 기간에 기록이 없습니다.");
     expect(markup).toContain("소비 요약");
     expect(markup).toContain("자산 요약");
   });

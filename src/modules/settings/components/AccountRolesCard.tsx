@@ -35,7 +35,7 @@ export function AccountRolesCard() {
         const data = (await res.json()) as { accounts: AccountRow[] };
         if (!cancelled) setAccounts(data.accounts);
       } catch {
-        if (!cancelled) toast.error("계좌 목록을 불러오지 못했습니다");
+        if (!cancelled) toast.error("계좌 목록을 불러오지 못했습니다. 페이지를 새로고침해 주세요.");
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -76,9 +76,9 @@ export function AccountRolesCard() {
         })
       );
       setEdited(new Map());
-      toast.success(`${roles.length}개 계좌 역할이 저장되었습니다`);
+      toast.success(`계좌 ${roles.length}개의 역할이 저장되었습니다.`);
     } catch {
-      toast.error("저장에 실패했습니다");
+      toast.error("계좌 역할을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsSaving(false);
     }
@@ -100,12 +100,12 @@ export function AccountRolesCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> 불러오는 중...
+          <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> 불러오는 중…
           </div>
         ) : accounts.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            아직 분류할 거래가 없습니다. 토스 알림이 수집된 후 다시 확인하세요.
+            아직 분류할 거래가 없습니다. Toss 알림이 수집된 후 다시 확인하세요.
           </p>
         ) : (
           <>
@@ -120,20 +120,27 @@ export function AccountRolesCard() {
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm truncate">{a.accountName}</span>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="font-medium text-sm truncate" title={a.accountName}>
+                          {a.accountName}
+                        </span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
                           {a.transactionCount}건
                         </span>
                         {isDirty && <span className="text-xs text-primary">변경됨</span>}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-1">
+                    <div
+                      role="group"
+                      aria-label={`${a.accountName} 분류 역할`}
+                      className="flex flex-wrap gap-1"
+                    >
                       {ROLE_OPTIONS.map((opt) => (
                         <Button
                           key={opt.value}
                           type="button"
                           variant={role === opt.value ? "default" : "outline"}
                           size="sm"
+                          aria-pressed={role === opt.value}
                           onClick={() => setRole(a.accountName, opt.value)}
                           title={opt.help}
                           className="h-7 text-xs"
@@ -147,7 +154,7 @@ export function AccountRolesCard() {
               })}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
               <p className="text-xs text-muted-foreground">
                 기본=출금이 소비 / 소비 계좌=입금이 소비 / 무시=양방향 집계 제외
               </p>

@@ -9,7 +9,7 @@ import {
   InsightCardEmpty,
 } from "@/modules/insights/components/primitives/InsightCard";
 import { Pill } from "@/modules/insights/components/primitives/Pill";
-import { Stat } from "@/modules/insights/components/primitives/Stat";
+import { Stat, type StatTone } from "@/modules/insights/components/primitives/Stat";
 import type { PeriodType } from "../../period";
 import type { OverviewSnapshotDomains } from "../../service";
 import type {
@@ -59,10 +59,7 @@ function DomainGroup<T>({
       tabIndex={-1}
     >
       <div className="flex items-center gap-3 px-1 pt-2">
-        <h2
-          id={`overview-${id}-title`}
-          className="text-xs font-semibold uppercase tracking-[0.16em]"
-        >
+        <h2 id={`overview-${id}-title`} className="text-sm font-semibold">
           {title}
         </h2>
         <div className="h-px flex-1 bg-[hsl(var(--hairline))]" />
@@ -70,13 +67,21 @@ function DomainGroup<T>({
       </div>
       {!envelope || envelope.status !== "ready" || !envelope.data ? (
         <InsightCard title={title}>
-          <InsightCardEmpty message="이 영역의 요약을 계산하지 못했거나 데이터가 없습니다." />
+          <InsightCardEmpty message={domainEmptyMessage(envelope)} />
         </InsightCard>
       ) : (
         children(envelope.data)
       )}
     </section>
   );
+}
+
+function domainEmptyMessage(envelope: PeriodDomainEnvelope<unknown> | null) {
+  if (envelope?.status === "failed") {
+    return "이 영역을 계산하지 못했습니다. 다시 계산을 요청해 주세요.";
+  }
+  if (envelope?.status === "pending") return "이 영역을 계산하는 중입니다.";
+  return "이 기간에 기록이 없습니다.";
 }
 
 function streakStats(days: CodingAggregate["dailyCommits"]) {
@@ -106,7 +111,7 @@ function CodingCards({ data, periodType }: { data: CodingAggregate; periodType: 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <InsightCard schema="commits" title="활동 히트맵과 스트릭" subtitle="기간 내 커밋 활동">
-        <div className="mb-4 grid grid-cols-3 gap-3">
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Stat label="커밋" value={compact.format(data.totalCommits)} tone="green" glow />
           <Stat label="활동일" value={streak.activeDays} suffix="일" />
           <Stat label="최장 스트릭" value={streak.longest} suffix="일" tone="amber" />
@@ -149,7 +154,7 @@ function CodingCards({ data, periodType }: { data: CodingAggregate; periodType: 
       </InsightCard>
 
       <InsightCard schema="coding" title="딥워크와 컨텍스트 전환">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Stat label="딥워크" value={data.deepWorkSessions.length} suffix="회" tone="violet" />
           <Stat label="일평균 프로젝트" value={data.contextSwitching.avgDailyProjects.toFixed(1)} />
           <Stat label="일평균 언어" value={data.contextSwitching.avgDailyLanguages.toFixed(1)} />
@@ -176,7 +181,7 @@ function CodingCards({ data, periodType }: { data: CodingAggregate; periodType: 
                   height: `${Math.max(4, (data.weekdayHour.weekdays[day] / Math.max(...data.weekdayHour.weekdays, 1)) * 72)}px`,
                 }}
               />
-              <span className="text-[10px] text-ink-mute">{label}</span>
+              <span className="text-xs text-ink-mute">{label}</span>
             </div>
           ))}
         </div>
@@ -231,14 +236,14 @@ function CodingCards({ data, periodType }: { data: CodingAggregate; periodType: 
 function RankedList({ title, items }: { title: string; items: Array<[string, string | number]> }) {
   return (
     <div>
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-mute">
-        {title}
-      </p>
+      <p className="mb-2 text-xs font-semibold text-ink-mute">{title}</p>
       {items.length === 0 ? <p className="text-xs text-ink-mute">데이터 없음</p> : null}
       <ol className="space-y-1.5">
         {items.slice(0, 6).map(([label, value]) => (
           <li key={label} className="flex items-center justify-between gap-2 text-xs">
-            <span className="truncate">{formatFallbackLabel(label)}</span>
+            <span className="truncate" title={formatFallbackLabel(label)}>
+              {formatFallbackLabel(label)}
+            </span>
             <span className="tabular-mono text-ink-dim">{value}</span>
           </li>
         ))}
@@ -253,7 +258,7 @@ function LocationCards({ data, periodType }: { data: LocationAggregate; periodTy
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <InsightCard schema="location" title="장소와 위치 히트맵">
-        <div className="mb-4 grid grid-cols-3 gap-3">
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Stat label="방문" value={derived.visits.count} suffix="회" tone="orange" />
           <Stat label="장소" value={derived.visits.uniquePlaceCount} suffix="곳" />
           <Stat label="히트맵 셀" value={data.heatmap.length} />
@@ -282,7 +287,7 @@ function LocationCards({ data, periodType }: { data: LocationAggregate; periodTy
       </InsightCard>
 
       <InsightCard schema="transport" title="교통수단과 지하철">
-        <div className="mb-4 grid grid-cols-3 gap-3">
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Stat label="이동" value={derived.tracks.count} suffix="회" />
           <Stat
             label="거리"
@@ -447,7 +452,7 @@ function HealthCards({ data }: { data: HealthAggregate }) {
 function SpendingCards({ data }: { data: SpendingAggregate }) {
   return (
     <InsightCard schema="spending" title="소비 요약" right={<DestinationLink href="/spending" />}>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Stat label="지출" value={currency.format(data.spending)} tone="red" />
         <Stat label="수입" value={currency.format(data.income)} tone="green" />
         <Stat label="순지출" value={currency.format(data.netSpend)} tone="amber" glow />
@@ -469,6 +474,12 @@ function SpendingCards({ data }: { data: SpendingAggregate }) {
   );
 }
 
+/** Korean market convention: gain = red, loss = blue. */
+function returnTone(value: number | null): StatTone {
+  if (value == null || value === 0) return "neutral";
+  return value > 0 ? "gain" : "loss";
+}
+
 function PortfolioCards({ data }: { data: PortfolioAggregate }) {
   const latest = data.evaluationTrend.at(-1)?.value ?? null;
   const maxEvaluationValue = Math.max(...data.evaluationTrend.map((item) => item.value), 1);
@@ -478,17 +489,22 @@ function PortfolioCards({ data }: { data: PortfolioAggregate }) {
         <InsightCardEmpty message="연결된 투자 계좌가 없습니다." />
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Stat
               label="평가액"
               value={latest == null ? "—" : currency.format(latest)}
               tone="blue"
               glow
             />
-            <Stat label="TWR" value={percent(data.twr.totalReturn)} tone="green" />
+            <Stat
+              label="TWR"
+              value={percent(data.twr.totalReturn)}
+              tone={returnTone(data.twr.totalReturn)}
+            />
             <Stat
               label="연환산"
               value={percent(data.twr.annualizedReturn)}
+              tone={returnTone(data.twr.annualizedReturn)}
               caption={`${data.twr.days}일 기준`}
             />
           </div>

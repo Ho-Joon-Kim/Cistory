@@ -35,17 +35,17 @@ import { WakaTimeSettings } from "./WakaTimeSettings";
 import { WithingsSettings } from "./WithingsSettings";
 
 const WITHINGS_ERROR_MESSAGES: Record<string, string> = {
-  denied: "Withings 연동이 취소되었습니다",
-  state_invalid: "Withings 연동 요청이 만료되었거나 유효하지 않습니다. 다시 시도해주세요",
-  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
-  exchange_failed: "Withings 연동에 실패했습니다. 다시 시도해주세요",
+  denied: "Withings 연결이 취소되었습니다. 연결하려면 다시 시도해 주세요.",
+  state_invalid: "Withings 연결 요청이 만료되었습니다. 다시 연결해 주세요.",
+  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+  exchange_failed: "Withings를 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
 };
 
 const HEALTH_ERROR_MESSAGES: Record<string, string> = {
-  denied: "Fitbit 연동이 취소되었습니다",
-  state_invalid: "Fitbit 연동 요청이 만료되었거나 유효하지 않습니다. 다시 시도해주세요",
-  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
-  exchange_failed: "Fitbit 연동에 실패했습니다. 다시 시도해주세요",
+  denied: "Google Health (Fitbit) 연결이 취소되었습니다. 연결하려면 다시 시도해 주세요.",
+  state_invalid: "Google Health (Fitbit) 연결 요청이 만료되었습니다. 다시 연결해 주세요.",
+  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+  exchange_failed: "Google Health (Fitbit)을 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
 };
 
 const OAUTH_PROVIDERS: {
@@ -56,15 +56,15 @@ const OAUTH_PROVIDERS: {
 }[] = [
   {
     param: "withings",
-    connectedMsg: "Withings가 연결되었습니다",
+    connectedMsg: "Withings가 연결되었습니다.",
     errors: WITHINGS_ERROR_MESSAGES,
-    fallback: "Withings 연동에 실패했습니다",
+    fallback: "Withings를 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
   },
   {
     param: "health",
-    connectedMsg: "Fitbit이 연결되었습니다",
+    connectedMsg: "Google Health (Fitbit)이 연결되었습니다.",
     errors: HEALTH_ERROR_MESSAGES,
-    fallback: "Fitbit 연동에 실패했습니다",
+    fallback: "Google Health (Fitbit)을 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
   },
 ];
 
@@ -106,8 +106,9 @@ export function SettingsForm() {
 
   if (isLoading || !settings) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div role="status" className="flex items-center justify-center py-8">
+        <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span className="sr-only">설정을 불러오는 중…</span>
       </div>
     );
   }
@@ -115,7 +116,9 @@ export function SettingsForm() {
   const handleSyncIntervalChange = async (interval: string) => {
     const success = await updateSettings({ syncIntervalHours: parseInt(interval, 10) });
     if (success) {
-      toast.success("동기화 간격이 변경되었습니다");
+      toast.success("동기화 간격이 변경되었습니다.");
+    } else {
+      toast.error("동기화 간격을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -180,14 +183,14 @@ export function SettingsForm() {
               className="self-start sm:self-auto"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
-              재연결
+              다시 연결
             </Button>
           </div>
 
           {/* 동기화 간격 */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-0.5">
-              <Label>동기화 간격</Label>
+              <Label htmlFor="sync-interval">동기화 간격</Label>
               <p className="text-sm text-muted-foreground">자동 동기화 실행 간격</p>
             </div>
             <Select
@@ -195,7 +198,7 @@ export function SettingsForm() {
               onValueChange={handleSyncIntervalChange}
               disabled={isSaving}
             >
-              <SelectTrigger className="w-full sm:w-[140px]">
+              <SelectTrigger id="sync-interval" className="w-full sm:w-[140px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

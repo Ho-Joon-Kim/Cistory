@@ -16,26 +16,37 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
     useOwnTracksKey(hasKey);
 
   const handleGenerate = async () => {
+    if (
+      hasOwnTracksKey &&
+      !window.confirm(
+        "OwnTracks API 키를 재생성할까요? 기존 키는 즉시 사용할 수 없게 되어 휴대폰 앱 설정을 바꿔야 합니다."
+      )
+    )
+      return;
     const success = await generate();
     if (success) {
-      toast.success("API 키가 생성되었습니다");
+      toast.success("API 키가 생성되었습니다.");
     } else {
-      toast.error("API 키 생성에 실패했습니다");
+      toast.error("API 키를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
   const handleRevoke = async () => {
+    if (
+      !window.confirm("OwnTracks API 키를 삭제할까요? 휴대폰 앱이 더 이상 위치를 보낼 수 없습니다.")
+    )
+      return;
     const success = await revoke();
     if (success) {
-      toast.success("API 키가 삭제되었습니다");
+      toast.success("API 키가 삭제되었습니다.");
     } else {
-      toast.error("API 키 삭제에 실패했습니다");
+      toast.error("API 키를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success("클립보드에 복사되었습니다");
+    toast.success("클립보드에 복사되었습니다.");
   };
 
   const endpointUrl = `${getAppUrl()}/api/owntracks?apikey=`;
@@ -48,7 +59,7 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
           위치 추적 (OwnTracks)
         </CardTitle>
         <CardDescription>
-          OwnTracks 앱과 연동하여 위치 데이터를 타임라인에 표시합니다
+          OwnTracks 앱과 연결하여 위치 데이터를 타임라인에 표시합니다
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -59,7 +70,7 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
             ) : (
               <Key className="h-4 w-4 mr-2" />
             )}
-            API Key 생성
+            API 키 생성
           </Button>
         ) : (
           <div className="space-y-4">
@@ -71,24 +82,29 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
                     이 키는 다시 표시되지 않습니다. 안전한 곳에 복사해 두세요.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 rounded bg-muted text-sm font-mono break-all">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <code className="min-w-0 flex-1 break-all p-2 rounded bg-muted text-xs sm:text-sm font-mono">
                     {newKey}
                   </code>
-                  <Button variant="outline" size="icon" aria-label="키 복사" onClick={() => handleCopy(newKey)}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="키 복사"
+                    onClick={() => handleCopy(newKey)}
+                  >
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2">
-                <code className="flex-1 p-2 rounded bg-muted text-sm font-mono text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <code className="min-w-0 flex-1 break-all p-2 rounded bg-muted text-xs sm:text-sm font-mono text-muted-foreground">
                   ot_••••••••••••••••••••••••••••••••
                 </code>
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isGenerating}>
                 {isGenerating ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -97,7 +113,13 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
                 )}
                 재생성
               </Button>
-              <Button variant="outline" size="sm" onClick={handleRevoke} disabled={isRevoking}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRevoke}
+                disabled={isRevoking}
+                className="text-destructive hover:text-destructive"
+              >
                 {isRevoking ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (

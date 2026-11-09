@@ -477,18 +477,22 @@ export async function requestTripConfirmation(
     const data = (await res.json().catch(() => ({}))) as TripConfirmationResponse;
     if (!res.ok) {
       throw new TripConfirmationError(
-        data.error ?? "여행 저장에 실패했습니다",
+        data.error ?? "여행을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         data.code === "STALE_DETECTION" ? data.code : undefined
       );
     }
     if (typeof data.saved !== "number") {
-      throw new TripConfirmationError("여행 저장 응답 형식이 올바르지 않습니다");
+      throw new TripConfirmationError(
+        "여행 저장 결과를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      );
     }
     return data.saved;
   } catch (error) {
     if (error instanceof TripConfirmationError) throw error;
     throw new TripConfirmationError(
-      error instanceof Error ? error.message : "여행 저장에 실패했습니다"
+      error instanceof Error
+        ? error.message
+        : "여행을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요."
     );
   }
 }

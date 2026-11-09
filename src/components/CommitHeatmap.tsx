@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { parseDateLocal } from "@/lib/utils";
 
 interface DailyStat {
   date: string;
@@ -73,7 +74,7 @@ export function CommitHeatmap() {
   }
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
+    const date = parseDateLocal(dateStr) ?? new Date(dateStr);
     return date.toLocaleDateString("ko-KR", {
       month: "short",
       day: "numeric",
@@ -89,14 +90,19 @@ export function CommitHeatmap() {
               ? Math.max((stat.count / state.data!.maxCount) * 100, stat.count > 0 ? 20 : 8)
               : 8;
 
+          const label = `${formatDate(stat.date)} ${stat.count}개 커밋`;
+
           return (
             <Tooltip key={stat.date}>
               <TooltipTrigger asChild>
-                <div
+                <button
+                  type="button"
+                  aria-label={label}
                   className={`
-                    w-1 rounded-sm cursor-pointer
-                    transition-all duration-200
+                    block w-1 rounded-sm cursor-pointer p-0
+                    transition-[opacity,scale] duration-150 ease-out
                     hover:opacity-80 hover:scale-110
+                    focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring
                     ${stat.count > 0 ? "bg-primary" : "bg-muted"}
                     ${state.isVisible ? "animate-bar-grow" : "opacity-0"}
                   `}

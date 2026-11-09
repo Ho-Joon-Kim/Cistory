@@ -280,5 +280,5 @@ export function useTransactionsForDate(date: string) {
 
 export async function startInitialSync() {
   const response = await fetch("/api/sync", { method: "POST" });
-  if (!response.ok) throw new Error("동기화 시작에 실패했습니다");
+  if (!response.ok) throw new Error("동기화를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
 }

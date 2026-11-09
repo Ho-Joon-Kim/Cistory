@@ -71,6 +71,6 @@ describe("date transaction queries", () => {
 describe("initial GitHub sync", () => {
   it("rejects non-success HTTP responses instead of showing success", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("failed", { status: 503 })));
-    await expect(startInitialSync()).rejects.toThrow("동기화 시작에 실패");
+    await expect(startInitialSync()).rejects.toThrow("동기화를 시작하지 못했습니다");
   });
 });

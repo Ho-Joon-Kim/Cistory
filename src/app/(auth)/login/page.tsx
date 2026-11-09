@@ -1,8 +1,8 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { GithubMark } from "@/components/GithubMark";
 import Link from "next/link";
+import { GithubMark } from "@/components/GithubMark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/modules/auth/hooks";
@@ -15,7 +15,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <main id="main" className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">Cistory</CardTitle>
@@ -32,7 +32,7 @@ export default function LoginPage() {
             ) : (
               <GithubMark className="mr-2 h-5 w-5" />
             )}
-            {isLoading ? "로그인 중..." : "GitHub로 로그인"}
+            {isLoading ? "로그인 중…" : "GitHub로 로그인"}
           </Button>
           <p className="text-xs text-muted-foreground text-center">
             로그인 시 레포지토리 접근 권한을 요청합니다.
@@ -50,6 +50,6 @@ export default function LoginPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }

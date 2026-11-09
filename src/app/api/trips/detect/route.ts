@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
         body.exclusionRevision
       );
       return NextResponse.json({
-        message: `${count}개 여행이 저장되었습니다`,
+        message: `여행 ${count}건이 저장되었습니다.`,
         saved: count,
       });
     }
@@ -74,6 +74,9 @@ export async function POST(request: NextRequest) {
     logger.error("Trip detect error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "여행 감지에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "여행을 감지하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

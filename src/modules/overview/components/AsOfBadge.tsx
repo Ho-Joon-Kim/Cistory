@@ -8,7 +8,7 @@ export function AsOfBadge({ computedAt }: { computedAt: string | null | undefine
   return (
     <time
       dateTime={date.toISOString()}
-      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+      className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums"
       title={`기준 시각 ${date.toLocaleString("ko-KR")}`}
     >
       <Clock3 aria-hidden="true" className="size-3" />

@@ -48,16 +48,16 @@ export function SummaryStats() {
       });
 
       if (response.ok) {
-        toast.success("요약 생성이 시작되었습니다");
+        toast.success("요약 생성이 시작되었습니다.");
         // Refresh stats after a delay
         setTimeout(() => {
           fetchStats();
         }, 5000);
       } else {
-        toast.error("요약 생성 시작에 실패했습니다");
+        toast.error("요약 생성을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       }
     } catch (_error) {
-      toast.error("요약 생성 시작에 실패했습니다");
+      toast.error("요약 생성을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsProcessing(false);
     }
@@ -69,8 +69,9 @@ export function SummaryStats() {
         <CardHeader>
           <CardTitle className="text-lg">AI 요약</CardTitle>
         </CardHeader>
-        <CardContent className="flex justify-center py-4">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <CardContent role="status" className="flex justify-center py-4">
+          <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="sr-only">AI 요약 상태를 불러오는 중…</span>
         </CardContent>
       </Card>
     );
@@ -81,7 +82,9 @@ export function SummaryStats() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">AI 요약</CardTitle>
-          <CardDescription>동기화된 커밋이 없습니다</CardDescription>
+          <CardDescription>
+            동기화된 커밋이 없습니다. 커밋이 동기화되면 AI 요약 상태가 여기에 표시됩니다.
+          </CardDescription>
         </CardHeader>
       </Card>
     );
@@ -101,7 +104,7 @@ export function SummaryStats() {
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span>완료율</span>
-            <span>
+            <span className="tabular-nums">
               {completionRate}% ({stats.completed}/{stats.total})
             </span>
           </div>
@@ -111,30 +114,30 @@ export function SummaryStats() {
         {/* Stats grid */}
         <div className="grid grid-cols-2 gap-3">
           <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <Clock className="h-4 w-4 text-yellow-500" />
+            <Clock aria-hidden="true" className="h-4 w-4 text-warning" />
             <div>
-              <p className="text-sm font-medium">{stats.pending}</p>
+              <p className="text-sm font-medium tabular-nums">{stats.pending}</p>
               <p className="text-xs text-muted-foreground">대기 중</p>
             </div>
           </div>
           <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <Loader2 className="h-4 w-4 text-blue-500" />
+            <Loader2 aria-hidden="true" className="h-4 w-4 text-primary" />
             <div>
-              <p className="text-sm font-medium">{stats.processing}</p>
+              <p className="text-sm font-medium tabular-nums">{stats.processing}</p>
               <p className="text-xs text-muted-foreground">처리 중</p>
             </div>
           </div>
           <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-success" />
             <div>
-              <p className="text-sm font-medium">{stats.completed}</p>
+              <p className="text-sm font-medium tabular-nums">{stats.completed}</p>
               <p className="text-xs text-muted-foreground">완료</p>
             </div>
           </div>
           <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <AlertCircle className="h-4 w-4 text-red-500" />
+            <AlertCircle aria-hidden="true" className="h-4 w-4 text-destructive" />
             <div>
-              <p className="text-sm font-medium">{stats.failed}</p>
+              <p className="text-sm font-medium tabular-nums">{stats.failed}</p>
               <p className="text-xs text-muted-foreground">실패</p>
             </div>
           </div>
@@ -151,7 +154,7 @@ export function SummaryStats() {
             {isProcessing ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                처리 중...
+                처리 중…
               </>
             ) : (
               <>

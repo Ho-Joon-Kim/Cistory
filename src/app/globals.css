@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* `dark:` follows next-themes' `.dark` class, not the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* CSS Variables for theming (shadcn/ui compatible) */
 :root {
   --background: 0 0% 100%;
@@ -8,19 +11,29 @@
   --card-foreground: 240 10% 3.9%;
   --popover: 0 0% 100%;
   --popover-foreground: 240 10% 3.9%;
-  --primary: 153 60% 38%;
+  --primary: 153 60% 30%;
   --primary-foreground: 0 0% 100%;
   --secondary: 153 40% 95%;
   --secondary-foreground: 153 60% 28%;
   --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 153 60% 38%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 0 0% 98%;
+  --muted-foreground: 215 19% 40%;
+  /* Neutral hover/selection tint (same role as dark's --accent). */
+  --accent: 153 10% 94%;
+  --accent-foreground: 240 10% 3.9%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  /* Semantic status tones. gain = red, loss = blue (Korean market convention). */
+  --success: 142 72% 27%;
+  --success-foreground: 0 0% 100%;
+  --warning: 32 95% 31%;
+  --warning-foreground: 0 0% 100%;
+  --gain: 0 72% 45%;
+  --gain-foreground: 0 0% 100%;
+  --loss: 217 80% 45%;
+  --loss-foreground: 0 0% 100%;
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 153 60% 38%;
+  --ring: 153 60% 30%;
   --radius: 0.5rem;
 }
 
@@ -39,8 +52,16 @@
   --muted-foreground: 0 0% 64%;
   --accent: 153 10% 16%;
   --accent-foreground: 0 0% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 0 0% 98%;
+  --destructive: 0 84% 65%;
+  --destructive-foreground: 0 0% 0%;
+  --success: 142 70% 55%;
+  --success-foreground: 0 0% 0%;
+  --warning: 40 95% 60%;
+  --warning-foreground: 0 0% 0%;
+  --gain: 0 85% 68%;
+  --gain-foreground: 0 0% 0%;
+  --loss: 213 90% 68%;
+  --loss-foreground: 0 0% 0%;
   --border: 0 0% 14%;
   --input: 0 0% 14%;
   --ring: 153 70% 53%;
@@ -63,6 +84,14 @@
   --color-accent-foreground: hsl(var(--accent-foreground));
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-gain: hsl(var(--gain));
+  --color-gain-foreground: hsl(var(--gain-foreground));
+  --color-loss: hsl(var(--loss));
+  --color-loss-foreground: hsl(var(--loss-foreground));
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
@@ -82,18 +111,12 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-sans), system-ui, sans-serif;
+  /* Break Korean at word (eojeol) boundaries; still wrap unbreakable runs like URLs. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
-/* Neon Glow Effects */
-.dark button[data-primary="true"],
-.dark button[class*="bg-primary"],
-.dark a[class*="text-primary"],
-.dark [class*="text-accent"] {
-  text-shadow: 0 0 10px hsl(var(--primary) / 0.5),
-               0 0 20px hsl(var(--primary) / 0.3),
-               0 0 30px hsl(var(--primary) / 0.2);
-}
-
+/* Neon glow on primary buttons (dark only). Text itself stays unblurred. */
 .dark button[data-primary="true"]:not(:disabled),
 .dark button[class*="bg-primary"]:not(:disabled) {
   box-shadow: 0 0 15px hsl(var(--primary) / 0.4),
@@ -116,106 +139,94 @@ body {
               0 0 20px hsl(var(--ring) / 0.3);
 }
 
-.dark svg[class*="text-primary"],
-.dark svg[class*="text-accent"] {
+.dark svg[class*="text-primary"] {
   filter: drop-shadow(0 0 8px hsl(var(--primary) / 0.6))
           drop-shadow(0 0 15px hsl(var(--primary) / 0.3));
 }
 
-/* Animation keyframes for shadcn/ui */
+/* Enter/exit animations for shadcn/ui overlays (tw-animate-css subset).
+ * Declared with @utility so Tailwind variants such as data-[state=open]: work.
+ * The per-animation variables do not inherit, so a parent's fade-in-0 never
+ * leaks into a child. Duration follows Tailwind's duration-* (default 150ms). */
+@property --tw-enter-opacity { syntax: "*"; inherits: false; }
+@property --tw-enter-scale { syntax: "*"; inherits: false; }
+@property --tw-enter-translate-x { syntax: "*"; inherits: false; }
+@property --tw-enter-translate-y { syntax: "*"; inherits: false; }
+@property --tw-exit-opacity { syntax: "*"; inherits: false; }
+@property --tw-exit-scale { syntax: "*"; inherits: false; }
+@property --tw-exit-translate-x { syntax: "*"; inherits: false; }
+@property --tw-exit-translate-y { syntax: "*"; inherits: false; }
+
 @keyframes enter {
   from {
     opacity: var(--tw-enter-opacity, 1);
-    transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0) scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), var(--tw-enter-scale, 1)) rotate(var(--tw-enter-rotate, 0));
+    transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+      scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), var(--tw-enter-scale, 1));
   }
 }
 
 @keyframes exit {
   to {
     opacity: var(--tw-exit-opacity, 1);
-    transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0) scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), var(--tw-exit-scale, 1)) rotate(var(--tw-exit-rotate, 0));
+    transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0)
+      scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), var(--tw-exit-scale, 1));
   }
 }
 
-/* Animation utilities */
-.animate-in {
-  animation-name: enter;
-  animation-duration: 150ms;
-  --tw-enter-opacity: initial;
-  --tw-enter-scale: initial;
-  --tw-enter-rotate: initial;
-  --tw-enter-translate-x: initial;
-  --tw-enter-translate-y: initial;
+@utility animate-in {
+  animation: enter var(--tw-duration, 150ms) ease-out;
 }
 
-.animate-out {
-  animation-name: exit;
-  animation-duration: 150ms;
-  --tw-exit-opacity: initial;
-  --tw-exit-scale: initial;
-  --tw-exit-rotate: initial;
-  --tw-exit-translate-x: initial;
-  --tw-exit-translate-y: initial;
+@utility animate-out {
+  animation: exit var(--tw-duration, 150ms) ease-out;
 }
 
-.fade-in-0 {
+@utility fade-in-0 {
   --tw-enter-opacity: 0;
 }
 
-.fade-out-0 {
+@utility fade-out-0 {
   --tw-exit-opacity: 0;
 }
 
-.zoom-in-95 {
-  --tw-enter-scale: .95;
+@utility zoom-in-95 {
+  --tw-enter-scale: 0.95;
 }
 
-.zoom-out-95 {
-  --tw-exit-scale: .95;
+@utility zoom-out-95 {
+  --tw-exit-scale: 0.95;
 }
 
-.slide-in-from-top-2 {
+@utility slide-in-from-top-2 {
   --tw-enter-translate-y: -0.5rem;
 }
 
-.slide-in-from-bottom-2 {
+@utility slide-in-from-bottom-2 {
   --tw-enter-translate-y: 0.5rem;
 }
 
-.slide-in-from-left-2 {
+@utility slide-in-from-left-2 {
   --tw-enter-translate-x: -0.5rem;
 }
 
-.slide-in-from-right-2 {
+@utility slide-in-from-right-2 {
   --tw-enter-translate-x: 0.5rem;
 }
 
-.slide-out-to-top-2 {
+@utility slide-out-to-top-2 {
   --tw-exit-translate-y: -0.5rem;
 }
 
-.slide-out-to-bottom-2 {
+@utility slide-out-to-bottom-2 {
   --tw-exit-translate-y: 0.5rem;
 }
 
-.slide-out-to-left-2 {
+@utility slide-out-to-left-2 {
   --tw-exit-translate-x: -0.5rem;
 }
 
-.slide-out-to-right-2 {
+@utility slide-out-to-right-2 {
   --tw-exit-translate-x: 0.5rem;
-}
-
-.duration-200 {
-  animation-duration: 200ms;
-}
-
-.duration-300 {
-  animation-duration: 300ms;
-}
-
-.duration-500 {
-  animation-duration: 500ms;
 }
 
 /* ===== Custom Animations for Cistory ===== */
@@ -235,27 +246,12 @@ body {
   transform-origin: bottom;
 }
 
-/* Slide up fade with bounce - for new commits */
+/* Slide up fade - for new commits */
 @keyframes slide-up-fade {
-  0% {
+  from {
     opacity: 0;
-    transform: translateY(20px) scale(0.98);
+    transform: translateY(8px);
   }
-  60% {
-    opacity: 1;
-    transform: translateY(-4px) scale(1.01);
-  }
-  80% {
-    transform: translateY(2px) scale(1);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.animate-slide-up-fade {
-  animation: slide-up-fade 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 /* Highlight flash with glow - for new items */
@@ -274,8 +270,11 @@ body {
   }
 }
 
-.animate-highlight {
-  animation: highlight-flash 2.5s ease-out forwards;
+/* New commit: one animation shorthand carrying both the entrance and the highlight. */
+.animate-commit-new {
+  animation:
+    slide-up-fade 250ms ease-out backwards,
+    highlight-flash 2.5s ease-out forwards;
 }
 
 /* Summary reveal - typewriter-like fade */
@@ -387,26 +386,6 @@ body {
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Date group enter - viewport entry animation */
-@keyframes date-group-enter {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.date-group-section {
-  opacity: 0;
-}
-
-.date-group-section.is-visible {
-  animation: date-group-enter 0.5s ease-out forwards;
-}
-
 /* Compact daily commit feed */
 .commit-day-header {
   position: relative;
@@ -454,7 +433,7 @@ body {
 .commit-day-label {
   flex: none;
   color: hsl(var(--foreground) / 0.92);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -465,7 +444,7 @@ body {
   padding: 1px 7px;
   color: hsl(var(--primary));
   font-family: var(--font-geist-mono), monospace;
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -475,9 +454,9 @@ body {
   flex: none;
   align-items: center;
   gap: 3px;
-  color: hsl(var(--muted-foreground) / 0.86);
+  color: hsl(var(--muted-foreground));
   font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -582,12 +561,12 @@ body {
   gap: 5px;
   margin-bottom: 9px;
   border: 1px solid hsl(var(--border));
-  border-radius: 9px;
+  border-radius: var(--radius-xl);
   background: hsl(var(--card));
   padding: 8px 13px;
   color: hsl(var(--card-foreground));
   text-align: left;
-  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 
 .commit-card-toggle {
@@ -616,13 +595,14 @@ body {
   box-shadow: 0 0 14px hsl(var(--primary) / 0.1);
 }
 
-.commit-feed-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px hsl(var(--foreground) / 0.12);
-}
+@media (hover: hover) {
+  .commit-feed-card:hover {
+    border-color: hsl(var(--primary) / 0.3);
+  }
 
-.dark .commit-feed-card:hover {
-  box-shadow: 0 0 18px hsl(var(--primary) / 0.12), 0 6px 18px rgb(0 0 0 / 0.5);
+  .dark .commit-feed-card:hover {
+    box-shadow: 0 0 18px hsl(var(--primary) / 0.12);
+  }
 }
 
 .commit-meta-row,
@@ -649,8 +629,8 @@ body {
 .commit-meta-row {
   justify-content: space-between;
   gap: 8px;
-  color: hsl(var(--muted-foreground) / 0.72);
-  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
 }
 
 .commit-meta-row time {
@@ -694,21 +674,21 @@ body {
   background: hsl(var(--primary) / 0.12);
   padding: 1px 6px;
   color: hsl(var(--primary));
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
 .commit-type-chip {
   border-radius: 4px;
   padding: 1px 5px;
-  font-size: 9.5px;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
-.commit-type-feat { color: hsl(153 70% 42%); background: hsl(153 70% 53% / 0.12); }
-.commit-type-fix { color: hsl(0 70% 58%); background: hsl(0 70% 55% / 0.12); }
-.commit-type-test { color: hsl(260 70% 62%); background: hsl(260 60% 50% / 0.14); }
-.commit-type-perf { color: hsl(30 85% 50%); background: hsl(30 90% 55% / 0.14); }
+.commit-type-feat { color: hsl(153 70% 27%); background: hsl(153 70% 53% / 0.12); }
+.commit-type-fix { color: hsl(0 70% 45%); background: hsl(0 70% 55% / 0.12); }
+.commit-type-test { color: hsl(260 60% 50%); background: hsl(260 60% 50% / 0.14); }
+.commit-type-perf { color: hsl(30 90% 32%); background: hsl(30 90% 55% / 0.14); }
 .commit-type-default { color: hsl(var(--muted-foreground)); background: hsl(var(--muted)); }
 
 .dark .commit-type-feat { color: hsl(153 70% 62%); }
@@ -721,13 +701,13 @@ body {
   overflow: hidden;
   color: hsl(var(--foreground) / 0.94);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 12.5px;
+  font-size: 0.78125rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .commit-message.is-merge {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .commit-summary {
@@ -735,7 +715,7 @@ body {
   display: block;
   padding-left: 11px;
   color: hsl(var(--foreground) / 0.8);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 
@@ -763,14 +743,14 @@ body {
 
 .commit-stats-row {
   gap: 12px;
-  color: hsl(var(--muted-foreground) / 0.8);
+  color: hsl(var(--muted-foreground));
   font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 
-.commit-additions { color: hsl(142 71% 46%); }
-.commit-deletions { color: hsl(0 75% 58%); }
+.commit-additions { color: hsl(142 72% 29%); }
+.commit-deletions { color: hsl(0 75% 45%); }
 .commit-feed-card.is-expanded .commit-additions,
 .commit-feed-card.is-expanded .commit-deletions { font-weight: 600; }
 .commit-files { margin-left: auto; }
@@ -828,7 +808,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 /* Shared compact card primitive for location, movement, and spending events. */
@@ -879,11 +859,11 @@ body {
   margin-bottom: 7px;
   overflow: hidden;
   border: 1px solid hsl(var(--border));
-  border-radius: 9px;
+  border-radius: var(--radius-xl);
   background: hsl(var(--card));
   padding: 8px 13px;
   color: hsl(var(--card-foreground));
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
   --activity-accent: hsl(var(--primary));
   --activity-accent-soft: hsl(var(--primary) / 0.12);
 }
@@ -908,14 +888,14 @@ body {
   --activity-accent-soft: hsl(263 70% 58% / 0.12);
 }
 
-.timeline-activity-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--activity-accent) 30%, hsl(var(--border)));
-  box-shadow: 0 6px 18px hsl(var(--foreground) / 0.1);
-}
+@media (hover: hover) {
+  .timeline-activity-card:hover {
+    border-color: color-mix(in srgb, var(--activity-accent) 30%, hsl(var(--border)));
+  }
 
-.dark .timeline-activity-card:hover {
-  box-shadow: 0 0 18px var(--activity-accent-soft), 0 6px 18px rgb(0 0 0 / 0.5);
+  .dark .timeline-activity-card:hover {
+    box-shadow: 0 0 18px var(--activity-accent-soft);
+  }
 }
 
 .timeline-activity-card.is-expanded {
@@ -962,9 +942,8 @@ body {
 .timeline-activity-kind {
   min-width: 0;
   gap: 6px;
-  color: hsl(var(--muted-foreground) / 0.8);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
 }
 
 .timeline-activity-dot {
@@ -985,7 +964,7 @@ body {
   background: var(--activity-accent-soft);
   padding: 1px 5px;
   color: var(--activity-accent);
-  font-size: 9.5px;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.45;
 }
@@ -998,11 +977,15 @@ body {
 .timeline-activity-title strong {
   min-width: 0;
   overflow: hidden;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 12.5px;
+  font-size: 0.78125rem;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.timeline-activity-card.is-expanded .timeline-activity-title strong,
+.timeline-activity-card.is-expanded .timeline-activity-detail {
+  white-space: normal;
 }
 
 .timeline-activity-icon {
@@ -1017,15 +1000,17 @@ body {
 
 .timeline-activity-trailing {
   flex: none;
-  color: hsl(var(--muted-foreground) / 0.8);
+  color: hsl(var(--muted-foreground));
   font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 
 .timeline-activity-secondary {
   min-width: 0;
+  flex-wrap: wrap;
   gap: 16px;
+  row-gap: 4px;
   padding-left: 94px;
 }
 
@@ -1033,8 +1018,8 @@ body {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: hsl(var(--muted-foreground) / 0.76);
-  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1042,11 +1027,13 @@ body {
 
 .timeline-activity-stats {
   flex: none;
+  flex-wrap: wrap;
   gap: 12px;
+  row-gap: 4px;
   margin-left: auto;
-  color: hsl(var(--muted-foreground) / 0.8);
+  color: hsl(var(--muted-foreground));
   font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1057,13 +1044,13 @@ body {
 
 .timeline-transaction-amount {
   color: var(--activity-accent);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
 }
 
 .timeline-activity-card.is-coding .timeline-activity-trailing strong {
   color: var(--activity-accent);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .timeline-activity-expanded {
@@ -1103,7 +1090,7 @@ body {
 
 .coding-language-legend {
   gap: 8px;
-  font-size: 9.5px;
+  font-size: 0.75rem;
 }
 
 .coding-language-legend > span {
@@ -1125,7 +1112,7 @@ body {
 .coding-expanded-grid h4 {
   margin-bottom: 6px;
   color: hsl(var(--muted-foreground));
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -1141,7 +1128,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .coding-detail-list > div > span:first-child {
@@ -1159,7 +1146,7 @@ body {
 .coding-ratio-row {
   gap: 8px;
   color: hsl(var(--muted-foreground));
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .coding-ratio-row > div {
@@ -1192,61 +1179,24 @@ body {
 
   .timeline-activity-secondary {
     gap: 10px;
+    row-gap: 4px;
     padding-left: 0;
   }
 }
 
-/* Sub-group divider fade */
-@keyframes subgroup-fade {
-  from {
-    width: 0%;
-    opacity: 0;
-  }
-  to {
-    width: 100%;
-    opacity: 1;
-  }
-}
-
-.subgroup-divider {
-  animation: subgroup-fade 0.4s ease-out forwards;
-}
-
-/* Stagger children animations in date groups */
-.date-group-section.is-visible .commit-card-stagger {
-  opacity: 0;
-  animation: date-group-enter 0.4s ease-out forwards;
-}
-
-.date-group-section.is-visible .commit-card-stagger:nth-child(1) { animation-delay: 0.05s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(2) { animation-delay: 0.1s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(3) { animation-delay: 0.15s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(4) { animation-delay: 0.2s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(5) { animation-delay: 0.25s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(6) { animation-delay: 0.3s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(7) { animation-delay: 0.35s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(8) { animation-delay: 0.4s; }
-.date-group-section.is-visible .commit-card-stagger:nth-child(n+9) { animation-delay: 0.45s; }
-
 /* ===== Location Map Marker ===== */
 
-/* Bounce-in for marker appearance */
+/* Marker appearance. `backwards` fill so the marker's own transform
+ * (e.g. .stay-point-marker-selected) applies once the entrance ends. */
 @keyframes bounce-in {
-  0% {
-    transform: scale(0);
+  from {
+    transform: scale(0.8);
     opacity: 0;
-  }
-  50% {
-    transform: scale(1.2);
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
   }
 }
 
 .animate-bounce-in {
-  animation: bounce-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: bounce-in 200ms ease-out backwards;
 }
 
 /* Pulse ring for last location */
@@ -1381,9 +1331,11 @@ body {
   z-index: 2;
 }
 
-.stay-point-marker:hover {
-  transform: scale(1.15);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4), 0 0 0 3px hsl(260 60% 50% / 0.25);
+@media (hover: hover) {
+  .stay-point-marker:hover {
+    transform: scale(1.15);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4), 0 0 0 3px hsl(260 60% 50% / 0.25);
+  }
 }
 
 /* Stay point popup tooltip */
@@ -1404,7 +1356,7 @@ body {
 
 .stay-point-popup .mapboxgl-popup-close-button {
   color: hsl(var(--muted-foreground));
-  font-size: 16px;
+  font-size: 1rem;
   padding: 4px 8px;
   right: 2px;
   top: 2px;
@@ -1423,7 +1375,7 @@ body {
 }
 
 .stay-point-tooltip-name {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: hsl(var(--foreground));
   line-height: 1.3;
@@ -1431,7 +1383,7 @@ body {
 }
 
 .stay-point-tooltip-address {
-  font-size: 11px;
+  font-size: 0.75rem;
   color: hsl(var(--muted-foreground));
   line-height: 1.3;
   margin: 0;
@@ -1441,14 +1393,14 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 0.75rem;
   color: hsl(var(--muted-foreground));
   margin-top: 2px;
 }
 
 .stay-point-tooltip-category {
   display: inline-block;
-  font-size: 10px;
+  font-size: 0.75rem;
   color: hsl(260 60% 50%);
   background: hsl(260 60% 50% / 0.1);
   padding: 1px 6px;
@@ -1462,7 +1414,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 0.75rem;
   color: hsl(var(--primary));
   background: hsl(var(--primary) / 0.08);
   border: 1px solid hsl(var(--primary) / 0.2);
@@ -1526,8 +1478,8 @@ body {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
-  font-size: 9px;
-  color: hsl(var(--muted-foreground) / 0.6);
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -1579,9 +1531,11 @@ body {
   z-index: 2;
 }
 
-.stepper-bar-dot:hover {
-  transform: translate(-50%, -50%) scale(1.3);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 3px hsl(260 60% 50% / 0.2);
+@media (hover: hover) {
+  .stepper-bar-dot:hover {
+    transform: translate(-50%, -50%) scale(1.3);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 3px hsl(260 60% 50% / 0.2);
+  }
 }
 
 .stepper-bar-dot:focus-visible {
@@ -1678,7 +1632,7 @@ body {
 }
 
 .stepper-tooltip-name {
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: hsl(var(--foreground));
   margin: 0 0 2px;
@@ -1686,7 +1640,7 @@ body {
 }
 
 .stepper-tooltip-address {
-  font-size: 10px;
+  font-size: 0.75rem;
   color: hsl(var(--muted-foreground));
   margin: 0 0 2px;
   line-height: 1.3;
@@ -1696,13 +1650,13 @@ body {
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 10px;
+  font-size: 0.75rem;
   color: hsl(var(--muted-foreground));
 }
 
 .stepper-tooltip-category {
   display: inline-block;
-  font-size: 9px;
+  font-size: 0.75rem;
   color: hsl(260 60% 50%);
   background: hsl(260 60% 50% / 0.1);
   padding: 0 4px;
@@ -1731,10 +1685,6 @@ body {
     transform: translate(-50%, -50%);
   }
 
-  .stepper-bar-dot:hover {
-    transform: translate(-50%, -50%) scale(1.3);
-  }
-
   .stepper-bar-dot-selected {
     transform: translate(-50%, -50%) scale(1.25);
   }
@@ -1748,7 +1698,7 @@ body {
   }
 
   .stepper-tick-label {
-    font-size: 8px;
+    font-size: 0.6875rem;
   }
 }
 
@@ -1845,7 +1795,7 @@ body {
 }
 
 .saved-place-label {
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: hsl(45 100% 30%);
   background: hsl(45 100% 92% / 0.9);
@@ -1873,8 +1823,10 @@ body {
   transition: transform 0.1s ease;
 }
 
-.dialog-map-pin:hover {
-  transform: scale(1.15);
+@media (hover: hover) {
+  .dialog-map-pin:hover {
+    transform: scale(1.15);
+  }
 }
 
 .dialog-map-pin:active {
@@ -1924,16 +1876,32 @@ body {
 }
 
 /* ============================================================================
- * Insights Redesign — Token & Utility Patch
- * Append this to the bottom of src/app/globals.css
+ * Neon dashboard tokens & utilities (/overview, /health)
  *
- * Adds: extended palette (amber/violet/orange/blue/red/hairline/ink-dim/ink-mute),
- *       4-step glow scale, .insight-card hover-lift, .glow-text-* / .glow-fill-*
- *       per-hue utilities, .tabular-mono.
- *
- * All rules are scoped to `.dark [data-neon]` (the insights page sets data-neon
- * on its root) so this is purely additive — nothing else in the app changes.
+ * Pages opt in by setting `data-neon` on their root. The tokens below are
+ * defined for BOTH themes: light values are tuned for text on a white card
+ * (every text tone ≥ 4.5:1 on the card, the muted surface and its own 12% tint),
+ * dark values keep the original neon mockup.
  * ============================================================================ */
+
+:root {
+  --accent-green: 153 70% 27%;
+  --accent-amber: 38 92% 30%;
+  --accent-orange: 25 90% 34%;
+  --accent-violet: 262 60% 50%;
+  --accent-blue: 215 85% 42%;
+  --accent-red: 0 72% 45%;
+
+  --neon-card: 0 0% 100%;            /* card surface */
+  --hairline: 214 32% 91%;           /* card border (= --border) */
+  --ink-dim: 215 25% 27%;            /* secondary text */
+  --ink-mute: 215 19% 40%;           /* tertiary text (= --muted-foreground) */
+
+  --glow-sm: 0 0 6px;
+  --glow-md: 0 0 12px;
+  --glow-lg: 0 0 20px;
+  --glow-xl: 0 0 32px;
+}
 
 .dark {
   /* Extended accent palette — match insights mockup */
@@ -1947,16 +1915,8 @@ body {
   /* Surface tokens (mockup-matching dark canvas) */
   --neon-card: 0 0% 5%;              /* card surface — slightly lifted from page 0% */
   --hairline: 0 0% 12%;              /* card border */
-  --hairline-hover: 0 0% 18%;        /* card border on hover */
   --ink-dim: 0 0% 78%;               /* secondary text */
   --ink-mute: 0 0% 56%;              /* tertiary text */
-  --ink-faint: 0 0% 32%;             /* labels / quaternary */
-
-  /* 2-layer glow — coreRadius/coreAlpha + haloRadius/haloAlpha (matches mockup .glow-text) */
-  --glow-sm: 0 0 6px;
-  --glow-md: 0 0 12px;
-  --glow-lg: 0 0 20px;
-  --glow-xl: 0 0 32px;
 }
 
 [data-neon] {
@@ -1966,52 +1926,35 @@ body {
   background: hsl(var(--accent-green) / 0.35);
 }
 
-/* ─────────── insight-card: mockup-faithful card chrome ─────────── */
+/* Card chrome. Cards are not clickable, so they get no hover effect. */
 [data-neon] .insight-card {
   position: relative;
   border: 1px solid hsl(var(--hairline));
   background: hsl(var(--neon-card));
-  border-radius: 14px;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  border-radius: var(--radius-xl);
 }
 
-[data-neon] .insight-card:hover {
-  transform: translateY(-2px);
-  border-color: hsl(var(--hairline-hover));
-  box-shadow:
-    0 6px 20px hsl(0 0% 0% / 0.5),
-    0 0 0 1px hsl(var(--accent-green) / 0.08);
-}
-
-/* Schema accents removed — mockup uses uniform hairline border, no left-edge color rail.
-   Keep [data-schema] hooks available for future per-card use without painting anything. */
-
-/* ─────────── shadcn Card override inside insights — pull legacy cards into mockup tone ─────────── */
+/* shadcn Card inside neon pages — pull legacy cards into the same tone */
 [data-neon] [data-slot="card"] {
   background: hsl(var(--neon-card));
   border: 1px solid hsl(var(--hairline));
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   box-shadow: none;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
-[data-neon] [data-slot="card"]:hover {
-  transform: translateY(-2px);
-  border-color: hsl(var(--hairline-hover));
-  box-shadow:
-    0 6px 20px hsl(0 0% 0% / 0.5),
-    0 0 0 1px hsl(var(--accent-green) / 0.08);
-}
-[data-neon] [data-slot="card-title"] {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: hsl(var(--foreground));
-}
-[data-neon] [data-slot="card-description"] {
-  font-size: 11px;
-  color: hsl(var(--ink-mute));
-  line-height: 1.35;
+
+/* Title/description defaults live in the components layer so size utilities
+ * passed through className still win. */
+@layer components {
+  [data-neon] [data-slot="card-title"] {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
+  [data-neon] [data-slot="card-description"] {
+    font-size: 0.75rem;
+    color: hsl(var(--ink-mute));
+    line-height: 1.35;
+  }
 }
 
 /* ─────────── glow-text-*: 2-layer (core + halo) — matches mockup .glow-text ─────────── */
@@ -2036,6 +1979,15 @@ body {
 [data-neon] .glow-stroke-violet { stroke: hsl(var(--accent-violet)); filter: drop-shadow(var(--glow-sm) hsl(var(--accent-violet) / 0.6)); }
 [data-neon] .glow-stroke-blue   { stroke: hsl(var(--accent-blue));   filter: drop-shadow(var(--glow-sm) hsl(var(--accent-blue)   / 0.6)); }
 
+/* Glow halos read as smudges on a light canvas — dark theme only. */
+:root:not(.dark) [data-neon] [class*="glow-text-"] {
+  text-shadow: none;
+}
+:root:not(.dark) [data-neon] [class*="glow-fill-"],
+:root:not(.dark) [data-neon] [class*="glow-stroke-"] {
+  filter: none;
+}
+
 /* ─────────── tabular monospace for stat numerals ─────────── */
 [data-neon] .tabular-mono {
   font-family: var(--font-mono), ui-monospace, monospace;
@@ -2049,3 +2001,52 @@ body {
 
 /* ─────────── hairline divider ─────────── */
 [data-neon] .border-hairline { border-color: hsl(var(--hairline)); }
+
+/* ─────────── Reduced motion ───────────
+ * Movement, scale and blur are dropped; entrances fall back to a short opacity
+ * fade, looping pulses stop, and transitions become instant. Loading spinners
+ * and shimmer stay because they communicate progress. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  @keyframes enter {
+    from {
+      opacity: var(--tw-enter-opacity, 1);
+    }
+  }
+
+  @keyframes exit {
+    to {
+      opacity: var(--tw-exit-opacity, 1);
+    }
+  }
+
+  @keyframes reduced-fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  .commit-day-dot.is-today,
+  .location-marker-pulse,
+  .replay-marker-pulse,
+  .stepper-bar-dot-selected::after,
+  .animate-success-pulse {
+    animation: none;
+  }
+
+  .animate-bounce-in,
+  .animate-bar-grow,
+  .animate-summary-reveal {
+    animation: reduced-fade 150ms ease-out backwards;
+  }
+
+  .animate-commit-new {
+    animation: highlight-flash 2.5s ease-out forwards;
+  }
+}

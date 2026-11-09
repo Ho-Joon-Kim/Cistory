@@ -16,20 +16,37 @@ export function HealthImportSettings({ hasKey }: HealthImportSettingsProps) {
     useHealthImportKey(hasKey);
 
   const handleGenerate = async () => {
+    if (
+      hasHealthImportKey &&
+      !window.confirm(
+        "Health Connect 가져오기 API 키를 재생성할까요? 기존 키는 즉시 사용할 수 없게 되어 휴대폰 자동화 설정을 바꿔야 합니다."
+      )
+    )
+      return;
     const success = await generate();
     toast[success ? "success" : "error"](
-      success ? "API 키가 생성되었습니다" : "API 키 생성에 실패했습니다"
+      success
+        ? "API 키가 생성되었습니다."
+        : "API 키를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요."
     );
   };
   const handleRevoke = async () => {
+    if (
+      !window.confirm(
+        "Health Connect 가져오기 API 키를 삭제할까요? 휴대폰 자동화가 더 이상 기록을 보낼 수 없습니다."
+      )
+    )
+      return;
     const success = await revoke();
     toast[success ? "success" : "error"](
-      success ? "API 키가 삭제되었습니다" : "API 키 삭제에 실패했습니다"
+      success
+        ? "API 키가 삭제되었습니다."
+        : "API 키를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요."
     );
   };
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success("클립보드에 복사되었습니다");
+    toast.success("클립보드에 복사되었습니다.");
   };
 
   const endpointUrl = `${getAppUrl()}/api/health-import?apikey=`;
@@ -42,7 +59,7 @@ export function HealthImportSettings({ hasKey }: HealthImportSettingsProps) {
           건강 데이터 가져오기 (Health Connect)
         </CardTitle>
         <CardDescription>
-          Google 클라우드로 안 넘어오는 기록을 폰의 Health Connect에서 직접 읽어 백필합니다
+          Google 클라우드로 안 넘어오는 과거 기록을 폰의 Health Connect에서 직접 읽어 가져옵니다
           (MacroDroid/Tasker → POST). 수면·운동·심박은 이제 클라우드 동기화로 들어오므로 보조
           수단입니다
         </CardDescription>
@@ -55,7 +72,7 @@ export function HealthImportSettings({ hasKey }: HealthImportSettingsProps) {
             ) : (
               <Key className="h-4 w-4 mr-2" />
             )}
-            API Key 생성
+            API 키 생성
           </Button>
         ) : (
           <div className="space-y-4">
@@ -67,22 +84,29 @@ export function HealthImportSettings({ hasKey }: HealthImportSettingsProps) {
                     이 키는 다시 표시되지 않습니다. 안전한 곳에 복사해 두세요.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 rounded bg-muted text-sm font-mono break-all">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <code className="min-w-0 flex-1 break-all p-2 rounded bg-muted text-xs sm:text-sm font-mono">
                     {newKey}
                   </code>
-                  <Button variant="outline" size="icon" aria-label="키 복사" onClick={() => handleCopy(newKey)}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="키 복사"
+                    onClick={() => handleCopy(newKey)}
+                  >
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             ) : (
-              <code className="block p-2 rounded bg-muted text-sm font-mono text-muted-foreground">
-                hi_••••••••••••••••••••••••••••••••
-              </code>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <code className="min-w-0 flex-1 break-all p-2 rounded bg-muted text-xs sm:text-sm font-mono text-muted-foreground">
+                  hi_••••••••••••••••••••••••••••••••
+                </code>
+              </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isGenerating}>
                 {isGenerating ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -91,7 +115,13 @@ export function HealthImportSettings({ hasKey }: HealthImportSettingsProps) {
                 )}
                 재생성
               </Button>
-              <Button variant="outline" size="sm" onClick={handleRevoke} disabled={isRevoking}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRevoke}
+                disabled={isRevoking}
+                className="text-destructive hover:text-destructive"
+              >
                 {isRevoking ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (

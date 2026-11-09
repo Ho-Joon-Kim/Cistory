@@ -39,12 +39,17 @@ export function TripCard({ trip, onMarkNotTrip, isMarkingNotTrip = false }: Trip
     event.preventDefault();
     event.stopPropagation();
     if (!onMarkNotTrip || isMarkingNotTrip) return;
-    if (!window.confirm(`"${trip.name}"을(를) 여행 목록에서 제외할까요?`)) return;
+    if (
+      !window.confirm(
+        `${trip.name} 여행을 제외할까요? 이 여행을 삭제하고 주요 방문지 주변을 저장된 장소로 등록해 앞으로 여행으로 감지하지 않습니다.`
+      )
+    )
+      return;
 
     if (await onMarkNotTrip(trip.id)) {
-      toast.success("여행에서 제외하고 정기 방문지로 등록했습니다");
+      toast.success("여행에서 제외되었고 주변이 저장된 장소로 등록되었습니다.");
     } else {
-      toast.error("여행 제외 처리에 실패했습니다");
+      toast.error("여행에서 제외하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -59,10 +64,12 @@ export function TripCard({ trip, onMarkNotTrip, isMarkingNotTrip = false }: Trip
         <CardHeader className="gap-3 px-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <CardTitle className="truncate text-lg">{trip.name}</CardTitle>
+              <CardTitle className="truncate text-lg" title={trip.name}>
+                {trip.name}
+              </CardTitle>
               <div className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
                 <CalendarDays className="h-4 w-4" aria-hidden="true" />
-                <span>
+                <span className="tabular-nums">
                   {formatDateKey(trip.startDate)} ~ {formatDateKey(trip.endDate)}
                 </span>
               </div>
@@ -92,7 +99,7 @@ export function TripCard({ trip, onMarkNotTrip, isMarkingNotTrip = false }: Trip
               type="button"
               variant="ghost"
               size="sm"
-              className="pointer-events-auto -ml-2 text-xs text-muted-foreground hover:text-destructive"
+              className="pointer-events-auto -ml-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
               disabled={isMarkingNotTrip || !onMarkNotTrip}
               onClick={handleMarkNotTrip}
             >

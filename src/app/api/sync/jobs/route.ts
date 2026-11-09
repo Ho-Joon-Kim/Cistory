@@ -131,6 +131,9 @@ export async function GET(request: NextRequest) {
     logger.error("Get sync jobs error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "동기화 기록 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "동기화 기록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

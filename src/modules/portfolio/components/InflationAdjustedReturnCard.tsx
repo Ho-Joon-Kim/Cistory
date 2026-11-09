@@ -86,7 +86,7 @@ export function InflationAdjustedReturnCard({ summary }: Props) {
           물가상승률 대비 실질 이득
         </CardTitle>
         <Select value={inflationRate.toString()} onValueChange={(v) => setInflationRate(Number(v))}>
-          <SelectTrigger size="sm" className="h-8 w-[110px]">
+          <SelectTrigger size="sm" className="h-8 w-[110px]" aria-label="물가 상승률">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -117,7 +117,9 @@ export function InflationAdjustedReturnCard({ summary }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <div className="text-xs text-muted-foreground">투입금액 (시작 매입액)</div>
-              <div className="text-lg font-bold mt-1">{formatKRW(baseline.startPurchase)}</div>
+              <div className="text-lg font-bold mt-1 tabular-nums">
+                {formatKRW(baseline.startPurchase)}
+              </div>
               <div className="text-xs text-muted-foreground mt-0.5">
                 {baseline.startDate} 이후 {formatDuration(result.years)} 보유
               </div>
@@ -131,7 +133,7 @@ export function InflationAdjustedReturnCard({ summary }: Props) {
               <div className="text-xs text-muted-foreground">
                 물가 보정 시 ({(inflationRate * 100).toFixed(0)}% 가정)
               </div>
-              <div className="text-lg font-bold mt-1 text-orange-600 dark:text-orange-400">
+              <div className="text-lg font-bold mt-1 tabular-nums text-orange-600 dark:text-orange-400">
                 {formatKRW(result.inflated)}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
@@ -140,8 +142,10 @@ export function InflationAdjustedReturnCard({ summary }: Props) {
             </div>
             <div>
               <div className="text-xs text-muted-foreground">현재 자산</div>
-              <div className="text-lg font-bold mt-1">{formatKRW(currentTotal)}</div>
-              <div className={`text-sm font-semibold mt-1 ${pnlColorClass(result.realGain)}`}>
+              <div className="text-lg font-bold mt-1 tabular-nums">{formatKRW(currentTotal)}</div>
+              <div
+                className={`text-sm font-semibold mt-1 tabular-nums ${pnlColorClass(result.realGain)}`}
+              >
                 실질 {result.realGain >= 0 ? "+" : ""}
                 {formatKRW(result.realGain, { compact: true })}
                 {result.realGainRate !== null && (
@@ -153,11 +157,11 @@ export function InflationAdjustedReturnCard({ summary }: Props) {
               </div>
               <div className="mt-2">
                 {result.outperformedInflation ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gain/10 text-gain">
                     물가 이김
                   </span>
                 ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-loss/10 text-loss">
                     물가 못 이김
                   </span>
                 )}

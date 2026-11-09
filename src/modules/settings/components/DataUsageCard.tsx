@@ -62,31 +62,26 @@ export function DataUsageCard() {
     <Card className="select-none">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg">데이터 용량</CardTitle>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={refresh}
-          disabled={isRefreshing}
-          className="focus-visible:ring-0 focus-visible:ring-offset-0"
-        >
+        <Button variant="ghost" size="sm" onClick={refresh} disabled={isRefreshing}>
           {isRefreshing ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <RefreshCw className="h-4 w-4" />
           )}
-          <span className="ml-1.5">{isRefreshing ? "계산 중..." : "새로고침"}</span>
+          <span className="ml-1.5">{isRefreshing ? "계산 중…" : "새로고침"}</span>
         </Button>
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <div role="status" className="flex items-center justify-center py-12">
+            <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-muted-foreground" />
+            <span className="sr-only">데이터 용량을 불러오는 중…</span>
           </div>
         ) : !hasData ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <Database className="h-10 w-10 mb-3 opacity-50" />
-            <p className="text-sm">데이터 없음</p>
-            <p className="text-xs mt-1">새로고침 버튼을 눌러 용량을 계산하세요</p>
+            <p className="text-sm">아직 계산된 용량이 없습니다</p>
+            <p className="text-xs mt-1">새로고침을 눌러 용량을 계산하세요.</p>
           </div>
         ) : (
           <>
@@ -202,7 +197,7 @@ export function DataUsageCard() {
                       <span className="ml-auto text-muted-foreground tabular-nums whitespace-nowrap text-xs">
                         {formatBytes(cat.totalBytes)}
                       </span>
-                      <span className="text-muted-foreground/50 tabular-nums w-10 text-right text-xs">
+                      <span className="text-muted-foreground tabular-nums w-10 text-right text-xs">
                         {pct}%
                       </span>
                     </div>

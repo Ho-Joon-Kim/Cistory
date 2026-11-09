@@ -1,5 +1,6 @@
 "use client";
 
+import { useLayoutEffect, useRef } from "react";
 import type { HealthSleepSession, SleepStageKey } from "@/modules/health/types";
 import { InsightCard } from "@/modules/insights/components/primitives/InsightCard";
 import { Hypnogram, SLEEP_STAGE_META } from "./Hypnogram";
@@ -25,7 +26,7 @@ function StageRow({ stage, minutes, pct }: { stage: SleepStageKey; minutes: numb
   const meta = SLEEP_STAGE_META[stage];
   return (
     <div className="grid grid-cols-[56px_1fr_auto] items-center gap-2.5">
-      <span className="flex items-center gap-1.5 text-[11px] text-ink-mute">
+      <span className="flex items-center gap-1.5 text-xs text-ink-mute">
         <span className="h-2 w-2 shrink-0 rounded-[3px]" style={{ background: meta.color }} />
         {meta.label}
       </span>
@@ -35,7 +36,7 @@ function StageRow({ stage, minutes, pct }: { stage: SleepStageKey; minutes: numb
           style={{ width: `${pct}%`, background: meta.color }}
         />
       </span>
-      <span className="tabular-mono whitespace-nowrap text-[11px] text-ink-mute">
+      <span className="tabular-mono whitespace-nowrap text-xs text-ink-mute">
         <b className="font-semibold text-foreground">{Math.round(minutes)}</b>분·{Math.round(pct)}%
       </span>
     </div>
@@ -56,7 +57,7 @@ function FeaturedNight({ session }: { session: HealthSleepSession }) {
       {/* hypnogram */}
       <div>
         <div className="mb-2 flex items-baseline justify-between gap-2">
-          <span className="flex items-center gap-1.5 text-[11px] font-medium text-ink-mute">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-ink-mute">
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: "hsl(235 66% 60%)" }} />
             수면 단계 · {DATE_FMT.format(new Date(session.start))}
           </span>
@@ -67,7 +68,7 @@ function FeaturedNight({ session }: { session: HealthSleepSession }) {
         {session.segments && session.segments.length > 0 ? (
           <Hypnogram segments={session.segments} minutes={session.minutes} />
         ) : null}
-        <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1 text-[10.5px] text-ink-mute">
+        <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-ink-mute">
           {COMPOSITION_ORDER.map((key) => (
             <span key={key} className="inline-flex items-center gap-1.5">
               <span
@@ -84,9 +85,7 @@ function FeaturedNight({ session }: { session: HealthSleepSession }) {
       {stages ? (
         <div>
           <div className="mb-3.5 flex items-baseline justify-between border-b border-hairline pb-3">
-            <span className="text-[10px] uppercase tracking-[0.07em] text-ink-mute">
-              회복 수면 · 깊은잠＋렘
-            </span>
+            <span className="text-xs text-ink-mute">회복 수면 · 깊은잠＋렘</span>
             <span
               className="tabular-mono text-xl font-semibold"
               style={{ color: "hsl(235 78% 74%)" }}
@@ -100,7 +99,7 @@ function FeaturedNight({ session }: { session: HealthSleepSession }) {
               <StageRow key={key} stage={key} minutes={stages[key]} pct={pct(stages[key])} />
             ))}
           </div>
-          <div className="mt-3.5 flex justify-between text-[10.5px] text-ink-mute tabular-mono">
+          <div className="mt-3.5 flex justify-between text-xs text-ink-mute tabular-mono">
             <span>잠든 시간 {duration(asleep)}</span>
             {efficiency != null ? <span>수면 효율 {efficiency}%</span> : null}
           </div>
@@ -123,14 +122,23 @@ function RecordedNights({
   const ordered = [...sessions].reverse();
   const maxMin = Math.max(...ordered.map((s) => s.minutes), 1);
   const STRIP_H = 88;
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  // The newest night sits at the far right; start the scroller there so it is visible.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-anchor when the night list changes
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    if (strip) strip.scrollLeft = strip.scrollWidth;
+  }, [sessions]);
 
   return (
     <div className="mt-4 border-t border-hairline pt-3.5">
       <div className="mb-2.5 flex items-baseline justify-between">
-        <span className="text-[10px] uppercase tracking-[0.07em] text-ink-mute">기록된 수면</span>
-        <span className="text-[11px] text-ink-mute">{sessions.length}건 · 측정된 날만</span>
+        <span className="text-xs text-ink-mute">기록된 수면</span>
+        <span className="text-xs text-ink-mute">{sessions.length}건 · 측정된 날만</span>
       </div>
       <div
+        ref={stripRef}
         className="flex items-end gap-2 overflow-x-auto"
         style={{ height: STRIP_H }}
         role="img"
@@ -146,7 +154,7 @@ function RecordedNights({
               ? "hsl(220 55% 55% / 0.55)"
               : "hsl(0 0% 40% / 0.45)";
           return (
-            <div key={s.start} className="flex min-w-[26px] flex-1 flex-col items-center gap-1.5">
+            <div key={s.start} className="flex min-w-9 flex-1 flex-col items-center gap-1.5">
               <span
                 className="w-full rounded-[3px]"
                 style={{
@@ -156,14 +164,14 @@ function RecordedNights({
                 }}
                 title={`${DATE_FMT.format(new Date(s.start))} · ${duration(s.minutes)}${hasStages ? " · 단계기록" : " · 시간만"}${s.nap ? " · 낮잠" : ""}`}
               />
-              <span className="tabular-mono text-[8.5px] text-ink-mute">
+              <span className="tabular-mono text-xs text-ink-mute">
                 {DATE_FMT.format(new Date(s.start))}
               </span>
             </div>
           );
         })}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-ink-mute">
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-mute">
         <span className="inline-flex items-center gap-1.5">
           <span
             className="inline-block h-2 w-2 rounded-[2px]"
@@ -213,7 +221,7 @@ export function SleepCard({ sessions }: { sessions: HealthSleepSession[] }) {
           {featured ? (
             <FeaturedNight session={featured} />
           ) : (
-            <div className="flex h-20 items-center justify-center text-[11px] text-ink-mute">
+            <div className="flex h-20 items-center justify-center text-xs text-ink-mute">
               단계가 기록된 밤이 아직 없습니다 — 아래는 측정된 수면 시간입니다
             </div>
           )}

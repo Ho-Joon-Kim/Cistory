@@ -70,7 +70,7 @@ export function CategorySpendingChart({ data }: CategorySpendingChartProps) {
   return (
     <div className="pt-2">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <span className="text-[11px] text-muted-foreground">지출 비중</span>
+        <span className="text-xs text-muted-foreground">지출 비중</span>
         <strong className="text-sm tabular-nums">총 {formatCompactWon(total)}</strong>
       </div>
 
@@ -113,20 +113,24 @@ export function CategorySpendingChart({ data }: CategorySpendingChartProps) {
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-3 flex gap-5 overflow-x-auto pb-1">
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
         {categories.map((item) => {
           const share = total > 0 ? (item.total / total) * 100 : 0;
 
           return (
             <div key={item.category} className="shrink-0">
               <div className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.color }} />
+                <span
+                  className="h-2.5 w-2.5 rounded-sm"
+                  style={{ backgroundColor: item.color }}
+                  aria-hidden="true"
+                />
                 <span className="text-xs font-medium">{item.label}</span>
-                <span className="text-[10px] tabular-nums text-muted-foreground">
+                <span className="text-xs tabular-nums text-muted-foreground">
                   {share.toFixed(1)}%
                 </span>
               </div>
-              <p className="mt-1 text-[11px] tabular-nums">
+              <p className="mt-1 text-xs tabular-nums">
                 <span className="font-semibold">{formatWon(item.total)}</span>
                 <span className="ml-1 text-muted-foreground">· {item.count}건</span>
               </p>

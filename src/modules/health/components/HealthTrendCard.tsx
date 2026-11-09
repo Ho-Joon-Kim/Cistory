@@ -239,7 +239,7 @@ export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
         <span className="text-xl font-semibold text-foreground">
           {formatValue(latestValue, series.decimals)}
         </span>
-        <span className="ml-1 text-[11px] text-ink-mute">{series.unit}</span>
+        <span className="ml-1 text-xs text-ink-mute">{series.unit}</span>
       </span>
     ) : (
       <span className="block h-5 w-12 animate-pulse rounded bg-muted" />
@@ -291,7 +291,7 @@ export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
               )
             }
           />
-          <div className="mt-2 flex justify-between text-[10.5px] text-ink-mute tabular-mono">
+          <div className="mt-2 flex justify-between text-xs text-ink-mute tabular-mono">
             <span>
               최근 {WINDOW_DAYS}일 · {isSum ? "중앙값" : "최소"}{" "}
               {formatValue(isSum ? median(primary) : footMin, series.decimals)}
@@ -302,7 +302,7 @@ export function HealthTrendCard({ series }: { series: HealthMetricSeries }) {
       ) : (
         <>
           <SkeletonChart />
-          <div className="mt-2 text-[10.5px] text-ink-mute">데이터 없음</div>
+          <div className="mt-2 text-xs text-ink-mute">데이터 없음</div>
         </>
       )}
     </InsightCard>

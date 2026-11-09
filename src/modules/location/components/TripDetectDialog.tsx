@@ -44,7 +44,7 @@ export function TripDetectDialog({ trips, isSaving, onConfirm, onCancel }: TripD
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-base font-semibold">감지된 여행 {trips.length}건</h3>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={onCancel}>
@@ -52,9 +52,9 @@ export function TripDetectDialog({ trips, isSaving, onConfirm, onCancel }: TripD
           </Button>
           <Button size="sm" disabled={selected.size === 0 || isSaving} onClick={handleConfirm}>
             {isSaving ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              <Loader2 className="h-4 w-4 animate-spin mr-1" aria-hidden="true" />
             ) : (
-              <Check className="h-4 w-4 mr-1" />
+              <Check className="h-4 w-4 mr-1" aria-hidden="true" />
             )}
             {selected.size}건 저장
           </Button>
@@ -65,38 +65,47 @@ export function TripDetectDialog({ trips, isSaving, onConfirm, onCancel }: TripD
         {trips.map((trip, i) => (
           <Card
             key={`${trip.startDate}-${trip.name}`}
-            className={`!py-3 cursor-pointer transition-colors ${
-              selected.has(i) ? "border-primary bg-primary/5" : "opacity-50"
+            className={`!py-0 transition-[border-color,background-color,opacity] ${
+              selected.has(i) ? "border-primary bg-primary/5" : "opacity-60"
             }`}
-            onClick={() => toggleSelect(i)}
           >
-            <CardContent className="!pt-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {trip.isOverseas ? (
-                    <Plane className="h-4 w-4 text-sky-500" />
-                  ) : (
-                    <MapPin className="h-4 w-4 text-green-500" />
-                  )}
-                  <span className="font-medium">{trip.name}</span>
+            <button
+              type="button"
+              aria-pressed={selected.has(i)}
+              onClick={() => toggleSelect(i)}
+              className="w-full cursor-pointer rounded-[inherit] py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <CardContent className="!pt-0">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {trip.isOverseas ? (
+                      <Plane className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
+                    ) : (
+                      <MapPin className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                    )}
+                    <span className="font-medium">{trip.name}</span>
+                  </div>
+                  <span className="flex items-center gap-1.5 text-sm text-muted-foreground tabular-nums">
+                    {formatDateRange(trip.startDate, trip.endDate)}
+                    {selected.has(i) && (
+                      <Check className="h-4 w-4 text-primary" aria-label="선택됨" />
+                    )}
+                  </span>
                 </div>
-                <span className="text-sm text-muted-foreground">
-                  {formatDateRange(trip.startDate, trip.endDate)}
-                </span>
-              </div>
-              {trip.visitedCities.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {trip.visitedCities.map((city) => (
-                    <span
-                      key={city}
-                      className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs"
-                    >
-                      {city}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </CardContent>
+                {trip.visitedCities.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {trip.visitedCities.map((city) => (
+                      <span
+                        key={city}
+                        className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs"
+                      >
+                        {city}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </button>
           </Card>
         ))}
       </div>

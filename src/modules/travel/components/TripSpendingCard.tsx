@@ -81,7 +81,9 @@ export function TripSpendingCard({ spending }: { spending: TripSpending }) {
               {spending.transactions.map((transaction) => (
                 <li key={transaction.id} className="flex items-start justify-between gap-4 text-sm">
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{transaction.merchant || "사용처 미상"}</p>
+                    <p className="line-clamp-2 break-words font-medium">
+                      {transaction.merchant || "사용처 미상"}
+                    </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {formatKstTransactionTime(transaction.transactedAt)} ·{" "}
                       {transaction.accountName}

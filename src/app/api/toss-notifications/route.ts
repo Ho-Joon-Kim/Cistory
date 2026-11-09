@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     if (!rate.allowed) {
       logIngestionFailure("toss-notifications", "rate_limited", request);
       return NextResponse.json(
-        { error: "요청이 너무 많습니다" },
+        { error: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." },
         { status: 429, headers: { "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)) } }
       );
     }
@@ -46,7 +46,10 @@ export async function POST(request: NextRequest) {
     const authed = await verifyApiKey(apikey, "tossNotificationApiKey");
     if (!authed) {
       logIngestionFailure("toss-notifications", "auth_failed", request);
-      return NextResponse.json({ error: "인증 실패" }, { status: 401 });
+      return NextResponse.json(
+        { error: "API 키가 유효하지 않습니다. 설정에서 키를 확인해 주세요." },
+        { status: 401 }
+      );
     }
 
     const { id: userId, tossMyName } = authed;
@@ -174,7 +177,10 @@ export async function POST(request: NextRequest) {
     logger.error("Toss notification ingestion error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "저장 실패" }, { status: 500 });
+    return NextResponse.json(
+      { error: "알림을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -184,7 +190,7 @@ export async function GET(request: NextRequest) {
     if (!rate.allowed) {
       logIngestionFailure("toss-notifications", "rate_limited", request);
       return NextResponse.json(
-        { error: "요청이 너무 많습니다" },
+        { error: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." },
         { status: 429, headers: { "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)) } }
       );
     }
@@ -193,7 +199,10 @@ export async function GET(request: NextRequest) {
     const authed = await verifyApiKey(apikey, "tossNotificationApiKey");
     if (!authed) {
       logIngestionFailure("toss-notifications", "auth_failed", request);
-      return NextResponse.json({ error: "인증 실패" }, { status: 401 });
+      return NextResponse.json(
+        { error: "API 키가 유효하지 않습니다. 설정에서 키를 확인해 주세요." },
+        { status: 401 }
+      );
     }
 
     const userId = authed.id;
@@ -228,7 +237,10 @@ export async function GET(request: NextRequest) {
     logger.error("Toss notification fetch error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "조회 실패" }, { status: 500 });
+    return NextResponse.json(
+      { error: "수집된 알림을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 

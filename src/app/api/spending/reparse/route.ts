@@ -111,7 +111,10 @@ export async function POST(request: NextRequest) {
         logger.error("Reparse error", {
           error: err instanceof Error ? err.message : String(err),
         });
-        send({ type: "error", error: "재파싱 실패" });
+        send({
+          type: "error",
+          error: "알림을 다시 분석하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        });
       } finally {
         controller.close();
       }

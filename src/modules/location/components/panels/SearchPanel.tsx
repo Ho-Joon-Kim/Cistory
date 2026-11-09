@@ -84,29 +84,32 @@ export function SearchPanel({ onPlaceSelect }: SearchPanelProps) {
 
   return (
     <div className="flex flex-col p-3">
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-        장소 검색
-      </h3>
+      <h3 className="text-xs font-semibold text-muted-foreground mb-2">장소 검색</h3>
       <div className="relative mb-3">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+        <Search
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground"
+          aria-hidden="true"
+        />
         <Input
-          placeholder="장소명 또는 주소..."
+          type="search"
+          aria-label="장소 검색"
+          placeholder="장소명 또는 주소…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="pl-8 h-8 text-sm"
+          className="pl-8 h-8 text-base sm:text-sm"
         />
       </div>
 
       {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-6">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">검색 중...</span>
+        <div role="status" className="flex items-center justify-center gap-2 py-6">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
+          <span className="text-xs text-muted-foreground">검색 중…</span>
         </div>
       )}
 
       {!isLoading && hasSearched && results.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-6">
-          <Search className="h-5 w-5 text-muted-foreground" />
+          <Search className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           <p className="text-xs text-muted-foreground">검색 결과가 없습니다</p>
         </div>
       )}
@@ -120,13 +123,20 @@ export function SearchPanel({ onPlaceSelect }: SearchPanelProps) {
               className="flex items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50"
               onClick={() => onPlaceSelect({ lat: r.lat, lon: r.lon, name: r.name })}
             >
-              <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <MapPin
+                className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0"
+                aria-hidden="true"
+              />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{r.name}</p>
-                {r.address && <p className="text-xs text-muted-foreground truncate">{r.address}</p>}
-                {r.category && (
-                  <span className="text-[10px] text-muted-foreground/70">{r.category}</span>
+                <p className="text-sm font-medium truncate" title={r.name}>
+                  {r.name}
+                </p>
+                {r.address && (
+                  <p className="text-xs text-muted-foreground truncate" title={r.address}>
+                    {r.address}
+                  </p>
                 )}
+                {r.category && <span className="text-xs text-muted-foreground">{r.category}</span>}
               </div>
             </button>
           ))}

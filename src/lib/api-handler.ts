@@ -70,7 +70,10 @@ export function withAuth<TParams = unknown>(
       if (error) return error;
       return await handler({ user, request }, params);
     } catch (err) {
-      return errorResponse(err, options?.errorMessage ?? "요청 처리에 실패했습니다");
+      return errorResponse(
+        err,
+        options?.errorMessage ?? "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      );
     }
   };
 }
@@ -100,7 +103,10 @@ export function withValidation<TSchema extends ZodType, TParams = unknown>(
       const body = schema.parse(raw) as ReturnType<TSchema["parse"]>;
       return await handler({ user, request, body }, params);
     } catch (err) {
-      return errorResponse(err, options?.errorMessage ?? "요청 처리에 실패했습니다");
+      return errorResponse(
+        err,
+        options?.errorMessage ?? "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      );
     }
   };
 }

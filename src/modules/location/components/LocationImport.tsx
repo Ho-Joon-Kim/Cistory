@@ -65,7 +65,7 @@ export function LocationImport() {
       setState({
         phase: "parsing",
         progress: 0,
-        detail: data.format ? `${data.format} 분석 중...` : "파일 분석 중...",
+        detail: data.format ? `${data.format} 분석 중…` : "파일 분석 중…",
         format: data.format,
         totalParsed: 0,
       });
@@ -76,7 +76,7 @@ export function LocationImport() {
         phase: "inserting",
         // Total is unknown while streaming; the bar is indeterminate.
         progress: 0,
-        detail: `저장 중... ${inserted.toLocaleString()}개 저장 / ${totalParsed.toLocaleString()}개 스캔`,
+        detail: `저장 중… ${inserted.toLocaleString()}개 저장 / ${totalParsed.toLocaleString()}개 스캔`,
         format: data.format,
         totalParsed,
         inserted,
@@ -98,7 +98,7 @@ export function LocationImport() {
         phase: "error",
         progress: 0,
         detail: "",
-        error: data.error ?? "임포트 실패",
+        error: data.error ?? "파일을 가져오지 못했습니다.",
       });
     }
   }, []);
@@ -118,7 +118,7 @@ export function LocationImport() {
             phase: "error",
             progress: 0,
             detail: "",
-            error: errBody.error ?? `상태 조회 실패 (HTTP ${res.status})`,
+            error: errBody.error ?? `진행 상태를 확인하지 못했습니다 (HTTP ${res.status}).`,
           });
           return;
         }
@@ -149,7 +149,7 @@ export function LocationImport() {
       setState({
         phase: "uploading",
         progress: 0,
-        detail: `${file.name} (${formatBytes(file.size)}) 업로드 중...`,
+        detail: `${file.name} (${formatBytes(file.size)}) 업로드 중…`,
       });
 
       try {
@@ -162,7 +162,7 @@ export function LocationImport() {
             setState({
               phase: "uploading",
               progress: pct,
-              detail: `업로드 중... ${formatBytes(e.loaded)} / ${formatBytes(e.total)} (${pct}%)`,
+              detail: `업로드 중… ${formatBytes(e.loaded)} / ${formatBytes(e.total)} (${pct}%)`,
             });
           });
 
@@ -171,7 +171,7 @@ export function LocationImport() {
             setState({
               phase: "uploading",
               progress: 100,
-              detail: "업로드 완료, 처리 시작 대기 중...",
+              detail: "업로드 완료, 처리 시작 대기 중…",
             });
           });
 
@@ -179,25 +179,25 @@ export function LocationImport() {
             if (xhr.status >= 400) {
               try {
                 const err = JSON.parse(xhr.responseText);
-                reject(new Error(err.error ?? "업로드 실패"));
+                reject(new Error(err.error ?? "파일을 업로드하지 못했습니다."));
               } catch {
-                reject(new Error(`HTTP ${xhr.status}`));
+                reject(new Error(`파일을 업로드하지 못했습니다 (HTTP ${xhr.status}).`));
               }
               return;
             }
             try {
               const body = JSON.parse(xhr.responseText) as { jobId?: string };
               if (!body.jobId) {
-                reject(new Error("서버 응답에 jobId가 없습니다"));
+                reject(new Error("서버 응답을 확인하지 못했습니다."));
                 return;
               }
               resolve(body.jobId);
             } catch {
-              reject(new Error("서버 응답 파싱 실패"));
+              reject(new Error("서버 응답을 확인하지 못했습니다."));
             }
           });
 
-          xhr.addEventListener("error", () => reject(new Error("네트워크 오류")));
+          xhr.addEventListener("error", () => reject(new Error("네트워크에 연결하지 못했습니다.")));
           xhr.addEventListener("abort", () => reject(new Error("취소됨")));
 
           xhr.open("POST", "/api/timeline/locations/import");
@@ -220,7 +220,7 @@ export function LocationImport() {
           phase: "error",
           progress: 0,
           detail: "",
-          error: e instanceof Error ? e.message : "알 수 없는 오류",
+          error: e instanceof Error ? e.message : "파일을 가져오지 못했습니다.",
         });
       }
     },
@@ -238,7 +238,7 @@ export function LocationImport() {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Upload className="h-4 w-4" />
+          <Upload className="h-4 w-4" aria-hidden="true" />
           위치 데이터 임포트
         </CardTitle>
       </CardHeader>
@@ -259,12 +259,12 @@ export function LocationImport() {
         <Button variant="outline" disabled={isActive} onClick={() => fileInputRef.current?.click()}>
           {isActive ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              처리 중...
+              <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />
+              처리 중…
             </>
           ) : (
             <>
-              <Upload className="h-4 w-4 mr-2" />
+              <Upload className="h-4 w-4 mr-2" aria-hidden="true" />
               파일 선택
             </>
           )}
@@ -278,35 +278,37 @@ export function LocationImport() {
             <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
               {state.phase === "uploading" ? (
                 <div
-                  className="h-full rounded-full bg-primary transition-all duration-300"
+                  className="h-full rounded-full bg-primary transition-[width] duration-300"
                   style={{ width: `${state.progress}%` }}
                 />
               ) : (
                 <div className="h-full w-1/3 rounded-full bg-primary animate-pulse" />
               )}
             </div>
-            <p className="text-xs text-muted-foreground">{state.detail}</p>
+            <p className="text-xs text-muted-foreground tabular-nums" aria-live="polite">
+              {state.detail}
+            </p>
           </div>
         )}
 
         {/* Error */}
         {state?.phase === "error" && (
-          <div className="flex items-center gap-2 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {state.error}
+          <div role="alert" className="flex items-start gap-2 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{state.error} 파일을 다시 선택해 주세요.</span>
           </div>
         )}
 
         {/* Success result */}
         {state?.phase === "done" && (
           <div className="rounded-lg border p-3 space-y-1">
-            <div className="flex items-center gap-2 text-sm font-medium text-green-600">
-              <FileCheck className="h-4 w-4" />
+            <div className="flex items-center gap-2 text-sm font-medium text-success">
+              <FileCheck className="h-4 w-4" aria-hidden="true" />
               임포트 완료
             </div>
-            <div className="text-sm text-muted-foreground space-y-0.5">
+            <div className="text-sm text-muted-foreground space-y-0.5 tabular-nums">
               <p>포맷: {state.format}</p>
-              <p>파싱된 포인트: {state.totalParsed?.toLocaleString()}개</p>
+              <p>읽은 포인트: {state.totalParsed?.toLocaleString()}개</p>
               <p>새로 저장: {state.inserted?.toLocaleString()}개</p>
               {(state.duplicates ?? 0) > 0 && (
                 <p>중복 건너뜀: {state.duplicates?.toLocaleString()}개</p>
@@ -319,7 +321,7 @@ export function LocationImport() {
             </div>
             {state.dateRange && (state.inserted ?? 0) > 0 && (
               <p className="text-xs text-muted-foreground mt-2">
-                설정 &gt; 위치 백필에서 임포트된 날짜의 분석을 실행하세요.
+                설정 &gt; 과거 위치 데이터 처리에서 가져온 날짜를 분석해 주세요.
               </p>
             )}
           </div>

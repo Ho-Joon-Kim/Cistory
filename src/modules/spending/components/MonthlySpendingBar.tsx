@@ -101,10 +101,7 @@ export function MonthlySpendingBar({ data }: MonthlySpendingBarProps) {
       </div>
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
         {activeCategories.map((category) => (
-          <span
-            key={category}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground"
-          >
+          <span key={category} className="flex items-center gap-1 text-xs text-muted-foreground">
             <span
               className="h-2 w-2 rounded-sm"
               style={{ backgroundColor: SPENDING_CATEGORY_COLORS[category] }}

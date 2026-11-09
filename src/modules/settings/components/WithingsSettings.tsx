@@ -23,11 +23,17 @@ export function WithingsSettings({
   const { hasWithingsConnection, isDisconnecting, disconnect } = useWithings(hasConnection);
 
   const handleDisconnect = async () => {
+    if (
+      !window.confirm(
+        "Withings 연결을 해제할까요? 저장된 인증 정보가 삭제되어 체성분 자동 동기화가 멈춥니다. 이미 수집한 기록은 남습니다."
+      )
+    )
+      return;
     const success = await disconnect();
     if (success) {
-      toast.success("Withings 연결이 해제되었습니다");
+      toast.success("Withings 연결이 해제되었습니다.");
     } else {
-      toast.error("Withings 연결 해제에 실패했습니다");
+      toast.error("Withings 연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -39,7 +45,7 @@ export function WithingsSettings({
           체성분 (Withings)
         </CardTitle>
         <CardDescription>
-          Withings Body 스마트 체중계와 연동하여 체중·체성분 데이터를 인사이트와 리포트에 표시합니다
+          Withings Body 스마트 체중계와 연결하여 체중·체성분 데이터를 인사이트와 리포트에 표시합니다
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -48,27 +54,27 @@ export function WithingsSettings({
             {/* Full-page redirect into the OAuth flow (authorize → Withings consent → callback). */}
             <a href="/api/withings/authorize">
               <Check className="h-4 w-4 mr-2" />
-              Withings 연동
+              Withings 연결
             </a>
           </Button>
         ) : (
           <div className="space-y-4">
             {needsReauth && (
-              <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+              <div className="flex items-start gap-2 p-3 rounded-lg border border-warning/40 bg-warning/10">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
                 <div className="space-y-2">
                   <p className="text-sm">
-                    Withings 인증이 만료되었습니다. 다시 연동해야 데이터 동기화가 재개됩니다.
+                    Withings 인증이 만료되었습니다. 다시 연결하면 데이터 동기화가 재개됩니다.
                   </p>
                   <Button size="sm" asChild>
-                    <a href="/api/withings/authorize">다시 연동</a>
+                    <a href="/api/withings/authorize">다시 연결</a>
                   </Button>
                 </div>
               </div>
             )}
 
-            <div className="flex items-center justify-between">
-              <code className="p-2 rounded bg-muted text-sm font-mono text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <code className="min-w-0 flex-1 break-all p-2 rounded bg-muted text-xs sm:text-sm font-mono text-muted-foreground">
                 Withings ID: {withingsUserId ?? "연결됨"}
               </code>
               <Button
@@ -76,6 +82,7 @@ export function WithingsSettings({
                 size="sm"
                 onClick={handleDisconnect}
                 disabled={isDisconnecting}
+                className="text-destructive hover:text-destructive"
               >
                 {isDisconnecting ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />

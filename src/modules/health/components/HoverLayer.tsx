@@ -62,7 +62,7 @@ export function HoverLayer<T>({
             />
           ) : null}
           <div
-            className="pointer-events-none absolute bottom-full z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-hairline bg-popover px-2 py-1 text-[11px] leading-tight shadow-lg"
+            className="pointer-events-none absolute bottom-full z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-hairline bg-popover px-2 py-1 text-xs leading-tight shadow-lg"
             style={{ left: `${Math.max(8, Math.min(92, leftPct))}%` }}
           >
             {tooltip(items[active], active)}

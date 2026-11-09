@@ -52,54 +52,25 @@ function ActivityTimelineItem({
   );
 }
 
-// --- Viewport visibility hook for each date group ---
-function useDateGroupVisibility(scrollRoot: React.RefObject<Element | null>) {
+// --- Element refs for each date group (used to scroll the selected date into view) ---
+function useDateGroupRefs() {
   const refs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [visibleGroups, setVisibleGroups] = useState<Set<string>>(new Set());
-  const observersRef = useRef<Map<string, IntersectionObserver>>(new Map());
 
   const setRef = useCallback(
     (key: string) => (el: HTMLDivElement | null) => {
-      if (el) {
-        refs.current.set(key, el);
-
-        if (!visibleGroups.has(key) && !observersRef.current.has(key)) {
-          const observer = new IntersectionObserver(
-            (entries) => {
-              for (const entry of entries) {
-                if (entry.isIntersecting) {
-                  setVisibleGroups((prev) => new Set([...prev, key]));
-                  observer.disconnect();
-                  observersRef.current.delete(key);
-                }
-              }
-            },
-            { threshold: 0.1, root: scrollRoot.current }
-          );
-          observer.observe(el);
-          observersRef.current.set(key, observer);
-        }
-      }
+      if (el) refs.current.set(key, el);
+      else refs.current.delete(key);
     },
-    [visibleGroups, scrollRoot]
+    []
   );
 
-  useEffect(() => {
-    return () => {
-      for (const observer of observersRef.current.values()) {
-        observer.disconnect();
-      }
-    };
-  }, []);
-
-  return { setRef, visibleGroups, refs };
+  return { setRef, refs };
 }
 
 // --- Date group section ---
 interface DateGroupSectionProps {
   entry: DateEntry;
   isSelected: boolean;
-  isVisible: boolean;
   setRef: (key: string) => (el: HTMLDivElement | null) => void;
   repoColorMap: Map<string, string>;
   newCommitIds: Set<string>;
@@ -116,7 +87,6 @@ interface DateGroupSectionProps {
 const DateGroupSection = memo(function DateGroupSection({
   entry,
   isSelected,
-  isVisible,
   setRef,
   repoColorMap,
   newCommitIds,
@@ -201,10 +171,7 @@ const DateGroupSection = memo(function DateGroupSection({
   }, [unifiedEventGroups]);
 
   return (
-    <div
-      ref={setRef(date)}
-      className={`date-group-section relative ${isVisible ? "is-visible" : ""}`}
-    >
+    <div ref={setRef(date)} className="relative">
       {/* Date header */}
       <div className="relative mb-2 flex items-center">
         <button
@@ -217,7 +184,7 @@ const DateGroupSection = memo(function DateGroupSection({
         >
           {hasFeedHeader && <span className={`commit-day-dot ${isToday ? "is-today" : ""}`} />}
           <h3
-            className={`${hasFeedHeader ? "commit-day-label" : "text-sm font-medium text-muted-foreground/50"}`}
+            className={`${hasFeedHeader ? "commit-day-label" : "text-sm font-medium text-muted-foreground"}`}
           >
             {label}
           </h3>
@@ -225,7 +192,7 @@ const DateGroupSection = memo(function DateGroupSection({
             className={
               hasFeedHeader
                 ? "commit-count-badge"
-                : "inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"
+                : "inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted/50 px-1.5 text-xs font-medium text-muted-foreground tabular-nums"
             }
           >
             <AnimatedNumber value={dateCommits.length} />
@@ -236,7 +203,7 @@ const DateGroupSection = memo(function DateGroupSection({
               className={
                 hasFeedHeader
                   ? "commit-day-stat ml-auto"
-                  : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"
+                  : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-xs font-medium text-muted-foreground tabular-nums"
               }
             >
               <MapPin className={hasFeedHeader ? "size-2.5" : "size-3"} />
@@ -245,7 +212,7 @@ const DateGroupSection = memo(function DateGroupSection({
           )}
           {codingSeconds != null && codingSeconds > 0 && (
             <span
-              className={`${hasFeedHeader ? "commit-day-stat" : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-[10px] font-medium text-muted-foreground/50"} ${distanceMeters == null || distanceMeters <= 0 ? "ml-auto" : ""}`}
+              className={`${hasFeedHeader ? "commit-day-stat" : "inline-flex h-5 items-center gap-0.5 rounded-full bg-muted/50 px-1.5 text-xs font-medium text-muted-foreground tabular-nums"} ${distanceMeters == null || distanceMeters <= 0 ? "ml-auto" : ""}`}
             >
               <Code className={hasFeedHeader ? "size-2.5" : "size-3"} />
               {formatCodingTime(codingSeconds)}
@@ -264,10 +231,10 @@ const DateGroupSection = memo(function DateGroupSection({
               <div key={sgIndex}>
                 {subGroup.label && (
                   <div className="ml-[38px] flex items-center gap-2 py-2">
-                    <span className="text-[11px] text-muted-foreground/50 font-medium tracking-wide">
+                    <span className="text-xs font-medium text-muted-foreground">
                       {subGroup.label}
                     </span>
-                    <div className="subgroup-divider h-px bg-muted-foreground/15 flex-1" />
+                    <div className="h-px flex-1 bg-muted-foreground/15" />
                   </div>
                 )}
                 <div className="space-y-1">
@@ -275,7 +242,7 @@ const DateGroupSection = memo(function DateGroupSection({
                     switch (event.type) {
                       case "commit":
                         return (
-                          <div key={`commit-${event.data.id}`} className="commit-card-stagger">
+                          <div key={`commit-${event.data.id}`}>
                             <CommitCard
                               commit={event.data}
                               isNew={newCommitIds.has(event.data.id)}
@@ -336,7 +303,7 @@ const DateGroupSection = memo(function DateGroupSection({
 
         {/* Selected but truly empty */}
         {isSelected && !unifiedEventGroups && (
-          <p className="text-sm text-muted-foreground/60 py-2">이 날의 활동이 없습니다</p>
+          <p className="text-sm text-muted-foreground py-2">이 날의 활동이 없습니다</p>
         )}
 
         {/* Non-selected: compact commits */}
@@ -373,7 +340,7 @@ export function Timeline({
     newIds: Set<string>;
   }>({ seenIds: new Set(), newIds: new Set() });
   const isFirstRender = useRef(true);
-  const { setRef, visibleGroups, refs } = useDateGroupVisibility(scrollContainerRef);
+  const { setRef, refs } = useDateGroupRefs();
 
   const newCommitIds = commitTracking.newIds;
 
@@ -560,7 +527,6 @@ export function Timeline({
             key={entry.date}
             entry={entry}
             isSelected={entry.date === selectedDate}
-            isVisible={visibleGroups.has(entry.date)}
             setRef={setRef}
             repoColorMap={repoColorMap}
             newCommitIds={newCommitIds}

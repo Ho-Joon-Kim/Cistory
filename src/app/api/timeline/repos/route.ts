@@ -41,6 +41,9 @@ export async function GET(request: NextRequest) {
     logger.error("Get repos error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "저장소 목록 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "레포지토리 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

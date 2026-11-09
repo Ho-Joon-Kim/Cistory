@@ -195,7 +195,10 @@ export async function GET(request: NextRequest) {
     logger.error("Backfill dry run error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "백필 분석에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "위치 데이터 처리 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -217,10 +220,16 @@ export async function POST(request: NextRequest) {
 
   const plan = await planBackfill(user.id, scope);
   if (!plan) {
-    return NextResponse.json({ error: "위치 데이터가 없습니다" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          "처리할 위치 데이터가 없습니다. OwnTracks 연결이나 위치 파일 가져오기를 먼저 확인해 주세요.",
+      },
+      { status: 400 }
+    );
   }
   if (plan.dates.length === 0) {
-    return NextResponse.json({ message: "모든 날짜가 이미 처리되었습니다" });
+    return NextResponse.json({ message: "모든 날짜가 이미 처리되었습니다." });
   }
 
   const encoder = new TextEncoder();

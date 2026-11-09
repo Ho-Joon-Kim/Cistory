@@ -75,7 +75,10 @@ export async function GET(request: NextRequest) {
     logger.error("Get monthly report error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "보고서 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "리포트를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -127,6 +130,9 @@ export async function POST(request: NextRequest) {
     logger.error("Generate monthly narrative error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "내러티브 생성에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "AI 회고를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

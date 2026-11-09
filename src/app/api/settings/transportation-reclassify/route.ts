@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json(
         {
-          error: `${error.failedDate} 재분류에 실패했습니다`,
+          error: `${error.failedDate}의 교통수단을 다시 판정하지 못했습니다. 잠시 후 다시 시도해 주세요.`,
           failedDate: error.failedDate,
           daysProcessed: error.daysProcessed,
           trackCount: error.trackCount,
@@ -57,6 +57,9 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "교통수단 재분류에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "교통수단을 다시 판정하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

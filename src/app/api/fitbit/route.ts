@@ -11,5 +11,5 @@ export const DELETE = withAuth(
     await createHealthSyncService(getDb()).disconnect(user.id);
     return NextResponse.json({ success: true });
   },
-  { errorMessage: "연결 해제에 실패했습니다" }
+  { errorMessage: "연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요." }
 );

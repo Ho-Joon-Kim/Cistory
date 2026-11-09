@@ -27,8 +27,9 @@ export function TravelTripsContent({
 }: TravelTripsContentProps) {
   if (isLoading && trips.length === 0) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div role="status" className="flex items-center justify-center py-20">
+        <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="sr-only">로딩 중…</span>
       </div>
     );
   }
@@ -62,7 +63,10 @@ export function TravelTripsContent({
   return (
     <>
       {error ? (
-        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+        >
           {error}
         </div>
       ) : null}
@@ -79,7 +83,8 @@ export function TravelTripsContent({
       {hasMore ? (
         <div className="mt-6 flex justify-center">
           <Button onClick={loadMore} disabled={isLoading} variant="outline">
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}더 보기
+            {isLoading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}더
+            보기
           </Button>
         </div>
       ) : null}

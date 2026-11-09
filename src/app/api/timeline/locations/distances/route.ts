@@ -14,8 +14,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { dailyDistances } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
 
 function todayLocal(): string {
   return toLocalDateString(new Date());
@@ -190,6 +190,9 @@ export async function GET(request: NextRequest) {
     logger.error("Get distances error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "이동 거리 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "이동 거리를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

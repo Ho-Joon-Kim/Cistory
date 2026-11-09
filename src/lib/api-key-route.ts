@@ -48,7 +48,10 @@ export function createApiKeyRoute({ column, prefix, label }: Options) {
       logger.error(`Generate ${label} key error`, {
         error: error instanceof Error ? error.message : String(error),
       });
-      return NextResponse.json({ error: "API 키 생성에 실패했습니다" }, { status: 500 });
+      return NextResponse.json(
+        { error: "API 키를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+        { status: 500 }
+      );
     }
   }
 
@@ -68,7 +71,10 @@ export function createApiKeyRoute({ column, prefix, label }: Options) {
       logger.error(`Revoke ${label} key error`, {
         error: error instanceof Error ? error.message : String(error),
       });
-      return NextResponse.json({ error: "API 키 삭제에 실패했습니다" }, { status: 500 });
+      return NextResponse.json(
+        { error: "API 키를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+        { status: 500 }
+      );
     }
   }
 

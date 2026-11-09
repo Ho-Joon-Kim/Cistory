@@ -60,7 +60,7 @@ function YearControl({
       >
         <ChevronLeft />
       </Button>
-      <span className="w-16 text-center text-lg font-semibold">{year}</span>
+      <span className="w-16 text-center text-lg font-semibold tabular-nums">{year}</span>
       <Button
         variant="ghost"
         size="icon-sm"
@@ -92,7 +92,7 @@ export function OverviewComparison({
     content = (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          비교할 사전 계산 연간 스냅샷이 없습니다.
+          비교할 연간 요약이 아직 계산되지 않았습니다.
         </CardContent>
       </Card>
     );
@@ -118,15 +118,17 @@ export function OverviewComparison({
               <CardContent className="space-y-2">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-sm text-muted-foreground">{year1}</span>
-                  <span className="font-semibold">{formatMetric(metric.first, metric.format)}</span>
+                  <span className="font-semibold tabular-nums">
+                    {formatMetric(metric.first, metric.format)}
+                  </span>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-sm text-muted-foreground">{year2}</span>
-                  <span className="font-semibold">
+                  <span className="font-semibold tabular-nums">
                     {formatMetric(metric.second, metric.format)}
                   </span>
                 </div>
-                <p className="border-t pt-2 text-right text-xs text-muted-foreground">
+                <p className="border-t pt-2 text-right text-xs text-muted-foreground tabular-nums">
                   변화 {metric.delta > 0 ? "+" : ""}
                   {formatMetric(metric.delta, metric.format)}
                 </p>

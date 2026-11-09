@@ -31,9 +31,7 @@ const LAYER_OPTIONS: {
 export function LayersPanel({ visibility, onVisibilityChange }: LayersPanelProps) {
   return (
     <div className="flex flex-col gap-1 p-3">
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-        레이어
-      </h3>
+      <h3 className="text-xs font-semibold text-muted-foreground mb-2">레이어</h3>
       {LAYER_OPTIONS.map((opt) => {
         const id = `layer-${opt.key}`;
         return (
@@ -42,7 +40,9 @@ export function LayersPanel({ visibility, onVisibilityChange }: LayersPanelProps
             className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-accent/50 transition-colors"
           >
             <label htmlFor={id} className="flex items-center gap-2.5 cursor-pointer flex-1">
-              <span className="text-muted-foreground">{opt.icon}</span>
+              <span className="text-muted-foreground" aria-hidden="true">
+                {opt.icon}
+              </span>
               <span className="text-sm">{opt.label}</span>
             </label>
             <Switch

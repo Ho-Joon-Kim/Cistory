@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
         logger.error("Notification cleanup error", {
           error: err instanceof Error ? err.message : String(err),
         });
-        send({ type: "error", error: "정리 실패" });
+        send({ type: "error", error: "알림을 정리하지 못했습니다. 잠시 후 다시 시도해 주세요." });
       } finally {
         controller.close();
       }
