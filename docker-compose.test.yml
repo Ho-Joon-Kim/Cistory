@@ -37,7 +37,7 @@
 # validity, not a cosmetic match to prod.
 #
 # platform: linux/amd64 is pinned because postgis/postgis publishes no arm64
-# manifest at all — `docker pull postgis/postgis:17-3.5-alpine` fails
+# manifest at all — `docker pull postgis/postgis:17-3.7-alpine` fails
 # outright on Apple Silicon without this line. It's a no-op on the amd64
 # Jenkins agent (the same image already runs there unpinned, in
 # docker-compose.yml) and transparently runs under emulation on an arm64 dev
@@ -46,7 +46,7 @@ name: cistory-test
 
 services:
   postgres-test:
-    image: postgis/postgis:17-3.5-alpine
+    image: postgis/postgis:17-3.7-alpine
     platform: linux/amd64
     environment:
       POSTGRES_DB: cistory_test

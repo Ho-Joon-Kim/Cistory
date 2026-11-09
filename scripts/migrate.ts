@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
+import { upgradePostgisExtensions } from "./lib/postgis-extensions";
 
 // Defense against stuck locks: both timeouts ensure the migrator fails fast
 // instead of hanging indefinitely when another session holds a conflicting
@@ -27,6 +28,11 @@ async function main() {
   console.log(
     `(lock_timeout=${LOCK_TIMEOUT_MS}ms, statement_timeout=${STATEMENT_TIMEOUT_MS}ms)`
   );
+  // Before the migrations, so every migration runs against SQL definitions
+  // that match the image's PostGIS library. A no-op unless the postgres
+  // container was recreated on a newer postgis/postgis image — see the header
+  // of scripts/lib/postgis-extensions.ts for why this isn't a migration.
+  await upgradePostgisExtensions(pool);
   await migrate(db, { migrationsFolder: "./drizzle", migrationsSchema: "drizzle" });
   console.log("Migrations completed successfully");
   await pool.end();

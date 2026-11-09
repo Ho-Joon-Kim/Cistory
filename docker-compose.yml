@@ -1,6 +1,11 @@
 services:
   postgres:
-    image: postgis/postgis:17-3.5-alpine
+    # Changing this tag does NOT reach production on its own: Jenkins only
+    # `docker start`s an existing cistory-db, so an operator must recreate the
+    # container (`docker compose up -d postgres`). scripts/migrate.ts then
+    # runs ALTER EXTENSION ... UPDATE on its next run — see
+    # scripts/lib/postgis-extensions.ts.
+    image: postgis/postgis:17-3.7-alpine
     container_name: cistory-db
     restart: unless-stopped
     ports:
