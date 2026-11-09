@@ -365,6 +365,15 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - `parseSearchInput()` (`input.ts`) defaults to the last 30 KST days, caps the range at 366 days and `q` at 200 chars, and throws `ApiError(400)` with Korean messages. The route rethrows DB errors as a generic error because Drizzle errors can embed the query parameters, i.e. the search term, and responds `Cache-Control: private, no-store`
 - Result links: commits → the GitHub commit, trips → `/travel/[id]`, everything else → `/dashboard?date=` (KST day)
 
+**ECG / irregular-rhythm notifications (optional scopes)** (`src/modules/health/rhythm.ts`, design §5):
+- **Scopes:** `googlehealth.ecg.readonly` / `googlehealth.irn.readonly` are `GOOGLE_HEALTH_OPTIONAL_SCOPES` and are **not** in the default connect set. The settings Google Health card's "ECG/불규칙 심박 연결" button runs `/api/fitbit/authorize?extra=ecg,irn` (default scopes + extras, `include_granted_scopes`), and the callback stores the granted `scope`.
+- **Granted means stored:** Google's granular consent lets the user untick either scope, so everything keys off `hasHealthScope(connection.scope, …)`. `syncUser` only adds ECG/IRN units for granted scopes, which keeps 403s out of `lastSyncError`.
+- **Sync:** not in `SYNCED_METRICS` (no chunked backfill, no daily summary, no `/data-status` recovery). ECG's filter supports only `>=`, so the first run reads `>= backfillFloor` and later runs read `>= syncedThrough − 1d`, paging to the end (`MAX_PAGES_PER_WINDOW` backstop). IRN's filter field is undocumented; a 400 falls back to an unfiltered read.
+- **Storage:** summaries only, in `health_samples`: `ecg` (value = avg bpm, `valueJson` = classification/sampling/lead/device, **no waveform**) and `irn` (value = positive alert windows, `valueJson` = windows **without heartBeats**). `health_raw_pages` keeps the verbatim responses as for every type. Upserts are DO UPDATE.
+- **Display:** the /health "심전도 · 불규칙 심박" card is shown only when `/api/fitbit/summary` returns `rhythm`. It relays the device classification in Korean with a "의료 진단이 아닙니다" note and never re-interprets a trace.
+- **Privacy:** never part of `/overview` — `OVERVIEW_HEALTH_METRICS` is an explicit allowlist, and a test pins that ecg/irn can't reach the snapshot or the Anthropic narrative. Sentry scrub denylists their payload keys.
+- **Unverified shapes:** the owner's Fitbit Air has no ECG, and neither scope had been granted when this was written, so the parsers follow the documented shapes defensively. Confirm the live payloads after re-consent.
+
 **Google Health webhooks** (design: `docs/superpowers/specs/2026-11-09-google-health-new-features-design.md` §4):
 - **Purpose:** cut the forward-sync delay from ~24h (the 24h-gated `syncUser`) to minutes. Polling and backfill stay unchanged as the safety net, because webhooks cover no history, several types (spo2, vo2-max, active-energy, daily-vo2-max, core-body-temperature) and possibly no Health-Connect-sourced data.
 - **Receive (web container)** — `POST /api/fitbit/webhook`, no session:

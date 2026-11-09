@@ -19,6 +19,36 @@ export const GOOGLE_HEALTH_DEFAULT_SCOPE = [
   "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
 ].join(" ");
 
+/**
+ * Optional, incremental scopes (design §5): NOT part of the default connect set.
+ * Requested only by the settings card's "ECG/불규칙 심박 연결" action, which
+ * re-runs OAuth with the default set plus these (include_granted_scopes keeps
+ * what was already granted). Google's granular consent lets the user untick
+ * either one, so features key off the scope string actually stored on the
+ * connection, never off having asked.
+ */
+export const GOOGLE_HEALTH_OPTIONAL_SCOPES = {
+  ecg: "https://www.googleapis.com/auth/googlehealth.ecg.readonly",
+  irn: "https://www.googleapis.com/auth/googlehealth.irn.readonly",
+} as const;
+export type GoogleHealthOptionalScope = keyof typeof GOOGLE_HEALTH_OPTIONAL_SCOPES;
+
+/** Default scope set plus the requested optional scopes (unknown keys ignored). */
+export function buildHealthScope(extra: readonly string[] = []): string {
+  const extras = Object.entries(GOOGLE_HEALTH_OPTIONAL_SCOPES)
+    .filter(([key]) => extra.includes(key))
+    .map(([, scope]) => scope);
+  return [GOOGLE_HEALTH_DEFAULT_SCOPE, ...extras].join(" ");
+}
+
+/** Whether a stored space-separated `scope` string grants an optional scope. */
+export function hasHealthScope(
+  stored: string | null | undefined,
+  key: GoogleHealthOptionalScope
+): boolean {
+  return (stored ?? "").split(/\s+/).includes(GOOGLE_HEALTH_OPTIONAL_SCOPES[key]);
+}
+
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RETRIES = 5;
 // Google Health quotas are per-minute but far looser than Withings'. A small

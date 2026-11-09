@@ -16,12 +16,14 @@ import {
   GoogleHealthApiError,
   GoogleHealthAuthError,
   type GoogleHealthDataPoint,
+  hasHealthScope,
   type ListResult,
 } from "@/lib/adapters/google-health/interface";
 import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { dateKeyToUtcMillis, getKstDateWindow, shiftDateKey } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
+import { parseRhythm, RHYTHM_CONFIGS, type RhythmConfig } from "./rhythm";
 
 // ── Tuning constants ─────────────────────────────────────────────────────────
 const TOKEN_REFRESH_GRACE_MS = 60_000;
@@ -995,10 +997,18 @@ export class HealthSyncService {
     // Every metric (scalars and the exercise/sleep sessions alike) takes the
     // incremental filtered path. Each unit is isolated (AE4) so one failure never
     // drops the rest.
-    const units = SYNCED_METRICS.map((c) => ({
-      key: c.key,
-      run: () => this.syncMetricForward(connection, c, now),
-    }));
+    const units = [
+      ...SYNCED_METRICS.map((c) => ({
+        key: c.key,
+        run: () => this.syncMetricForward(connection, c, now),
+      })),
+      // ECG / IRN only when the stored grant includes their optional scope —
+      // otherwise every run would just 403 into lastSyncError (design §5).
+      ...RHYTHM_CONFIGS.filter((c) => hasHealthScope(connection.scope, c.scope)).map((c) => ({
+        key: c.key,
+        run: () => this.syncRhythmMetric(connection, c, now),
+      })),
+    ];
     let total = 0;
     for (const unit of units) {
       try {
@@ -1063,6 +1073,117 @@ export class HealthSyncService {
       await this.setSyncState(connection.userId, config.key, { syncedThrough: now });
     }
     return upserted;
+  }
+
+  /**
+   * ECG / IRN sync (design §5, §8). Their filter supports only `>=`, so there is no
+   * 14-day chunked backfill: the first run reads `>= backfillFloor` and every later
+   * run `>= syncedThrough − 1 day`, paging to the end (one point per measurement /
+   * alert, so volume is tiny) under the usual MAX_PAGES_PER_WINDOW backstop — never
+   * a small cap like the one that once truncated exercise history. IRN's filter
+   * field is undocumented: a 400 on it falls back to an unfiltered read.
+   * Summaries only go to health_samples (no waveform, no heartBeats); the verbatim
+   * page stays in health_raw_pages. No daily summaries.
+   */
+  private async syncRhythmMetric(
+    connection: HealthConnection,
+    config: RhythmConfig,
+    now: Date
+  ): Promise<number> {
+    const state = await this.getSyncState(connection.userId, config.key);
+    const since = state?.syncedThrough
+      ? new Date(state.syncedThrough.getTime() - 86_400_000)
+      : (connection.backfillFloor ?? new Date(now.getTime() - BACKFILL_SAFETY_FLOOR_MS));
+    const listConfig = {
+      key: config.key,
+      dataType: config.dataType,
+    } as MetricConfig;
+    let filter = `${config.filterField} >= "${since.toISOString()}"`;
+    let pageToken: string | undefined;
+    let pages = 0;
+    let upserted = 0;
+    for (;;) {
+      let page: ListResult;
+      try {
+        page = await this.listPageWithAuth(connection, listConfig, filter, pageToken);
+      } catch (err) {
+        const filterRejected =
+          err instanceof GoogleHealthApiError && err.status === 400 && pages === 0;
+        if (config.unfilteredFallback && filter !== "" && filterRejected) {
+          logger.info("[Health] rhythm filter rejected; reading unfiltered", {
+            metric: config.key,
+          });
+          filter = "";
+          continue;
+        }
+        throw err;
+      }
+      upserted += await this.persistRhythmPage(connection.userId, config, page, since, now);
+      pageToken = page.nextPageToken;
+      pages++;
+      await new Promise((resolve) => setImmediate(resolve)); // event-loop yield
+      if (!pageToken || pages >= MAX_PAGES_PER_WINDOW) break;
+    }
+
+    if (pageToken) {
+      logger.warn("[Health] rhythm read hit page cap; not advancing watermark", {
+        userId: connection.userId,
+        metric: config.key,
+      });
+      return upserted;
+    }
+    await this.setSyncState(connection.userId, config.key, { syncedThrough: now });
+    return upserted;
+  }
+
+  private async persistRhythmPage(
+    userId: string,
+    config: RhythmConfig,
+    page: ListResult,
+    windowStart: Date,
+    windowEnd: Date
+  ): Promise<number> {
+    if (page.dataPoints.length === 0) return 0;
+    await this.db.insert(healthRawPages).values({
+      userId,
+      dataType: config.dataType,
+      method: "list",
+      windowStart,
+      windowEnd,
+      rawJson: page.dataPoints,
+    });
+    const byIdentity = new Map<string, NewHealthSample>();
+    for (const point of page.dataPoints) {
+      const parsed = parseRhythm(config, point);
+      if (!parsed) continue;
+      const source = sampleSource(point);
+      const identity = `${parsed.sampleAt.getTime()}|${source}`;
+      if (byIdentity.has(identity)) continue;
+      byIdentity.set(identity, {
+        userId,
+        metric: config.key,
+        sampleAt: parsed.sampleAt,
+        source,
+        value: parsed.value,
+        valueJson: parsed.valueJson,
+      });
+    }
+    const rows = [...byIdentity.values()];
+    if (rows.length === 0) return 0;
+    // A measurement can be re-analyzed after upload; identity stays stable.
+    await this.db
+      .insert(healthSamples)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [
+          healthSamples.userId,
+          healthSamples.metric,
+          healthSamples.sampleAt,
+          healthSamples.source,
+        ],
+        set: { value: sql`excluded.value`, valueJson: sql`excluded.value_json` },
+      });
+    return rows.length;
   }
 
   /**

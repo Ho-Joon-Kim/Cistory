@@ -308,6 +308,8 @@ export function SettingsForm() {
         lastSyncedAt={settings.healthLastSyncedAt}
         lastWebhookAt={settings.healthLastWebhookAt}
         needsReauth={settings.healthNeedsReauth}
+        ecgGranted={settings.healthEcgGranted}
+        irnGranted={settings.healthIrnGranted}
       />
 
       {/* 건강 데이터 가져오기 (Health Connect on-device import) */}

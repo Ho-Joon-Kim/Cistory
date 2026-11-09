@@ -36,6 +36,13 @@ const HEALTH_EXTRA_KEY_DENYLIST = [
   // themselves are personal data.
   "healthuserid",
   "intervals",
+  // ECG / irregular-rhythm payloads (decision 9): medical-grade data.
+  "electrocardiogram",
+  "waveform",
+  "resultclassification",
+  "irregularrhythm",
+  "alertwindows",
+  "heartbeats",
 ];
 
 /** Structural subset of a Sentry event — only the fields we scrub. */

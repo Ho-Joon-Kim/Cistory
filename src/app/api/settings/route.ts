@@ -16,6 +16,7 @@ import {
   wakatimeConnections,
   withingsConnections,
 } from "@/db/schema";
+import { hasHealthScope } from "@/lib/adapters/google-health/interface";
 import { withAuth, withValidation } from "@/lib/api-handler";
 import { DEFAULT_USER_SETTINGS, type UserSettings } from "@/modules/settings/types";
 
@@ -64,6 +65,7 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
         .select({
           status: healthConnections.status,
           lastSyncedAt: healthConnections.lastSyncedAt,
+          scope: healthConnections.scope,
         })
         .from(healthConnections)
         .where(eq(healthConnections.userId, userId)),
@@ -105,6 +107,8 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
     healthLastSyncedAt: health?.lastSyncedAt?.toISOString() ?? null,
     healthLastWebhookAt: webhookResult[0]?.at?.toISOString() ?? null,
     healthNeedsReauth: health?.status === "needs_reauth",
+    healthEcgGranted: hasHealthScope(health?.scope, "ecg"),
+    healthIrnGranted: hasHealthScope(health?.scope, "irn"),
     hasHealthImportKey: !!row.healthImportApiKey,
   };
 }

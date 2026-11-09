@@ -79,6 +79,32 @@ describe("scrubHealthData", () => {
     expect(event.extra?.metric).toBe("x");
   });
 
+  it("redacts ECG and irregular-rhythm payload keys", () => {
+    const event: ScrubbableEvent = {
+      extra: {
+        electrocardiogram: {},
+        waveformSamples: [1, 2],
+        resultClassification: "ATRIAL_FIBRILLATION",
+        irregularRhythmNotification: {},
+        alertWindows: [],
+        heartBeats: [],
+        metric: "ecg",
+      },
+    };
+    scrubHealthData(event);
+    for (const key of [
+      "electrocardiogram",
+      "waveformSamples",
+      "resultClassification",
+      "irregularRhythmNotification",
+      "alertWindows",
+      "heartBeats",
+    ]) {
+      expect(event.extra?.[key], key).toBe("[scrubbed:health]");
+    }
+    expect(event.extra?.metric).toBe("ecg");
+  });
+
   it("redacts webhook user ids and interval payloads", () => {
     const event: ScrubbableEvent = {
       extra: { healthUserId: "123", intervals: [{}], dataType: "steps" },
