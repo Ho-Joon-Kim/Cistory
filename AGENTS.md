@@ -11,7 +11,7 @@ in `scripts/`, and longer design or deployment notes in `docs/`.
 
 ## Build, Test, and Development Commands
 
-Use Node.js 24.20.0 or a newer Node.js 24 release and Yarn 4.5.0, as specified in `package.json`. Install dependencies with
+Use Node.js 24.22.2 or a newer Node.js 24 release and Yarn 4.5.0, as specified in `package.json`. Install dependencies with
 `yarn install`.
 
 - `yarn dev` starts the Turbopack development server on `localhost:3000`.
