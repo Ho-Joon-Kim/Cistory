@@ -47,7 +47,7 @@ afterEach(() => {
 
 describe("ClaudeAdapter response parsing", () => {
   it("finds the text block even when a thinking block comes first", async () => {
-    // Sonnet 5 and Opus 5 run adaptive thinking by default, so content[0] is a
+    // Every 5.5 model runs adaptive thinking by default, so content[0] is a
     // thinking block. Reading only content[0] yields an empty summary with no
     // error — the exact silent failure this change exists to prevent.
     createMock.mockResolvedValueOnce(
@@ -114,34 +114,69 @@ describe("ClaudeAdapter model capabilities", () => {
     }
   });
 
-  it("drops effort for a model that rejects it", async () => {
+  it("translates thinking 'off' to between_tools on Sonnet 5.5 — it rejects disabled with a 400", async () => {
+    createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
+
+    await createClaudeAdapter("k", CLAUDE_MODELS.COMMIT_SUMMARY).generateText({
+      prompt: "p",
+      thinking: "off",
+      effort: "low",
+    });
+
+    // between_tools accepts no other field (display, budget_tokens, …).
+    expect(lastRequest().thinking).toEqual({ type: "between_tools" });
+    expect(lastRequest().output_config).toEqual({ effort: "low" });
+  });
+
+  it("translates thinking 'off' to disabled on Haiku 5.5", async () => {
     createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
 
     await createClaudeAdapter("k", CLAUDE_MODELS.EXPENSE_CLASSIFIER).generateText({
       prompt: "p",
-      effort: "low",
-    });
-
-    expect(lastRequest()).not.toHaveProperty("output_config");
-  });
-
-  it("sends thinking and effort for a model that accepts them", async () => {
-    createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
-
-    await createClaudeAdapter("k", CLAUDE_MODELS.COMMIT_SUMMARY).generateText({
-      prompt: "p",
-      thinking: "disabled",
-      effort: "low",
+      thinking: "off",
     });
 
     expect(lastRequest().thinking).toEqual({ type: "disabled" });
-    expect(lastRequest().output_config).toEqual({ effort: "low" });
+  });
+
+  it("drops thinking 'off' with a warning on Opus 5.5, which cannot turn thinking off", async () => {
+    // Opus 5.5 400s on `disabled` at every effort level. Sending it would fail
+    // the whole request; dropping it silently would hide the caller's intent.
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
+
+    await createClaudeAdapter("k", CLAUDE_MODELS.NARRATIVE).generateText({
+      prompt: "p",
+      thinking: "off",
+    });
+
+    expect(lastRequest()).not.toHaveProperty("thinking");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Claude option dropped — model does not accept it",
+      expect.objectContaining({ model: CLAUDE_MODELS.NARRATIVE, option: "thinking" })
+    );
+  });
+
+  it("sends adaptive thinking and effort on every model", async () => {
+    for (const model of Object.values(CLAUDE_MODELS)) {
+      createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
+
+      await createClaudeAdapter("k", model).generateText({
+        prompt: "p",
+        thinking: "adaptive",
+        effort: "medium",
+      });
+
+      expect(lastRequest().thinking).toEqual({ type: "adaptive" });
+      expect(lastRequest().output_config).toEqual({ effort: "medium" });
+    }
   });
 
   it("merges effort and outputSchema into the same output_config instead of one overwriting the other", async () => {
+    // The classifier's actual path: Haiku 5.5 with effort low + structured output.
     createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
 
-    await createClaudeAdapter("k", CLAUDE_MODELS.COMMIT_SUMMARY).generateText({
+    await createClaudeAdapter("k", CLAUDE_MODELS.EXPENSE_CLASSIFIER).generateText({
       prompt: "p",
       effort: "low",
       outputSchema: { type: "object" },
@@ -160,34 +195,23 @@ describe("ClaudeAdapter model capabilities", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
     countTokensMock.mockResolvedValueOnce({ input_tokens: 4242 });
 
-    const tokens = await createClaudeAdapter("k", CLAUDE_MODELS.EXPENSE_CLASSIFIER).countTokens({
+    const tokens = await createClaudeAdapter("k", CLAUDE_MODELS.COMMIT_SUMMARY).countTokens({
       prompt: "p",
-      thinking: "adaptive",
+      thinking: "off",
     });
-
     expect(tokens).toBe(4242);
+    expect(lastCountRequest().thinking).toEqual({ type: "between_tools" });
+
+    countTokensMock.mockResolvedValueOnce({ input_tokens: 1 });
+    await createClaudeAdapter("k", CLAUDE_MODELS.NARRATIVE).countTokens({
+      prompt: "p",
+      thinking: "off",
+    });
     expect(lastCountRequest()).not.toHaveProperty("thinking");
     expect(warnSpy).toHaveBeenCalledWith(
       "Claude option dropped — model does not accept it",
-      expect.objectContaining({ model: CLAUDE_MODELS.EXPENSE_CLASSIFIER, option: "thinking" })
+      expect.objectContaining({ model: CLAUDE_MODELS.NARRATIVE, option: "thinking" })
     );
-  });
-
-  it("sends outputSchema without effort for a model that rejects effort — the classifier's actual path", async () => {
-    // Haiku 4.5 (the expense classifier) never sends effort — caps.effort is
-    // false for it — but it does send outputSchema. The outputSchema branch
-    // must not live inside `if (caps.effort)`, or structured outputs would be
-    // silently disabled on exactly the model that uses them.
-    createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
-
-    await createClaudeAdapter("k", CLAUDE_MODELS.EXPENSE_CLASSIFIER).generateText({
-      prompt: "p",
-      outputSchema: { type: "object" },
-    });
-
-    expect(lastRequest().output_config).toEqual({
-      format: { type: "json_schema", schema: { type: "object" } },
-    });
   });
 });
 

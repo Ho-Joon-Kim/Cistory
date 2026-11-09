@@ -3,7 +3,7 @@
  *
  * Preview: yarn spending:backfill-categories
  * Apply:   yarn spending:backfill-categories --apply
- * Options: --limit=100 --batch-size=25 --user=<uuid> --model=claude-haiku-4-5
+ * Options: --limit=100 --batch-size=25 --user=<uuid> --model=claude-haiku-5-5
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -24,7 +24,7 @@ const apply = args.has("--apply");
 const limit = Math.max(1, Math.min(Number(args.get("--limit") ?? 500), 5000));
 const batchSize = Math.max(1, Math.min(Number(args.get("--batch-size") ?? 25), 50));
 const userId = args.get("--user");
-const model = String(args.get("--model") ?? "claude-haiku-4-5");
+const model = String(args.get("--model") ?? "claude-haiku-5-5");
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
 if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is required");
@@ -98,7 +98,11 @@ async function loadPending() {
 function buildRequestOptions(batch) {
   return {
     model,
-    max_tokens: Math.max(500, batch.length * 60),
+    // Haiku 5.5 thinks adaptively by default and thinking spends max_tokens:
+    // leave 1024 tokens of headroom and keep effort low, as the cron
+    // classifier (category-classifier.ts) does.
+    max_tokens: batch.length * 60 + 1024,
+    output_config: { effort: "low" },
     system: "당신은 한국 소비 거래 분류기입니다. 유효한 JSON만 출력하세요.",
     messages: [{ role: "user", content: prompt(batch) }],
   };
@@ -118,7 +122,7 @@ async function run() {
     try {
       const response = await anthropic.messages.create(buildRequestOptions(batch));
       // content[0]이 아니라 text 블록을 찾는다 — adaptive thinking이 기본으로
-      // 켜진 모델(Sonnet 5/Opus 5)은 첫 블록이 thinking이라 content[0]만
+      // 켜진 모델(Haiku 5.5 등 5.x 전부)은 첫 블록이 thinking이라 content[0]만
       // 읽으면 빈 문자열이 되어 배치 전체가 조용히 미분류로 남는다.
       const text = response.content.find((block) => block.type === "text")?.text ?? "";
       const classifications = parseResponse(text, new Set(batch.map((item) => item.id)));

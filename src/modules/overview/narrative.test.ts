@@ -302,7 +302,7 @@ describe("narrative service", () => {
     // reset + re-claimed it. renewLease correctly reports that (returns
     // false on its own-turn call after succeeding on the earlier proactive
     // call) — the caller must not call generate() anyway, which would run a
-    // second paid Opus 5 call on a row it no longer owns.
+    // second paid Opus 5.5 call on a row it no longer owns.
     const claimTwo: NarrativeClaim = { ...claim, periodKey: "2026-07" };
     const renewCallsByKey: Record<string, number> = {};
     const repository = store({
