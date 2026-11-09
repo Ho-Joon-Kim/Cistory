@@ -9,6 +9,8 @@ describe("isMonoFactValue", () => {
     expect(isMonoFactValue("의료·건강 1,680,000원 / 전체 3,040,140원")).toBe(false);
     expect(isMonoFactValue("1,680,000원 / 3,040,140원")).toBe(true);
     expect(isMonoFactValue("2.32 GB")).toBe(true);
+    expect(isMonoFactValue("9월 6일 (일) 17:00 · 64일 전")).toBe(true);
+    expect(isMonoFactValue("90.5kg · 9월 6일 (9주 전)")).toBe(true);
   });
 
   it("sets values with free Korean words in sans", () => {

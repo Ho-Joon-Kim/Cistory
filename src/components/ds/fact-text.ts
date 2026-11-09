@@ -1,6 +1,8 @@
 /** Units glued to a number ("72분", "4시간", "11월", "0행", "3.2만원") count as numeric. */
 const NUMBER_WITH_UNIT = /\d[\d,.]*\s?[가-힣]*/g;
 const HANGUL = /[가-힣]/;
+/** Date/time furniture that still reads as a number: "(일)" weekdays, "64일 전". */
+const DATE_WORDS = /\([월화수목금토일]\)|(^|\s)[전후약](?=\s|$|[·,)])/g;
 
 /**
  * Whether an evidence-popover value is set in mono: it carries a number and every
@@ -10,5 +12,5 @@ const HANGUL = /[가-힣]/;
  */
 export function isMonoFactValue(text: string): boolean {
   if (!/\d/.test(text)) return false;
-  return !HANGUL.test(text.replace(NUMBER_WITH_UNIT, ""));
+  return !HANGUL.test(text.replace(NUMBER_WITH_UNIT, "").replace(DATE_WORDS, " "));
 }
