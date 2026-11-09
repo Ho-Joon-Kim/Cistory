@@ -67,7 +67,9 @@ function Cmp({ lead, sub }: { lead?: ReactNode; sub?: ReactNode }) {
       {lead}
       {lead && sub ? " " : null}
       {sub ? (
-        <span className="text-ink-2">
+        // The comparison wraps as a unit ("중앙값 68보다 3 낮음"), never leaving
+        // an orphaned "낮음" on the second line of a narrow column.
+        <span className="whitespace-nowrap text-ink-2">
           {lead ? "· " : null}
           {sub}
         </span>
@@ -318,13 +320,18 @@ function SleepColumn({ sessions, today }: { sessions: HealthSleepSession[]; toda
             <HeroUnit>분</HeroUnit>
           </Hero>
         </div>
-        <div className="pt-1.5 lg:pt-2">
-          {cmp ? (
-            <Cmp lead={<span className="font-medium">{cmp.rank}</span>} sub={cmp.diff} />
-          ) : null}
-        </div>
-        <div className="pt-1.5 lg:max-w-[592px]">
-          <AiLine fact={fact} rows={fact?.rows} title="수면 해석" tint />
+        {/* Comparison and AI line share the two subgrid rows as one block, so a
+            neighbouring column whose comparison wraps (안정시 심박 at 1024) leaves
+            its slack below the AI line instead of as a gap above it. */}
+        <div className="flex flex-col lg:row-span-2">
+          <div className="pt-1.5 lg:pt-2">
+            {cmp ? (
+              <Cmp lead={<span className="font-medium">{cmp.rank}</span>} sub={cmp.diff} />
+            ) : null}
+          </div>
+          <div className="pt-1.5 lg:max-w-[592px]">
+            <AiLine fact={fact} rows={fact?.rows} title="수면 해석" tint />
+          </div>
         </div>
         <div className="pt-5 lg:pt-6">
           <div className="lg:hidden">

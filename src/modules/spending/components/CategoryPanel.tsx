@@ -17,6 +17,12 @@ function formatCategoryShare(ratio: number): string {
 }
 
 /**
+ * Below this fraction of the largest category the bar would be a sliver
+ * that ends under the icon and reads as a stray border, so the row shows no bar.
+ */
+const MIN_BAR_SHARE = 0.12;
+
+/**
  * A category row as in the mock's `.crow`: amount is the primary figure (ink,
  * medium), the share is secondary (12px --ink3). The share bar lives in the
  * label column so it never runs under the amount.
@@ -51,14 +57,16 @@ function CategoryRow({
       )}
     >
       <span className="relative flex h-full min-w-0 items-center px-2.5">
-        <span
-          aria-hidden="true"
-          className="ds-growx absolute inset-y-1 left-0 rounded-[6px]"
-          style={{
-            width: `${Math.max(0, Math.min(1, share)) * 100}%`,
-            background: color ? `color-mix(in oklab, ${color} 11%, transparent)` : "var(--track)",
-          }}
-        />
+        {share >= MIN_BAR_SHARE ? (
+          <span
+            aria-hidden="true"
+            className="ds-growx absolute inset-y-1 left-0 rounded-[6px]"
+            style={{
+              width: `${Math.min(1, share) * 100}%`,
+              background: color ? `color-mix(in oklab, ${color} 11%, transparent)` : "var(--track)",
+            }}
+          />
+        ) : null}
         <span
           className={cn(
             "relative flex min-w-0 items-center gap-2 text-ink",
@@ -99,6 +107,11 @@ export function CategoryPanel({
   const listId = useId();
   const everyday = categoryShares(month.categories, { excludeSplit: true, counts });
   const all = categoryShares(month.categories, { excludeSplit: false, counts });
+  // Both lists draw bars against the same scale — the largest everyday category —
+  // so 쇼핑 is the same width in the top three and in the full list. 의료·건강 can
+  // exceed it and is capped at full width.
+  const barTop = everyday.rows[0]?.value ?? 0;
+  const barShare = (value: number) => (barTop > 0 ? Math.min(1, value / barTop) : 0);
   const meta = [
     month.isCurrent ? `${today}일째` : null,
     `${SPLIT_LABEL} 제외 ${formatWon(everyday.base)}`,
@@ -122,7 +135,7 @@ export function CategoryPanel({
               count={row.count ? `${row.count}건` : undefined}
               value={formatWon(row.value)}
               pct={formatCategoryShare(row.share)}
-              share={row.width}
+              share={barShare(row.value)}
               evidence={stateOf(row.category)}
             />
           ))}
@@ -163,7 +176,7 @@ export function CategoryPanel({
                           ? undefined
                           : formatCategoryShare(row.value / everyday.base)
                       }
-                      share={row.width}
+                      share={barShare(row.value)}
                       color={split ? categoryColor("health") : undefined}
                     />
                   );
