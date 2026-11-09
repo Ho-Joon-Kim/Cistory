@@ -64,6 +64,7 @@ FROM base AS migrator
 COPY --from=deps /app/node_modules ./node_modules
 COPY drizzle ./drizzle
 COPY scripts/migrate.ts ./scripts/migrate.ts
+COPY scripts/lib/postgis-extensions.ts ./scripts/lib/postgis-extensions.ts
 
 # Stage 4: Production runner
 FROM node:24.20.0-alpine AS runner
