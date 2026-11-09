@@ -93,7 +93,7 @@ describe("TravelListView", () => {
     expect(markup).toContain("회 반복");
     expect(markup).toContain("기록 없음");
     expect(markup).toContain("2026년 1월 이전 여행 더 보기");
-    expect(markup).toContain('aria-label="여행 메뉴"');
+    expect(markup).toMatch(/aria-label="[^"]+ 여행 메뉴"/);
     // The recurring group's trips render once (inside the group), not again under the year.
     expect(markup.match(/href="\/travel\/dj0"/g)).toHaveLength(1);
   });

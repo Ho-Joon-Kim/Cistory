@@ -11,7 +11,7 @@ type View = "menu" | "confirm" | "rename";
 const ITEM =
   "flex w-full cursor-pointer items-center gap-2.5 rounded-[7px] border-0 bg-transparent px-2.5 py-2 text-left text-[13px] leading-5 text-ink transition-colors duration-150 hover:bg-track focus-visible:bg-track focus-visible:outline-none";
 const SMALL_BTN =
-  "inline-flex h-[30px] cursor-pointer items-center rounded-control border px-3.5 text-[13px] font-semibold transition-[scale,box-shadow,background-color] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+  "inline-flex h-[30px] cursor-pointer items-center rounded-control border px-3.5 text-[13px] font-semibold transition-[scale,box-shadow,background-color] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand";
 
 /**
  * The "…" menu of a trip: 자세히 보기 · 이름 바꾸기 · 여행 아님으로 표시. Both edits
@@ -27,9 +27,12 @@ export function TripMenu({
   extra,
   triggerClassName,
   exclusionRadiusText = "10 km",
+  tripLabel = tripName,
 }: {
   tripId: string;
   tripName: string;
+  /** Names the trip in the trigger's label; add the dates where names repeat. */
+  tripLabel?: string;
   onRename?: (name: string) => Promise<boolean>;
   onNotTrip: () => void;
   /** Omitted on the detail page itself. */
@@ -68,9 +71,9 @@ export function TripMenu({
     <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <PopoverPrimitive.Trigger
         type="button"
-        aria-label="여행 메뉴"
+        aria-label={`${tripLabel} 여행 메뉴`}
         className={cn(
-          "inline-grid size-8 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-ink-2 transition-[background-color,scale] duration-150 ease-out hover:bg-track hover:text-ink active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand max-sm:size-11",
+          "inline-grid size-8 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-ink-2 transition-[background-color,scale] duration-150 ease-out hover:bg-track hover:text-ink active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand max-sm:size-11",
           triggerClassName
         )}
       >

@@ -74,7 +74,7 @@ export function AccountOutcomes({ accounts }: { accounts: AccountOutcome[] }) {
               <div
                 className="relative mt-3 h-3 rounded bg-track lg:mt-4 lg:h-3.5"
                 role="img"
-                aria-label={`매입 ${formatWon(a.invested)}, 평가 ${formatWon(a.securities)}`}
+                aria-label={`매입 ${formatWon(a.invested)}, 주식 평가 ${formatWon(a.securities)}`}
               >
                 <div
                   className="ds-growx absolute inset-y-0 left-0 rounded-l bg-ink-2"
@@ -99,7 +99,7 @@ export function AccountOutcomes({ accounts }: { accounts: AccountOutcome[] }) {
               </div>
               <div className="mt-1.5 flex justify-between text-xs text-ink-3">
                 <span className="num">매입 {formatWon(a.invested)}</span>
-                <span className="num">평가 {formatWon(a.securities)}</span>
+                <span className="num">주식 평가 {formatWon(a.securities)}</span>
               </div>
               <dl className="m-0 mt-3 grid grid-cols-2 gap-y-2.5 lg:mt-4 lg:grid-cols-[repeat(4,auto)] lg:justify-start lg:gap-x-8">
                 {[

@@ -14,7 +14,7 @@ import {
 } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
-import { formatDateTime, formatMonthDay, formatRelative, formatWon } from "@/lib/format";
+import { formatDateTime, formatMonthDay, formatTime, formatWon } from "@/lib/format";
 import { useAuth } from "@/modules/auth/hooks";
 import {
   type AccountOutcome,
@@ -58,7 +58,7 @@ const NO_TARGETS: TargetAllocation[] = [];
 const NO_POSITIONS: SummaryPosition[] = [];
 
 const secondaryButton =
-  "inline-flex h-9 cursor-pointer items-center rounded-control border-0 bg-surface px-3.5 text-[13px] font-semibold text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+  "inline-flex h-9 cursor-pointer items-center rounded-control border-0 bg-surface px-3.5 text-[13px] font-semibold text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand";
 
 function PortfolioContent() {
   const router = useRouter();
@@ -320,13 +320,19 @@ function PortfolioContent() {
                     </span>
                   ) : null,
                   model?.syncedAt ? (
-                    <span key="at" className="whitespace-nowrap">
-                      <span className="num">{formatDateTime(model.syncedAt)}</span> 기준
-                    </span>
-                  ) : null,
-                  model?.syncedAt ? (
-                    <span key="rel" className="num whitespace-nowrap">
-                      {formatRelative(model.syncedAt)}
+                    // One sync time only (the header carries the app-wide sync age):
+                    // "16:00 기준" today, the date too when it's older.
+                    <span
+                      key="at"
+                      className="whitespace-nowrap"
+                      title={`KIS 동기화 ${formatDateTime(model.syncedAt)}`}
+                    >
+                      <span className="num">
+                        {toKstCalendarDate(model.syncedAt) === toKstCalendarDate(new Date())
+                          ? formatTime(model.syncedAt)
+                          : formatDateTime(model.syncedAt)}
+                      </span>{" "}
+                      기준
                     </span>
                   ) : null,
                   syncErrors.length > 0 ? (
@@ -340,7 +346,7 @@ function PortfolioContent() {
                       type="button"
                       onClick={handleSync}
                       disabled={syncing}
-                      className="inline-flex min-h-6 cursor-pointer items-center rounded-sm border-0 bg-transparent p-0 text-sm text-ink-2 underline decoration-ink-3 decoration-dotted underline-offset-[3px] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-default disabled:opacity-60"
+                      className="inline-flex min-h-6 cursor-pointer items-center rounded-sm border-0 bg-transparent p-0 text-sm text-ink-2 underline decoration-ink-3 decoration-dotted underline-offset-[3px] hover:text-ink focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-default disabled:opacity-60"
                     >
                       {syncing ? "동기화 중…" : "지금 동기화"}
                     </button>

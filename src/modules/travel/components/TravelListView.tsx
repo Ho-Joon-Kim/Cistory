@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { NOT_TRIP_UNDO_MS, type TravelListSummary, type TravelTripListItem } from "../hooks";
 import {
   byYear,
+  cityLine,
   destinationOf,
   formatKm,
   groupLabel,
@@ -155,7 +156,7 @@ function HighlightCard({
           <h3 className="m-0 font-serif text-[22px] leading-[30px] font-semibold tracking-[-0.02em]">
             <Link
               href={`/travel/${trip.id}`}
-              className="rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-brand"
+              className="rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-brand"
             >
               {destinationOf(trip)}
             </Link>
@@ -224,12 +225,17 @@ function TripRow({
   trip,
   actions,
   nested,
+  year,
 }: {
   trip: TravelTripListItem;
   actions: RowActions;
   nested?: boolean;
+  /** The year the surrounding list is about; rows from another year say theirs. */
+  year?: number;
 }) {
-  const cities = trip.visitedCities.join(" · ");
+  const cities = cityLine(trip.visitedCities);
+  const tripYear = Number(trip.startDate.slice(0, 4));
+  const yearPrefix = year !== undefined && tripYear !== year ? `${tripYear}년 ` : "";
   return (
     <div
       className={cn(
@@ -239,6 +245,7 @@ function TripRow({
       )}
     >
       <span className={cn("hidden text-[13px] text-ink-2 lg:block", nested && "pl-4")}>
+        {yearPrefix}
         {rangeLabel(trip.startDate, trip.endDate)}{" "}
         <span className="text-ink-3">({weekdayRange(trip.startDate, trip.endDate)})</span>
       </span>
@@ -246,7 +253,7 @@ function TripRow({
         <Link
           href={`/travel/${trip.id}`}
           className={cn(
-            "flex items-center gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-brand",
+            "flex items-center gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-brand",
             nested ? "text-sm font-medium" : "text-[15px] leading-[22px] font-semibold"
           )}
         >
@@ -256,6 +263,7 @@ function TripRow({
           {trip.isOverseas ? <Pill className="h-[22px] font-medium">해외</Pill> : null}
         </Link>
         <span className="truncate text-xs leading-4 text-ink-3 lg:hidden">
+          {yearPrefix}
           {rangeLabel(trip.startDate, trip.endDate)} · {stayLabel(trip.startDate, trip.endDate)} ·{" "}
           {formatKm(trip.totalDistanceMeters)}
         </span>
@@ -284,6 +292,7 @@ function TripRow({
         <TripMenu
           tripId={trip.id}
           tripName={trip.name}
+          tripLabel={`${destinationOf(trip)} ${tripYear}년 ${rangeLabel(trip.startDate, trip.endDate)}`}
           detailHref={`/travel/${trip.id}`}
           onRename={(name) => actions.onRename(trip.id, name)}
           onNotTrip={() => actions.onNotTrip(trip)}
@@ -321,7 +330,7 @@ function GroupRow({
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent py-3 text-left text-ink transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--track)_60%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand lg:px-3 lg:py-3.5",
+          "flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent py-3 text-left text-ink transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--track)_60%,transparent)] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand lg:px-3 lg:py-3.5",
           COLS
         )}
       >
@@ -374,7 +383,7 @@ function GroupRow({
       <Collapse open={open} id={id}>
         <div className="pl-3 lg:pl-0">
           {group.trips.map((trip) => (
-            <TripRow key={trip.id} trip={trip} actions={actions} nested />
+            <TripRow key={trip.id} trip={trip} actions={actions} nested year={year} />
           ))}
         </div>
       </Collapse>
@@ -444,13 +453,20 @@ function TripList({
           <GroupRow key={group.key} group={group} actions={actions} year={year} />
         ))}
       </div>
-      {years.map(({ year: y, trips: list }) => {
+      {years.map(({ year: y, trips: list }, index) => {
         const folded = groupedIn(y);
+        const partial = hasMore && index === years.length - 1 && oldest;
         return (
           <div key={y}>
             <div className="flex items-baseline gap-2.5 border-b border-line pt-7 pb-2 lg:px-3">
               <span className="font-serif text-[15px] leading-[22px] font-semibold">{y}년</span>
               <span className="text-label">
+                {partial ? (
+                  <span className="hidden sm:inline">
+                    {Number(oldest.startDate.slice(5, 7))}월 {Number(oldest.startDate.slice(8))}일
+                    이후{" "}
+                  </span>
+                ) : null}
                 {list.length}건
                 {folded.length > 0 ? (
                   <span className="hidden sm:inline">

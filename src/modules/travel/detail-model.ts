@@ -179,6 +179,8 @@ export type ItineraryItem =
       kind: "stop";
       key: string;
       at: string;
+      /** When the stay ended (used to merge a station transfer into one row). */
+      endAt?: string;
       name: string;
       minutes: number;
       note?: string;
@@ -363,6 +365,7 @@ export function buildItinerary(detail: TravelTripDetail): Itinerary {
       kind: "stop",
       key: visit.id,
       at: visit.startTime,
+      endAt: visit.endTime,
       name: visitName(visit),
       minutes: Math.round(visit.durationSeconds / 60),
       note: spendNote(visit, spending.transactions),
@@ -370,6 +373,9 @@ export function buildItinerary(detail: TravelTripDetail): Itinerary {
   }
 
   items.sort((a, b) => a.at.localeCompare(b.at));
+  const merged = mergeTransfers(items);
+  items.length = 0;
+  items.push(...merged);
   const days = dateKeysBetween(trip.startDate, trip.endDate).map<ItineraryDay>((day) => {
     const dayItems = items.filter((item) => kstDay(item.at) === day);
     const cities = sorted
@@ -391,6 +397,116 @@ export function buildItinerary(detail: TravelTripDetail): Itinerary {
   return { days: days.filter((d) => d.items.length > 0), skippedRoutine, runs };
 }
 
+/** "동작역 9호선" → { station: "동작역", line: "9호선" }; null for anything else. */
+export function stationLine(name: string): { station: string; line: string | null } | null {
+  const m = /^(\S+역)(?:\s+(\S+선))?(?:\s|$)/u.exec(name.trim());
+  return m ? { station: m[1], line: m[2] ?? null } : null;
+}
+
+/**
+ * The station a stop sits at, read off its name: "동작역 9호선" → 동작역, and a
+ * station concession named after it — "위니비니 서울역사점" → 서울역, "공차
+ * SRT수서역점" → 수서역, "엔제리너스 광명KTX점" → 광명역. Null otherwise.
+ */
+export function stationOf(name: string): string | null {
+  const direct = stationLine(name);
+  if (direct) return direct.station;
+  for (const token of name.trim().split(/\s+/).slice(1)) {
+    const inStation = /^(?:SRT|KTX)?([가-힣]{1,6}역)(?:사점|점)$/iu.exec(token);
+    if (inStation) return inStation[1];
+    const rail = /^([가-힣]{2,4})(?:KTX|SRT)(?:역)?점?$/iu.exec(token);
+    if (rail) return `${rail[1]}역`;
+  }
+  return null;
+}
+
+const TRANSFER_MAX_GAP_MS = 20 * MINUTE;
+
+/**
+ * Back-to-back stops at one station on two different lines are one transfer:
+ * "동작역 9호선 6분" + "동작역 4호선 4분" → "동작역 13분 · 9호선 → 4호선 환승".
+ */
+export function mergeTransfers(items: ItineraryItem[]): ItineraryItem[] {
+  const out: ItineraryItem[] = [];
+  /** Lines ridden so far, for the stop at the same index in `out`. */
+  const linesAt = new Map<number, string[]>();
+  for (const item of items) {
+    const i = out.length - 1;
+    const prev = out[i];
+    if (item.kind === "stop" && prev?.kind === "stop") {
+      const a = stationLine(prev.name);
+      const b = stationLine(item.name);
+      const lines = linesAt.get(i) ?? (a?.line ? [a.line] : []);
+      const prevEnd = prev.endAt ?? prev.at;
+      if (
+        a &&
+        b?.line &&
+        a.station === b.station &&
+        lines.length > 0 &&
+        !lines.includes(b.line) &&
+        kstDay(prev.at) === kstDay(item.at) &&
+        Date.parse(item.at) - Date.parse(prevEnd) <= TRANSFER_MAX_GAP_MS
+      ) {
+        const endAt = item.endAt ?? item.at;
+        const next = [...lines, b.line];
+        linesAt.set(i, next);
+        out[i] = {
+          ...prev,
+          endAt,
+          name: a.station,
+          minutes: Math.round((Date.parse(endAt) - Date.parse(prev.at)) / MINUTE),
+          note: [
+            `${next.join(" → ")} 환승`,
+            ...(prev.note?.split(" · ").filter((part) => !part.endsWith(" 환승")) ?? []),
+            item.note,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        };
+        continue;
+      }
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+// ── route sketch labels ──────────────────────────────────────────────────────
+
+export interface MapLabel {
+  key: string;
+  lat: number;
+  lon: number;
+  text: string;
+  /** anchor = saved place (본가, 집), station = a transit stop on the way. */
+  kind: "anchor" | "station";
+}
+
+/**
+ * Labels for the route sketch: saved places the trip touched and the transit
+ * stations it passed ({@link stationOf}), never shop/POI names — those read as
+ * noise at map scale ("위니비니 서울역사점" is labelled 서울역). One label per name, and
+ * a place within ~300 m of an earlier one is the same marker.
+ */
+export function mapLabels(detail: TravelTripDetail): MapLabel[] {
+  const labels: MapLabel[] = [];
+  const add = (v: TravelTripVisit, text: string, kind: MapLabel["kind"]) => {
+    if (labels.some((l) => l.text === text)) return;
+    if (labels.some((l) => distanceM(l.lat, l.lon, v.centerLat, v.centerLon) < 300)) return;
+    labels.push({ key: v.id, lat: v.centerLat, lon: v.centerLon, text, kind });
+  };
+  const sorted = [...detail.visits].sort((a, b) => b.durationSeconds - a.durationSeconds);
+  for (const v of sorted) {
+    if (v.savedPlaceName?.trim()) add(v, v.savedPlaceName.trim(), "anchor");
+  }
+  for (const v of sorted) {
+    if (v.savedPlaceName) continue;
+    const station = stationOf(visitName(v));
+    if (station) add(v, station, "station");
+  }
+  return labels;
+}
+
 /** "대전광역시" → "대전", "제주특별자치도" → "제주"; foreign names untouched. */
 export function shortCity(city: string): string {
   return city.replace(/(특별자치시|특별자치도|특별시|광역시|자치도)$/u, "") || city;
@@ -401,6 +517,8 @@ export function shortCity(city: string): string {
 export interface HealthCell {
   value: number | null;
   text: string;
+  /** Secondary line under the value (heart-rate range), so cells stay narrow. */
+  sub?: string;
 }
 
 export interface HealthRow {
@@ -454,7 +572,8 @@ export function healthTable(detail: TravelTripDetail): {
       if (key === "heart_rate" && row?.valueMin != null && row.valueMax != null) {
         return {
           value,
-          text: `${formatMetric(value, 0)} · ${Math.round(row.valueMin)}–${Math.round(row.valueMax)}`,
+          text: formatMetric(value, 0),
+          sub: `${Math.round(row.valueMin)}–${Math.round(row.valueMax)}`,
         };
       }
       return { value, text: formatMetric(value, decimals) };
