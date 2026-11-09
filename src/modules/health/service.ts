@@ -52,7 +52,15 @@ const BACKFILL_CHUNKS_PER_RUN = 4;
 // 2026-07-26 re-probe ground-truthed them and they are enabled below (see
 // docs/health/google-health-spike-findings.md §6).
 export type MetricAgg = "sum" | "avg";
-type MetricTimeShape = "interval" | "sampleTime" | "date";
+/**
+ * Where a point's timestamp lives AND how its `list` filter is expressed:
+ *  - `interval` / `sampleTime`: physical instant, filtered with an RFC 3339 instant.
+ *  - `date`: civil `{year, month, day}`, filtered with a bare KST day.
+ *  - `civilInterval`: the point is an interval (sampleAt = `interval.startTime`), but
+ *    the only accepted filter field is a CIVIL (local wall-clock) one, so the filter
+ *    is a bare day widened by one day on each side (see buildTimeFilter).
+ */
+type MetricTimeShape = "interval" | "sampleTime" | "date" | "civilInterval";
 
 export interface MetricConfig {
   /** internal key stored in health_samples.metric */
@@ -71,11 +79,21 @@ export interface MetricConfig {
   agg: MetricAgg;
   /**
    * The API revises this point after we first read it (true for every `daily-*`
-   * metric: today's rollup keeps changing until the day closes). Such samples
+   * metric: today's rollup keeps changing until the day closes; and for the
+   * sleep/exercise sessions, reprocessed after upload). Such samples
    * upsert with DO UPDATE instead of DO NOTHING, since their identity
    * (user, metric, sampleAt, source) is stable while the value is not.
    */
   revisable?: boolean;
+  /**
+   * Re-read this far behind `syncedThrough` on each forward sync. For points that
+   * can reach the API well after the time the filter keys on (a session uploaded
+   * from the phone hours after it ended), so a window that closed before the upload
+   * landed doesn't skip it for good. Overlap is free: the upsert is idempotent.
+   */
+  forwardOverlapMs?: number;
+  /** Custom point → row parser (structured metrics that still carry a scalar). */
+  parsePoint?: (point: GoogleHealthDataPoint) => ParsedSample | null;
 }
 
 export const HEALTH_METRICS: MetricConfig[] = [
@@ -210,38 +228,70 @@ export const HEALTH_METRICS: MetricConfig[] = [
     agg: "avg",
     revisable: true,
   },
-  // `exercise` and `sleep` are synced SEPARATELY (syncSessions), not here: both are
-  // structured (not scalars) and both have their `list` filter rejected 400
-  // (INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER), so they can't be time-windowed.
+  // `exercise` and `sleep` are listed separately in SESSION_CONFIGS below.
 ];
 
-// ── Sessions (structured, synced unfiltered) ─────────────────────────────────
-// Both `exercise` and `sleep` reject every `list` filter variant, so they can't be
-// time-windowed. Both are low-volume (one row per workout / per night), so each run
-// re-fetches the whole history newest-first under a page cap and upserts — no
-// watermark needed, and idempotent because the identity is stable.
+// ── Sessions (structured, time-windowed like the scalars) ────────────────────
+// `exercise` and `sleep` are one row per workout / per night. They ride the same
+// forward-watermark + 14-day-chunk backfill path as HEALTH_METRICS (see
+// SYNCED_METRICS), but are kept out of HEALTH_METRICS itself because they have no
+// daily summary and are not part of /data-status recovery.
+//
+// Their `*.interval.start_time` filter is rejected 400
+// (INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER), which is why they were once read
+// unfiltered newest-first under a 10-page cap — and that cap silently dropped
+// every workout older than the newest ~250 (exercise had 38 pages, back to
+// 2025-07-08). The 2026-11-09 re-probe found the fields the API DOES accept:
+// sleep takes the physical `sleep.interval.end_time` (RFC 3339, closed-open range
+// verified), exercise only a civil `exercise.interval.civil_start_time` (a local
+// wall-clock day string). Since each session is keyed on its physical start but
+// sleep is filtered on its END, a filter window never maps 1:1 to stored rows —
+// harmless, as persistPage doesn't clip to the window and the upsert is idempotent.
+//
+// Both are `revisable` (DO UPDATE): a session is reprocessed after we first read
+// it (stages refined, updateTime bumped) while its identity — start second +
+// source — stays fixed. Multi-source dedup still happens at READ time
+// (modules/health/sessions.ts); nothing here merges sources.
 export const EXERCISE_METRIC = "exercise";
 export const SLEEP_METRIC = "sleep";
-const SESSION_MAX_PAGES = 10; // low volume; a full unfiltered re-fetch is cheap
+// A session reaches the API when the phone uploads it, which can be hours (or, if
+// the phone was offline, days) after it ended, i.e. after a forward window already
+// closed past it. Re-read a week behind the watermark — about one page per run.
+const SESSION_FORWARD_OVERLAP_MS = 7 * 24 * 3600_000;
 const EXERCISE_CONFIG: MetricConfig = {
   key: EXERCISE_METRIC,
   dataType: "exercise",
   wrapper: "exercise",
-  timeShape: "interval",
-  filterField: "exercise.interval.start_time",
+  timeShape: "civilInterval",
+  filterField: "exercise.interval.civil_start_time",
   valueKey: null,
   agg: "sum",
+  revisable: true,
+  forwardOverlapMs: SESSION_FORWARD_OVERLAP_MS,
+  parsePoint: (point) => workoutToSample(parseExerciseWorkout(point)),
 };
 const SLEEP_CONFIG: MetricConfig = {
   key: SLEEP_METRIC,
   dataType: "sleep",
   wrapper: "sleep",
   timeShape: "interval",
-  filterField: "sleep.interval.start_time",
+  filterField: "sleep.interval.end_time",
   valueKey: null,
   agg: "sum",
+  revisable: true,
+  forwardOverlapMs: SESSION_FORWARD_OVERLAP_MS,
+  parsePoint: (point) => workoutToSample(parseSleepSession(point)),
 };
 export const SESSION_CONFIGS: MetricConfig[] = [EXERCISE_CONFIG, SLEEP_CONFIG];
+/** Everything the forward sync and the historical backfill walk. */
+export const SYNCED_METRICS: MetricConfig[] = [...HEALTH_METRICS, ...SESSION_CONFIGS];
+
+/** Session row: `value` = duration minutes, `valueJson` = the whole wrapper. */
+function workoutToSample(w: ParsedWorkout | null): ParsedSample | null {
+  return (
+    w && { sampleAt: w.sampleAt, source: w.source, value: w.activeMinutes, valueJson: w.wrapper }
+  );
+}
 
 export interface ParsedWorkout {
   sampleAt: Date;
@@ -378,6 +428,7 @@ function civilDateToInstant(raw: unknown): Date | null {
 }
 
 const KST_OFFSET_HOURS = 9;
+const DAY_MS = 86_400_000;
 const KST_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Seoul",
   year: "numeric",
@@ -400,6 +451,7 @@ export function parseSample(
   config: MetricConfig,
   point: GoogleHealthDataPoint
 ): ParsedSample | null {
+  if (config.parsePoint) return config.parsePoint(point);
   const wrapper = point[config.wrapper] as Record<string, unknown> | undefined;
   if (!wrapper || typeof wrapper !== "object") return null;
 
@@ -407,7 +459,7 @@ export function parseSample(
     config.timeShape === "date"
       ? civilDateToInstant(wrapper.date)
       : parseIso(
-          config.timeShape === "interval"
+          config.timeShape === "interval" || config.timeShape === "civilInterval"
             ? (wrapper.interval as { startTime?: string } | undefined)?.startTime
             : (wrapper.sampleTime as { physicalTime?: string } | undefined)?.physicalTime
         );
@@ -436,15 +488,22 @@ export function parseSample(
  * widened to whole days — floor the lower bound, ceil the upper — so a partial day
  * at either edge is never silently dropped. Re-reading a day is free: those metrics
  * are `revisable`, so the upsert refreshes the value in place.
+ *
+ * `civilInterval` (exercise) compares a LOCAL wall-clock day, and the local zone is
+ * whatever the device was in — KST at home, something else abroad. So the KST-day
+ * window is widened by one more day on EACH side (every real UTC offset is within
+ * 24h of KST), trading a little re-read overlap between adjacent windows for never
+ * losing a session at a window edge. Re-reading is free: sessions are `revisable`.
  */
 export function buildTimeFilter(config: MetricConfig, since: Date, until?: Date): string {
-  if (config.timeShape === "date") {
-    const lower = `${config.filterField} >= "${kstDay(since)}"`;
+  if (config.timeShape === "date" || config.timeShape === "civilInterval") {
+    const pad = config.timeShape === "civilInterval" ? DAY_MS : 0;
+    const lower = `${config.filterField} >= "${kstDay(new Date(since.getTime() - pad))}"`;
     if (!until) return lower;
     // Ceil: the upper bound is exclusive, so include the day `until` falls in.
     const midnight = getKstDateWindow(kstDay(until), kstDay(until)).start;
     const end = kstDay(
-      new Date(until.getTime() + (until.getTime() === midnight.getTime() ? 0 : 86_400_000))
+      new Date(until.getTime() + (until.getTime() === midnight.getTime() ? 0 : DAY_MS) + pad)
     );
     return `${lower} AND ${config.filterField} < "${end}"`;
   }
@@ -741,16 +800,13 @@ export class HealthSyncService {
 
     const now = new Date();
     const errors: string[] = [];
-    // Scalar metrics take the incremental filtered path; `exercise` / `sleep` are
-    // structured and unfilterable, so they re-read unfiltered. Each unit is
-    // isolated (AE4) so one failure never drops the rest.
-    const units = [
-      ...HEALTH_METRICS.map((c) => ({
-        key: c.key,
-        run: () => this.syncMetricForward(connection, c, now),
-      })),
-      ...SESSION_CONFIGS.map((c) => ({ key: c.key, run: () => this.syncSessions(connection, c) })),
-    ];
+    // Every metric (scalars and the exercise/sleep sessions alike) takes the
+    // incremental filtered path. Each unit is isolated (AE4) so one failure never
+    // drops the rest.
+    const units = SYNCED_METRICS.map((c) => ({
+      key: c.key,
+      run: () => this.syncMetricForward(connection, c, now),
+    }));
     let total = 0;
     for (const unit of units) {
       try {
@@ -789,7 +845,9 @@ export class HealthSyncService {
     now: Date
   ): Promise<number> {
     const state = await this.getSyncState(connection.userId, config.key);
-    const since = state?.syncedThrough ?? new Date(now.getTime() - FORWARD_FALLBACK_MS);
+    const since = state?.syncedThrough
+      ? new Date(state.syncedThrough.getTime() - (config.forwardOverlapMs ?? 0))
+      : new Date(now.getTime() - FORWARD_FALLBACK_MS);
     const { upserted, truncated } = await this.fetchWindowAndPersist(
       connection,
       config,
@@ -806,57 +864,17 @@ export class HealthSyncService {
   }
 
   /**
-   * Sync structured session metrics (`exercise`, `sleep`). Neither can be
-   * time-filtered (their `list` filters 400), so each is fetched unfiltered
-   * newest-first, bounded to SESSION_MAX_PAGES, and upserted (onConflictDoNothing
-   * dedups by (userId, metric, sampleAt, source)). Low volume — one row per workout
-   * / per night — makes a full re-fetch per run cheap + idempotent, so no watermark
-   * and no separate backfill: the unfiltered read already reaches all history. Each
-   * row carries `value` = duration minutes (daily rollups) + `valueJson` = the
-   * wrapper (workout type / sleep stages).
-   */
-  private async syncSessions(connection: HealthConnection, config: MetricConfig): Promise<number> {
-    const parse = config.key === SLEEP_METRIC ? parseSleepSession : parseExerciseWorkout;
-    let pageToken: string | undefined;
-    let pages = 0;
-    const rows: NewHealthSample[] = [];
-    do {
-      // Empty filter → the adapter omits it → unfiltered (most recent first).
-      const page = await this.listPageWithAuth(connection, config, "", pageToken);
-      for (const point of page.dataPoints) {
-        const s = parse(point);
-        if (!s) continue;
-        rows.push({
-          userId: connection.userId,
-          metric: config.key,
-          sampleAt: s.sampleAt,
-          source: s.source,
-          value: s.activeMinutes,
-          valueJson: s.wrapper,
-        });
-      }
-      pageToken = page.nextPageToken;
-      pages++;
-      await new Promise((resolve) => setImmediate(resolve)); // event-loop yield
-    } while (pageToken && pages < SESSION_MAX_PAGES);
-
-    if (rows.length === 0) return 0;
-    await this.db.insert(healthSamples).values(rows).onConflictDoNothing();
-    return rows.length;
-  }
-
-  /**
    * Historical backfill: walk each metric's `backfilledFrom` watermark backward
    * over all available history — until no data remains below the cursor (a presence
    * probe, gap-proof) or the deep `health_connections.backfillFloor` backstop — a
    * bounded number of 14-day chunks per run so a single tick never pages an
-   * unbounded history. Resumable + idempotent (samples upsert DO NOTHING). Once
+   * unbounded history. Resumable + idempotent (samples upsert on their identity). Once
    * every metric is done, stamp `backfillCompletedAt` so the UI can leave the
    * "동기화 중" state (R12).
    *
    * Completion is tracked PER METRIC (`backfilledFrom <= floor`), not by the
    * connection-level `backfillCompletedAt` flag — otherwise a metric added to
-   * HEALTH_METRICS after a connection finished (sleep, HRV, the daily-* family)
+   * SYNCED_METRICS after a connection finished (sleep, HRV, the daily-* family)
    * would never get its history, since the flag was already stamped. The flag stays
    * as the UI's "first backfill done" hint and is never cleared.
    */
@@ -909,7 +927,7 @@ export class HealthSyncService {
       .from(healthSyncState)
       .where(eq(healthSyncState.userId, userId));
     const byMetric = new Map(states.map((s) => [s.metric, s]));
-    return HEALTH_METRICS.filter((config) => {
+    return SYNCED_METRICS.filter((config) => {
       const from = byMetric.get(config.key)?.backfilledFrom;
       return !from || from.getTime() > floor.getTime();
     });
@@ -1077,11 +1095,18 @@ export class HealthSyncService {
       rawJson: page.dataPoints,
     });
 
-    const rows: NewHealthSample[] = [];
+    // One row per identity (sampleAt, source). The API can return the same identity
+    // twice in a page (the live exercise history has 938 points but 927 distinct
+    // identities), and a DO UPDATE insert that hits one conflict row twice fails
+    // outright ("ON CONFLICT DO UPDATE command cannot affect row a second time"),
+    // which would wedge that window forever. First one wins, as DO NOTHING did.
+    const byIdentity = new Map<string, NewHealthSample>();
     for (const point of page.dataPoints) {
       const parsed = parseSample(config, point);
       if (!parsed) continue;
-      rows.push({
+      const identity = `${parsed.sampleAt.getTime()}|${parsed.source}`;
+      if (byIdentity.has(identity)) continue;
+      byIdentity.set(identity, {
         userId,
         metric: config.key,
         sampleAt: parsed.sampleAt,
@@ -1090,10 +1115,12 @@ export class HealthSyncService {
         valueJson: parsed.valueJson,
       });
     }
+    const rows = [...byIdentity.values()];
     if (rows.length === 0) return 0;
     if (config.revisable) {
       // `daily-*` rollups are revised until their day closes (and the current day is
-      // re-read every run), so the value must overwrite rather than be discarded.
+      // re-read every run), and sessions are reprocessed after upload, so the value
+      // must overwrite rather than be discarded.
       await this.db
         .insert(healthSamples)
         .values(rows)

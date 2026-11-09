@@ -216,7 +216,8 @@ export class GoogleHealthAdapter {
    * List intraday data points for a metric (paged by caller). Time filtering uses
    * the API's AIP-160 `filter` param — there is NO startTime/endTime query param.
    * The filter field is metric-specific (e.g. `steps.interval.start_time >= "..."`
-   * / `heart-rate.sample_time.physical_time >= "..."`), so the caller (U5) builds
+   * / `heart-rate.sample_time.physical_time >= "..."`; sessions accept only
+   * `sleep.interval.end_time` / `exercise.interval.civil_start_time`), so the caller builds
    * it from the U1-confirmed per-metric shape. Omit `filter` to get recent points.
    */
   async listDataPoints(opts: {

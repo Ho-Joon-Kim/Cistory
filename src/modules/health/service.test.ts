@@ -9,6 +9,8 @@ import {
   parseExerciseWorkout,
   parseSample,
   parseSleepSession,
+  SESSION_CONFIGS,
+  SYNCED_METRICS,
 } from "./service";
 
 const byKey = (key: string): MetricConfig => {
@@ -122,6 +124,99 @@ describe("buildTimeFilter", () => {
     expect(buildTimeFilter(byKey("resting_heart_rate"), since, until)).toBe(
       'daily_resting_heart_rate.date >= "2026-07-05" AND daily_resting_heart_rate.date < "2026-07-13"'
     );
+  });
+});
+
+// sleep/exercise used to be read unfiltered under a 10-page cap, which silently
+// dropped every workout past the newest ~250. The 2026-11-09 probe found the filter
+// fields they DO accept (`*.interval.start_time` alone is the one rejected 400).
+describe("session configs — time-windowed filters", () => {
+  const session = (key: string): MetricConfig => {
+    const c = SESSION_CONFIGS.find((m) => m.key === key);
+    if (!c) throw new Error(`no session config for ${key}`);
+    return c;
+  };
+  const since = new Date("2026-07-05T00:00:00.000Z"); // 2026-07-05 09:00 KST
+  const until = new Date("2026-07-12T00:00:00.000Z"); // 2026-07-12 09:00 KST
+
+  it("filters on the verified fields, never the rejected start_time", () => {
+    expect(session("sleep").filterField).toBe("sleep.interval.end_time");
+    expect(session("sleep").timeShape).toBe("interval");
+    expect(session("exercise").filterField).toBe("exercise.interval.civil_start_time");
+    expect(session("exercise").timeShape).toBe("civilInterval");
+    for (const c of SESSION_CONFIGS) {
+      expect(c.filterField).not.toMatch(/\.start_time$/);
+      // revisable → DO UPDATE: sessions are reprocessed after we first read them
+      expect(c.revisable, c.key).toBe(true);
+      expect(c.forwardOverlapMs, c.key).toBeGreaterThan(0);
+    }
+  });
+
+  it("is walked by the forward sync + backfill but kept out of HEALTH_METRICS", () => {
+    const keys = SYNCED_METRICS.map((m) => m.key);
+    expect(keys).toEqual(expect.arrayContaining(["sleep", "exercise", "steps"]));
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(HEALTH_METRICS.some((m) => m.key === "sleep" || m.key === "exercise")).toBe(false);
+  });
+
+  it("sleep uses a physical RFC 3339 end_time bound", () => {
+    expect(buildTimeFilter(session("sleep"), since)).toBe(
+      'sleep.interval.end_time >= "2026-07-05T00:00:00.000Z"'
+    );
+    expect(buildTimeFilter(session("sleep"), since, until)).toBe(
+      'sleep.interval.end_time >= "2026-07-05T00:00:00.000Z" AND sleep.interval.end_time < "2026-07-12T00:00:00.000Z"'
+    );
+  });
+
+  // civil_start_time is the DEVICE's local wall clock, which isn't always KST
+  // (travel), so the KST-day window is padded by a whole day on each side.
+  it("exercise uses a civil day string, padded one day on each side", () => {
+    expect(buildTimeFilter(session("exercise"), since)).toBe(
+      'exercise.interval.civil_start_time >= "2026-07-04"'
+    );
+    // until = 07-12 09:00 KST → ceil to 07-13 → pad to 07-14
+    expect(buildTimeFilter(session("exercise"), since, until)).toBe(
+      'exercise.interval.civil_start_time >= "2026-07-04" AND exercise.interval.civil_start_time < "2026-07-14"'
+    );
+  });
+
+  it("exercise: a bound exactly at KST midnight is not ceiled, only padded", () => {
+    const kstMidnight = new Date("2026-07-11T15:00:00.000Z"); // 2026-07-12 00:00 KST
+    expect(buildTimeFilter(session("exercise"), kstMidnight, kstMidnight)).toBe(
+      'exercise.interval.civil_start_time >= "2026-07-11" AND exercise.interval.civil_start_time < "2026-07-13"'
+    );
+  });
+
+  it("adjacent backfill chunks overlap rather than leave a gap", () => {
+    const mid = new Date("2026-07-08T20:00:00.000Z");
+    const older = buildTimeFilter(session("exercise"), since, mid);
+    const newer = buildTimeFilter(session("exercise"), mid, until);
+    const upperOfOlder = older.match(/< "([\d-]+)"/)![1];
+    const lowerOfNewer = newer.match(/>= "([\d-]+)"/)![1];
+    expect(lowerOfNewer < upperOfOlder).toBe(true);
+  });
+
+  it("parses a session into duration minutes + the whole wrapper", () => {
+    const exercise = {
+      interval: { startTime: "2026-06-19T09:30:00Z", endTime: "2026-06-19T09:41:00Z" },
+      exerciseType: "WALKING",
+      activeDuration: "660s",
+    };
+    const e = parseSample(session("exercise"), { dataSource: { platform: "FITBIT" }, exercise });
+    expect(e).toEqual({
+      sampleAt: new Date("2026-06-19T09:30:00Z"),
+      source: "FITBIT",
+      value: 11,
+      valueJson: exercise,
+    });
+    const sleep = {
+      interval: { startTime: "2026-07-26T07:24:00Z", endTime: "2026-07-26T10:16:00Z" },
+      stages: [],
+    };
+    const n = parseSample(session("sleep"), { dataSource: { platform: "FITBIT" }, sleep });
+    expect(n?.value).toBe(172);
+    expect(n?.valueJson).toEqual(sleep);
+    expect(parseSample(session("sleep"), {})).toBeNull();
   });
 });
 
@@ -256,8 +351,7 @@ describe("parseSample — date-shaped daily rollups", () => {
 });
 
 describe("parseSample — structured metric (valueKey: null)", () => {
-  // `exercise` is deferred from HEALTH_METRICS (unfilterable), but the parser's
-  // structured branch still ships, so exercise it here via a synthetic config.
+  // The generic structured branch (no parsePoint), via a synthetic config.
   const structured: MetricConfig = {
     key: "exercise",
     dataType: "exercise",

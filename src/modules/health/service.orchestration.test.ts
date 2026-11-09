@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Crypto is mocked to identity-ish transforms so token (de)encryption is
 // deterministic and needs no key — lets us assert non-rotation by value.
@@ -14,12 +14,12 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import type { Database } from "@/db";
-import { healthConnections, healthSamples, healthSyncState } from "@/db/schema";
+import { healthConnections, healthRawPages, healthSamples, healthSyncState } from "@/db/schema";
 import {
   GoogleHealthApiError,
   GoogleHealthAuthError,
 } from "@/lib/adapters/google-health/interface";
-import { HealthSyncService, SESSION_CONFIGS } from "./service";
+import { buildTimeFilter, HealthSyncService, SESSION_CONFIGS } from "./service";
 
 // ── Fake DB ──────────────────────────────────────────────────────────────────
 // A minimal drizzle stand-in: select() resolves table-keyed fixture rows;
@@ -28,11 +28,14 @@ import { HealthSyncService, SESSION_CONFIGS } from "./service";
 interface FakeCfg {
   connectionRows?: Record<string, unknown>[];
   syncStateRows?: Record<string, unknown>[];
+  /** Merge healthSyncState upserts back into syncStateRows (single-metric tests),
+   *  so successive runs resume from the watermark the previous run wrote. */
+  persistSyncState?: boolean;
 }
 function fakeDb(cfg: FakeCfg = {}) {
   const rec = {
     updates: [] as { table: unknown; payload: Record<string, unknown> }[],
-    inserts: [] as { table: unknown; values: unknown }[],
+    inserts: [] as { table: unknown; values: unknown; conflict?: "nothing" | "update" }[],
     deletes: [] as unknown[],
     executes: 0,
   };
@@ -65,10 +68,20 @@ function fakeDb(cfg: FakeCfg = {}) {
     }),
     insert: (table: unknown) => ({
       values: (values: unknown) => {
-        rec.inserts.push({ table, values });
+        const entry: (typeof rec.inserts)[number] = { table, values };
+        rec.inserts.push(entry);
+        if (table === healthSyncState && cfg.persistSyncState) {
+          cfg.syncStateRows = [{ ...(cfg.syncStateRows?.[0] ?? {}), ...(values as object) }];
+        }
         return {
-          onConflictDoNothing: () => Promise.resolve(),
-          onConflictDoUpdate: () => Promise.resolve(),
+          onConflictDoNothing: () => {
+            entry.conflict = "nothing";
+            return Promise.resolve();
+          },
+          onConflictDoUpdate: () => {
+            entry.conflict = "update";
+            return Promise.resolve();
+          },
         };
       },
     }),
@@ -229,17 +242,20 @@ describe("backfill — all-time walk, gap-proof stop (presence probe)", () => {
   });
 });
 
-describe("syncSessions — unfiltered structured session upsert", () => {
-  const runSession = (svc: HealthSyncService, key: string) =>
-    (
-      svc as unknown as { syncSessions: (c: unknown, cfg: unknown) => Promise<number> }
-    ).syncSessions(
-      activeConn(),
-      SESSION_CONFIGS.find((c) => c.key === key)
-    );
+describe("sessions — time-windowed forward sync + backfill", () => {
+  const session = (key: string) => SESSION_CONFIGS.find((c) => c.key === key)!;
+  type Internals = {
+    syncMetricForward: (c: unknown, m: unknown, n: Date) => Promise<number>;
+    backfillMetric: (
+      c: unknown,
+      m: unknown,
+      f: Date
+    ) => Promise<{ upserted: number; reachedFloor: boolean }>;
+  };
+  const internals = (svc: HealthSyncService) => svc as unknown as Internals;
 
-  it("parses workouts and upserts them into health_samples", async () => {
-    const { db, rec } = fakeDb({ connectionRows: [activeConn()] });
+  it("upserts parsed workouts (DO UPDATE) and records the raw page", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
     const point = {
       dataSource: { application: { packageName: "com.sec.android.app.shealth" } },
       exercise: {
@@ -249,22 +265,34 @@ describe("syncSessions — unfiltered structured session upsert", () => {
         activeDuration: "660s",
       },
     };
-    const svc = withAdapter(new HealthSyncService(db), {
-      listDataPoints: vi.fn().mockResolvedValue({ dataPoints: [point] }), // no nextPageToken → one page
-    });
-    expect(await runSession(svc, "exercise")).toBe(1);
+    const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [point] });
+    const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
+    const now = new Date("2026-07-12T00:00:00Z");
+    expect(await internals(svc).syncMetricForward(activeConn(), session("exercise"), now)).toBe(1);
+
+    // First run: no watermark → 7d fallback, as a civil day padded by one.
+    expect(listDataPoints.mock.calls[0][0].filter).toBe(
+      'exercise.interval.civil_start_time >= "2026-07-04"'
+    );
     const ins = rec.inserts.find((i) => i.table === healthSamples);
-    expect(ins).toBeDefined();
+    expect(ins?.conflict).toBe("update");
     const row = (ins!.values as Array<Record<string, unknown>>)[0];
     expect(row.metric).toBe("exercise");
     expect(row.value).toBe(11); // 660s → 11 min
     expect((row.valueJson as { displayName?: string }).displayName).toBe("자전거");
+    expect(rec.inserts.some((i) => i.table === healthRawPages)).toBe(true);
+    // No daily summary for sessions (a workout list / hypnogram, not a scalar).
+    expect(rec.executes).toBe(0);
+    const state = rec.inserts.find((i) => i.table === healthSyncState);
+    expect((state!.values as { syncedThrough?: Date }).syncedThrough).toEqual(now);
   });
 
-  // Sleep rides the same unfiltered path (its `list` filter 400s like exercise's),
-  // but its duration comes from the interval and its stages must survive intact.
-  it("parses sleep nights, keeping stages in valueJson", async () => {
-    const { db, rec } = fakeDb({ connectionRows: [activeConn()] });
+  it("keeps sleep stages and re-reads a week behind the watermark", async () => {
+    const syncedThrough = new Date("2026-07-20T00:00:00Z");
+    const { db, rec } = fakeDb({
+      connectionRows: [activeConn()],
+      syncStateRows: [{ metric: "sleep", syncedThrough }],
+    });
     const point = {
       dataSource: { platform: "FITBIT" },
       sleep: {
@@ -277,15 +305,179 @@ describe("syncSessions — unfiltered structured session upsert", () => {
     };
     const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [point] });
     const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
-    expect(await runSession(svc, "sleep")).toBe(1);
-    // Unfiltered read: sleep rejects every time filter, so none may be sent.
-    expect(listDataPoints.mock.calls[0][0].filter).toBe("");
-    const ins = rec.inserts.find((i) => i.table === healthSamples);
-    expect(ins).toBeDefined();
-    const row = (ins!.values as Array<Record<string, unknown>>)[0];
+    await internals(svc).syncMetricForward(
+      activeConn(),
+      session("sleep"),
+      new Date("2026-07-27T00:00:00Z")
+    );
+    // A night uploaded after the previous window closed is still picked up.
+    expect(listDataPoints.mock.calls[0][0].filter).toBe(
+      'sleep.interval.end_time >= "2026-07-13T00:00:00.000Z"'
+    );
+    const row = (
+      rec.inserts.find((i) => i.table === healthSamples)!.values as Array<Record<string, unknown>>
+    )[0];
     expect(row.metric).toBe("sleep");
     expect(row.value).toBe(172);
     expect((row.valueJson as { stages?: unknown[] }).stages).toHaveLength(1);
+  });
+
+  // Postgres rejects a DO UPDATE insert that hits one conflict row twice, and the
+  // live exercise history really does repeat identities (938 points, 927 distinct).
+  it("collapses a repeated identity within a page before the DO UPDATE insert", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
+    const dup = (displayName: string) => ({
+      dataSource: { platform: "FITBIT" },
+      exercise: { interval: { startTime: "2026-07-11T09:30:00Z" }, displayName },
+    });
+    const other = {
+      dataSource: { application: { packageName: "com.withings.wiscale2" } },
+      exercise: { interval: { startTime: "2026-07-11T09:30:00Z" } },
+    };
+    const svc = withAdapter(new HealthSyncService(db), {
+      listDataPoints: vi.fn().mockResolvedValue({ dataPoints: [dup("a"), dup("b"), other] }),
+    });
+    const n = await internals(svc).syncMetricForward(
+      activeConn(),
+      session("exercise"),
+      new Date("2026-07-12T00:00:00Z")
+    );
+    expect(n).toBe(2); // same start + same source collapses; another source survives
+    const rows = rec.inserts.find((i) => i.table === healthSamples)!.values as Array<{
+      source: string;
+      valueJson: { displayName?: string };
+    }>;
+    expect(rows.map((r) => r.source)).toEqual(["FITBIT", "com.withings.wiscale2"]);
+    expect(rows[0].valueJson.displayName).toBe("a");
+  });
+
+  it("syncUser time-filters both session types (no unfiltered read remains)", async () => {
+    const { db } = fakeDb({ connectionRows: [activeConn()] });
+    const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [] });
+    const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
+    await svc.syncUser("u1");
+    const byType = (t: string) =>
+      listDataPoints.mock.calls.map((c) => c[0]).filter((o) => o.dataType === t);
+    expect(byType("exercise")[0]?.filter).toMatch(/^exercise\.interval\.civil_start_time >= "/);
+    expect(byType("sleep")[0]?.filter).toMatch(/^sleep\.interval\.end_time >= "/);
+    for (const call of listDataPoints.mock.calls) expect(call[0].filter).not.toBe("");
+  });
+
+  it("the presence probe uses the civil filter and ends an exhausted walk", async () => {
+    const { db } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
+    const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [] });
+    const svc = withAdapter(new HealthSyncService(db), { listDataPoints });
+    const floor = new Date("2020-01-01T00:00:00Z");
+    const done = await internals(svc).backfillMetric(activeConn(), session("exercise"), floor);
+    expect(done.reachedFloor).toBe(true);
+    expect(listDataPoints).toHaveBeenCalledTimes(2); // one window + one probe
+    const probe = listDataPoints.mock.calls[1][0];
+    expect(probe.pageSize).toBe(1);
+    expect(probe.filter).toMatch(
+      /^exercise\.interval\.civil_start_time >= "2019-12-31" AND exercise\.interval\.civil_start_time < "\d{4}-\d\d-\d\d"$/
+    );
+  });
+
+  // The bug: a 10-page unfiltered read only ever saw the newest ~250 workouts, while
+  // the real account has 938 (38 pages) back to 2025-07-08. The windowed walk must
+  // reach all of them across bounded runs.
+  describe("reaches more history than the old 10-page cap, across bounded runs", () => {
+    const NOW = new Date("2026-11-09T03:00:00Z");
+    const OLDEST = Date.UTC(2025, 6, 8, 0, 0, 0); // 2025-07-08
+    const COUNT = 938;
+    const PAGE = 25; // what the API actually returns per exercise page
+    const step = (NOW.getTime() - 8 * 86_400_000 - OLDEST) / (COUNT - 1);
+    const workouts = Array.from({ length: COUNT }, (_, i) => ({
+      dataSource: { platform: "FITBIT" },
+      exercise: {
+        interval: { startTime: new Date(OLDEST + i * step).toISOString() },
+        activeDuration: "600s",
+      },
+    }));
+    const kstDay = (iso: string) =>
+      new Date(new Date(iso).getTime() + 9 * 3600_000).toISOString().slice(0, 10);
+
+    // A fake API that honours the civil_start_time filter and pages newest-first.
+    const fakeList = vi.fn(
+      async (opts: { filter?: string; pageSize?: number; pageToken?: string }) => {
+        const lo = opts.filter?.match(/>= "([\d-]+)"/)?.[1] ?? "0000";
+        const hi = opts.filter?.match(/< "([\d-]+)"/)?.[1] ?? "9999";
+        const hits = workouts
+          .filter((w) => {
+            const d = kstDay(w.exercise.interval.startTime);
+            return d >= lo && d < hi;
+          })
+          .reverse();
+        const size = Math.min(opts.pageSize ?? PAGE, PAGE);
+        const offset = Number(opts.pageToken ?? 0);
+        const next = offset + size < hits.length ? String(offset + size) : undefined;
+        return { dataPoints: hits.slice(offset, offset + size), nextPageToken: next };
+      }
+    );
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("imports every workout back to 2025-07-08, a bounded chunk count per run", async () => {
+      const fake = fakeDb({ connectionRows: [activeConn()], persistSyncState: true });
+      const svc = withAdapter(new HealthSyncService(fake.db), { listDataPoints: fakeList });
+      const floor = new Date("2021-11-01T00:00:00Z");
+      const config = session("exercise");
+
+      await internals(svc).syncMetricForward(activeConn(), config, NOW);
+      let runs = 0;
+      let done = { upserted: 0, reachedFloor: false };
+      while (!done.reachedFloor && runs < 50) {
+        const before = fakeList.mock.calls.filter((c) => (c[0].pageSize ?? 0) !== 1).length;
+        done = await internals(svc).backfillMetric(activeConn(), config, floor);
+        runs++;
+        // ≤ 4 chunks/run → each run reads a bounded window, never the whole history
+        const windowPages = fakeList.mock.calls.filter((c) => (c[0].pageSize ?? 0) !== 1).length;
+        expect(windowPages - before).toBeLessThanOrEqual(4 * 3);
+      }
+
+      expect(done.reachedFloor).toBe(true);
+      expect(runs).toBeGreaterThan(1); // resumed from the stored cursor across runs
+      const stored = new Set(
+        fake.rec.inserts
+          .filter((i) => i.table === healthSamples)
+          .flatMap((i) => i.values as Array<{ sampleAt: Date }>)
+          .map((r) => r.sampleAt.toISOString())
+      );
+      expect(stored.size).toBe(COUNT); // vs. 10 pages × 25 = 250 under the old cap
+      expect([...stored].sort()[0]).toBe(new Date(OLDEST).toISOString());
+      // Done = cursor stamped at the floor, so the next tick skips this metric.
+      expect((fake.rec.inserts.at(-1)!.values as { backfilledFrom?: Date }).backfilledFrom).toEqual(
+        floor
+      );
+    });
+
+    it("each run resumes at the cursor the previous run stored", async () => {
+      const fake = fakeDb({ connectionRows: [activeConn()], persistSyncState: true });
+      const svc = withAdapter(new HealthSyncService(fake.db), { listDataPoints: fakeList });
+      const floor = new Date("2021-11-01T00:00:00Z");
+      const config = session("exercise");
+      await internals(svc).backfillMetric(activeConn(), config, floor);
+      const cursor = fake.rec.inserts.filter((i) => i.table === healthSyncState).at(-1)!.values as {
+        backfilledFrom: Date;
+      };
+      // first run: anchored at now−7d, walked 4 × 14 days
+      expect(cursor.backfilledFrom).toEqual(new Date(NOW.getTime() - (7 + 56) * 86_400_000));
+      fakeList.mockClear();
+      await internals(svc).backfillMetric(activeConn(), config, floor);
+      expect(fakeList.mock.calls[0][0].filter).toBe(
+        buildTimeFilter(
+          config,
+          new Date(cursor.backfilledFrom.getTime() - 14 * 86_400_000),
+          cursor.backfilledFrom
+        )
+      );
+    });
   });
 });
 

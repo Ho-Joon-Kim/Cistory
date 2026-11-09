@@ -145,6 +145,32 @@ describe("data reads — error taxonomy", () => {
   });
 });
 
+describe("listDataPoints — filter param", () => {
+  // Session filters (the only fields the API accepts for sleep/exercise) must reach
+  // the API verbatim: quotes, spaces, `<`, and AND all survive URL encoding.
+  it.each([
+    'sleep.interval.end_time >= "2026-07-05T00:00:00.000Z" AND sleep.interval.end_time < "2026-07-12T00:00:00.000Z"',
+    'exercise.interval.civil_start_time >= "2026-07-04" AND exercise.interval.civil_start_time < "2026-07-14"',
+  ])("sends %s as the filter query param", async (filter) => {
+    fetchMock.mockResolvedValueOnce(resp({ dataPoints: [] }));
+    await adapter().listDataPoints({
+      accessToken: "at",
+      dataType: "exercise",
+      filter,
+      pageSize: 1,
+    });
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.searchParams.get("filter")).toBe(filter);
+    expect(url.searchParams.get("pageSize")).toBe("1");
+  });
+
+  it("omits the filter param entirely when none is given", async () => {
+    fetchMock.mockResolvedValueOnce(resp({ dataPoints: [] }));
+    await adapter().listDataPoints({ accessToken: "at", dataType: "sleep" });
+    expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.has("filter")).toBe(false);
+  });
+});
+
 describe("pagination + rollup", () => {
   it("listAllDataPoints exhausts nextPageToken across pages", async () => {
     fetchMock
