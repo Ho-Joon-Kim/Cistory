@@ -71,7 +71,8 @@ services:
 
   # Self-hosted road-network map matching, built from docker/valhalla/Dockerfile
   # rather than used off the shelf — that Dockerfile layers osmium-tool onto
-  # ghcr.io/valhalla/valhalla:latest, needed by entrypoint.sh's merge-before-
+  # ghcr.io/valhalla/valhalla (pinned to an exact release + digest there —
+  # tiles are version-specific, see the Dockerfile), needed by entrypoint.sh's merge-before-
   # build step (see the comment there for why the merge exists: three or more
   # PBF inputs crash valhalla_build_tiles on this image). The base image is
   # otherwise a BARE image — Entrypoint [], Cmd [/bin/bash], no /valhalla

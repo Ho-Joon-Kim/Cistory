@@ -1,7 +1,9 @@
 #!/bin/bash
-# 타일이 없거나 오래됐거나 추출본 목록이 바뀌었을 때만 굽고, 서비스를 띄운다.
+# 타일이 없거나 오래됐거나 추출본 목록이 바뀌었거나 Valhalla 버전이 바뀌었을
+# 때만 굽고, 서비스를 띄운다.
 #
-# ghcr.io/valhalla/valhalla:latest is a BARE image: Entrypoint [], Cmd
+# ghcr.io/valhalla/valhalla (pinned to an exact release in
+# docker/valhalla/Dockerfile — never `:latest`) is a BARE image: Entrypoint [], Cmd
 # [/bin/bash], no /valhalla directory, no convenience scripts, no tile_urls/
 # custom_files env-var handling. Those belong to a different project
 # (gis-ops/docker-valhalla) and this image reads none of them — confirmed by
@@ -90,6 +92,40 @@ if [ -z "${EXTRACTS_FINGERPRINT:-}" ]; then
   exit 1
 fi
 
+# The Valhalla release that will build (and then serve) tiles in THIS image.
+# Tiles are a version-specific binary format — 3.8.0 alone removed
+# GraphTileHeader's `date_created_` and redefined `checksum_` — so tiles built
+# by one release must not be served by another. The Dockerfile pins the base
+# image, but the tiles live on a persistent volume that outlives any image:
+# bumping the pin (or, before the pin existed, a `:latest` pull) would hand
+# the new binary tiles from the old one. Recording this in $STAMP and
+# rebuilding on mismatch (needs_build below) closes that gap the same way
+# EXTRACTS_FINGERPRINT does for the extract list.
+#
+# Read from the binary at runtime rather than baked in as a Dockerfile
+# ARG/ENV: entrypoint.sh is bind-mounted from the host (docker-compose.yml),
+# so it can run against whichever image happens to be built — an ENV that a
+# stale image doesn't carry would be wrong in exactly the case this exists
+# for. `--version` is confirmed on both 3.8.3 (prints `3.8.3-14582d257`, see
+# docs/map-matching/valhalla-probe-findings.md §1) and 3.9.1 (prints `3.9.1`).
+# valhalla_build_tiles specifically, because it's the binary that writes the
+# tiles; valhalla_service comes from the same build and reports the same
+# string.
+#
+# An empty result is a hard refusal, for the same reason as the
+# EXTRACTS_FINGERPRINT check above: comparing "" against "" would make the
+# version check silently pass forever, which is the exact bug this guards
+# against. Not routed through the backoff either — it fires before any real
+# work, and no amount of waiting fixes a broken image.
+VALHALLA_VERSION=$(valhalla_build_tiles --version 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
+if [ -z "$VALHALLA_VERSION" ]; then
+  echo "[valhalla] could not determine the Valhalla version (\`valhalla_build_tiles" \
+    "--version\` printed nothing) — refusing to start rather than risk serving" \
+    "tiles built by a different Valhalla release." >&2
+  exit 1
+fi
+echo "[valhalla] Valhalla version $VALHALLA_VERSION"
+
 # valhalla_build_config has no persistent state of its own — regenerating it
 # unconditionally (cheap, <1s) guarantees $CONFIG exists before the final exec
 # on BOTH the build and skip paths, rather than depending on a config file
@@ -147,6 +183,19 @@ needs_build() {
   # (checked above), so both sides of this comparison are real values, never
   # the literal string "unset" on one side and "" on the other.
   [ "$built_fp" != "$EXTRACTS_FINGERPRINT" ] && return 0
+  # Valhalla 버전이 바뀌면 타일 포맷이 다를 수 있다 — 다른 버전이 구운 타일은
+  # 절대 서빙하지 않고 다시 굽는다. A stamp written before this check existed
+  # has no `valhalla_version=` line at all, so built_ver is "" and never equals
+  # the (guaranteed non-empty, see above) running version: such a stamp
+  # triggers exactly one rebuild, after which the new stamp carries the line.
+  # That is the deliberately safe default — those tiles came from an unpinned
+  # `:latest`, so which release built them is genuinely unknown.
+  local built_ver
+  built_ver=$(grep '^valhalla_version=' "$STAMP" | cut -d= -f2- || echo "")
+  if [ "$built_ver" != "$VALHALLA_VERSION" ]; then
+    echo "[valhalla] tiles were built by Valhalla '${built_ver:-unknown}', this image is $VALHALLA_VERSION — rebuilding"
+    return 0
+  fi
   local age_days
   age_days=$(( ( $(date +%s) - $(stat -c %Y "$STAMP") ) / 86400 ))
   [ "$age_days" -ge "$MAX_AGE_DAYS" ] && return 0
@@ -189,22 +238,38 @@ needs_build() {
 # hand-clearing needed" claim above true only in a technically-eventually
 # sense. URLS_HASH (defined above) closes that gap: either value changing is
 # treated as a different attempt, ineligible to inherit the old delay.
+#
+# VALHALLA_VERSION is part of the key too, for the same reason. The other
+# realistic "fix" for a deterministic build failure is a Valhalla bug fix —
+# the 3+-input crash documented at the merge step below is exactly that kind
+# of failure — and the way an operator applies one is bumping the pinned
+# image in the Dockerfile. That new binary deserves an immediate attempt, not
+# up to an hour of the old binary's backoff. A marker written before this
+# key existed has no `valhalla_version=` line, so it reads as a different
+# configuration: one immediate retry, after which record_failure() rewrites
+# it with the version and normal backoff resumes. (A version change also
+# forces a rebuild via needs_build(), so without this the first deploy of a
+# bumped image after a failed build would sleep before the rebuild it was
+# deployed to trigger.)
 BACKOFF_BASE_SECONDS=60
 BACKOFF_MAX_SECONDS=3600
 
 wait_for_backoff() {
   [ -f "$FAIL_MARKER" ] || return 0
-  local failed_fp failed_urls_hash attempt last_epoch now shift_exp backoff next_retry remaining
+  local failed_fp failed_urls_hash failed_ver attempt last_epoch now shift_exp backoff next_retry remaining
   failed_fp=$(grep '^fingerprint=' "$FAIL_MARKER" | cut -d= -f2 || echo "")
   failed_urls_hash=$(grep '^urls_hash=' "$FAIL_MARKER" | cut -d= -f2 || echo "")
-  if [ "$failed_fp" != "$EXTRACTS_FINGERPRINT" ] || [ "$failed_urls_hash" != "$URLS_HASH" ]; then
+  failed_ver=$(grep '^valhalla_version=' "$FAIL_MARKER" | cut -d= -f2- || echo "")
+  if [ "$failed_fp" != "$EXTRACTS_FINGERPRINT" ] || [ "$failed_urls_hash" != "$URLS_HASH" ] \
+    || [ "$failed_ver" != "$VALHALLA_VERSION" ]; then
     # fingerprint나 URL 중 하나라도 달라졌다 — 추출본 목록을 바꿨거나(운영자가
     # 재배포) 잘못된 URL을 고쳤다는 뜻이므로 예전 실패의 백오프를 물려받지
     # 않는다. URL만 바뀐 경우 fingerprint는 그대로다 —
     # extractsFingerprint()는 name/bboxes만 해시하고 url은 보지 않는다
     # (src/lib/map-extracts.ts) — 그래서 fingerprint 하나만으로는 이 케이스를
-    # 못 잡는다.
-    echo "[valhalla] $FAIL_MARKER is for a different configuration (fingerprint=$failed_fp, urls_hash=${failed_urls_hash:0:12}) — not backing off"
+    # 못 잡는다. Valhalla 버전이 바뀐 것도(이미지 고정 버전을 올렸다) 같은
+    # 취급이다 — 새 바이너리는 옛 바이너리의 백오프를 물려받지 않는다.
+    echo "[valhalla] $FAIL_MARKER is for a different configuration (fingerprint=$failed_fp, urls_hash=${failed_urls_hash:0:12}, valhalla_version=${failed_ver:-unknown}) — not backing off"
     return 0
   fi
   attempt=$(grep '^attempt=' "$FAIL_MARKER" | cut -d= -f2 || echo 1)
@@ -225,19 +290,23 @@ wait_for_backoff() {
 }
 
 record_failure() {
-  local prev_fp prev_urls_hash prev_attempt next_attempt
+  local prev_fp prev_urls_hash prev_ver prev_attempt next_attempt
   prev_fp=""
   prev_urls_hash=""
+  prev_ver=""
   if [ -f "$FAIL_MARKER" ]; then
     prev_fp=$(grep '^fingerprint=' "$FAIL_MARKER" | cut -d= -f2 || echo "")
     prev_urls_hash=$(grep '^urls_hash=' "$FAIL_MARKER" | cut -d= -f2 || echo "")
+    prev_ver=$(grep '^valhalla_version=' "$FAIL_MARKER" | cut -d= -f2- || echo "")
   fi
   # Only continue the existing attempt count when this failure is for the
   # SAME configuration as the one on disk. Otherwise (first-ever failure, or
-  # the fingerprint/URLs changed since the last failure) start over at 1 —
+  # the fingerprint/URLs/Valhalla version changed since the last failure)
+  # start over at 1 —
   # a fresh configuration hasn't earned the old one's backoff multiplier,
   # even if it goes on to fail for an unrelated reason.
-  if [ "$prev_fp" = "$EXTRACTS_FINGERPRINT" ] && [ "$prev_urls_hash" = "$URLS_HASH" ]; then
+  if [ "$prev_fp" = "$EXTRACTS_FINGERPRINT" ] && [ "$prev_urls_hash" = "$URLS_HASH" ] \
+    && [ "$prev_ver" = "$VALHALLA_VERSION" ]; then
     prev_attempt=$(grep '^attempt=' "$FAIL_MARKER" | cut -d= -f2 || echo 0)
     [ -z "$prev_attempt" ] && prev_attempt=0
   else
@@ -249,6 +318,7 @@ record_failure() {
     echo "last_attempt_epoch=$(date +%s)"
     echo "fingerprint=$EXTRACTS_FINGERPRINT"
     echo "urls_hash=$URLS_HASH"
+    echo "valhalla_version=$VALHALLA_VERSION"
   } > "$FAIL_MARKER"
   echo "[valhalla] build attempt #$next_attempt failed; recorded to $FAIL_MARKER"
 }
@@ -301,8 +371,9 @@ build_tiles() {
   # DO NOT delete this merge step and go back to handing valhalla_build_tiles
   # the PBF list directly, even though its own --help says it accepts
   # multiple files and even though two files at a time works fine. Bisected
-  # empirically against this exact image (ghcr.io/valhalla/valhalla:latest,
-  # 3.8.3-14582d257):
+  # empirically against ghcr.io/valhalla/valhalla:latest as it stood then
+  # (3.8.3-14582d257 — not re-bisected on the 3.9.1 pin; the merge is
+  # harmless either way, so it stays until someone proves it unnecessary):
   #   - all five of this project's extracts build fine ALONE
   #   - every TWO-file combination succeeds
   #   - every THREE-file combination fails: many
@@ -382,7 +453,7 @@ on_build_error() {
 
 if needs_build; then
   wait_for_backoff
-  echo "[valhalla] building tiles (fingerprint=$EXTRACTS_FINGERPRINT)"
+  echo "[valhalla] building tiles (fingerprint=$EXTRACTS_FINGERPRINT, valhalla_version=$VALHALLA_VERSION)"
   trap on_build_error ERR
   build_tiles
   trap - ERR
@@ -391,6 +462,7 @@ if needs_build; then
   {
     echo "built_at=$(date -u +%Y-%m-%d)"
     echo "fingerprint=$EXTRACTS_FINGERPRINT"
+    echo "valhalla_version=$VALHALLA_VERSION"
   } > "$STAMP"
   echo "[valhalla] tile build finished"
 else
