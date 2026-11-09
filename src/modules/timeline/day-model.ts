@@ -78,18 +78,37 @@ export const MODE_LABELS: Record<string, string> = {
   unknown: "이동",
 };
 
+/** `집 → 회사`, `→ 회사`, `집에서`, or "" when neither end is known. */
+export function routeLabel(from: string, to: string): string {
+  if (from && to) return `${from} → ${to}`;
+  if (to) return `→ ${to}`;
+  if (from) return `${from}에서`;
+  return "";
+}
+
 export function modeLabel(mode: string | null | undefined): string {
   return (mode && MODE_LABELS[mode]) || "이동";
 }
 
 const HANGUL = /[가-힣]/;
 
+/** Rough bounding box of South Korea (mainland + Jeju + Ulleung). */
+export function inKorea(lat: number, lon: number): boolean {
+  return lat >= 33 && lat <= 38.9 && lon >= 124.5 && lon <= 131.9;
+}
+
 /**
  * Short area for a stay's sub line: Korean addresses keep their 구 and 동
- * (`강남구 논현동`); others keep the first two comma-separated parts.
+ * (`강남구 논현동`); others keep the first two comma-separated parts. With
+ * `korean: true` (a place inside Korea) a romanized fallback-geocoder address
+ * (`Nonhyeon-dong, Gangnam-gu`) is hidden rather than shown in English.
  */
-export function shortArea(address: string | null | undefined): string {
+export function shortArea(
+  address: string | null | undefined,
+  opts: { korean?: boolean } = {}
+): string {
   if (!address) return "";
+  if (opts.korean && !HANGUL.test(address)) return "";
   if (HANGUL.test(address)) {
     const tokens = address.split(/\s+/);
     const gu = tokens.find((t) => /[가-힣](구|군)$/.test(t));
@@ -317,7 +336,7 @@ export function clusterCommits(commits: TimelineCommit[], date: string): CommitC
       deletions: group.reduce((s, c) => s + c.deletions, 0),
       files: group.reduce((s, c) => s + c.changedFilesCount, 0),
       plain: stripType(firstLine(last.message)),
-      commits: [...group].reverse().map((c) => {
+      commits: group.map((c) => {
         const title = firstLine(c.message);
         const summary = completedSummary(c);
         const type = commitType(title);
@@ -391,6 +410,24 @@ function matchingWorkout(track: TrackData, workouts: HealthWorkout[]): HealthWor
   return best?.w ?? null;
 }
 
+/**
+ * Fastest speed a mode can plausibly reach (km/h). A recorded peak — or an
+ * average — above it means the classifier probably picked the wrong mode
+ * (a KTX ride labelled 자전거), so the row flags the mode rather than
+ * advertising the speed.
+ */
+const MODE_MAX_KMH: Record<string, number> = {
+  walking: 15,
+  running: 30,
+  cycling: 60,
+  motorcycle: 200,
+  driving: 200,
+  bus: 130,
+  subway: 130,
+  train: 350,
+  boat: 90,
+};
+
 function speedLabel(kmh: number | null | undefined): string | null {
   return kmh != null && Number.isFinite(kmh) && kmh > 0 ? `${kmh.toFixed(1)}km/h` : null;
 }
@@ -411,6 +448,16 @@ function rideFromTrack(track: TrackData, date: string, workouts: HealthWorkout[]
     flag = {
       label: "건강 기록과 일치",
       reason: `위치 분류는 ${classified}였지만 같은 시각 Google Health에 ${workout.name} ${workout.minutes}분(${formatTime(new Date(workout.start))})이 있어 ${workoutName}로 표시했어요.`,
+    };
+  } else if (
+    track.dominantMode &&
+    MODE_MAX_KMH[track.dominantMode] != null &&
+    Math.max(maxKmh, avgKmh ?? 0) > MODE_MAX_KMH[track.dominantMode]
+  ) {
+    const peak = Math.max(maxKmh, avgKmh ?? 0);
+    flag = {
+      label: "수단 확인 필요",
+      reason: `${classified}(으)로 분류됐지만 ${maxKmh > (avgKmh ?? 0) ? "최고" : "평균"} ${peak.toFixed(0)}km/h가 기록돼 다른 수단이었을 수 있어요.`,
     };
   } else if (avgKmh && maxKmh >= 30 && maxKmh >= avgKmh * 3 && track.dominantMode !== "flying") {
     flag = {
@@ -452,8 +499,8 @@ function rideFromTrack(track: TrackData, date: string, workouts: HealthWorkout[]
     distance: formatMeters(track.distanceMeters),
     duration: formatDurationSeconds(track.durationSeconds),
     range: `${t0}–${t1}`,
-    from: track.startPlaceName || "출발지",
-    to: track.endPlaceName || "도착지",
+    from: track.startPlaceName || "",
+    to: track.endPlaceName || "",
     avg: speedLabel(avgKmh),
     elevation,
     legs: legs.filter(Boolean),
@@ -541,7 +588,7 @@ export function ridesFromGaps(
       distance: formatMeters(meters),
       duration: formatDurationSeconds(seconds),
       range: `${t0}–${t1}`,
-      from: w.from ? stayName(w.from) : "출발지",
+      from: w.from ? stayName(w.from) : "",
       to: w.to ? stayName(w.to) : "현재 위치",
       avg: speedLabel(seconds > 0 ? meters / 1000 / (seconds / 3600) : null),
       elevation: null,
@@ -580,6 +627,48 @@ export interface DayModel {
   chain: { name: string; duration: string | null }[];
 }
 
+/** Two visits to one place this close (minutes) with no ride between are one stay. */
+const STAY_MERGE_GAP_MIN = 30;
+
+/**
+ * Consecutive visits to the same place (a detector split such as 카페 10분 +
+ * 1시간 22분) merge into one stay unless a ride happened in between.
+ */
+export function mergeStayPoints(
+  stayPoints: StayPointData[],
+  rideWindows: { startIso: string; endIso: string }[] = []
+): StayPointData[] {
+  const sorted = [...stayPoints].sort(
+    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+  );
+  const out: StayPointData[] = [];
+  for (const sp of sorted) {
+    const last = out.at(-1);
+    if (last && stayName(last) === stayName(sp)) {
+      const gap0 = new Date(last.endTime).getTime();
+      const gap1 = new Date(sp.startTime).getTime();
+      const rideBetween = rideWindows.some((r) => {
+        const r0 = new Date(r.startIso).getTime();
+        const r1 = new Date(r.endIso).getTime();
+        // A ride that left after the first visit and arrived for the second; a
+        // longer track that merely spans both visits (a walk with stops) isn't one.
+        return r0 >= gap0 - 60_000 && r1 <= gap1 + 60_000 && r1 > r0;
+      });
+      if (!rideBetween && (gap1 - gap0) / 60_000 <= STAY_MERGE_GAP_MIN) {
+        const end = Math.max(gap0, new Date(sp.endTime).getTime());
+        out[out.length - 1] = {
+          ...last,
+          endTime: new Date(end).toISOString(),
+          durationMinutes: last.durationMinutes + sp.durationMinutes,
+        };
+        continue;
+      }
+    }
+    out.push(sp);
+  }
+  return out;
+}
+
 function stayRows(stayPoints: StayPointData[], date: string): StayRow[] {
   return [...stayPoints]
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
@@ -589,7 +678,7 @@ function stayRows(stayPoints: StayPointData[], date: string): StayRow[] {
       const start = clampDay(minuteOfDay(sp.startTime, date));
       const end = clampDay(minuteOfDay(sp.endTime, date));
       const id = `s${i}`;
-      const area = shortArea(sp.address);
+      const area = shortArea(sp.address, { korean: inKorea(sp.lat, sp.lon) });
       const name = stayName(sp);
       return {
         kind: "stay",
@@ -711,15 +800,35 @@ function txRows(
     };
   });
 
-  const groups = new Map<string, TransactionItem[]>();
+  // Deposits into one account within an hour of each other read as one row;
+  // a later burst starts its own row so each row sits at its own time.
+  const groups: { key: string; list: TransactionItem[] }[] = [];
+  const openGroup = new Map<string, { key: string; list: TransactionItem[] }>();
   for (const t of transactions
     .filter((t) => t.bucket === "income")
     .sort((a, b) => new Date(a.transactedAt).getTime() - new Date(b.transactedAt).getTime())) {
     const key = t.accountName || t.merchant;
-    groups.set(key, [...(groups.get(key) ?? []), t]);
+    const cur = openGroup.get(key);
+    const last = cur?.list.at(-1);
+    if (
+      cur &&
+      last &&
+      new Date(t.transactedAt).getTime() - new Date(last.transactedAt).getTime() <= 60 * 60_000
+    ) {
+      cur.list.push(t);
+    } else {
+      const next = { key, list: [t] };
+      groups.push(next);
+      openGroup.set(key, next);
+    }
   }
-  const income = [...groups.entries()].map(([key, list], i): IncomeRow => {
+  groups.sort(
+    (a, b) =>
+      new Date(a.list[0].transactedAt).getTime() - new Date(b.list[0].transactedAt).getTime()
+  );
+  const income = groups.map(({ key, list }, i): IncomeRow => {
     const sum = list.reduce((s, t) => s + t.amount, 0);
+    const times = [...new Set(list.map((t) => clockInDay(t.transactedAt, date)))];
     return {
       kind: "income",
       id: `i${i}`,
@@ -731,7 +840,13 @@ function txRows(
       amount: formatWon(sum, { sign: true }),
       amountValue: sum,
       note:
-        list.length > 1 ? list.map((t) => clockInDay(t.transactedAt, date)).join(" · ") : "입금",
+        times.length > 3
+          ? `${times[0]}–${times.at(-1)}`
+          : times.length > 1
+            ? times.join(" · ")
+            : list.length > 1
+              ? ""
+              : "입금",
     };
   });
   return { spend, income };
@@ -771,13 +886,18 @@ export function placeChain(stays: StayRow[]): { name: string; duration: string |
 
 export function buildDayModel(input: DayInput): DayModel {
   const { date } = input;
-  const stays = stayRows(input.stayPoints, date);
   const rides =
     input.tracks.length > 0
       ? input.tracks
           .map((t) => rideFromTrack(t, date, input.workouts))
           .sort((a, b) => a.start - b.start)
       : ridesFromGaps(input.locations, input.stayPoints, date);
+  const stays = stayRows(mergeStayPoints(input.stayPoints, rides), date);
+  // A ride without a geocoded endpoint takes the neighbouring stay's name.
+  for (const r of rides) {
+    if (!r.from) r.from = stays.filter((s) => s.start <= r.start).at(-1)?.name ?? "";
+    if (!r.to) r.to = stays.find((s) => s.start >= r.end - 1)?.name ?? "";
+  }
   const clusters = clusterCommits(input.commits, date);
   const { spend, income } = txRows(input.transactions, date);
   const sleep = input.sleep ? sleepRow(input.sleep, date, input.recentSleeps) : null;
@@ -789,27 +909,18 @@ export function buildDayModel(input: DayInput): DayModel {
     (a, b) => a.start - b.start
   );
 
-  const rows: DayRow[] = [];
-  if (stays.length === 0) {
-    // No places to hang things on: one chronological list.
-    rows.push(...[...tops, ...kids].sort((a, b) => a.start - b.start));
-  } else {
+  // Rows read top-down in time: a commit made after a ride left a stay sits
+  // below that ride, even though it still belongs (on the map) to the stay.
+  const rank = (r: DayRow) => (r.kind === "stay" ? 0 : r.kind === "ride" ? 1 : 2);
+  const rows: DayRow[] = [...tops, ...kids].sort((a, b) => a.start - b.start || rank(a) - rank(b));
+  if (stays.length > 0) {
     const owner = (m: number): StayRow => {
       const inside = stays.find((s) => s.start <= m && m <= s.end);
       if (inside) return inside;
       const before = stays.filter((s) => s.start <= m);
       return before.at(-1) ?? stays[0];
     };
-    const byOwner = new Map<string, DayRow[]>();
-    for (const k of kids) {
-      const o = owner(k.start);
-      k.mapId = o.id;
-      byOwner.set(o.id, [...(byOwner.get(o.id) ?? []), k]);
-    }
-    for (const t of tops) {
-      rows.push(t);
-      if (t.kind === "stay") rows.push(...(byOwner.get(t.id) ?? []));
-    }
+    for (const k of kids) k.mapId = owner(k.start).id;
   }
 
   return {

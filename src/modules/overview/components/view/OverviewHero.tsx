@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { AiLine, HeroNumber, SecondaryNumber } from "@/components/ds";
-import { formatCount } from "@/lib/format";
+import { formatCount, formatMonthDay } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { HeroDelta, HeroFoot, HeroModel } from "@/modules/overview/view/hero";
 import type { PeriodContext } from "@/modules/overview/view/labels";
@@ -137,7 +137,14 @@ export function OverviewHero({ hero, ctx }: { hero: HeroModel; ctx: PeriodContex
         )}
       </div>
       <div className={cell(2, "pt-2")}>
-        {body.weight ? <DeltaOrNothing delta={body.weight.delta} /> : null}
+        {body.weight?.asOf ? (
+          <Delta
+            text={`${formatMonthDay(body.weight.asOf, { now: ctx.now })} 측정 · ${ctx.label}에는 측정 없음`}
+            dir={null}
+          />
+        ) : body.weight ? (
+          <DeltaOrNothing delta={body.weight.delta} />
+        ) : null}
       </div>
       <div className={cell(2, "pt-1.5")}>
         {body.weight ? <AiLine fact={body.weight.fact} /> : null}

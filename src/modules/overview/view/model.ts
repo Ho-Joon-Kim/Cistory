@@ -51,7 +51,8 @@ export function buildOverviewModel(input: {
   const portfolio = data(input.domains.portfolio);
   const hero = buildHero({ ctx, coding, spending, health, history });
   const prev = history?.previous ?? null;
-  const lastWeight = hero.body.weight?.value ?? null;
+  // An earlier (out-of-period) weigh-in is context, not this period's change.
+  const lastWeight = hero.body.weight && !hero.body.weight.asOf ? hero.body.weight.value : null;
 
   return {
     ctx,

@@ -12,6 +12,7 @@ import type {
   SpendingAggregate,
 } from "../types";
 import { type PeriodContext, seriesBarLabel, seriesTitle } from "./labels";
+import { groupPlaces } from "./sections";
 import { cashByDay, commitsByDay, metricByDay, periodDays } from "./series";
 
 export type FlowMetric = "commits" | "steps" | "cash";
@@ -47,8 +48,22 @@ export interface FlowAnnotation {
   rows: { label: string; value: string }[];
 }
 
+/**
+ * The away area the period's work happened in (대전 · 60계치킨 대전유성점 · 531
+ * commits). The snapshot has no per-day place data, so the chart looks the
+ * area's visit days up separately and spans them with {@link stayAnnotation}.
+ */
+export interface StayFocus {
+  area: string;
+  place: string;
+  commits: number;
+  from: string;
+  to: string;
+}
+
 export interface FlowModel {
   units: FlowUnit[];
+  stayFocus: StayFocus | null;
   annotations: Record<FlowMetric, FlowAnnotation[]>;
   averageLabel: Record<"commits" | "steps", string>;
   available: Record<FlowMetric, boolean>;
@@ -233,10 +248,34 @@ export function buildFlow(input: {
     });
   }
 
+  let stayFocus: StayFocus | null = null;
+  if (ctx.periodType !== "year" && location) {
+    const productivity = new Map(
+      location.derived.placeProductivity.map((p) => [p.placeName, p.commitCount])
+    );
+    for (const g of groupPlaces(location.derived)) {
+      // Only away areas (clusters named after a region) — home places are the baseline.
+      if (g.places.length < 2) continue;
+      for (const p of g.places) {
+        const c = productivity.get(p.placeName) ?? 0;
+        if (c > 0 && (!stayFocus || c > stayFocus.commits)) {
+          stayFocus = {
+            area: g.name,
+            place: p.placeName,
+            commits: c,
+            from: ctx.from,
+            to: ctx.through,
+          };
+        }
+      }
+    }
+  }
+
   const commitAvg = average(units.map((u) => u.commits));
   const stepAvg = average(units.map((u) => u.steps));
   return {
     units,
+    stayFocus,
     annotations,
     averageLabel: {
       commits: `${ctx.periodType === "year" ? "월평균" : "하루 평균"} ${formatCount(commitAvg)}`,
@@ -257,4 +296,52 @@ export function average(values: (number | null)[]): number {
 
 function sum(values: (number | null)[]): number {
   return values.reduce<number>((s, v) => s + (v ?? 0), 0);
+}
+
+/** Two visit days this far apart (in days) still read as one stay. */
+const STAY_GAP_DAYS = 2;
+
+/**
+ * The longest run of period days with visits to the focus area (gaps up to
+ * {@link STAY_GAP_DAYS} bridged, since one overnight visit only carries its
+ * start day), as a lane-1 span annotation: `대전 체류 · 60계치킨 대전유성점에서
+ * 531커밋`. Null when the area was visited on fewer than two days.
+ */
+export function stayAnnotation(
+  units: FlowUnit[],
+  focus: StayFocus,
+  visitDays: string[]
+): FlowAnnotation | null {
+  const days = new Set(visitDays);
+  let best: { from: number; to: number; hits: number } | null = null;
+  let cur: { from: number; to: number; hits: number } | null = null;
+  units.forEach((u, i) => {
+    if (!days.has(u.key)) return;
+    if (cur && i - cur.to <= STAY_GAP_DAYS + 1) {
+      cur.to = i;
+      cur.hits += 1;
+    } else cur = { from: i, to: i, hits: 1 };
+    if (!best || cur.to - cur.from > best.to - best.from) best = { ...cur };
+  });
+  const run = best as { from: number; to: number; hits: number } | null;
+  if (!run || run.to === run.from) return null;
+  const commits = formatCount(focus.commits);
+  const spanCommits = units.slice(run.from, run.to + 1).reduce((s, u) => s + (u.commits ?? 0), 0);
+  return {
+    id: `commits.stay.${units[run.from].key}`,
+    from: run.from,
+    to: run.to,
+    lane: 1,
+    label: `${focus.area} 체류 · ${focus.place}에서 ${commits}커밋`,
+    shortLabel: `${focus.area} · ${commits}커밋`,
+    rows: [
+      { label: "지역", value: focus.area },
+      {
+        label: "기간",
+        value: `${formatMonthDay(units[run.from].key)}–${formatMonthDay(units[run.to].key)}`,
+      },
+      { label: `${focus.place} 커밋`, value: commits },
+      { label: "그동안 전체 커밋", value: formatCount(spanCommits) },
+    ],
+  };
 }

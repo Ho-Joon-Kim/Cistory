@@ -118,6 +118,9 @@ describe("time and format helpers", () => {
     expect(shortArea("서울 강남구 논현동 123-4")).toBe("강남구 논현동");
     expect(shortArea("Nonhyeon-dong, 06112, Gangnam-gu, Seoul")).toBe("Nonhyeon-dong, Gangnam-gu");
     expect(shortArea(null)).toBe("");
+    // Inside Korea a romanized fallback address is hidden, not shown in English.
+    expect(shortArea("Nonhyeon-dong, 06112, Gangnam-gu, Seoul", { korean: true })).toBe("");
+    expect(shortArea("서울 강남구 논현동 123-4", { korean: true })).toBe("강남구 논현동");
   });
 });
 
@@ -146,8 +149,10 @@ describe("clusterCommits", () => {
     ]);
     expect(rows[0].summary).toBe("검색이 더 빨라졌습니다.");
     expect(rows[0].summarized).toBe(2);
-    // Newest first inside the expander, the type split from the title.
-    expect(rows[0].commits[0]).toMatchObject({
+    // Oldest first inside the expander (it hangs under an ascending rail), the
+    // type split from the title.
+    expect(rows[0].commits.map((c) => c.time)).toEqual(["01:02", "01:05", "01:20"]);
+    expect(rows[0].commits[2]).toMatchObject({
       time: "01:20",
       hasSummary: false,
       meta: "perf(api) · c000000",
@@ -266,5 +271,82 @@ describe("buildDayModel", () => {
       { name: "집", duration: null },
     ]);
     expect(placeChain([])).toEqual([]);
+  });
+});
+
+describe("buildDayModel — QA fixes", () => {
+  const base = {
+    date: DATE,
+    locations: [],
+    commits: [],
+    transactions: [],
+    sleep: null,
+    recentSleeps: [],
+    workouts: [],
+  };
+
+  it("keeps the rail monotonic when a ride leaves during a stay", () => {
+    const model = buildDayModel({
+      ...base,
+      stayPoints: [stay("광주송정역", "19:30", "20:10"), stay("집", "22:00", "23:50")],
+      tracks: [track("t1", "20:06", "21:50", { startPlaceName: null, endPlaceName: null })],
+      transactions: [tx("1", "20:08", 3000)],
+    });
+    const times = model.rows.map((r) => r.start);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(model.rows.map((r) => `${r.kind}:${r.time}`)).toEqual([
+      "stay:19:30",
+      "ride:20:06",
+      "tx:20:08",
+      "stay:22:00",
+    ]);
+    // The payment still lights the stay it happened at on the map.
+    expect(model.rows.find((r) => r.kind === "tx")?.mapId).toBe("s0");
+    // Unnamed endpoints take the neighbouring stays' names.
+    expect(model.rides[0]).toMatchObject({ from: "광주송정역", to: "집" });
+  });
+
+  it("flags a mode whose speed is implausible instead of advertising it", () => {
+    const seg = (max: number) => ({
+      mode: "cycling",
+      startTime: at("10:00"),
+      endTime: at("10:30"),
+      distanceMeters: 7200,
+      durationSeconds: 1800,
+      avgSpeedKmh: 14,
+      maxSpeedKmh: max,
+      subwayLegs: [],
+    });
+    const model = buildDayModel({
+      ...base,
+      stayPoints: [],
+      tracks: [
+        track("t1", "10:00", "10:30", {
+          distanceMeters: 7200,
+          durationSeconds: 1800,
+          segments: [seg(155.8)] as unknown as TrackData["segments"],
+        }),
+      ],
+    });
+    expect(model.rides[0].flag?.label).toBe("수단 확인 필요");
+    expect(model.rides[0].flag?.label).not.toContain("km/h");
+  });
+
+  it("merges back-to-back visits to one place and splits distant deposits", () => {
+    const model = buildDayModel({
+      ...base,
+      stayPoints: [stay("카페다온", "10:00", "10:10"), stay("카페다온", "10:15", "11:37")],
+      tracks: [],
+      transactions: [
+        tx("a", "00:26", 1000, { bucket: "income", type: "deposit" }),
+        tx("b", "00:26", 2000, { bucket: "income", type: "deposit" }),
+        tx("c", "13:09", 3000, { bucket: "income", type: "deposit" }),
+      ],
+    });
+    expect(model.stays).toHaveLength(1);
+    expect(model.stays[0].range).toBe("10:00–11:37");
+    const income = model.rows.filter((r) => r.kind === "income");
+    expect(income.map((r) => r.time)).toEqual(["00:26", "13:09"]);
+    expect(income.map((r) => (r.kind === "income" ? r.note : ""))).toEqual(["", "입금"]);
   });
 });

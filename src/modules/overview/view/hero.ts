@@ -92,6 +92,8 @@ export interface BodyHero {
     peak: WeightPoint | null;
     axisFrom: string;
     axisTo: string;
+    /** Set when the period has no weigh-in: the figure is this earlier measurement. */
+    asOf: string | null;
   } | null;
   steps: {
     average: number;
@@ -505,7 +507,22 @@ function weightBlock(
     .map(([date, weight]) => ({ date, weight, inside: date >= ctx.from }));
   const inside = all.filter((p) => p.inside);
   const last = inside.at(-1);
-  if (!last) return null;
+  if (!last) {
+    // No weigh-in this period: show the latest earlier one, dated, with its trend.
+    const prior = all.at(-1);
+    if (!prior) return null;
+    const recent = all.slice(-8);
+    return {
+      value: prior.weight,
+      delta: null,
+      fact: null,
+      points: recent,
+      peak: null,
+      axisFrom: recent[0].date,
+      axisTo: ctx.to,
+      asOf: prior.date,
+    };
+  }
 
   const prev = history?.previous?.weight ?? null;
   let delta: HeroDelta | null = null;
@@ -614,6 +631,7 @@ function weightBlock(
     peak: peak && peak.weight - (low?.weight ?? peak.weight) >= 0.5 ? peak : null,
     axisFrom: all[0].date,
     axisTo: ctx.periodType === "year" ? last.date : ctx.to,
+    asOf: null,
   };
 }
 

@@ -24,7 +24,7 @@ import {
   useTracks,
 } from "@/modules/location/hooks";
 import { pickDayFact } from "../../day-facts";
-import { buildDayModel, dedupeNights, minuteOfDay, sleepForDay } from "../../day-model";
+import { buildDayModel, dedupeNights, minuteOfDay, routeLabel, sleepForDay } from "../../day-model";
 import { useDayCommits, useTransactionsForDate } from "../../hooks";
 import { DateNav } from "./DateNav";
 import { DayList } from "./DayList";
@@ -189,7 +189,7 @@ export function DayView({
         id: r.id,
         startIso: r.startIso,
         endIso: r.endIso,
-        label: `${r.mode} · ${r.from} → ${r.to}`,
+        label: [r.mode, routeLabel(r.from, r.to)].filter(Boolean).join(" · "),
       })),
     [model.rides]
   );
@@ -231,11 +231,11 @@ export function DayView({
     );
   const metaLine =
     meta.length > 0 ? (
-      <p className="m-0 overflow-hidden text-[13px] leading-5 text-ellipsis whitespace-nowrap text-ink-2">
+      <p className="m-0 flex min-w-0 flex-wrap text-[13px] leading-5 text-ink-2">
         <span className="sr-only">하루 요약: </span>
         {meta.map((m, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: positional meta items
-          <span key={i}>
+          <span key={i} className="whitespace-nowrap">
             {i > 0 ? (
               <span aria-hidden="true" className="mx-[7px] text-ink-3">
                 ·
@@ -398,7 +398,7 @@ export function DayView({
         stays={model.stays}
         rides={model.rides}
         selectedMapId={selectedMapId}
-        onSelect={selectFromList}
+        onSelect={selectFromMap}
         compact={!desktop}
       />
     ) : null;

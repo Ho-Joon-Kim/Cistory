@@ -4,14 +4,15 @@ import { ChevronDown } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { AiLine, FactTrigger, RowFlag, useEvidence } from "@/components/ds";
 import { cn } from "@/lib/utils";
-import type {
-  CommitClusterRow,
-  DayRow,
-  IncomeRow,
-  RideRow,
-  SleepRow,
-  StayRow,
-  TxRow,
+import {
+  type CommitClusterRow,
+  type DayRow,
+  type IncomeRow,
+  type RideRow,
+  routeLabel,
+  type SleepRow,
+  type StayRow,
+  type TxRow,
 } from "../../day-model";
 
 export interface DayListProps {
@@ -275,9 +276,11 @@ function RideBody({
         </span>
         <Chevron />
       </button>
-      <p className="m-0 mt-0.5 text-[13px] leading-5 text-ink-2">
-        {row.from} → {row.to}
-      </p>
+      {routeLabel(row.from, row.to) ? (
+        <p className="m-0 mt-0.5 text-[13px] leading-5 text-ink-2">
+          {routeLabel(row.from, row.to)}
+        </p>
+      ) : null}
       {flag.flag ? (
         <div className="mt-1.5">
           <Flag {...flag} />
@@ -412,7 +415,7 @@ function CommitBody({
                 ]}
                 title="이 묶음의 커밋"
               >
-                {`+${rest}건`}
+                {`외 ${rest}건`}
               </FactTrigger>
             </>
           ) : null}
@@ -443,7 +446,7 @@ function CommitBody({
                 )}
               </span>
               <span className="num text-xs whitespace-nowrap text-ink-3">{c.diff}</span>
-              <span className="col-span-2 col-start-2 truncate text-xs leading-[17px] text-ink-3">
+              <span className="col-span-2 col-start-2 text-xs leading-[17px] break-words text-ink-3">
                 {c.meta}
               </span>
             </div>

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChartAnnotation, Segmented, useEvidence } from "@/components/ds";
 import { formatCount, formatWon, formatWonCompact } from "@/lib/format";
+import { useStayDays } from "@/modules/overview/hooks";
 import type { FlowAnnotation, FlowMetric, FlowModel, FlowUnit } from "@/modules/overview/view/flow";
-import { average } from "@/modules/overview/view/flow";
+import { average, stayAnnotation } from "@/modules/overview/view/flow";
 import { useGrowClock } from "./useGrow";
 import { useMeasuredWidth } from "./useMeasuredWidth";
 
@@ -127,7 +128,18 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
   const avg =
     metric === "cash" ? null : average(units.filter((u) => !u.future).map((u) => value(u, metric)));
   const avgY = avg === null ? 0 : base - (avg / max) * g.plot;
-  const annotations = flow.annotations[metric] ?? [];
+  const stayDays = useStayDays(flow.stayFocus);
+  const stay = useMemo(
+    () => (flow.stayFocus ? stayAnnotation(units, flow.stayFocus, stayDays) : null),
+    [flow.stayFocus, units, stayDays]
+  );
+  const annotations = useMemo(() => {
+    const base = flow.annotations[metric] ?? [];
+    // The area span shares lane 1 with trip spans; a trip already covering it wins.
+    if (metric !== "commits" || !stay) return base;
+    const clash = base.some((a) => a.lane === 1 && a.from <= stay.to && a.to >= stay.from);
+    return clash ? base : [...base, stay];
+  }, [flow.annotations, metric, stay]);
   const tipWidth = width >= 700 ? 196 : 168;
 
   if (metrics.length === 0) return null;
@@ -187,6 +199,10 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                     key={u.key}
                     data-evidence={isActive ? evidence : undefined}
                     onMouseEnter={() => setHover(i)}
+                    onPointerUp={(e) => {
+                      // Touch has no hover: a tap shows (or hides) that day's values.
+                      if (e.pointerType !== "mouse") setHover((h) => (h === i ? null : i));
+                    }}
                   >
                     <rect
                       x={x}
@@ -269,7 +285,17 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                     stroke="var(--ink2)"
                     strokeDasharray="4 4"
                   />
-                  <text x="0" y={avgY} dy="-6" fontSize="11" fill="var(--ink2)">
+                  <text
+                    x="0"
+                    y={avgY}
+                    dy="-6"
+                    fontSize="11"
+                    fill="var(--ink2)"
+                    stroke="var(--bg)"
+                    strokeWidth={4}
+                    strokeLinejoin="round"
+                    paintOrder="stroke"
+                  >
                     {metric === "commits" ? flow.averageLabel.commits : flow.averageLabel.steps}
                   </text>
                 </g>
@@ -324,7 +350,7 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                 />
               );
             })}
-            {hover !== null && units[hover] ? (
+            {hover !== null && units[hover] && !isActive ? (
               <Tooltip
                 unit={units[hover]}
                 yearly={yearly}
