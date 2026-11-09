@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type ScrubbableEvent, scrubHealthData } from "./sentry-scrub";
+import { type ScrubbableEvent, scrubHealthData, scrubHealthSpan } from "./sentry-scrub";
 
 describe("scrubHealthData", () => {
   it("drops the body of a health fetch breadcrumb but keeps url/method/status", () => {
@@ -76,5 +76,54 @@ describe("scrubHealthData", () => {
     scrubHealthData(event);
     expect(event.breadcrumbs?.[0].data?.from).toBe("/");
     expect(event.extra?.count).toBe(3);
+  });
+});
+
+describe("scrubHealthSpan (Sentry v11 streamed spans)", () => {
+  it("strips the OAuth grant and drops query/body/auth attributes on a health segment span", () => {
+    const span = {
+      name: "GET /api/fitbit/callback",
+      is_segment: true,
+      attributes: {
+        "url.full": "https://cistory.hojoon.dev/api/fitbit/callback?code=grant-secret&state=s",
+        "url.query": "code=grant-secret&state=s",
+        "http.request.method": "GET",
+        "http.request.body.data": '{"bpm":62}',
+        "http.request.header.authorization": ["Bearer tok"],
+        "http.request.header.cookie": ["session=abc"],
+        "http.request.header.referer": [
+          "https://health.googleapis.com/v4/users/me?pageToken=grant-secret",
+        ],
+      },
+    };
+    const result = scrubHealthSpan(span);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("grant-secret");
+    expect(serialized).not.toContain("bpm");
+    expect(serialized).not.toContain("Bearer");
+    expect(serialized).not.toContain("session=abc");
+    expect(result.attributes["url.full"]).toBe("https://cistory.hojoon.dev/api/fitbit/callback");
+    expect(result.attributes["http.request.method"]).toBe("GET");
+    // The input is not mutated.
+    expect(span.attributes["url.query"]).toBe("code=grant-secret&state=s");
+  });
+
+  it("detects health URLs inside { value } attribute objects and the span name", () => {
+    const result = scrubHealthSpan({
+      name: "GET https://health.googleapis.com/v4/x?pageToken=t1",
+      attributes: { "http.url": { value: "https://health.googleapis.com/v4/x?pageToken=t2" } },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/t1|t2/);
+  });
+
+  it("replaces health-payload attribute keys on any span and leaves the rest untouched", () => {
+    const result = scrubHealthSpan({
+      name: "GET /api/overview",
+      attributes: { "url.query": "periodType=week", "app.rawJson": '{"steps":1}' },
+    });
+    expect(result.attributes).toEqual({
+      "url.query": "periodType=week",
+      "app.rawJson": "[scrubbed:health]",
+    });
   });
 });
