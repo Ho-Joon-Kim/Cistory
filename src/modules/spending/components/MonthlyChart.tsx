@@ -258,7 +258,16 @@ export function MonthlyChart({
               disabled={selIndex <= 0}
               onClick={() => onSelect(bars[selIndex - 1].key)}
             />
-            <span aria-live="polite">{title(selected)}</span>
+            {/* One line between the arrows: the day count is secondary and gives
+                way first on the narrowest phones (the category panel repeats it). */}
+            <span aria-live="polite" className="whitespace-nowrap">
+              {selected.year}년 {selected.label}
+              {selected.isCurrent ? (
+                <span className="num ml-1 text-xs font-normal text-ink-3 max-[359px]:sr-only">
+                  {today}일째
+                </span>
+              ) : null}
+            </span>
             <MonthStep
               dir={1}
               disabled={selIndex < 0 || selIndex >= bars.length - 1}

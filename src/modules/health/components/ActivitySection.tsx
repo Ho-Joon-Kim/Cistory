@@ -244,8 +244,14 @@ function Bars({
                           : hover === i
                             ? "var(--ink)"
                             : "var(--ink3)",
-                  boxShadow: partial && v != null ? "inset 0 0 0 1.5px var(--ink3)" : undefined,
-                  opacity: on === false ? 0.3 : 1,
+                  boxShadow:
+                    partial && v != null
+                      ? `inset 0 0 0 1.5px var(${hover === i ? "--ink" : "--ink3"})`
+                      : undefined,
+                  // Hovering a day recedes the others so the hovered bar stands
+                  // out — also for the hatched partial day, which keeps its fill.
+                  opacity:
+                    on === false ? 0.3 : on == null && hover != null && hover !== i ? 0.4 : 1,
                 }}
               />
             </span>

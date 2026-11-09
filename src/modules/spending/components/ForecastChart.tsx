@@ -5,6 +5,8 @@ import { niceTicks, tickLabel } from "../view-model";
 import { useElementWidth } from "./useElementWidth";
 
 const H = 160;
+/** Right gutter for the y tick labels ("200만" ≈ 30px at 11px) plus a gap from the ring. */
+const LABEL_GUTTER = 44;
 
 /**
  * Month-to-date cumulative spending (solid) and the month-end forecast: a
@@ -34,8 +36,9 @@ export function ForecastChart({
   const now = actual[actual.length - 1]?.v ?? 0;
   const { ticks, top } = niceTicks(Math.max(upper, predicted, now));
   const W = Math.max(width, 1);
-  // Leave room at the right edge so the month-end ring (r4 + stroke) isn't clipped.
-  const PW = Math.max(W - 6, 1);
+  // The plot stops short of a right gutter that holds the tick labels, so the
+  // month-end ring (r4 + stroke) never sits on "200만" and is never clipped.
+  const PW = Math.max(W - LABEL_GUTTER, 1);
   const x = (day: number) => ((day - 1) / Math.max(daysInMonth - 1, 1)) * PW;
   const y = (v: number) => H - (v / top) * H;
   const actualPath = actual
@@ -122,7 +125,7 @@ export function ForecastChart({
               {today}일
             </text>
           ) : null}
-          <text x={W} y={H} dy={16} textAnchor="end" fontSize={11} fill="var(--ink3)">
+          <text x={PW} y={H} dy={16} textAnchor="end" fontSize={11} fill="var(--ink3)">
             {daysInMonth}일
           </text>
         </svg>

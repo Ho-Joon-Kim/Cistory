@@ -277,7 +277,7 @@ function RowDetail({
 }) {
   if (row.kind === "refunds") {
     return (
-      <div id={id} className="ds-reveal flex flex-col gap-2.5 pb-3.5 pl-10 sm:pl-[96px]">
+      <div id={id} className="ds-reveal flex flex-col gap-2.5 pb-3.5 pl-10 sm:pl-[120px]">
         <p className="ai-voice m-0">
           {refundFlag(ctx, { count: row.items.length, total: row.total }).reason}
         </p>
@@ -297,7 +297,7 @@ function RowDetail({
     .join(" · ")
     .replace(/\s*\n\s*/g, " · ");
   return (
-    <div id={id} className="ds-reveal flex flex-col gap-3 pb-3.5 pl-10 sm:pl-[96px]">
+    <div id={id} className="ds-reveal flex flex-col gap-3 pb-3.5 pl-10 sm:pl-[120px]">
       {flag ? <p className="ai-voice m-0">{flag.reason}</p> : null}
       <KeyValues
         rows={[
