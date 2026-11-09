@@ -39,6 +39,11 @@ export interface ForecastResult {
   upperBound: number;
   lowerBound: number;
   dailyPredictions: DailyCumulativePrediction[];
+  /** Sum of this month's one-off charges, added back once instead of extrapolated. */
+  oneOffTotal: number;
+  oneOffCount: number;
+  /** A single charge above this is a one-off; null without history. */
+  oneOffThreshold: number | null;
 }
 
 // ============ API Response Types ============
@@ -53,7 +58,10 @@ export interface CumulativeDataPoint {
 }
 
 export interface MonthlyBarDataPoint {
+  /** "MM" */
   month: string;
+  /** "YYYY-MM" — `month` alone repeats across a 13-month window. */
+  key: string;
   total: number;
   isCurrent: boolean;
   predicted?: number;
@@ -70,5 +78,9 @@ export interface SpendingTrendResponse {
     todayDayNumber: number;
     daysInMonth: number;
     currentMonthActualTotal: number;
+    /** One-off charges this month (see forecastMonthEnd); 0 when none. */
+    oneOffTotal: number;
+    oneOffCount: number;
+    oneOffThreshold: number | null;
   };
 }

@@ -16,11 +16,18 @@ const trend = {
   monthlyBars: [
     {
       month: "07",
+      key: "2026-07",
       total: 1000000,
       isCurrent: false,
-      categories: { food: 600000, shopping: 400000 },
+      categories: { food: 300000, shopping: 300000, health: 400000 },
     },
-    { month: "08", total: 500000, isCurrent: true, categories: { food: 300000, shopping: 200000 } },
+    {
+      month: "08",
+      key: "2026-08",
+      total: 500000,
+      isCurrent: true,
+      categories: { food: 300000, shopping: 200000 },
+    },
   ],
   forecast: {
     predictedTotal: 1200000,
@@ -29,6 +36,9 @@ const trend = {
     todayDayNumber: 15,
     daysInMonth: 30,
     currentMonthActualTotal: 600000,
+    oneOffTotal: 0,
+    oneOffCount: 0,
+    oneOffThreshold: 200000,
   },
 };
 async function fixtures(page: Page) {
@@ -79,8 +89,19 @@ async function fixtures(page: Page) {
             withdrawalCount: 10,
             depositCount: 0,
             categoryBreakdown,
+            flow: {
+              refundTotal: 0,
+              refundCount: 0,
+              refundTopMerchant: null,
+              inflowTotal: 0,
+              inflowCount: 0,
+              inflowTopAccount: null,
+            },
           },
         };
+        break;
+      case "/api/spending/notifications":
+        body = { logs: [], total: 0, hasMore: false };
         break;
       case "/api/timeline":
         body = {
@@ -173,43 +194,37 @@ test.beforeEach(async ({ page }) => {
   await fixtures(page);
 });
 
-test("spending series and stacked amounts survive Recharts migration", async ({
-  page,
-}, testInfo) => {
+test("spending month bars and forecast keep real geometry", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/spending");
-  await expect(page.locator(".recharts-surface")).toHaveCount(3);
-  await expect.poll(() => page.locator(".recharts-line-curve").count()).toBeGreaterThanOrEqual(4);
+  const july = page.locator('[data-bar="2026-07"]');
+  const august = page.locator('[data-bar="2026-08"]');
+  await expect(july).toBeVisible();
+  const height = (el: typeof july) =>
+    el.evaluate((node) => (node as HTMLElement).getBoundingClientRect().height);
+  // Bars grow in on mount; wait for the animation to settle.
+  await expect.poll(() => height(july)).toBeGreaterThan(50);
+  // Totals 1,000,000 vs 500,000 → 2:1.
+  await expect.poll(async () => (await height(july)) / (await height(august))).toBeCloseTo(2, 1);
+  // Inside July the rest (600,000) and 의료·건강 (400,000) parts keep their 3:2 ratio.
   await expect
-    .poll(() =>
-      page
-        .locator(".recharts-bar-rectangle path")
-        .evaluateAll((els) =>
-          Math.max(...els.map((el) => (el as SVGGraphicsElement).getBBox().height))
-        )
-    )
-    .toBeGreaterThan(50);
-  // Ratio of equal-category bars reflects the fixture's exact 2:1 spending ratio.
-  await expect
-    .poll(() =>
-      page
-        .locator(".recharts-wrapper")
-        .filter({ hasText: "7월" })
-        .locator(".recharts-bar")
-        .first()
-        .locator(".recharts-bar-rectangle path")
-        .evaluateAll((els) =>
-          els.length === 2
-            ? (els[0] as SVGGraphicsElement).getBBox().height /
-              (els[1] as SVGGraphicsElement).getBBox().height
-            : 0
-        )
-    )
-    .toBeCloseTo(2, 1);
-  for (const curve of await page.locator(".recharts-line-curve").all())
+    .poll(async () => {
+      const rest = await height(july.locator('[data-part="rest"]'));
+      const split = await height(july.locator('[data-part="split"]'));
+      return split > 0 ? rest / split : 0;
+    })
+    .toBeCloseTo(1.5, 1);
+  // A bar is a toggle that selects its month for the category panel.
+  await page.getByRole("button", { name: /2026년 7월/ }).click();
+  await expect(page.getByRole("heading", { name: "7월 상위 카테고리" })).toBeVisible();
+
+  await page.getByRole("button", { name: "월말 예상" }).filter({ visible: true }).click();
+  const forecast = page.getByRole("img", { name: /누적 지출과 월말 예상/ });
+  await expect(forecast).toBeVisible();
+  for (const path of await forecast.locator("path").all())
     await expect
-      .poll(() => curve.evaluate((el) => (el as SVGGraphicsElement).getBBox().width))
+      .poll(() => path.evaluate((el) => (el as SVGGraphicsElement).getBBox().width))
       .toBeGreaterThan(30);
   await page.screenshot({ path: testInfo.outputPath("spending.png"), fullPage: true });
   expect(errors).toEqual([]);

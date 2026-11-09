@@ -39,6 +39,21 @@ describe("forecastMonthEnd", () => {
     expect(result.predictedTotal).toBeLessThan(3_000_000);
     expect(result.lowerBound).toBeGreaterThanOrEqual(2_083_890);
     expect(result.dailyPredictions.at(-1)?.mid).toBe(result.predictedTotal);
+    expect(result.oneOffTotal).toBe(1_800_000);
+    expect(result.oneOffCount).toBe(1);
+    expect(result.oneOffThreshold).toBe(oneOffThreshold(history));
+  });
+
+  it("reports the one-off split on the last day of the month too", () => {
+    const result = forecastMonthEnd({
+      monthlyHistory: history,
+      currentMonthDays,
+      currentMonthAmounts: [1_800_000, 5_940],
+      daysInMonth: 30,
+      todayDayNumber: 30,
+    });
+    expect(result.predictedTotal).toBe(2_083_890);
+    expect(result.oneOffTotal).toBe(1_800_000);
   });
 
   it("extrapolates everything when no transaction crosses the threshold", () => {
@@ -61,6 +76,8 @@ describe("forecastMonthEnd", () => {
       todayDayNumber: 10,
     });
     expect(result.predictedTotal).toBe(3_000_000);
+    expect(result.oneOffTotal).toBe(0);
+    expect(result.oneOffThreshold).toBeNull();
   });
 });
 

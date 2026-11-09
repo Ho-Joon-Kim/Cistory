@@ -26,6 +26,12 @@ export function forecastMonthEnd(input: ForecastInput): ForecastResult {
 
   const currentTotal = currentMonthDays.reduce((s, d) => s + d.total, 0);
 
+  const threshold = oneOffThreshold(monthlyHistory);
+  const oneOffs =
+    threshold === null ? [] : (input.currentMonthAmounts ?? []).filter((a) => a > threshold);
+  const oneOffTotal = oneOffs.reduce((s, amount) => s + amount, 0);
+  const oneOff = { oneOffTotal, oneOffCount: oneOffs.length, oneOffThreshold: threshold };
+
   // Month end — the answer is the actual number.
   if (todayDayNumber >= daysInMonth) {
     return {
@@ -33,6 +39,7 @@ export function forecastMonthEnd(input: ForecastInput): ForecastResult {
       upperBound: currentTotal,
       lowerBound: currentTotal,
       dailyPredictions: [],
+      ...oneOff,
     };
   }
 
@@ -43,16 +50,10 @@ export function forecastMonthEnd(input: ForecastInput): ForecastResult {
       upperBound: 0,
       lowerBound: 0,
       dailyPredictions: buildDailyPredictions(0, 0, 0, 0, todayDayNumber, daysInMonth),
+      ...oneOff,
     };
   }
 
-  const threshold = oneOffThreshold(monthlyHistory);
-  const oneOffTotal =
-    threshold === null
-      ? 0
-      : (input.currentMonthAmounts ?? [])
-          .filter((amount) => amount > threshold)
-          .reduce((s, amount) => s + amount, 0);
   const runRateTotal = Math.max(currentTotal - oneOffTotal, 0);
 
   const ratio = daysInMonth / Math.max(todayDayNumber, 1);
@@ -78,6 +79,7 @@ export function forecastMonthEnd(input: ForecastInput): ForecastResult {
       todayDayNumber,
       daysInMonth
     ),
+    ...oneOff,
   };
 }
 
