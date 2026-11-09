@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { accountRoles, transactions, users } from "@/db/schema";
-import { localDaySql } from "@/db/sql";
+import { localDaySql, timestampParam } from "@/db/sql";
 import { bucketSql } from "@/modules/spending/classify";
 import type { PeriodAggregateInput, SpendingAggregate } from "../types";
 import type { LocationReadExecutor } from "./location";
@@ -28,8 +28,8 @@ export async function aggregateSpending(
       ON ${accountRoles.userId} = ${transactions.userId}
       AND ${accountRoles.accountName} = ${transactions.accountName}
     WHERE ${transactions.userId} = ${input.userId}
-      AND ${transactions.transactedAt} >= ${input.from}
-      AND ${transactions.transactedAt} < ${input.toExclusive}
+      AND ${transactions.transactedAt} >= ${timestampParam(transactions.transactedAt, input.from)}
+      AND ${transactions.transactedAt} < ${timestampParam(transactions.transactedAt, input.toExclusive)}
     GROUP BY 1, 2, 3, 4
     ORDER BY 1, 2, 3, 4
   `);

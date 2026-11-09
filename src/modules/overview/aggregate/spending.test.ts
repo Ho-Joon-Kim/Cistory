@@ -100,7 +100,11 @@ describe("aggregateSpending", () => {
     expect(aggregateQuery.sql).toContain("account_roles");
     expect(aggregateQuery.sql).toContain("Asia/Seoul");
     expect(aggregateQuery.params).toContain("홍길동");
-    expect(aggregateQuery.params).toContainEqual(input.from);
-    expect(aggregateQuery.params).toContainEqual(input.toExclusive);
+    // Bound as UTC wall time (like transacted_at is stored), never as a bare
+    // Date that node-postgres would serialize in KST and Postgres would then
+    // read 9 hours late against the timestamp-without-time-zone column.
+    expect(aggregateQuery.params).not.toContainEqual(input.from);
+    expect(aggregateQuery.params).toContain("2026-07-19T15:00:00.000Z");
+    expect(aggregateQuery.params).toContain("2026-07-26T15:00:00.000Z");
   });
 });

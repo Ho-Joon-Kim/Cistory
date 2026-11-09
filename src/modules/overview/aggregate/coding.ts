@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { codingDailyStats, codingSessions, commits } from "@/db/schema";
-import { localDaySql } from "@/db/sql";
+import { localDaySql, timestampParam } from "@/db/sql";
 import { safeJsonParse, toLocalDateString } from "@/lib/utils";
 import type { CodingAggregate, NamedSeconds, PeriodAggregateInput } from "../types";
 import type { LocationReadExecutor } from "./location";
@@ -42,6 +42,12 @@ export async function aggregateCoding(
   const fromDay = toLocalDateString(input.from);
   const toDay = toLocalDateString(input.toExclusive);
   const localCommitTimestamp = sql`(${commits.committedAt} at time zone 'UTC' at time zone 'Asia/Seoul')`;
+  // Bare Dates would be serialized by node-postgres in the process timezone and
+  // the offset dropped against these UTC-wall columns, shifting the window 9h.
+  const commitFrom = timestampParam(commits.committedAt, input.from);
+  const commitTo = timestampParam(commits.committedAt, input.toExclusive);
+  const sessionFrom = timestampParam(codingSessions.startedAt, input.from);
+  const sessionTo = timestampParam(codingSessions.startedAt, input.toExclusive);
   const [commitResult, codingResult, sessionResult] = await Promise.all([
     executor.execute(sql`
       SELECT
@@ -67,8 +73,8 @@ export async function aggregateCoding(
         MAX(${commits.committedAt}) AS "lastCommit"
       FROM ${commits}
       WHERE ${commits.userId} = ${input.userId}
-        AND ${commits.committedAt} >= ${input.from}
-        AND ${commits.committedAt} < ${input.toExclusive}
+        AND ${commits.committedAt} >= ${commitFrom}
+        AND ${commits.committedAt} < ${commitTo}
       GROUP BY 1, 2, 3, 4, 5
       ORDER BY 1, 2, 3, 4, 5
     `),
@@ -89,8 +95,8 @@ export async function aggregateCoding(
         ${codingSessions.durationSeconds} AS "durationSeconds"
       FROM ${codingSessions}
       WHERE ${codingSessions.userId} = ${input.userId}
-        AND ${codingSessions.startedAt} >= ${input.from}
-        AND ${codingSessions.startedAt} < ${input.toExclusive}
+        AND ${codingSessions.startedAt} >= ${sessionFrom}
+        AND ${codingSessions.startedAt} < ${sessionTo}
         AND ${codingSessions.durationSeconds} >= 7200
       ORDER BY ${codingSessions.startedAt}, ${codingSessions.project}
     `),
