@@ -44,18 +44,18 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@sentry/nextjs": "^11.11.0",
     "@tanstack/react-query": "^5.102.8",
-    "better-auth": "^1.7.3",
+    "better-auth": "^1.7.18",
     "busboy": "^1.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.4",
     "fast-xml-parser": "^5.10.1",
     "lucide-react": "1.31.0",
     "mapbox-gl": "^3.28.1",
-    "next": "16.3.4",
+    "next": "16.4.5",
     "next-themes": "^0.4.6",
     "node-cron": "^4.6.0",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-is": "^19.2.8",
@@ -63,9 +63,9 @@
     "recharts": "3.10.1",
     "sonner": "^2.0.8",
     "stream-chain": "^4.2.5",
-    "stream-json": "^3.5.0",
+    "stream-json": "^3.8.0",
     "tailwind-merge": "3.6.0",
-    "undici": "^8.10.2",
+    "undici": "^8.12.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -79,11 +79,14 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "dotenv": "^18.0.10",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "^0.31.11",
     "tailwindcss": "4.3.3",
     "tsx": "4.23.13",
     "typescript": "^7",
     "vite": "^8.3.7",
     "vitest": "^5.1.0"
+  },
+  "resolutions": {
+    "@esbuild-kit/core-utils/esbuild": "^0.25.12"
   }
 }
