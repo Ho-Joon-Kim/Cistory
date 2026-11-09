@@ -8,7 +8,7 @@ const { generateTextMock, getCommitDiffMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/adapters/ai/claude", () => ({
-  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5" },
+  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5-5" },
   createClaudeAdapter: vi.fn(() => ({ generateText: generateTextMock })),
 }));
 

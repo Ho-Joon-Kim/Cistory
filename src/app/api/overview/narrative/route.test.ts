@@ -14,7 +14,7 @@ vi.mock("@/lib/auth-helpers", () => ({ getAuthenticatedUser: mocks.getAuthentica
 vi.mock("@/lib/api-auth", () => ({ checkSameOrigin: mocks.checkSameOrigin }));
 vi.mock("@/lib/adapters/ai/claude", () => ({
   createClaudeAdapter: mocks.createClaudeAdapter,
-  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5", NARRATIVE: "claude-opus-5" },
+  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5-5", NARRATIVE: "claude-opus-5-5" },
 }));
 vi.mock("@/modules/overview/narrative", () => ({
   createDatabaseNarrativeStore: vi.fn(() => ({})),

@@ -5,7 +5,7 @@ const { generateTextMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/adapters/ai/claude", () => ({
-  CLAUDE_MODELS: { NARRATIVE: "claude-opus-5" },
+  CLAUDE_MODELS: { NARRATIVE: "claude-opus-5-5" },
   createClaudeAdapter: vi.fn(() => ({ generateText: generateTextMock })),
 }));
 

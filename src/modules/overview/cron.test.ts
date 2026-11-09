@@ -22,7 +22,7 @@ vi.mock("./narrative", () => ({
 }));
 vi.mock("@/lib/adapters/ai/claude", () => ({
   createClaudeAdapter: vi.fn(),
-  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5", NARRATIVE: "claude-opus-5" },
+  CLAUDE_MODELS: { COMMIT_SUMMARY: "claude-sonnet-5-5", NARRATIVE: "claude-opus-5-5" },
 }));
 
 describe("overview cron", () => {
