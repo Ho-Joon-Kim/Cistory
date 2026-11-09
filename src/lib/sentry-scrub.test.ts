@@ -173,4 +173,28 @@ describe("scrubHealthSpan (Sentry v11 streamed spans)", () => {
       "app.rawJson": "[scrubbed:health]",
     });
   });
+
+  it("replaces ECG and irregular-rhythm attribute keys on streamed spans", () => {
+    const result = scrubHealthSpan({
+      name: "health.sync",
+      attributes: {
+        "app.electrocardiogram": "{}",
+        "app.waveformSamples": "1,2",
+        "app.resultClassification": "ATRIAL_FIBRILLATION",
+        "app.irregularRhythmNotification": "{}",
+        "app.alertWindows": "[]",
+        "app.heartBeats": "[]",
+        "app.metric": "ecg",
+      },
+    });
+    expect(result.attributes).toEqual({
+      "app.electrocardiogram": "[scrubbed:health]",
+      "app.waveformSamples": "[scrubbed:health]",
+      "app.resultClassification": "[scrubbed:health]",
+      "app.irregularRhythmNotification": "[scrubbed:health]",
+      "app.alertWindows": "[scrubbed:health]",
+      "app.heartBeats": "[scrubbed:health]",
+      "app.metric": "ecg",
+    });
+  });
 });
