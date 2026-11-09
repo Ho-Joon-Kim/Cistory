@@ -4,7 +4,7 @@ GitHub 커밋, 코딩 시간, 위치, 소비, 자산과 건강 기록을 모아 
 
 ## 로컬 개발
 
-Node **24.20.0** (`.node-version`)과 Yarn **4.5.0**을 사용합니다. Docker와 Jenkins 이미지도 같은 Node 버전으로 고정합니다.
+Node **24.22.2** (`.node-version`)과 Yarn **4.5.0**을 사용합니다. Docker와 Jenkins 이미지도 같은 Node 버전으로 고정합니다.
 
 ```sh
 corepack enable
