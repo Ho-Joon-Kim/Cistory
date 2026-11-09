@@ -384,3 +384,54 @@ export async function saveTargetAllocations(
   if (!res.ok) return { ok: false, error: data.error ?? "저장 실패" };
   return { ok: true };
 }
+
+export interface AccountTargets {
+  targets: TargetAllocation[];
+  updatedAt: string | null;
+}
+
+async function fetchTargets(ids: string[], signal?: AbortSignal) {
+  const entries = await Promise.all(
+    ids.map(async (id) => {
+      const res = await fetch(`/api/portfolio/accounts/${id}/targets`, { signal });
+      if (!res.ok) return [id, { targets: [], updatedAt: null }] as const;
+      const data = await res.json();
+      return [
+        id,
+        { targets: data.targets ?? [], updatedAt: data.updatedAt ?? null } as AccountTargets,
+      ] as const;
+    })
+  );
+  return Object.fromEntries(entries) as Record<string, AccountTargets>;
+}
+
+/** Target allocations for several accounts at once (keyed by account id). */
+export function useTargetsByAccount(accountIds: string[]) {
+  const key = accountIds.join(",");
+  const [byAccount, setByAccount] = useState<Record<string, AccountTargets>>({});
+
+  useEffect(() => {
+    const ids = key ? key.split(",") : [];
+    if (ids.length === 0) {
+      setByAccount({});
+      return;
+    }
+    const ctrl = new AbortController();
+    fetchTargets(ids, ctrl.signal)
+      .then((next) => {
+        if (!ctrl.signal.aborted) setByAccount(next);
+      })
+      .catch(() => undefined);
+    return () => ctrl.abort();
+  }, [key]);
+
+  const refresh = useCallback(() => {
+    const ids = key ? key.split(",") : [];
+    if (ids.length === 0) return;
+    fetchTargets(ids)
+      .then(setByAccount)
+      .catch(() => undefined);
+  }, [key]);
+
+  return { byAccount, refresh };
+}
