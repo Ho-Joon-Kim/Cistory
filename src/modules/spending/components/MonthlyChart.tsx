@@ -24,6 +24,40 @@ const PLOT = "h-[160px] sm:h-[200px]";
  * rest) with the past-months average as a dashed line. A bar is a toggle that
  * selects the month for the category panel; hovering one shows its split.
  */
+function MonthStep({
+  dir,
+  disabled,
+  onClick,
+}: {
+  dir: -1 | 1;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={dir < 0 ? "이전 달" : "다음 달"}
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-[9px] border-0 bg-transparent text-ink-2 transition-[scale,background-color] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-brand active:scale-[.96] disabled:cursor-default disabled:text-ink-3 disabled:opacity-40"
+    >
+      <svg
+        aria-hidden="true"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d={dir < 0 ? "M15 18l-6-6 6-6" : "M9 18l6-6-6-6"} />
+      </svg>
+    </button>
+  );
+}
+
 export function MonthlyChart({
   bars,
   average,
@@ -50,6 +84,7 @@ export function MonthlyChart({
   const center = (i: number) => `${((i + 0.5) / n) * 100}%`;
   const title = (b: MonthBar) => `${b.year}년 ${b.label}${b.isCurrent ? ` (${today}일째)` : ""}`;
   const selected = bars.find((b) => b.key === selectedKey) ?? bars[bars.length - 1];
+  const selIndex = selected ? bars.indexOf(selected) : -1;
   const tip = hover === null ? null : bars[hover];
 
   return (
@@ -215,8 +250,22 @@ export function MonthlyChart({
 
       {selected ? (
         <dl className="m-0 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-y border-line py-3 sm:hidden">
-          <dt className="text-sm font-semibold">{title(selected)}</dt>
-          <dd className="num m-0 text-right text-[15px] font-medium">
+          <dt className="-my-2 -ml-2.5 flex items-center text-sm font-semibold">
+            {/* Phones: the month columns are ~30–36px wide, so give month
+                selection a 44px stepper as well. */}
+            <MonthStep
+              dir={-1}
+              disabled={selIndex <= 0}
+              onClick={() => onSelect(bars[selIndex - 1].key)}
+            />
+            <span aria-live="polite">{title(selected)}</span>
+            <MonthStep
+              dir={1}
+              disabled={selIndex < 0 || selIndex >= bars.length - 1}
+              onClick={() => onSelect(bars[selIndex + 1].key)}
+            />
+          </dt>
+          <dd className="num m-0 self-center text-right text-[15px] font-medium">
             {formatWon(selected.total)}
           </dd>
           <dt className="inline-flex items-center gap-1.5 text-xs text-ink-3">

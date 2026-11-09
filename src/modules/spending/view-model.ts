@@ -365,7 +365,7 @@ export function monthMaxCharge(
 }
 
 export function rowFlag(tx: TransactionItem, ctx: FlagContext): RowFlagInfo | null {
-  if (tx.isRefund) return refundFlag(ctx);
+  if (tx.isRefund) return refundFlag(ctx, { count: 1, total: tx.amount });
   if (isOneOff(tx, ctx.oneOffThreshold) && ctx.monthTotal > 0) {
     const share = tx.amount / ctx.monthTotal;
     const times = ctx.monthRest > 0 ? (tx.amount / ctx.monthRest).toFixed(1) : null;
@@ -389,7 +389,26 @@ export function rowFlag(tx: TransactionItem, ctx: FlagContext): RowFlagInfo | nu
   return null;
 }
 
-export function refundFlag(ctx: FlagContext): RowFlagInfo {
+/**
+ * Why a refund row is subtracted. With `scope` (a ledger row's own refunds) the
+ * sentence is about that row and names the period total separately, so a day
+ * row never reads like it holds the whole period's refunds.
+ */
+export function refundFlag(
+  ctx: FlagContext,
+  scope?: { count: number; total: number }
+): RowFlagInfo {
+  if (scope) {
+    const net = formatWon(Math.max(0, ctx.spendTotal - ctx.refundTotal));
+    const period =
+      ctx.refundCount > scope.count
+        ? ` 이 기간 환불은 모두 ${ctx.refundCount}건 ${formatWon(ctx.refundTotal)}, 순지출은 ${net}이에요.`
+        : ` 이 기간 순지출은 ${net}이에요.`;
+    return {
+      label: "순지출에서 차감",
+      reason: `이 환불 ${scope.count}건 ${formatWon(scope.total)}은 지출에서 빼 순지출로 계산해요.${period}`,
+    };
+  }
   return {
     label: "순지출에서 차감",
     reason: `환불 ${ctx.refundCount}건 ${formatWon(ctx.refundTotal)}은 지출 ${formatWon(
@@ -655,4 +674,19 @@ export function periodRange(period: LedgerPeriod, today: string): { from: string
     default:
       return { from: monthStart(today, 0), to: today };
   }
+}
+
+// ── raw notifications ────────────────────────────────────────────────────────
+
+/**
+ * Display-only: Toss titles carry pictographs ("📈 …") that clash with the
+ * type. Strips emoji (and their joiners/variation selectors) and tidies spaces;
+ * the stored notification is untouched.
+ */
+export function displayNotificationTitle(title: string | null | undefined): string {
+  if (!title) return "";
+  return title
+    .replace(/\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{FE0F}|\u{200D}|\u{20E3}/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }

@@ -5,6 +5,7 @@ import { toKstCalendarDate } from "@/lib/date-key";
 import { formatDateTime, formatDay, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { NotificationLogItem } from "../hooks";
+import { displayNotificationTitle } from "../view-model";
 import { ActionButton } from "./parts";
 
 function groupByDay(logs: NotificationLogItem[]) {
@@ -39,7 +40,9 @@ function LogRow({
       >
         <span className="num hidden text-[13px] text-ink-3 sm:block">{formatTime(at)}</span>
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-semibold">{log.title || "(제목 없음)"}</span>
+          <span className="truncate text-sm font-semibold">
+            {displayNotificationTitle(log.title) || "(제목 없음)"}
+          </span>
           <span className="truncate text-xs leading-4 text-ink-3">
             <span className="sm:hidden">{formatTime(at)} · </span>
             {log.text || "(내용 없음)"}

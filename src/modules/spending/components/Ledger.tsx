@@ -202,7 +202,7 @@ function RowButton({
         <LedgerMark kind="refund" />
         <span className="flex min-w-0 flex-col">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-semibold">
+            <span className={cn("text-sm font-semibold", open ? "break-words" : "truncate")}>
               {row.merchant} 환불 {row.items.length}건
             </span>
             <Flag label={refundFlag(ctx).label} />
@@ -240,7 +240,7 @@ function RowButton({
       <Mark tx={tx} />
       <span className="flex min-w-0 flex-col">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-semibold">
+          <span className={cn("text-sm font-semibold", open ? "break-words" : "truncate")}>
             {tx.isRefund ? `${tx.merchant.split("_")[0]} 환불` : tx.merchant}
           </span>
           {flag ? <Flag label={flag.label} /> : null}
@@ -278,7 +278,9 @@ function RowDetail({
   if (row.kind === "refunds") {
     return (
       <div id={id} className="ds-reveal flex flex-col gap-2.5 pb-3.5 pl-10 sm:pl-[96px]">
-        <p className="ai-voice m-0">{refundFlag(ctx).reason}</p>
+        <p className="ai-voice m-0">
+          {refundFlag(ctx, { count: row.items.length, total: row.total }).reason}
+        </p>
         <KeyValues
           rows={row.items.map((r) => ({
             k: txTime(r),

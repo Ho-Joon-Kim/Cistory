@@ -34,7 +34,9 @@ export function ForecastChart({
   const now = actual[actual.length - 1]?.v ?? 0;
   const { ticks, top } = niceTicks(Math.max(upper, predicted, now));
   const W = Math.max(width, 1);
-  const x = (day: number) => ((day - 1) / Math.max(daysInMonth - 1, 1)) * W;
+  // Leave room at the right edge so the month-end ring (r4 + stroke) isn't clipped.
+  const PW = Math.max(W - 6, 1);
+  const x = (day: number) => ((day - 1) / Math.max(daysInMonth - 1, 1)) * PW;
   const y = (v: number) => H - (v / top) * H;
   const actualPath = actual
     .map((p, i) => `${i ? "L" : "M"}${x(p.day).toFixed(1)} ${y(p.v).toFixed(1)}`)
@@ -54,19 +56,7 @@ export function ForecastChart({
           aria-label={`${monthLabel} 누적 지출과 월말 예상`}
         >
           {ticks.map((t) => (
-            <g key={t}>
-              <line x1={0} x2={W} y1={y(t)} y2={y(t)} stroke="var(--line)" />
-              <text
-                x={W}
-                y={y(t) - 4}
-                textAnchor="end"
-                fontSize={11}
-                fill="var(--ink3)"
-                className="num"
-              >
-                {tickLabel(t)}
-              </text>
-            </g>
+            <line key={t} x1={0} x2={W} y1={y(t)} y2={y(t)} stroke="var(--line)" />
           ))}
           <line x1={0} x2={W} y1={H} y2={H} stroke="var(--line)" />
           <path
@@ -106,6 +96,24 @@ export function ForecastChart({
             stroke="var(--ink)"
             strokeWidth={2}
           />
+          {/* Tick labels last, haloed in the page colour so forecast lines pass behind them. */}
+          {ticks.map((t) => (
+            <text
+              key={`l-${t}`}
+              x={W}
+              y={y(t) - 4}
+              textAnchor="end"
+              fontSize={11}
+              fill="var(--ink3)"
+              stroke="var(--bg)"
+              strokeWidth={4}
+              strokeLinejoin="round"
+              paintOrder="stroke"
+              className="num"
+            >
+              {tickLabel(t)}
+            </text>
+          ))}
           <text x={0} y={H} dy={16} fontSize={11} fill="var(--ink3)">
             1일
           </text>

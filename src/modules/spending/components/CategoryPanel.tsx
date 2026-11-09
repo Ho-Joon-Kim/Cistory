@@ -1,12 +1,82 @@
 "use client";
 
-import { useId, useState } from "react";
-import { AiLine, CategoryMark, categoryColor, ShareRow, useEvidence } from "@/components/ds";
+import { type ReactNode, useId, useState } from "react";
+import { AiLine, CategoryMark, categoryColor, useEvidence } from "@/components/ds";
 import type { Fact } from "@/lib/facts/types";
-import { formatShare, formatWon } from "@/lib/format";
+import { formatWon } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { SPENDING_CATEGORY_LABELS, type SpendingCategoryKey } from "../categories";
-import { categoryShares, type MonthBar, SPLIT_LABEL } from "../view-model";
+import { categoryShares, type MonthBar, SPLIT_CATEGORY, SPLIT_LABEL } from "../view-model";
 import { BlockTitle, DisclosureButton } from "./parts";
+
+/** Share of the everyday base: one decimal below 10% so small categories never read "0%". */
+function formatCategoryShare(ratio: number): string {
+  const pct = ratio * 100;
+  if (pct > 0 && pct < 10) return `${pct.toFixed(1)}%`;
+  return `${Math.round(pct)}%`;
+}
+
+/**
+ * A category row as in the mock's `.crow`: amount is the primary figure (ink,
+ * medium), the share is secondary (12px --ink3). The share bar lives in the
+ * label column so it never runs under the amount.
+ */
+function CategoryRow({
+  label,
+  leading,
+  count,
+  value,
+  pct,
+  share,
+  color,
+  evidence,
+  compact,
+}: {
+  label: ReactNode;
+  leading: ReactNode;
+  count?: string;
+  value: string;
+  pct?: string;
+  share: number;
+  color?: string;
+  evidence?: "on" | "dim";
+  compact?: boolean;
+}) {
+  return (
+    <div
+      data-evidence={evidence}
+      className={cn(
+        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3",
+        compact ? "h-8 text-[13px]" : "h-9 text-sm"
+      )}
+    >
+      <span className="relative flex h-full min-w-0 items-center px-2.5">
+        <span
+          aria-hidden="true"
+          className="ds-growx absolute inset-y-1 left-0 rounded-[6px]"
+          style={{
+            width: `${Math.max(0, Math.min(1, share)) * 100}%`,
+            background: color ? `color-mix(in oklab, ${color} 11%, transparent)` : "var(--track)",
+          }}
+        />
+        <span
+          className={cn(
+            "relative flex min-w-0 items-center gap-2 text-ink",
+            !compact && "font-medium"
+          )}
+        >
+          {leading}
+          <span className="truncate">{label}</span>
+          {count ? <span className="num text-xs font-normal text-ink-3">{count}</span> : null}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-baseline gap-2.5 pr-1">
+        <span className={cn("num text-ink", !compact && "font-medium")}>{value}</span>
+        <span className="num w-[38px] text-right text-xs text-ink-3">{pct ?? ""}</span>
+      </span>
+    </div>
+  );
+}
 
 /**
  * The selected month's top three everyday categories (의료·건강 shown apart),
@@ -45,16 +115,15 @@ export function CategoryPanel({
       {everyday.rows.length > 0 ? (
         <div className="flex flex-col gap-1">
           {everyday.rows.slice(0, 3).map((row) => (
-            <ShareRow
+            <CategoryRow
               key={row.category}
               label={SPENDING_CATEGORY_LABELS[row.category]}
               leading={<CategoryMark category={row.category} size="sm" />}
               count={row.count ? `${row.count}건` : undefined}
               value={formatWon(row.value)}
-              pct={formatShare(row.share)}
+              pct={formatCategoryShare(row.share)}
               share={row.width}
               evidence={stateOf(row.category)}
-              className="h-9 text-sm"
             />
           ))}
         </div>
@@ -77,19 +146,28 @@ export function CategoryPanel({
           <div id={listId}>
             {allOpen ? (
               <div className="ds-reveal flex flex-col gap-1 pt-2">
-                {all.rows.map((row) => (
-                  <ShareRow
-                    key={row.category}
-                    label={SPENDING_CATEGORY_LABELS[row.category]}
-                    leading={<CategoryMark category={row.category} size="sm" />}
-                    count={row.count ? `${row.count}건` : undefined}
-                    value={formatWon(row.value)}
-                    pct={formatShare(row.share)}
-                    share={row.width}
-                    color={row.category === "health" ? categoryColor("health") : undefined}
-                    className="h-8"
-                  />
-                ))}
+                {all.rows.map((row) => {
+                  // Same denominator as the top three (spend excluding 의료·건강);
+                  // 의료·건강 itself is shown apart, without a share.
+                  const split = row.category === SPLIT_CATEGORY;
+                  return (
+                    <CategoryRow
+                      key={row.category}
+                      compact
+                      label={SPENDING_CATEGORY_LABELS[row.category]}
+                      leading={<CategoryMark category={row.category} size="sm" />}
+                      count={row.count ? `${row.count}건` : undefined}
+                      value={formatWon(row.value)}
+                      pct={
+                        split || everyday.base <= 0
+                          ? undefined
+                          : formatCategoryShare(row.value / everyday.base)
+                      }
+                      share={row.width}
+                      color={split ? categoryColor("health") : undefined}
+                    />
+                  );
+                })}
               </div>
             ) : null}
           </div>
