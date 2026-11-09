@@ -38,8 +38,8 @@ const AUTHORIZE_HREF = "/api/wakatime/authorize";
 
 function ReconnectNotice({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10">
-      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+    <div className="flex items-start gap-2 rounded-lg bg-warn-soft p-3">
+      <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
       <div className="space-y-2">
         <p className="text-sm">{message}</p>
         <Button size="sm" asChild>
@@ -108,7 +108,7 @@ export function WakaTimeSettings({
             )}
 
             <div className="flex items-center justify-between">
-              <code className="p-2 rounded bg-muted text-sm font-mono text-muted-foreground">
+              <code className="rounded-md bg-sunken px-2.5 py-2 font-mono text-xs text-ink-2">
                 WakaTime 계정 연결됨
               </code>
               <Button
@@ -125,22 +125,24 @@ export function WakaTimeSettings({
             {syncStats && (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 rounded-lg bg-muted/50">
+                  <div className="rounded-lg bg-sunken p-3">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                       <BarChart3 className="h-3.5 w-3.5" />총 세션 수
                     </div>
-                    <p className="text-lg font-semibold">
+                    <p className="num text-lg font-medium">
                       {syncStats.totalSessions.toLocaleString()}
                     </p>
                   </div>
-                  <div className="p-3 rounded-lg bg-muted/50">
+                  <div className="rounded-lg bg-sunken p-3">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                       <Calendar className="h-3.5 w-3.5" />
                       기록 일수
                     </div>
-                    <p className="text-lg font-semibold">{syncStats.totalDays.toLocaleString()}</p>
+                    <p className="num text-lg font-medium">
+                      {syncStats.totalDays.toLocaleString()}
+                    </p>
                   </div>
-                  <div className="p-3 rounded-lg bg-muted/50">
+                  <div className="rounded-lg bg-sunken p-3">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                       <Clock className="h-3.5 w-3.5" />
                       마지막 동기화
@@ -149,12 +151,12 @@ export function WakaTimeSettings({
                       {syncStats.lastSyncedAt ? formatRelativeTime(syncStats.lastSyncedAt) : "없음"}
                     </p>
                   </div>
-                  <div className="p-3 rounded-lg bg-muted/50">
+                  <div className="rounded-lg bg-sunken p-3">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                       <RefreshCw className="h-3.5 w-3.5" />
                       미동기화 일수
                     </div>
-                    <p className="text-lg font-semibold">
+                    <p className="num text-lg font-medium">
                       {syncStats.unsyncedDays.toLocaleString()}
                     </p>
                   </div>

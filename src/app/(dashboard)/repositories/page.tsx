@@ -1,11 +1,11 @@
 "use client";
 
-import { GitCommit, GitFork, Globe, Loader2, Lock } from "lucide-react";
 import Link from "next/link";
+import { EmptyState, LoadingState, PageContainer, PageTitle } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
-import { Card, CardContent } from "@/components/ui/card";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatCount, formatDateTime, formatRelative, formatShare } from "@/lib/format";
 import { useRequireAuth } from "@/modules/auth/hooks";
+import { SourceTile } from "@/modules/data-status/components/SourceIcon";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { useRepositories } from "@/modules/timeline/hooks";
 
@@ -15,9 +15,8 @@ export default function RepositoriesPage() {
 
   if (isAuthLoading) {
     return (
-      <div role="status" className="min-h-screen flex items-center justify-center">
-        <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
-        <span className="sr-only">로딩 중…</span>
+      <div className="mx-auto max-w-[760px] p-8">
+        <LoadingState variant="rows" rows={6} label="로딩 중" />
       </div>
     );
   }
@@ -27,72 +26,99 @@ export default function RepositoriesPage() {
   }
 
   const totalCommits = repositories.reduce((sum, r) => sum + Number(r.commitCount), 0);
+  const max = repositories.reduce((m, r) => Math.max(m, Number(r.commitCount)), 0);
 
   return (
     <SyncStatusProvider>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-page">
         <Header />
-
-        <main id="main" className="container mx-auto px-4 py-6">
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold">레포지토리</h1>
-            <p className="text-sm text-muted-foreground mt-1 tabular-nums">
-              {repositories.length}개 레포지토리 · {totalCommits}개 커밋
-            </p>
+        <PageContainer>
+          <div className="mx-auto max-w-[880px]">
+            <PageTitle
+              className="ds-enter"
+              title="레포지토리"
+              meta={
+                <>
+                  <span className="num">{formatCount(repositories.length)}</span>개 레포지토리 ·
+                  커밋 <span className="num">{formatCount(totalCommits)}</span>개
+                </>
+              }
+            />
+            <div className="ds-enter mt-8 [animation-delay:100ms]">
+              {isLoading ? (
+                <LoadingState variant="rows" rows={6} label="레포지토리를 불러오는 중" />
+              ) : repositories.length === 0 ? (
+                <EmptyState
+                  title="동기화된 레포지토리가 없어요"
+                  description="상단의 동기화 버튼을 눌러 GitHub 커밋을 가져오세요."
+                />
+              ) : (
+                <ul className="m-0 list-none border-t border-line p-0">
+                  {repositories.map((repo) => {
+                    const count = Number(repo.commitCount);
+                    const [owner, name] = repo.fullName.includes("/")
+                      ? [repo.fullName.split("/")[0], repo.fullName.split("/").slice(1).join("/")]
+                      : ["", repo.fullName];
+                    return (
+                      <li key={repo.fullName} className="border-b border-line">
+                        <Link
+                          href={`/dashboard?repos=${encodeURIComponent(repo.fullName)}`}
+                          className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-x-3 py-3 text-ink no-underline transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--sunken)_70%,transparent)] focus-visible:outline-2 focus-visible:outline-brand sm:grid-cols-[32px_minmax(0,1fr)_160px_96px]"
+                        >
+                          <SourceTile icon="github" />
+                          <span className="flex min-w-0 flex-col">
+                            <span
+                              className="truncate text-[15px] leading-[22px] font-semibold"
+                              title={repo.fullName}
+                            >
+                              {name}
+                            </span>
+                            <span className="truncate text-[13px] leading-[18px] text-ink-3">
+                              {[
+                                owner,
+                                repo.isPrivate
+                                  ? "비공개"
+                                  : repo.isPrivate === false
+                                    ? "공개"
+                                    : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                              {" · "}
+                              <time
+                                dateTime={repo.lastCommitAt}
+                                title={formatDateTime(new Date(repo.lastCommitAt))}
+                              >
+                                마지막 커밋 {formatRelative(repo.lastCommitAt)}
+                              </time>
+                            </span>
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="hidden h-1.5 overflow-hidden rounded-full bg-track sm:block"
+                          >
+                            <span
+                              className="ds-growx block h-full rounded-full bg-brand"
+                              style={{ width: max ? `${(count / max) * 100}%` : 0 }}
+                            />
+                          </span>
+                          <span className="text-right text-[15px] leading-[22px]">
+                            <span className="num font-medium">{formatCount(count)}</span>
+                            <span className="text-xs text-ink-3">개</span>
+                            <span className="sr-only">
+                              {" "}
+                              커밋, 전체의 {formatShare(totalCommits ? count / totalCommits : 0)}
+                            </span>
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
-
-          {isLoading ? (
-            <div role="status" className="flex justify-center py-12">
-              <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
-              <span className="sr-only">레포지토리를 불러오는 중…</span>
-            </div>
-          ) : repositories.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                <GitFork className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>동기화된 레포지토리가 없습니다.</p>
-                <p className="text-sm mt-2">상단의 동기화 버튼을 눌러 GitHub 커밋을 가져오세요.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-3">
-              {repositories.map((repo) => (
-                <Link
-                  key={repo.fullName}
-                  href={`/dashboard?repos=${encodeURIComponent(repo.fullName)}`}
-                >
-                  <Card className="transition-[border-color,box-shadow] duration-150 ease-out hover:shadow-md hover:border-primary/50 cursor-pointer">
-                    <CardContent className="px-4 py-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="flex-shrink-0">
-                            {repo.isPrivate ? (
-                              <Lock className="h-4 w-4 text-muted-foreground" />
-                            ) : (
-                              <Globe className="h-4 w-4 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-medium truncate" title={repo.fullName}>
-                              {repo.fullName}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              마지막 커밋 {formatRelativeTime(repo.lastCommitAt)}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground flex-shrink-0">
-                          <GitCommit aria-hidden="true" className="h-4 w-4" />
-                          <span className="tabular-nums">{repo.commitCount}개 커밋</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          )}
-        </main>
+        </PageContainer>
       </div>
     </SyncStatusProvider>
   );

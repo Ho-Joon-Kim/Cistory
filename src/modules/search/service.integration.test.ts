@@ -155,4 +155,44 @@ describe("unified record search against PostgreSQL", () => {
     expect(new Set([...first.items, ...second.items].map((item) => item.id)).size).toBe(31);
     expect((await searchRecords(ctx.db(), owner, { ...input, source: "visit" })).items).toEqual([]);
   });
+  it("counts every source, filters by KST hour window and spending category", async () => {
+    const db = ctx.db();
+    const owner = await insertTestUser(db);
+    // 09:00 KST and 21:30 KST on 2026-09-02.
+    await commit(owner, "2026-09-02T00:00:00Z", "morning");
+    await commit(owner, "2026-09-02T12:30:00Z", "evening");
+    for (const [category, at] of [
+      ["food", "2026-09-02T12:00:00Z"],
+      ["cafe", "2026-09-02T01:00:00Z"],
+    ] as const) {
+      const [log] = await db
+        .insert(notificationLogs)
+        .values({ userId: owner, rawPayload: "{}", receivedAt: now })
+        .returning();
+      await db.insert(transactions).values({
+        userId: owner,
+        notificationLogId: log.id,
+        type: "withdrawal",
+        amount: 16400,
+        merchant: `${category} shop`,
+        accountName: "fixture",
+        rawTitle: "",
+        rawText: "",
+        category,
+        transactedAt: new Date(at),
+        createdAt: now,
+      });
+    }
+    const all = await searchRecords(db, owner, input);
+    expect(all.counts).toEqual({ commit: 2, spending: 2, visit: 0, trip: 0 });
+    const spend = all.items.find((item) => item.source === "spending");
+    expect(spend?.amount).toBe(16400);
+    expect(all.items.find((item) => item.title === "evening")?.repository).toBe("owner/repository");
+    const evening = await searchRecords(db, owner, { ...input, hours: { from: 18, to: 24 } });
+    expect(evening.items.map((item) => item.title).sort()).toEqual(["evening", "food shop"]);
+    expect(evening.counts).toEqual({ commit: 1, spending: 1, visit: 0, trip: 0 });
+    const food = await searchRecords(db, owner, { ...input, category: "food" });
+    expect(food.items.map((item) => item.title)).toEqual(["food shop"]);
+    expect(food.counts).toEqual({ commit: 0, spending: 1, visit: 0, trip: 0 });
+  });
 });

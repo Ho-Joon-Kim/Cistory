@@ -1,28 +1,58 @@
 "use client";
 
-import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect } from "react";
+import { useTheme } from "next-themes";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { GithubMark } from "@/components/GithubMark";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { authClient } from "@/lib/auth-client";
+  AiLine,
+  CountUp,
+  LoadingState,
+  MetaLine,
+  PageTitle,
+  Segmented,
+  type SourceStatus,
+  StatusBadge,
+} from "@/components/ds";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { authClient, useSession } from "@/lib/auth-client";
+import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
+import { diagnosis } from "@/lib/facts/helpers";
+import type { Fact } from "@/lib/facts/types";
+import {
+  formatCount,
+  formatDateTime,
+  formatMonthDay,
+  formatRelative,
+  formatShare,
+  formatTime,
+} from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
+import {
+  Chevron,
+  Disclosure,
+  SOURCE_ICON_PATHS,
+  type SourceIconName,
+  SourceTile,
+} from "@/modules/data-status/components/SourceIcon";
+import { buildSourceView, focusFact, type SourceView } from "@/modules/data-status/insights";
+import type { DataStatusResponse, SourceId } from "@/modules/data-status/types";
 import { LocationImport } from "@/modules/location/components/LocationImport";
 import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
 import { KISAccountSettingsCard } from "@/modules/portfolio/components/KISAccountSettingsCard";
-import { useSettings } from "../hooks";
+import { useDataUsage, useOwnTracksKey, useSettings } from "../hooks";
+import type { UserSettings } from "../types";
 import { AccountRolesCard } from "./AccountRolesCard";
-import { DataUsageCard } from "./DataUsageCard";
 import { DbBenchmarkCard } from "./DbBenchmarkCard";
 import { HealthImportSettings } from "./HealthImportSettings";
 import { HealthSettings } from "./HealthSettings";
@@ -33,6 +63,8 @@ import { TossNotificationSettings } from "./TossNotificationSettings";
 import { TripDetectionCard } from "./TripDetectionCard";
 import { WakaTimeSettings } from "./WakaTimeSettings";
 import { WithingsSettings } from "./WithingsSettings";
+
+// ── OAuth callback toasts (unchanged behaviour) ─────────────────────────────
 
 const WITHINGS_ERROR_MESSAGES: Record<string, string> = {
   denied: "Withings 연결이 취소되었습니다. 연결하려면 다시 시도해 주세요.",
@@ -84,8 +116,7 @@ const OAUTH_PROVIDERS: {
 /**
  * Surface the Withings/Fitbit/WakaTime OAuth callback outcome (?withings= | ?health= | ?wakatime=,
  * connected | error&reason=...), then strip the params so a refresh doesn't
- * re-fire the toast. Module-level so it doesn't inflate SettingsForm's complexity.
- * Returns true if a connection succeeded (caller refreshes settings).
+ * re-fire the toast. Returns true if a connection succeeded (caller refreshes settings).
  */
 function surfaceOAuthCallbackToast(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -109,211 +140,1071 @@ function surfaceOAuthCallbackToast(): boolean {
   return connected;
 }
 
+// ── Shared bits ─────────────────────────────────────────────────────────────
+
+/**
+ * Embeds an existing settings card without its card chrome: the disclosure row
+ * already names the item, so the card's own frame and title are dropped and its
+ * description + controls read as the panel body.
+ */
+const BARE =
+  "[&_[data-slot=card]]:gap-4 [&_[data-slot=card]]:rounded-none [&_[data-slot=card]]:border-0 [&_[data-slot=card]]:bg-transparent [&_[data-slot=card]]:py-0 [&_[data-slot=card]]:shadow-none [&_[data-slot=card-header]]:px-0 [&_[data-slot=card-content]]:px-0 [&_[data-slot=card-footer]]:px-0 [&_[data-slot=card-title]]:sr-only [&_[data-slot=card-description]]:text-[13px] [&_[data-slot=card-description]]:leading-5 [&_[data-slot=card-description]]:text-ink-2";
+
+function SectionTitle({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <h2 id={id} className="m-0 mb-1 font-serif text-xl leading-7 font-semibold tracking-[-0.02em]">
+      {children}
+    </h2>
+  );
+}
+
+function DisclosureRow({
+  id,
+  title,
+  meta,
+  metaTone = "ink3",
+  icon,
+  badge,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  title: ReactNode;
+  meta?: ReactNode;
+  metaTone?: "ink3" | "warn" | "gain";
+  icon?: SourceIconName;
+  badge?: ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const panelId = `settings-${id}`;
+  return (
+    <div className="scroll-mt-24 border-b border-line" id={`row-${id}`}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={onToggle}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent text-left text-ink transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--sunken)_70%,transparent)] focus-visible:outline-2 focus-visible:outline-brand",
+          icon ? "min-h-[60px] py-3" : "py-3.5"
+        )}
+      >
+        {icon ? <SourceTile icon={icon} /> : null}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-[15px] leading-[22px] font-semibold">{title}</span>
+          {meta ? (
+            <span
+              className={cn(
+                "truncate text-[13px] leading-[18px]",
+                metaTone === "warn" ? "text-warn" : metaTone === "gain" ? "text-gain" : "text-ink-3"
+              )}
+            >
+              {meta}
+            </span>
+          ) : null}
+        </span>
+        {badge}
+        <Chevron />
+      </button>
+      <Disclosure open={open} id={panelId}>
+        <div className={cn("pb-5", icon && "sm:pl-11", BARE)}>{children}</div>
+      </Disclosure>
+    </div>
+  );
+}
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  if (bytes >= 1024 ** 2) {
+    const mb = bytes / 1024 ** 2;
+    return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+interface SummaryCounts {
+  total: number;
+  pending: number;
+  processing: number;
+  completed: number;
+  failed: number;
+}
+
+// ── Form ────────────────────────────────────────────────────────────────────
+
 export function SettingsForm() {
-  const { settings, isLoading, isSaving, updateSettings, refresh } = useSettings();
+  const { settings, isSaving, updateSettings, refresh } = useSettings();
   const { user } = useAuth();
+  const { data: session } = useSession();
+  const [now] = useState(() => new Date());
+  const today = toKstCalendarDate(now);
+  const from = shiftDateKey(today, -6);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) => () => setOpen((o) => ({ ...o, [id]: !o[id] }));
+  const openAndScroll = (id: string) => {
+    setOpen((o) => ({ ...o, [id]: true }));
+    requestAnimationFrame(() =>
+      document.getElementById(`row-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
+  };
 
   useEffect(() => {
     if (surfaceOAuthCallbackToast()) refresh();
   }, [refresh]);
 
-  if (isLoading || !settings) {
-    return (
-      <div role="status" className="flex items-center justify-center py-8">
-        <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-muted-foreground" />
-        <span className="sr-only">설정을 불러오는 중…</span>
-      </div>
-    );
+  const status = useQuery<DataStatusResponse>({
+    queryKey: ["data-status", session?.session.id, from, today],
+    enabled: !!session,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/data-status?${new URLSearchParams({ from, to: today })}`, {
+        signal,
+      });
+      if (!response.ok) throw new Error("수집 상태를 불러오지 못했습니다.");
+      return response.json();
+    },
+  });
+  const summaries = useQuery<SummaryCounts>({
+    queryKey: ["summary-stats", session?.session.id],
+    enabled: !!session,
+    queryFn: async ({ signal }) => {
+      const response = await fetch("/api/summaries/process", { signal });
+      if (!response.ok) throw new Error("요약 상태를 불러오지 못했습니다.");
+      return response.json();
+    },
+  });
+  const usage = useDataUsage();
+
+  const views = useMemo(() => {
+    const map = new Map<SourceId, SourceView>();
+    for (const source of status.data?.sources ?? []) {
+      map.set(source.id, buildSourceView(source, now));
+    }
+    return map;
+  }, [status.data, now]);
+
+  if (!settings) {
+    return <LoadingState variant="rows" rows={8} label="설정을 불러오는 중" />;
   }
 
-  const handleSyncIntervalChange = async (interval: string) => {
-    const success = await updateSettings({ syncIntervalHours: parseInt(interval, 10) });
-    if (success) {
-      toast.success("동기화 간격이 변경되었습니다.");
-    } else {
-      toast.error("동기화 간격을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  const connections = buildConnections(settings, views, user?.githubUsername ?? null, now);
+  const connectedCount = connections.filter((c) => c.status !== "disconnected").length;
+
+  return (
+    <>
+      <PageTitle
+        className="ds-enter"
+        title="설정"
+        meta={
+          <MetaLine
+            items={[
+              `연결 ${connectedCount}개`,
+              usage.data && usage.data.grandTotalBytes > 0
+                ? `저장 공간 ${formatSize(usage.data.grandTotalBytes)}`
+                : null,
+              <Link
+                key="ds"
+                href="/data-status"
+                className="text-ink-2 underline-offset-[3px] hover:underline"
+              >
+                수집 상태 보기
+              </Link>,
+            ]}
+          />
+        }
+      />
+      <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
+        <div className="flex min-w-0 flex-col gap-10">
+          <TodoSection
+            views={views}
+            summaries={summaries.data ?? null}
+            now={now}
+            loading={status.isPending}
+            onOpenPanel={openAndScroll}
+          />
+
+          <section
+            aria-labelledby="conn"
+            className="ds-enter flex flex-col [animation-delay:200ms]"
+          >
+            <SectionTitle id="conn">연결</SectionTitle>
+            {connections.map((c) => (
+              <DisclosureRow
+                key={c.id}
+                id={c.id}
+                icon={c.icon}
+                title={c.name}
+                meta={c.meta}
+                badge={<StatusBadge status={c.status} />}
+                open={!!open[c.id]}
+                onToggle={toggle(c.id)}
+              >
+                {c.body(settings, updateSettings)}
+              </DisclosureRow>
+            ))}
+          </section>
+
+          <section
+            aria-labelledby="more"
+            className="ds-enter flex flex-col [animation-delay:300ms]"
+          >
+            <SectionTitle id="more">관리</SectionTitle>
+            <DisclosureRow
+              id="places"
+              title="저장한 장소"
+              meta="집·회사처럼 자주 가는 곳 · 여행 감지 제외"
+              open={!!open.places}
+              onToggle={toggle("places")}
+            >
+              <SavedPlacesSettings />
+            </DisclosureRow>
+            {settings.hasTossKey ? (
+              <DisclosureRow
+                id="roles"
+                title="토스 계좌 역할"
+                meta="계좌별 소비 · 기본 · 무시 분류"
+                open={!!open.roles}
+                onToggle={toggle("roles")}
+              >
+                <AccountRolesCard />
+              </DisclosureRow>
+            ) : null}
+            <DisclosureRow
+              id="loc"
+              title="위치 처리"
+              meta="기간 다시 처리 · 교통수단 · 지하철 매칭"
+              open={!!open.loc}
+              onToggle={toggle("loc")}
+            >
+              <LocationBackfillCard />
+            </DisclosureRow>
+            <DisclosureRow
+              id="trip"
+              title="여행 자동 감지"
+              meta="매주 일요일 02:00"
+              open={!!open.trip}
+              onToggle={toggle("trip")}
+            >
+              <TripDetectionCard />
+            </DisclosureRow>
+            <DisclosureRow
+              id="import"
+              title="위치 파일 가져오기"
+              meta="GPX · GeoJSON · Google Takeout"
+              open={!!open.import}
+              onToggle={toggle("import")}
+            >
+              <LocationImport />
+            </DisclosureRow>
+            <DisclosureRow
+              id="summaries"
+              title="AI 요약"
+              meta={
+                summaries.data
+                  ? `완료 ${formatCount(summaries.data.completed)} · 대기 ${formatCount(summaries.data.pending)} · 실패 ${formatCount(summaries.data.failed)}`
+                  : "커밋 요약 생성 상태"
+              }
+              open={!!open.summaries}
+              onToggle={toggle("summaries")}
+            >
+              <SummaryStats />
+            </DisclosureRow>
+            <DisclosureRow
+              id="sync"
+              title="동기화 간격"
+              meta={`${settings.syncIntervalHours}시간마다`}
+              open={!!open.sync}
+              onToggle={toggle("sync")}
+            >
+              <div className={cn(isSaving && "pointer-events-none opacity-60")}>
+                <Segmented
+                  items={INTERVALS}
+                  value={String(settings.syncIntervalHours)}
+                  onChange={async (v) => {
+                    const ok = await updateSettings({ syncIntervalHours: Number(v) });
+                    if (ok) toast.success("동기화 간격이 변경되었습니다.");
+                    else
+                      toast.error("동기화 간격을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+                  }}
+                  ariaLabel="동기화 간격"
+                  fullWidth="always"
+                />
+              </div>
+            </DisclosureRow>
+            <ThemeRow
+              open={!!open.theme}
+              onToggle={toggle("theme")}
+              onSave={(theme) => updateSettings({ theme })}
+            />
+            {process.env.NEXT_PUBLIC_ENABLE_DB_BENCHMARK === "true" ? (
+              <DisclosureRow
+                id="bench"
+                title="DB 벤치마크"
+                meta="관리자 전용"
+                open={!!open.bench}
+                onToggle={toggle("bench")}
+              >
+                <DbBenchmarkCard />
+              </DisclosureRow>
+            ) : null}
+          </section>
+        </div>
+
+        <aside
+          aria-label="저장 공간과 위험 구역"
+          className="flex min-w-0 flex-col gap-10 lg:sticky lg:top-6 lg:self-start"
+        >
+          <StorageSection usage={usage} now={now} summaries={summaries.data ?? null} />
+          <DangerZone hasOwnTracksKey={settings.hasOwnTracksKey} onChanged={refresh} />
+        </aside>
+      </div>
+    </>
+  );
+}
+
+const INTERVALS = [1, 3, 6, 12, 24].map((h) => ({ value: String(h), label: `${h}시간` }));
+
+// ── 확인할 것 ───────────────────────────────────────────────────────────────
+
+const REAUTH_HREF: Partial<Record<SourceId, string>> = {
+  wakatime: "/api/wakatime/authorize",
+  withings: "/api/withings/authorize",
+  health: "/api/fitbit/authorize",
+};
+
+interface Todo {
+  id: string;
+  icon: SourceIconName;
+  tone: "gain" | "ink";
+  title: string;
+  meta: string;
+  big: number;
+  unit: string;
+  fact: Fact | null;
+  action: ReactNode;
+}
+
+const STATUS_TITLE: Record<string, string> = {
+  reauth: "다시 연결 필요",
+  failed: "동기화 실패",
+  delayed: "동기화 지연",
+};
+
+function sourceTodos(all: SourceView[], now: Date): Todo[] {
+  const todos: Todo[] = [];
+  for (const view of all) {
+    if (!(view.status in STATUS_TITLE)) continue;
+    const last = view.source.lastSuccessAt ? new Date(view.source.lastSuccessAt) : null;
+    const reauthHref = view.status === "reauth" ? REAUTH_HREF[view.id] : undefined;
+    todos.push({
+      id: view.id,
+      icon: "alert",
+      tone: view.status === "delayed" ? "ink" : "gain",
+      title: `${view.name} ${STATUS_TITLE[view.status]}`,
+      meta: last
+        ? `마지막 성공 ${formatMonthDay(last, { now })} ${formatTime(last)}`
+        : "성공한 기록 없음",
+      big: view.daysSinceSuccess ?? 0,
+      unit: "일째",
+      fact: focusFact(view, all, now),
+      action: reauthHref ? (
+        <Button size="sm" asChild>
+          <a href={reauthHref}>다시 연결</a>
+        </Button>
+      ) : (
+        <Button size="sm" asChild>
+          <Link href="/data-status">수집 상태에서 재수집</Link>
+        </Button>
+      ),
+    });
+  }
+  for (const view of all) {
+    if (view.status !== "ok" || view.gaps.length === 0) continue;
+    todos.push({
+      id: `${view.id}-gaps`,
+      icon: view.id,
+      tone: "ink",
+      title: `${view.name} 기록 공백`,
+      meta: "최근 7일 중 들어와야 할 기록이 빠진 날",
+      big: view.gaps.length,
+      unit: "일",
+      fact: focusFact(view, [view], now),
+      action: (
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/data-status">수집 상태 보기</Link>
+        </Button>
+      ),
+    });
+  }
+  return todos;
+}
+
+function summaryTodo(summaries: SummaryCounts, onOpen: () => void): Todo {
+  const share = summaries.failed / summaries.total;
+  return {
+    id: "summaries",
+    icon: "sparkle",
+    tone: "ink",
+    title: "AI 요약 실패",
+    meta: `전체 ${formatCount(summaries.total)}건 · 대기 ${formatCount(summaries.pending)}건`,
+    big: summaries.failed,
+    unit: "건",
+    fact: diagnosis({
+      id: "settings.summaries.failed",
+      metric: "summaries",
+      metricLabel: "AI 요약",
+      period: { from: "", to: "", label: "전체" },
+      value: share,
+      unit: "percent",
+      detail: { trigger: share < 0.01 ? `${(share * 100).toFixed(2)}%` : formatShare(share) },
+      template:
+        share < 0.01
+          ? "전체의 {fact}라 급하진 않아요. 나머지 요약은 계속 만들어져요."
+          : "전체의 {fact}가 실패했어요. 타임라인에 요약이 빠진 커밋이 보여요.",
+      rows: [
+        { label: "완료", value: `${formatCount(summaries.completed)}건` },
+        {
+          label: "실패",
+          value: `${formatCount(summaries.failed)}건 · ${formatCount(summaries.total)}건 중 ${(share * 100).toFixed(2)}%`,
+        },
+        {
+          label: "대기·처리 중",
+          value: `${formatCount(summaries.pending)}건 · ${formatCount(summaries.processing)}건`,
+        },
+      ],
+    }),
+    action: (
+      <Button variant="outline" size="sm" onClick={onOpen}>
+        요약 현황 보기
+      </Button>
+    ),
+  };
+}
+
+function TodoSection({
+  views,
+  summaries,
+  now,
+  loading,
+  onOpenPanel,
+}: {
+  views: Map<SourceId, SourceView>;
+  summaries: SummaryCounts | null;
+  now: Date;
+  loading: boolean;
+  onOpenPanel: (id: string) => void;
+}) {
+  const all = [...views.values()];
+  const todos = sourceTodos(all, now);
+  if (summaries && summaries.failed > 0 && summaries.total > 0) {
+    todos.splice(
+      todos.findIndex((t) => t.id.endsWith("-gaps")) >= 0
+        ? todos.findIndex((t) => t.id.endsWith("-gaps"))
+        : todos.length,
+      0,
+      summaryTodo(summaries, () => onOpenPanel("summaries"))
+    );
+  }
+  const todayPoints = views.get("location")?.cells.at(-1)?.count ?? 0;
+
+  return (
+    <section aria-labelledby="todo" className="ds-enter flex flex-col [animation-delay:100ms]">
+      <SectionTitle id="todo">
+        확인할 것{" "}
+        {todos.length > 0 ? (
+          <span className="num text-[15px] font-normal text-ink-3">{todos.length}</span>
+        ) : null}
+      </SectionTitle>
+      {loading ? (
+        <LoadingState variant="rows" rows={2} label="확인할 것을 찾는 중" />
+      ) : todos.length === 0 ? (
+        <p className="m-0 border-b border-line py-4 text-sm leading-[22px] text-ink-2">
+          확인할 것이 없어요. 연결된 소스가 모두 정상이고 빠진 기록도 없어요.
+        </p>
+      ) : (
+        todos.map((todo) => (
+          <div key={todo.id} className="flex flex-col gap-2 border-b border-line py-4">
+            <div className="flex items-start gap-3">
+              <span
+                className={cn(
+                  "grid size-8 flex-none place-items-center rounded-[9px] bg-sunken",
+                  todo.tone === "gain" ? "text-gain" : "text-ink-2"
+                )}
+              >
+                <svg
+                  aria-hidden="true"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d={SOURCE_ICON_PATHS[todo.icon]} />
+                </svg>
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="text-[15px] leading-[22px] font-semibold">{todo.title}</span>
+                <span className="text-[13px] leading-[18px] text-ink-3">{todo.meta}</span>
+              </div>
+              <span
+                className={cn(
+                  "num text-[22px] leading-7 font-medium whitespace-nowrap",
+                  todo.tone === "gain" ? "text-gain" : "text-ink"
+                )}
+              >
+                <CountUp value={todo.big} />
+                <span className="font-sans text-xs text-ink-3">{todo.unit}</span>
+              </span>
+            </div>
+            <div className="flex flex-col gap-2.5 pl-11">
+              <AiLine fact={todo.fact} />
+              <div className="flex gap-2">{todo.action}</div>
+            </div>
+          </div>
+        ))
+      )}
+      {todayPoints > 0 ? (
+        <p className="m-0 mt-3 flex items-center gap-2 text-[13px] leading-5 text-ink-3">
+          <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-ink-3" />
+          <span>
+            오늘 좌표 <span className="num text-ink-2">{formatCount(todayPoints)}</span>개는 내일
+            01:00에 처리돼요
+          </span>
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+// ── 연결 ────────────────────────────────────────────────────────────────────
+
+interface Connection {
+  id: string;
+  name: string;
+  icon: SourceIconName;
+  status: SourceStatus;
+  meta: string;
+  body: (
+    settings: UserSettings,
+    update: (s: Partial<UserSettings>) => Promise<boolean>
+  ) => ReactNode;
+}
+
+function lastText(view: SourceView | undefined, now: Date): string | null {
+  const at = view?.source.lastSuccessAt;
+  return at ? formatRelative(at, now) : null;
+}
+
+const join = (...parts: (string | null | false | undefined)[]) => parts.filter(Boolean).join(" · ");
+
+function buildConnections(
+  settings: UserSettings,
+  views: Map<SourceId, SourceView>,
+  githubUsername: string | null,
+  now: Date
+): Connection[] {
+  const st = (id: SourceId, connected: boolean): SourceStatus =>
+    !connected ? "disconnected" : (views.get(id)?.status ?? "ok");
+  const waka = views.get("wakatime");
+  const wakaLegacy = settings.hasLegacyWakaTimeKey && !settings.hasWakaTimeConnection;
+  const location = lastText(views.get("location"), now);
+  const kis = views.get("kis");
+  return [
+    {
+      id: "wakatime",
+      name: "WakaTime",
+      icon: "wakatime",
+      status:
+        settings.wakatimeNeedsReauth || wakaLegacy
+          ? "reauth"
+          : st("wakatime", settings.hasWakaTimeConnection),
+      meta: settings.hasWakaTimeConnection
+        ? join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "OAuth 연결")
+        : wakaLegacy
+          ? "API 키 연결 종료 · 다시 연결 필요"
+          : "연결 안 됨",
+      body: () => (
+        <WakaTimeSettings
+          hasConnection={settings.hasWakaTimeConnection}
+          needsReauth={settings.wakatimeNeedsReauth}
+          hasLegacyKey={settings.hasLegacyWakaTimeKey}
+        />
+      ),
+    },
+    {
+      id: "github",
+      name: "GitHub",
+      icon: "github",
+      status: st("github", true),
+      meta: join(
+        githubUsername,
+        `${settings.syncIntervalHours}시간마다`,
+        lastText(views.get("github"), now)
+      ),
+      body: () => <GithubPanel />,
+    },
+    {
+      id: "owntracks",
+      name: "위치 · OwnTracks",
+      icon: "location",
+      status: st("location", settings.hasOwnTracksKey),
+      meta: settings.hasOwnTracksKey
+        ? join(location && `${location} 수신`, "키 사용 중")
+        : "키 없음",
+      body: () => <OwnTracksSettings hasKey={settings.hasOwnTracksKey} />,
+    },
+    {
+      id: "toss",
+      name: "토스 알림",
+      icon: "toss",
+      status: st("toss", settings.hasTossKey),
+      meta: settings.hasTossKey
+        ? join(
+            settings.tossMyName && `내 이름 ${settings.tossMyName}`,
+            lastText(views.get("toss"), now)
+          )
+        : "키 없음",
+      body: (s, update) => (
+        <TossNotificationSettings
+          hasKey={s.hasTossKey}
+          tossMyName={s.tossMyName}
+          onUpdateMyName={async (name) => update({ tossMyName: name })}
+        />
+      ),
+    },
+    {
+      id: "health-import",
+      name: "Health Connect",
+      icon: "health",
+      status: settings.hasHealthImportKey ? "ok" : "disconnected",
+      meta: settings.hasHealthImportKey ? "휴대폰 가져오기 키 사용 중" : "키 없음",
+      body: () => <HealthImportSettings hasKey={settings.hasHealthImportKey} />,
+    },
+    {
+      id: "google-health",
+      name: "Google Health",
+      icon: "heart",
+      status: settings.healthNeedsReauth ? "reauth" : st("health", settings.hasHealthConnection),
+      meta: settings.hasHealthConnection
+        ? join(
+            "Fitbit",
+            settings.healthLastSyncedAt && formatRelative(settings.healthLastSyncedAt, now)
+          )
+        : "연결 안 됨",
+      body: () => (
+        <HealthSettings
+          hasConnection={settings.hasHealthConnection}
+          lastSyncedAt={settings.healthLastSyncedAt}
+          needsReauth={settings.healthNeedsReauth}
+        />
+      ),
+    },
+    {
+      id: "withings",
+      name: "Withings",
+      icon: "withings",
+      status: settings.withingsNeedsReauth
+        ? "reauth"
+        : st("withings", settings.hasWithingsConnection),
+      meta: settings.hasWithingsConnection
+        ? join(
+            settings.withingsUserId && `ID ${settings.withingsUserId}`,
+            settings.withingsLastSyncedAt && formatRelative(settings.withingsLastSyncedAt, now)
+          )
+        : "연결 안 됨",
+      body: () => (
+        <WithingsSettings
+          hasConnection={settings.hasWithingsConnection}
+          withingsUserId={settings.withingsUserId}
+          lastSyncedAt={settings.withingsLastSyncedAt}
+          needsReauth={settings.withingsNeedsReauth}
+        />
+      ),
+    },
+    {
+      id: "kis",
+      name: "한국투자증권",
+      icon: "kis",
+      status: kis?.status ?? "disconnected",
+      meta: kis?.source.connected ? join("계좌 연결됨", lastText(kis, now)) : "계좌 없음",
+      body: () => <KISAccountSettingsCard />,
+    },
+  ];
+}
+
+function GithubPanel() {
+  const reconnect = async () => {
+    await authClient.signIn.social({ provider: "github", callbackURL: "/settings" });
+  };
+  return (
+    <div className="flex flex-col gap-3 text-[13px] leading-5 text-ink-2">
+      <p className="m-0">
+        Organization 레포지토리가 안 보이면 해당 Organization에서 OAuth 앱 접근을 승인해야 해요.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={reconnect}>
+          다시 연결
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <a
+            href="https://github.com/settings/applications"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Organization 권한
+          </a>
+        </Button>
+        <Button variant="ghost" size="sm" asChild>
+          <a
+            href="https://docs.github.com/en/organizations/managing-oauth-access-to-your-organizations-data/approving-oauth-apps-for-your-organization"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            도움말
+          </a>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── 관리 controls ───────────────────────────────────────────────────────────
+
+const THEMES = [
+  { value: "system" as const, label: "시스템 설정" },
+  { value: "light" as const, label: "라이트" },
+  { value: "dark" as const, label: "다크" },
+];
+
+function ThemeRow({
+  open,
+  onToggle,
+  onSave,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  onSave: (theme: UserSettings["theme"]) => Promise<boolean>;
+}) {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const current = ((mounted ? theme : null) ?? "system") as UserSettings["theme"];
+  return (
+    <DisclosureRow
+      id="theme"
+      title="화면 테마"
+      meta={THEMES.find((t) => t.value === current)?.label ?? "시스템 설정"}
+      open={open}
+      onToggle={onToggle}
+    >
+      <Segmented
+        items={THEMES}
+        value={current}
+        onChange={(v) => {
+          setTheme(v);
+          void onSave(v);
+        }}
+        ariaLabel="화면 테마"
+        fullWidth="always"
+      />
+    </DisclosureRow>
+  );
+}
+
+// ── 저장 공간 ───────────────────────────────────────────────────────────────
+
+function storageMismatch(
+  summaries: SummaryCounts | null,
+  summaryRows: number | null,
+  calculatedAt: string | null,
+  now: Date
+): Fact | null {
+  if (!summaries || summaries.completed === 0 || summaryRows !== 0) return null;
+  return diagnosis({
+    id: "settings.storage.summaries",
+    metric: "storage",
+    metricLabel: "저장 공간",
+    period: { from: "", to: "", label: "용량 표" },
+    value: 0,
+    unit: "count",
+    unitLabel: "행",
+    template:
+      "요약 {done}건이 완료됐는데 용량 표에는 요약 테이블이 {fact}으로 잡혀 있어요 — 계산에서 빠진 것 같아요.",
+    detail: { done: summaries.completed, trigger: "0행" },
+    rows: [
+      {
+        label: "요약 처리 현황",
+        value: `완료 ${formatCount(summaries.completed)} · 실패 ${formatCount(summaries.failed)} · 대기 ${formatCount(summaries.pending)}`,
+      },
+      { label: "용량 표", value: "commit_summaries 0행" },
+      {
+        label: "계산 시각",
+        value: calculatedAt ? formatDateTime(new Date(calculatedAt), { now }) : "—",
+      },
+    ],
+  });
+}
+
+function StorageSection({
+  usage,
+  now,
+  summaries,
+}: {
+  usage: ReturnType<typeof useDataUsage>;
+  now: Date;
+  summaries: SummaryCounts | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const data = usage.data;
+  const cats = data?.categories ?? [];
+  const total = data?.grandTotalBytes ?? 0;
+  const [top, second] = cats;
+  const share = (b: number) => (total > 0 ? b / total : 0);
+  const summaryRows =
+    cats
+      .find((c) => c.category === "commits")
+      ?.tables.find((t) => t.tableName === "commit_summaries")?.rowCount ?? null;
+  const mismatch = storageMismatch(summaries, summaryRows, data?.calculatedAt ?? null, now);
+  const restBytes = cats.slice(2).reduce((s, c) => s + c.totalBytes, 0);
+
+  return (
+    <section aria-labelledby="store" className="ds-enter flex flex-col [animation-delay:300ms]">
+      <div className="flex items-baseline justify-between gap-3">
+        <SectionTitle id="store">저장 공간</SectionTitle>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={usage.refresh}
+          disabled={usage.isRefreshing}
+          className="-mr-2"
+        >
+          {usage.isRefreshing ? "계산 중…" : "다시 계산"}
+        </Button>
+      </div>
+      {usage.isLoading ? (
+        <LoadingState variant="block" label="데이터 용량을 불러오는 중" />
+      ) : !top || total === 0 ? (
+        <p className="m-0 mt-1 text-sm leading-[22px] text-ink-2">
+          아직 계산된 용량이 없어요. 다시 계산을 눌러 지금 크기를 확인하세요.
+        </p>
+      ) : (
+        <>
+          <p className="m-0 mt-1 mb-3.5 text-[15px] leading-6">
+            <span className="num">{formatSize(total)}</span> 중 {top.label} 기록이{" "}
+            <span className="num font-semibold">{formatShare(share(top.totalBytes))}</span>
+            <span className="text-ink-2">
+              (<span className="num">{formatSize(top.totalBytes)}</span>)
+            </span>
+            예요.
+          </p>
+          <div
+            role="img"
+            aria-label={cats
+              .map((c) => `${c.label} ${formatShare(share(c.totalBytes))}`)
+              .join(", ")}
+            className="flex h-2.5 gap-0.5 overflow-hidden rounded-full"
+          >
+            <span
+              className="ds-growx bg-ink"
+              style={{ width: `${share(top.totalBytes) * 100}%` }}
+            />
+            {second ? (
+              <span
+                className="ds-growx [animation-delay:80ms]"
+                style={{
+                  width: `${share(second.totalBytes) * 100}%`,
+                  background: "color-mix(in oklab, var(--ink) 45%, var(--track))",
+                }}
+              />
+            ) : null}
+            <span
+              className="ds-growx min-w-1.5 flex-1 [animation-delay:160ms]"
+              style={{ background: "color-mix(in oklab, var(--ink) 18%, var(--track))" }}
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs leading-4">
+            <span>
+              <span className="text-ink-2">{top.label}</span>{" "}
+              <span className="num">{formatSize(top.totalBytes)}</span>
+            </span>
+            {second ? (
+              <span>
+                <span className="text-ink-2">{second.label}</span>{" "}
+                <span className="num">{formatSize(second.totalBytes)}</span>
+              </span>
+            ) : null}
+            {restBytes > 0 ? (
+              <span className="text-ink-3">
+                나머지 <span className="num">{formatSize(restBytes)}</span>
+              </span>
+            ) : null}
+          </div>
+          {mismatch ? <AiLine fact={mismatch} className="mt-3.5" /> : null}
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls="storage-detail"
+            onClick={() => setOpen((o) => !o)}
+            className="mt-2 flex w-full cursor-pointer items-center justify-between border-0 border-b border-line bg-transparent py-3 text-left text-[13px] text-ink-2 hover:text-ink"
+          >
+            <span>
+              항목별 · <span className="num">{formatCount(data?.grandTotalRows ?? 0)}</span>행
+              {data?.calculatedAt ? ` · ${formatRelative(data.calculatedAt, now)} 계산` : ""}
+            </span>
+            <Chevron />
+          </button>
+          <Disclosure open={open} id="storage-detail">
+            <ul className="m-0 flex list-none flex-col p-0 py-1">
+              {cats.map((c) => (
+                <li
+                  key={c.category}
+                  className="grid grid-cols-[minmax(0,1fr)_84px_76px] gap-2 border-b border-line py-2.5 text-[13px] leading-5"
+                >
+                  <span className="truncate">
+                    {c.label}
+                    <span className="text-ink-3"> · 테이블 {c.tables.length}개</span>
+                  </span>
+                  <span className="num text-right text-ink-2">{formatCount(c.totalRows)}</span>
+                  <span className="num text-right">{formatSize(c.totalBytes)}</span>
+                </li>
+              ))}
+            </ul>
+          </Disclosure>
+        </>
+      )}
+    </section>
+  );
+}
+
+// ── 위험 구역 ───────────────────────────────────────────────────────────────
+
+type DangerAction = "owntracks" | "trips" | "account";
+
+const DANGER_COPY: Record<DangerAction, { title: string; description: string; confirm: string }> = {
+  owntracks: {
+    title: "OwnTracks 키를 삭제할까요?",
+    description: "휴대폰 앱이 더 이상 위치를 보낼 수 없어요. 저장된 위치 기록은 그대로 남아요.",
+    confirm: "키 삭제",
+  },
+  trips: {
+    title: "자동 감지 여행을 다시 만들까요?",
+    description:
+      "자동으로 감지된 여행을 최신 판정 규칙으로 다시 감지해 교체해요. 직접 만든 여행은 유지돼요.",
+    confirm: "다시 만들기",
+  },
+  account: {
+    title: "계정과 모든 기록을 삭제할까요?",
+    description:
+      "커밋·위치·소비·건강 기록과 연결 정보, 로그인 세션이 모두 지워지고 되돌릴 수 없어요.",
+    confirm: "영구 삭제",
+  },
+};
+
+async function regenerateTrips() {
+  const response = await fetch("/api/settings/trip-regenerate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    inserted?: number;
+    replaced?: number;
+  };
+  if (!response.ok) throw new Error(data.error ?? "자동 여행을 다시 만들지 못했습니다.");
+  toast.success(
+    `자동 여행 ${data.inserted ?? 0}건을 만들고 기존 ${data.replaced ?? 0}건을 교체했습니다.`
+  );
+}
+
+async function deleteAccount() {
+  const response = await fetch("/api/auth/disconnect", { method: "DELETE" });
+  if (!response.ok) throw new Error("계정을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  await authClient.signOut().catch(() => undefined);
+  window.location.assign("/login");
+}
+
+const DANGER_BTN =
+  "h-10 w-full justify-center bg-transparent text-gain shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--up)_36%,transparent)] hover:bg-gain-soft hover:text-gain";
+
+function DangerZone({
+  hasOwnTracksKey,
+  onChanged,
+}: {
+  hasOwnTracksKey: boolean;
+  onChanged: () => void;
+}) {
+  const [pending, setPending] = useState<DangerAction | null>(null);
+  const [busy, setBusy] = useState(false);
+  const owntracks = useOwnTracksKey(hasOwnTracksKey);
+
+  const run = async () => {
+    if (!pending) return;
+    setBusy(true);
+    try {
+      if (pending === "owntracks") {
+        if (!(await owntracks.revoke())) throw new Error("API 키를 삭제하지 못했습니다.");
+        toast.success("OwnTracks 키가 삭제되었습니다.");
+        onChanged();
+      } else if (pending === "trips") {
+        await regenerateTrips();
+      } else {
+        await deleteAccount();
+        return;
+      }
+      setPending(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "요청을 처리하지 못했습니다.");
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleReconnectGithub = async () => {
-    await authClient.signIn.social({
-      provider: "github",
-      callbackURL: "/settings",
-    });
-  };
-
-  const githubUsername = user?.githubUsername;
-
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <div className="lg:col-span-2 rounded-lg border p-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">수집 상태</h2>
-          <p className="text-sm text-muted-foreground">
-            소스별 동기화 이력과 날짜별 공백을 확인하고 지원 소스를 재수집합니다.
-          </p>
-        </div>
-        <Button asChild variant="outline">
-          <Link href="/data-status">수집 상태 보기</Link>
+    <section aria-labelledby="danger" className="ds-enter flex flex-col [animation-delay:400ms]">
+      <SectionTitle id="danger">위험 구역</SectionTitle>
+      <p className="m-0 mb-3.5 text-[13px] leading-5 text-ink-3">
+        되돌릴 수 없어요. 누르면 한 번 더 확인해요.
+      </p>
+      <div className="flex flex-col gap-2">
+        {hasOwnTracksKey ? (
+          <Button variant="ghost" className={DANGER_BTN} onClick={() => setPending("owntracks")}>
+            OwnTracks 키 삭제
+          </Button>
+        ) : null}
+        <Button variant="ghost" className={DANGER_BTN} onClick={() => setPending("trips")}>
+          자동 감지 여행 다시 만들기
+        </Button>
+        <Button variant="ghost" className={DANGER_BTN} onClick={() => setPending("account")}>
+          계정과 모든 기록 삭제
         </Button>
       </div>
-      {/* 데이터 용량 */}
-      <div className="lg:col-span-2 [&>*]:h-full">
-        <DataUsageCard />
-      </div>
-
-      {/* DB 벤치마크 — admin-only, gated by NEXT_PUBLIC_ENABLE_DB_BENCHMARK */}
-      {process.env.NEXT_PUBLIC_ENABLE_DB_BENCHMARK === "true" && (
-        <div className="lg:col-span-2 [&>*]:h-full">
-          <DbBenchmarkCard />
-        </div>
-      )}
-
-      {/* GitHub 연결 & 동기화 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">GitHub</CardTitle>
-          <CardDescription>
-            GitHub 계정 연결 상태, Organization 접근 권한, 동기화 간격을 관리합니다
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* 현재 연결 상태 */}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-muted">
-                <GithubMark className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="font-medium">{githubUsername || "연결됨"}</p>
-                <p className="text-sm text-muted-foreground">GitHub 계정</p>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReconnectGithub}
-              className="self-start sm:self-auto"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              다시 연결
-            </Button>
-          </div>
-
-          {/* 동기화 간격 */}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="sync-interval">동기화 간격</Label>
-              <p className="text-sm text-muted-foreground">자동 동기화 실행 간격</p>
-            </div>
-            <Select
-              value={settings.syncIntervalHours.toString()}
-              onValueChange={handleSyncIntervalChange}
-              disabled={isSaving}
-            >
-              <SelectTrigger id="sync-interval" className="w-full sm:w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1시간</SelectItem>
-                <SelectItem value="3">3시간</SelectItem>
-                <SelectItem value="6">6시간</SelectItem>
-                <SelectItem value="12">12시간</SelectItem>
-                <SelectItem value="24">24시간</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Organization 권한 안내 */}
-          <div className="p-3 rounded-lg bg-muted/50 space-y-2">
-            <p className="text-sm font-medium">Organization 레포지토리가 안 보이나요?</p>
-            <p className="text-sm text-muted-foreground">
-              Organization 레포지토리에 접근하려면 해당 Organization에서 OAuth 앱 접근을 승인해야
-              합니다.
-            </p>
-            <div className="flex gap-2 pt-1">
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href="https://github.com/settings/applications"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  GitHub 앱 설정
-                </a>
-              </Button>
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href="https://docs.github.com/en/organizations/managing-oauth-access-to-your-organizations-data/approving-oauth-apps-for-your-organization"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  도움말
-                </a>
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 위치 추적 */}
-      <OwnTracksSettings hasKey={settings.hasOwnTracksKey} />
-
-      {/* 저장된 장소 */}
-      <SavedPlacesSettings />
-
-      {/* 위치 데이터 임포트 */}
-      <LocationImport />
-
-      {/* 위치 데이터 백필 */}
-      <LocationBackfillCard />
-
-      {/* 여행 자동 감지 */}
-      <TripDetectionCard />
-
-      {/* 소비 추적 */}
-      <TossNotificationSettings
-        hasKey={settings.hasTossKey}
-        tossMyName={settings.tossMyName}
-        onUpdateMyName={async (name) =>
-          updateSettings({ tossMyName: name } as Partial<typeof settings>)
-        }
-      />
-
-      {/* 계좌 역할 (소비/수입 분류) */}
-      {settings.hasTossKey && <AccountRolesCard />}
-
-      {/* Coding */}
-      <WakaTimeSettings
-        hasConnection={settings.hasWakaTimeConnection}
-        needsReauth={settings.wakatimeNeedsReauth}
-        hasLegacyKey={settings.hasLegacyWakaTimeKey}
-      />
-
-      {/* 포트폴리오 (KIS) */}
-      <KISAccountSettingsCard />
-
-      {/* 체성분 (Withings) */}
-      <WithingsSettings
-        hasConnection={settings.hasWithingsConnection}
-        withingsUserId={settings.withingsUserId}
-        lastSyncedAt={settings.withingsLastSyncedAt}
-        needsReauth={settings.withingsNeedsReauth}
-      />
-
-      {/* 건강 (Fitbit / Google Health) */}
-      <HealthSettings
-        hasConnection={settings.hasHealthConnection}
-        lastSyncedAt={settings.healthLastSyncedAt}
-        needsReauth={settings.healthNeedsReauth}
-      />
-
-      {/* 건강 데이터 가져오기 (Health Connect on-device import) */}
-      <HealthImportSettings hasKey={settings.hasHealthImportKey} />
-
-      {/* AI 요약 */}
-      <SummaryStats />
-    </div>
+      <Dialog open={pending !== null} onOpenChange={(o) => !o && !busy && setPending(null)}>
+        <DialogContent>
+          {pending ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{DANGER_COPY[pending].title}</DialogTitle>
+                <DialogDescription>{DANGER_COPY[pending].description}</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPending(null)} disabled={busy}>
+                  취소
+                </Button>
+                <Button variant="destructive" onClick={run} disabled={busy}>
+                  {busy ? "처리 중…" : DANGER_COPY[pending].confirm}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }
