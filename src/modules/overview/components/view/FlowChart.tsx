@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChartAnnotation, Segmented, useEvidence } from "@/components/ds";
+import { ChartAnnotation, Segmented, useDismissOnEvidence, useEvidence } from "@/components/ds";
 import { formatCount, formatWon, formatWonCompact } from "@/lib/format";
 import { useStayDays } from "@/modules/overview/hooks";
 import type { FlowAnnotation, FlowMetric, FlowModel, FlowUnit } from "@/modules/overview/view/flow";
@@ -112,6 +112,8 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
   const [picked, setPicked] = useState<FlowMetric>(metrics[0]?.value ?? "commits");
   const metric = flow.available[picked] ? picked : (metrics[0]?.value ?? "commits");
   const [hover, setHover] = useState<number | null>(null);
+  // A popover/annotation taking over clears the day tooltip (QA N3: it reappeared after Esc).
+  useDismissOnEvidence(() => setHover(null));
   const [ref, width] = useMeasuredWidth<HTMLDivElement>();
   const { stateOf, isActive } = useEvidence();
   const units = flow.units;

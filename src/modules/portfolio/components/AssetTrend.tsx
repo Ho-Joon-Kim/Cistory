@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AiLine, EmptyState, Segmented, useEvidence } from "@/components/ds";
+import { AiLine, EmptyState, Segmented, useDismissOnEvidence, useEvidence } from "@/components/ds";
 import {
   formatDateRange,
   formatDay,
@@ -101,6 +101,10 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
   const [hover, setHover] = useState<number | null>(null);
   /** A touch put the crosshair down: it stays after lift until a tap elsewhere. */
   const [pinned, setPinned] = useState(false);
+  useDismissOnEvidence(() => {
+    setHover(null);
+    setPinned(false);
+  });
   const [boxRef, width] = useElementWidth<HTMLDivElement>();
   const desktop = useIsDesktop();
   const { stateOf, active } = useEvidence();
