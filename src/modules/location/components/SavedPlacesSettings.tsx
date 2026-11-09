@@ -113,9 +113,12 @@ export function SavedPlacesSettings() {
                     <p className="text-sm font-medium truncate" title={place.name}>
                       {place.name}
                     </p>
-                    {place.address && (
-                      <p className="text-xs text-muted-foreground truncate" title={place.address}>
-                        {place.address}
+                    {(place.displayAddress ?? place.address) && (
+                      <p
+                        className="text-xs text-muted-foreground truncate"
+                        title={place.displayAddress ?? place.address ?? undefined}
+                      >
+                        {place.displayAddress ?? place.address}
                       </p>
                     )}
                     <div className="flex flex-wrap items-center gap-2 mt-1">

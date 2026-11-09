@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { MAPBOX_PRIVACY_OPTIONS } from "@/lib/mapbox-options";
 import type { SavedPlaceData } from "../hooks";
 import { createGeoCircle } from "../utils";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -225,6 +226,7 @@ function DialogMiniMap({
       mapStyle={mapStyle}
       style={{ width: "100%", height: "100%" }}
       fadeDuration={0}
+      {...MAPBOX_PRIVACY_OPTIONS}
       onClick={handleMapClick}
       cursor="crosshair"
     >

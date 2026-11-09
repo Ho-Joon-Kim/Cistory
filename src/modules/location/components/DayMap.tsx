@@ -10,6 +10,7 @@ import { Layer, default as MapGL, Marker, ScaleControl, Source } from "react-map
 import { useEvidence } from "@/components/ds";
 import { SubwayLayer } from "@/components/map/SubwayLayer";
 import { formatTime } from "@/lib/format";
+import { MAPBOX_PRIVACY_OPTIONS } from "@/lib/mapbox-options";
 import { cn } from "@/lib/utils";
 import { cameraDuration } from "../camera";
 import type { LocationData, StayPointData } from "../hooks";
@@ -456,7 +457,7 @@ export function DayMap({
         attributionControl={false}
         style={{ width: "100%", height: "100%" }}
         language="ko"
-        performanceMetricsCollection={false}
+        {...MAPBOX_PRIVACY_OPTIONS}
         onLoad={(e) => {
           // Calm (and localize) the first style before it paints its English labels.
           calmStyle(e.target, readPalette());

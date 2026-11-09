@@ -208,7 +208,7 @@ export function SpendingHero({
             <span className="text-label">
               {hero.monthLabel} 지출 · {hero.day}일째
             </span>
-            <HeroNumber value={hero.total} countUp format={formatCount} unit="원" />
+            <HeroNumber value={hero.total} countUp format={formatCount} unit="원" unitSize="full" />
             <p className="m-0 max-w-[600px] text-[15px] leading-6 text-ink-2 sm:text-base">
               {heroSentence(hero, mode)}
             </p>

@@ -549,6 +549,8 @@ export interface SavedPlaceData {
   radiusM: number;
   category: string | null;
   address: string | null;
+  /** Korean address for display (romanized geocoder strings replaced); null if none. */
+  displayAddress?: string | null;
   excludeFromTrips: boolean;
   tripExclusionRadiusM: number | null;
   createdAt: string;
