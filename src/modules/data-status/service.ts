@@ -33,16 +33,16 @@ const LABELS: Record<SourceId, string> = {
   health: "건강 · Google Health (Fitbit) / Health Connect",
 };
 const HELP: Record<SourceId, string> = {
-  github: "타임라인 화면 상단의 동기화 버튼으로 GitHub 기록을 다시 가져올 수 있습니다.",
+  github: "타임라인 화면 상단의 동기화 버튼으로 GitHub 기록을 다시 가져올 수 있어요.",
   location:
-    "휴대폰 OwnTracks의 전송 상태를 확인하거나 설정에서 GPX·GeoJSON·Google Takeout을 가져오세요. 서버는 휴대폰의 누락된 원본 위치를 조회할 수 없습니다.",
-  toss: "휴대폰 MacroDroid 알림 전송을 확인하세요. 이미 저장된 알림은 소비 화면의 '알림 다시 분석'으로 다시 분석할 수 있지만 수신하지 못한 알림은 서버에서 복원할 수 없습니다.",
+    "휴대폰 OwnTracks의 전송 상태를 확인하거나 설정에서 GPX·GeoJSON·Google Takeout을 가져오세요. 휴대폰에서 빠진 원본 위치는 서버가 조회할 수 없어요.",
+  toss: "휴대폰 MacroDroid 알림 전송을 확인하세요. 이미 저장된 알림은 소비 화면의 '알림 다시 분석'으로 다시 분석할 수 있지만 받지 못한 알림은 서버에서 복원할 수 없어요.",
   wakatime:
-    "선택한 날짜의 세션과 일별 합계를 다시 수집합니다. 제공자의 요금제·기록 보관 기간에 따라 과거 데이터 수집이 제한될 수 있습니다.",
-  kis: "과거 날짜의 보유자산 스냅샷은 재생성할 수 없습니다. 계좌 설정에서 현재 잔고 동기화와 과거 체결 가져오기를 실행하세요.",
-  withings: "선택한 날짜의 체성분 측정을 다시 수집합니다.",
+    "고른 날짜의 세션과 일별 합계를 다시 수집해요. 요금제·기록 보관 기간에 따라 오래된 기록은 가져오지 못할 수 있어요.",
+  kis: "지난 날짜의 보유자산 스냅샷은 다시 만들 수 없어요. 계좌 설정에서 현재 잔고 동기화와 과거 체결 가져오기를 실행하세요.",
+  withings: "고른 날짜의 체성분 측정을 다시 수집해요.",
   health:
-    "Google Health (Fitbit)의 수치 지표를 날짜별로 다시 수집합니다. 수면·운동 기록과 휴대폰에만 있는 Health Connect 기록은 기존 건강 동기화나 휴대폰 재전송을 사용하세요.",
+    "Google Health (Fitbit)의 수치 지표를 날짜별로 다시 수집해요. 수면·운동 기록과 휴대폰에만 있는 Health Connect 기록은 기존 건강 동기화나 휴대폰 재전송을 사용하세요.",
 };
 
 /** All-time stored rows and distinct KST days for one source. */
@@ -251,7 +251,7 @@ export async function getDataStatus(
     const error =
       state?.error ??
       (existingErrors[id]
-        ? "최근 동기화에서 오류가 기록되었습니다. 설정에서 연결 상태를 확인해 주세요."
+        ? "최근 동기화에서 오류가 기록됐어요. 설정에서 연결 상태를 확인해 주세요."
         : null);
     const stale =
       !["location", "toss"].includes(id) && isSourceStale(connections[id], lastSuccessAt, now);

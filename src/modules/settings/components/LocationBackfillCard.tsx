@@ -181,8 +181,8 @@ export function LocationBackfillCard() {
 
           {dryRun.past.needsBackfill ? (
             <PanelNote tone="warn">
-              과거 <span className="num">{formatCount(dryRun.past.daysRemaining)}</span>일이 아직
-              처리되지 않았어요.
+              과거 <span className="tabular-nums">{formatCount(dryRun.past.daysRemaining)}</span>
+              일이 아직 처리되지 않았어요.
             </PanelNote>
           ) : (
             <PanelNote tone="brand">
@@ -193,17 +193,18 @@ export function LocationBackfillCard() {
           )}
           {dryRun.today.pending ? (
             <PanelNote>
-              오늘 좌표 <span className="num">{formatCount(dryRun.today.unscannedPoints)}</span>
+              오늘 좌표{" "}
+              <span className="tabular-nums">{formatCount(dryRun.today.unscannedPoints)}</span>
               개는 내일 01:00에 자동으로 처리돼요.
             </PanelNote>
           ) : null}
           {geo && geo.uncachedTotal > 0 ? (
             <PanelText className="text-ink-3">
               주소를 아직 조회하지 않은 좌표 칸{" "}
-              <span className="num">{formatCount(geo.uncachedTotal)}</span>곳(국내{" "}
-              <span className="num">{formatCount(geo.uncachedKorea)}</span> · 해외{" "}
-              <span className="num">{formatCount(geo.uncachedOverseas)}</span>)은 지나가기만 한
-              곳이에요. 주소는 머문 곳(방문)만 조회해요.
+              <span className="tabular-nums">{formatCount(geo.uncachedTotal)}</span>곳(국내{" "}
+              <span className="tabular-nums">{formatCount(geo.uncachedKorea)}</span> · 해외{" "}
+              <span className="tabular-nums">{formatCount(geo.uncachedOverseas)}</span>)은
+              지나가기만 한 곳이에요. 주소는 머문 곳(방문)만 조회해요.
             </PanelText>
           ) : null}
 
@@ -227,7 +228,7 @@ export function LocationBackfillCard() {
                         .join(" ")
                     : null}
                 </span>
-                <span className="num">{progress.progress}%</span>
+                <span className="tabular-nums">{progress.progress}%</span>
               </div>
             </div>
           ) : null}

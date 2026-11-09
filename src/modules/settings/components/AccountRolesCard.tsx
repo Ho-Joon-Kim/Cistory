@@ -124,8 +124,11 @@ export function AccountRolesCard() {
                         suspect ? "text-warn" : isDirty ? "text-brand" : "text-ink-3"
                       )}
                     >
-                      거래 <span className="num">{formatCount(Number(a.transactionCount))}</span>건
-                      {suspect ? " · 이름 확인 필요" : isDirty ? " · 바뀜" : ""}
+                      거래{" "}
+                      <span className="tabular-nums">
+                        {formatCount(Number(a.transactionCount))}
+                      </span>
+                      건{suspect ? " · 이름 확인 필요" : isDirty ? " · 바뀜" : ""}
                     </span>
                   </span>
                   <Segmented

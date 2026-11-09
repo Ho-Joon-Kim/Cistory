@@ -733,8 +733,8 @@ function TodoSection({
         <p className="m-0 mt-3 flex items-center gap-2 text-[13px] leading-5 text-ink-3">
           <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-ink-3" />
           <span>
-            오늘 좌표 <span className="num text-ink-2">{formatCount(todayPoints)}</span>개는 내일
-            01:00에 처리돼요
+            오늘 좌표 <span className="tabular-nums text-ink-2">{formatCount(todayPoints)}</span>
+            개는 내일 01:00에 처리돼요
           </span>
         </p>
       ) : null}
@@ -789,7 +789,7 @@ function buildConnections(
           ? join("인증 만료", lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`)
           : join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "계정 연결됨")
         : wakaLegacy
-          ? join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "키 방식 종료")
+          ? join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "다시 연결 필요")
           : "연결 안 됨",
       body: () => (
         <WakaTimeSettings
@@ -1061,10 +1061,11 @@ function StorageSection({
       ) : (
         <>
           <p className="m-0 mt-1 mb-3.5 text-[15px] leading-6">
-            <span className="num">{formatSize(total)}</span> 중 {top.label} 기록이{" "}
-            <span className="num font-semibold">{formatShare(share(top.totalBytes))}</span>
+            {/* Figures inside a Korean sentence stay in the sans face (tabular only). */}
+            <span className="tabular-nums">{formatSize(total)}</span> 중 {top.label} 기록이{" "}
+            <span className="font-semibold tabular-nums">{formatShare(share(top.totalBytes))}</span>
             <span className="text-ink-2">
-              (<span className="num">{formatSize(top.totalBytes)}</span>)
+              (<span className="tabular-nums">{formatSize(top.totalBytes)}</span>)
             </span>
             예요.
           </p>
@@ -1119,7 +1120,8 @@ function StorageSection({
             className="mt-2 flex w-full cursor-pointer items-center justify-between border-0 border-b border-line bg-transparent py-3 text-left text-[13px] text-ink-2 hover:text-ink"
           >
             <span>
-              항목별 · <span className="num">{formatCount(data?.grandTotalRows ?? 0)}</span>행
+              항목별 ·{" "}
+              <span className="tabular-nums">{formatCount(data?.grandTotalRows ?? 0)}</span>행
               {data?.calculatedAt ? ` · ${formatRelative(data.calculatedAt, now)} 계산` : ""}
             </span>
             <Chevron />

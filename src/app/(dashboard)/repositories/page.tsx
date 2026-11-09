@@ -49,14 +49,15 @@ export default function RepositoriesPage() {
       <div className="min-h-screen bg-page">
         <Header />
         <PageContainer>
-          <div className="mx-auto max-w-[880px]">
+          <div className="max-w-[880px]">
             <PageTitle
               className="ds-enter"
               title="레포지토리"
               meta={
                 <>
-                  <span className="num">{formatCount(repositories.length)}</span>개 레포지토리 ·
-                  커밋 <span className="num">{formatCount(totalCommits)}</span>개
+                  <span className="tabular-nums">{formatCount(repositories.length)}</span>개
+                  레포지토리 · 커밋{" "}
+                  <span className="tabular-nums">{formatCount(totalCommits)}</span>개
                 </>
               }
             />

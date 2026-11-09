@@ -344,7 +344,7 @@ function HeroSummary({
             <span
               key={`${view.id}-label`}
               className={cn(
-                "-mt-0.5 truncate text-[11px] leading-[14px]",
+                "-mt-0.5 overflow-hidden text-[11px] leading-[14px] whitespace-nowrap sm:text-ellipsis",
                 view.status === "failed"
                   ? "text-gain"
                   : view.status === "reauth" || view.status === "delayed"
@@ -352,7 +352,12 @@ function HeroSummary({
                     : "text-ink-3"
               )}
             >
-              {SOURCE_NAMES[view.id].short}
+              {/* Seven columns leave ~37px each on a phone: a shorter name there, the
+                  usual one from sm, never an ellipsis. */}
+              <span className="sm:hidden" title={view.name}>
+                {SOURCE_NAMES[view.id].tiny}
+              </span>
+              <span className="max-sm:hidden">{SOURCE_NAMES[view.id].short}</span>
               <span className="sr-only"> {view.status === "ok" ? "정상" : view.status}</span>
             </span>
           ))}
@@ -360,7 +365,7 @@ function HeroSummary({
       </div>
       {gap ? (
         <p className="m-0 max-w-[460px] text-sm leading-[22px] text-ink-2">
-          {gap.name} 기록은 {formatDateRuns(gap.gaps, now)}이 비어 있습니다.{" "}
+          {gap.name} 기록은 {formatDateRuns(gap.gaps, now)}이 비어 있어요.{" "}
           <button
             type="button"
             onClick={() => onOpenRow(gap.id)}
@@ -785,6 +790,7 @@ function SourceRow({
   const total = view.total > 0 ? formatCount(view.total) : "없음";
   const panelId = `source-${view.id}-detail`;
   const r = recoveryRange(view);
+  const reauth = view.status === "reauth" && !!REAUTH_HREF[view.id];
 
   const tooltip =
     tooltipHere && hoverIndex !== null && view.cells[hoverIndex] ? (
@@ -813,7 +819,7 @@ function SourceRow({
               <span className="text-sm leading-5 font-semibold">{view.name}</span>
               <span
                 className={cn(
-                  "truncate text-xs leading-4",
+                  "text-xs leading-4 lg:truncate",
                   sub.tone === "gain"
                     ? "text-gain"
                     : sub.tone === "warn"
@@ -847,6 +853,7 @@ function SourceRow({
               unit={unit}
               hovered={hoverIndex}
               onHover={onHover}
+              onActivate={onToggle}
               failTone={view.status === "reauth" ? "warn" : "up"}
               className="relative z-[1]"
             />
@@ -868,7 +875,7 @@ function SourceRow({
           </span>
           <p className="pointer-events-none relative m-0 mt-2.5 pl-11 text-xs leading-4 text-ink-3 lg:hidden">
             마지막 성공 {last ? formatRelative(last, now) : "없음"} · {view.cells.length}일 합계{" "}
-            <span className="num text-ink-2">{total}</span>
+            <span className="tabular-nums text-ink-2">{total}</span>
           </p>
         </div>
         {fact ? (
@@ -878,9 +885,14 @@ function SourceRow({
         ) : null}
       </EvidenceScope>
       <Disclosure open={open} id={panelId}>
-        <div className="grid gap-4 pb-5 pl-11 lg:grid-cols-[minmax(0,560px)_auto] lg:justify-between lg:gap-8 xl:pl-[252px]">
+        {/* Same indent as the row's AI line (pl-11), so the panel reads as its continuation. */}
+        <div className="grid gap-4 pb-5 pl-11 lg:grid-cols-[minmax(0,620px)_auto] lg:justify-between lg:gap-8">
           <div className="flex flex-col gap-2">
-            <p className="m-0 text-sm leading-[22px] text-ink-2">{view.source.recoveryHelp}</p>
+            <p className="m-0 text-sm leading-[22px] text-ink-2">
+              {reauth
+                ? `${view.name} 인증이 만료돼 제공자가 요청을 거부하고 있어요. 다시 연결하면 동기화가 이어지고, 이미 가져온 기록은 그대로예요.`
+                : view.source.recoveryHelp}
+            </p>
             <span className="text-xs leading-4 text-ink-3">
               마지막 성공 {last ? formatDateTime(last, { now }) : "확인된 이력 없음"}
               {lastRecord
@@ -904,7 +916,11 @@ function SourceRow({
             ) : null}
           </div>
           <div className="flex items-start gap-2 lg:justify-end">
-            {view.source.canRecover ? (
+            {reauth ? (
+              <Button size="sm" asChild>
+                <a href={REAUTH_HREF[view.id]}>다시 연결</a>
+              </Button>
+            ) : view.source.canRecover ? (
               <Button variant="outline" size="sm" disabled={busy} onClick={onRecover}>
                 {busy
                   ? "재수집 진행 중"
@@ -967,7 +983,7 @@ function CellTooltip({
             className={cn("flex justify-between gap-5", tone, v.id === rowId && "font-semibold")}
           >
             <span>{v.name}</span>
-            <span className="num">{cellText(c, SOURCE_NAMES[v.id].unit)}</span>
+            <span className="tabular-nums">{cellText(c, SOURCE_NAMES[v.id].unit)}</span>
           </span>
         );
       })}
