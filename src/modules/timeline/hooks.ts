@@ -3,6 +3,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/lib/auth-client";
+import { toKstCalendarDate } from "@/lib/date-key";
 import { toLocalDateString } from "@/lib/utils";
 import type { TransactionItem } from "@/modules/spending/hooks";
 
@@ -281,4 +282,59 @@ export function useTransactionsForDate(date: string) {
 export async function startInitialSync() {
   const response = await fetch("/api/sync", { method: "POST" });
   if (!response.ok) throw new Error("동기화를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+}
+
+// --- Commits for a single KST day (the /dashboard day view) ---
+
+/** Pages fetched per day at most (50 per page — the API cap): 1,000 commits. */
+const DAY_COMMIT_PAGE_LIMIT = 20;
+
+interface TimelinePage {
+  commits: TimelineCommit[];
+  pagination: { hasNext: boolean };
+}
+
+/**
+ * Every commit of one KST day, walking the paginated timeline API until it runs
+ * out. Polls every minute while the day is today (like the location hooks);
+ * `["timeline", "day"]` is invalidated when a sync completes.
+ */
+export function dayCommitsOptions(sessionId: string | undefined, date: string) {
+  return queryOptions({
+    queryKey: ["timeline", "day", sessionId, date],
+    enabled: !!sessionId && !!date,
+    queryFn: async ({ signal }): Promise<TimelineCommit[]> => {
+      const all: TimelineCommit[] = [];
+      for (let page = 1; page <= DAY_COMMIT_PAGE_LIMIT; page++) {
+        const params = new URLSearchParams({
+          page: String(page),
+          per_page: "50",
+          from: date,
+          to: date,
+        });
+        const response = await fetch(`/api/timeline?${params}`, { signal });
+        if (!response.ok) throw new Error("커밋을 불러오지 못했습니다.");
+        const data = (await response.json()) as TimelinePage;
+        all.push(...(data.commits ?? []));
+        if (!data.pagination?.hasNext) break;
+      }
+      return all;
+    },
+    staleTime: 30_000,
+    refetchInterval: date === toKstCalendarDate(new Date()) ? 60_000 : false,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useDayCommits(date: string) {
+  const { data: session } = useSession();
+  const query = useQuery(dayCommitsOptions(session?.session.id, date));
+  return {
+    commits: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error?.message ?? null,
+    refresh: () => {
+      void query.refetch();
+    },
+  };
 }
