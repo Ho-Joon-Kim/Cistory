@@ -51,3 +51,15 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   healthNeedsReauth: false,
   hasHealthImportKey: false,
 };
+
+/** GET /api/settings/location-summary. */
+export interface LocationSummary {
+  /** Past KST days whose pipeline run completed. */
+  processedDays: number;
+  /** Past KST days whose last run failed (they block period finalization). */
+  failedDays: number;
+  /** Points flagged as anomalies (GPS jumps), all time. */
+  anomalies: number;
+  /** Persisted visits with no place name and no saved place. */
+  unnamedVisits: number;
+}

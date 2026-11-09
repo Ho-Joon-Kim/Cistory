@@ -10,6 +10,7 @@ import {
   Chevron,
   CountUp,
   Disclosure,
+  ErrorState,
   LoadingState,
   MetaLine,
   PageTitle,
@@ -49,8 +50,9 @@ import { LocationImport } from "@/modules/location/components/LocationImport";
 import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
 import { KISAccountSettingsCard } from "@/modules/portfolio/components/KISAccountSettingsCard";
 import { useDataUsage, useOwnTracksKey, useSettings } from "../hooks";
-import type { UserSettings } from "../types";
-import { AccountRolesCard } from "./AccountRolesCard";
+import { type SummaryCounts, useRetryFailedSummaries, useSummaryCounts } from "../summaries";
+import type { LocationSummary, UserSettings } from "../types";
+import { AccountRolesCard, isSuspectAccount } from "./AccountRolesCard";
 import { DbBenchmarkCard } from "./DbBenchmarkCard";
 import { HealthImportSettings } from "./HealthImportSettings";
 import { HealthSettings } from "./HealthSettings";
@@ -208,7 +210,7 @@ function DisclosureRow({
         <Chevron />
       </button>
       <Disclosure open={open} id={panelId}>
-        <div className={cn("pb-5", icon && "sm:pl-11", BARE)}>{children}</div>
+        <div className={cn("pb-5", icon && "pl-11", BARE)}>{children}</div>
       </Disclosure>
     </div>
   );
@@ -224,18 +226,17 @@ function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-interface SummaryCounts {
-  total: number;
-  pending: number;
-  processing: number;
-  completed: number;
-  failed: number;
-}
-
 // ── Form ────────────────────────────────────────────────────────────────────
 
 export function SettingsForm() {
-  const { settings, isSaving, updateSettings, refresh } = useSettings();
+  const {
+    settings,
+    isSaving,
+    isLoading: settingsLoading,
+    error: settingsError,
+    updateSettings,
+    refresh,
+  } = useSettings();
   const { user } = useAuth();
   const { data: session } = useSession();
   const [now] = useState(() => new Date());
@@ -265,16 +266,10 @@ export function SettingsForm() {
       return response.json();
     },
   });
-  const summaries = useQuery<SummaryCounts>({
-    queryKey: ["summary-stats", session?.session.id],
-    enabled: !!session,
-    queryFn: async ({ signal }) => {
-      const response = await fetch("/api/summaries/process", { signal });
-      if (!response.ok) throw new Error("요약 상태를 불러오지 못했습니다.");
-      return response.json();
-    },
-  });
+  const summaries = useSummaryCounts();
+  const retrySummaries = useRetryFailedSummaries();
   const usage = useDataUsage();
+  const manage = useManageStatus(!!session, settings?.hasTossKey ?? false);
 
   const views = useMemo(() => {
     const map = new Map<SourceId, SourceView>();
@@ -285,7 +280,29 @@ export function SettingsForm() {
   }, [status.data, now]);
 
   if (!settings) {
-    return <LoadingState variant="rows" rows={8} label="설정을 불러오는 중" />;
+    if (settingsError && !settingsLoading) {
+      return (
+        <>
+          <PageTitle title="설정" />
+          <ErrorState
+            className="mt-8"
+            title="설정을 불러오지 못했어요"
+            description="연결 상태와 저장 공간은 설정을 읽은 뒤에 보여 드려요. 잠시 후 다시 시도해 주세요."
+            actions={
+              <Button variant="outline" onClick={() => refresh()}>
+                다시 시도
+              </Button>
+            }
+          />
+        </>
+      );
+    }
+    return (
+      <>
+        <PageTitle title="설정" />
+        <LoadingState variant="rows" rows={8} className="mt-10" label="설정을 불러오는 중" />
+      </>
+    );
   }
 
   const connections = buildConnections(settings, views, user?.githubUsername ?? null, now);
@@ -314,19 +331,26 @@ export function SettingsForm() {
           />
         }
       />
-      <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
-        <div className="flex min-w-0 flex-col gap-10">
+      {/* Phones read top to bottom in the mock's order (확인할 것 → 연결 → 저장 공간 →
+          관리 → 위험 구역); from lg the storage and danger sections sit in a sticky
+          side column. The columns are `display: contents` below lg so `order`
+          interleaves their sections. */}
+      <div className="mt-10 flex flex-col gap-10 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
+        <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-10">
           <TodoSection
             views={views}
             summaries={summaries.data ?? null}
+            unnamedVisits={manage.location?.unnamedVisits ?? 0}
             now={now}
             loading={status.isPending}
             onOpenPanel={openAndScroll}
+            onRetrySummaries={() => retrySummaries.mutate()}
+            retryingSummaries={retrySummaries.isPending}
           />
 
           <section
             aria-labelledby="conn"
-            className="ds-enter flex flex-col [animation-delay:200ms]"
+            className="ds-enter order-2 flex flex-col [animation-delay:200ms]"
           >
             <SectionTitle id="conn">연결</SectionTitle>
             {connections.map((c) => (
@@ -336,6 +360,7 @@ export function SettingsForm() {
                 icon={c.icon}
                 title={c.name}
                 meta={c.meta}
+                metaTone={c.status === "reauth" || c.status === "delayed" ? "warn" : "ink3"}
                 badge={<StatusBadge status={c.status} />}
                 open={!!open[c.id]}
                 onToggle={toggle(c.id)}
@@ -347,13 +372,13 @@ export function SettingsForm() {
 
           <section
             aria-labelledby="more"
-            className="ds-enter flex flex-col [animation-delay:300ms]"
+            className="ds-enter order-4 flex flex-col [animation-delay:300ms]"
           >
             <SectionTitle id="more">관리</SectionTitle>
             <DisclosureRow
               id="places"
               title="저장한 장소"
-              meta="집·회사처럼 자주 가는 곳 · 여행 감지 제외"
+              meta={manage.placesMeta ?? "집·회사처럼 자주 가는 곳 · 여행 감지 제외"}
               open={!!open.places}
               onToggle={toggle("places")}
             >
@@ -363,7 +388,8 @@ export function SettingsForm() {
               <DisclosureRow
                 id="roles"
                 title="토스 계좌 역할"
-                meta="계좌별 소비 · 기본 · 무시 분류"
+                meta={manage.roles?.text ?? "계좌별 소비 · 기본 · 무시 분류"}
+                metaTone={manage.roles?.warn ? "warn" : "ink3"}
                 open={!!open.roles}
                 onToggle={toggle("roles")}
               >
@@ -373,7 +399,8 @@ export function SettingsForm() {
             <DisclosureRow
               id="loc"
               title="위치 처리"
-              meta="기간 다시 처리 · 교통수단 · 지하철 매칭"
+              meta={manage.locationMeta?.text ?? "기간 다시 처리 · 교통수단 · 지하철 매칭"}
+              metaTone={manage.locationMeta?.warn ? "warn" : "ink3"}
               open={!!open.loc}
               onToggle={toggle("loc")}
             >
@@ -451,13 +478,10 @@ export function SettingsForm() {
           </section>
         </div>
 
-        <aside
-          aria-label="저장 공간과 위험 구역"
-          className="flex min-w-0 flex-col gap-10 lg:sticky lg:top-6 lg:self-start"
-        >
+        <div className="contents lg:sticky lg:top-6 lg:flex lg:min-w-0 lg:flex-col lg:gap-10 lg:self-start">
           <StorageSection usage={usage} now={now} summaries={summaries.data ?? null} />
           <DangerZone hasOwnTracksKey={settings.hasOwnTracksKey} onChanged={refresh} />
-        </aside>
+        </div>
       </div>
     </>
   );
@@ -476,7 +500,7 @@ const REAUTH_HREF: Partial<Record<SourceId, string>> = {
 interface Todo {
   id: string;
   icon: SourceIconName;
-  tone: "gain" | "ink";
+  tone: "gain" | "warn" | "ink";
   title: string;
   meta: string;
   big: number;
@@ -500,7 +524,9 @@ function sourceTodos(all: SourceView[], now: Date): Todo[] {
     todos.push({
       id: view.id,
       icon: "alert",
-      tone: view.status === "delayed" ? "ink" : "gain",
+      // Same severity colors as the status badges: re-auth is amber, a real
+      // failure red.
+      tone: view.status === "delayed" ? "ink" : view.status === "reauth" ? "warn" : "gain",
       title: `${view.name} ${STATUS_TITLE[view.status]}`,
       meta: last
         ? `마지막 성공 ${formatMonthDay(last, { now })} ${formatTime(last)}`
@@ -540,7 +566,7 @@ function sourceTodos(all: SourceView[], now: Date): Todo[] {
   return todos;
 }
 
-function summaryTodo(summaries: SummaryCounts, onOpen: () => void): Todo {
+function summaryTodo(summaries: SummaryCounts, onRetry: () => void, retrying: boolean): Todo {
   const share = summaries.failed / summaries.total;
   return {
     id: "summaries",
@@ -560,7 +586,7 @@ function summaryTodo(summaries: SummaryCounts, onOpen: () => void): Todo {
       detail: { trigger: share < 0.01 ? `${(share * 100).toFixed(2)}%` : formatShare(share) },
       template:
         share < 0.01
-          ? "전체의 {fact}라 급하진 않아요. 나머지 요약은 계속 만들어져요."
+          ? "전체의 {fact}라 급하진 않아요. 자동 재시도를 다 써서 저절로는 다시 만들지 않아요."
           : "전체의 {fact}가 실패했어요. 타임라인에 요약이 빠진 커밋이 보여요.",
       rows: [
         { label: "완료", value: `${formatCount(summaries.completed)}건` },
@@ -575,8 +601,26 @@ function summaryTodo(summaries: SummaryCounts, onOpen: () => void): Todo {
       ],
     }),
     action: (
+      <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
+        {retrying ? "요청 중…" : `${formatCount(summaries.failed)}건 다시 시도`}
+      </Button>
+    ),
+  };
+}
+
+function unnamedVisitsTodo(count: number, onOpen: () => void): Todo {
+  return {
+    id: "unnamed-visits",
+    icon: "location",
+    tone: "ink",
+    title: "장소 이름 없는 방문",
+    meta: "주소 조회에 실패해 이름 없이 남은 방문",
+    big: count,
+    unit: "곳",
+    fact: null,
+    action: (
       <Button variant="outline" size="sm" onClick={onOpen}>
-        요약 현황 보기
+        위치 처리 열기
       </Button>
     ),
   };
@@ -585,15 +629,21 @@ function summaryTodo(summaries: SummaryCounts, onOpen: () => void): Todo {
 function TodoSection({
   views,
   summaries,
+  unnamedVisits,
   now,
   loading,
   onOpenPanel,
+  onRetrySummaries,
+  retryingSummaries,
 }: {
   views: Map<SourceId, SourceView>;
   summaries: SummaryCounts | null;
+  unnamedVisits: number;
   now: Date;
   loading: boolean;
   onOpenPanel: (id: string) => void;
+  onRetrySummaries: () => void;
+  retryingSummaries: boolean;
 }) {
   const all = [...views.values()];
   const todos = sourceTodos(all, now);
@@ -603,13 +653,17 @@ function TodoSection({
         ? todos.findIndex((t) => t.id.endsWith("-gaps"))
         : todos.length,
       0,
-      summaryTodo(summaries, () => onOpenPanel("summaries"))
+      summaryTodo(summaries, onRetrySummaries, retryingSummaries)
     );
   }
+  if (unnamedVisits > 0) todos.push(unnamedVisitsTodo(unnamedVisits, () => onOpenPanel("loc")));
   const todayPoints = views.get("location")?.cells.at(-1)?.count ?? 0;
 
   return (
-    <section aria-labelledby="todo" className="ds-enter flex flex-col [animation-delay:100ms]">
+    <section
+      aria-labelledby="todo"
+      className="ds-enter order-1 flex flex-col [animation-delay:100ms]"
+    >
       <SectionTitle id="todo">
         확인할 것{" "}
         {todos.length > 0 ? (
@@ -629,7 +683,11 @@ function TodoSection({
               <span
                 className={cn(
                   "grid size-8 flex-none place-items-center rounded-[9px] bg-sunken",
-                  todo.tone === "gain" ? "text-gain" : "text-ink-2"
+                  todo.tone === "gain"
+                    ? "text-gain"
+                    : todo.tone === "warn"
+                      ? "text-warn"
+                      : "text-ink-2"
                 )}
               >
                 <svg
@@ -653,7 +711,11 @@ function TodoSection({
               <span
                 className={cn(
                   "num text-[22px] leading-7 font-medium whitespace-nowrap",
-                  todo.tone === "gain" ? "text-gain" : "text-ink"
+                  todo.tone === "gain"
+                    ? "text-gain"
+                    : todo.tone === "warn"
+                      ? "text-warn"
+                      : "text-ink"
                 )}
               >
                 <CountUp value={todo.big} />
@@ -723,9 +785,11 @@ function buildConnections(
           ? "reauth"
           : st("wakatime", settings.hasWakaTimeConnection),
       meta: settings.hasWakaTimeConnection
-        ? join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "OAuth 연결")
+        ? settings.wakatimeNeedsReauth
+          ? join("인증 만료", lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`)
+          : join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "계정 연결됨")
         : wakaLegacy
-          ? "API 키 연결 종료 · 다시 연결 필요"
+          ? join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "키 방식 종료")
           : "연결 안 됨",
       body: () => (
         <WakaTimeSettings
@@ -940,7 +1004,7 @@ function storageMismatch(
         label: "요약 처리 현황",
         value: `완료 ${formatCount(summaries.completed)} · 실패 ${formatCount(summaries.failed)} · 대기 ${formatCount(summaries.pending)}`,
       },
-      { label: "용량 표", value: "commit_summaries 0행" },
+      { label: "용량 표", value: "커밋 요약 테이블 0행" },
       {
         label: "계산 시각",
         value: calculatedAt ? formatDateTime(new Date(calculatedAt), { now }) : "—",
@@ -972,7 +1036,10 @@ function StorageSection({
   const restBytes = cats.slice(2).reduce((s, c) => s + c.totalBytes, 0);
 
   return (
-    <section aria-labelledby="store" className="ds-enter flex flex-col [animation-delay:300ms]">
+    <section
+      aria-labelledby="store"
+      className="ds-enter order-3 flex flex-col [animation-delay:300ms]"
+    >
       <div className="flex items-baseline justify-between gap-3">
         <SectionTitle id="store">저장 공간</SectionTitle>
         <Button
@@ -1165,7 +1232,10 @@ function DangerZone({
   };
 
   return (
-    <section aria-labelledby="danger" className="ds-enter flex flex-col [animation-delay:400ms]">
+    <section
+      aria-labelledby="danger"
+      className="ds-enter order-5 flex flex-col [animation-delay:400ms]"
+    >
       <SectionTitle id="danger">위험 구역</SectionTitle>
       <p className="m-0 mb-3.5 text-[13px] leading-5 text-ink-3">
         되돌릴 수 없어요. 누르면 한 번 더 확인해요.
@@ -1205,4 +1275,80 @@ function DangerZone({
       </Dialog>
     </section>
   );
+}
+
+// ── 관리 live status ────────────────────────────────────────────────────────
+
+interface SavedPlaceRow {
+  name: string;
+  excludeFromTrips: boolean;
+}
+interface AccountRoleRow {
+  transactionCount: number | string;
+  role: "default" | "spending" | "ignore";
+}
+
+/** Data-bearing subtitles for the 관리 rows; each falls back to static copy. */
+function useManageStatus(enabled: boolean, hasToss: boolean) {
+  const places = useQuery<{ places: SavedPlaceRow[] }>({
+    queryKey: ["saved-places-summary"],
+    enabled,
+    queryFn: async ({ signal }) => {
+      const response = await fetch("/api/saved-places", { signal });
+      if (!response.ok) throw new Error("saved places");
+      return response.json();
+    },
+  });
+  const roles = useQuery<{ accounts: AccountRoleRow[] }>({
+    queryKey: ["account-roles-summary"],
+    enabled: enabled && hasToss,
+    queryFn: async ({ signal }) => {
+      const response = await fetch("/api/settings/account-roles", { signal });
+      if (!response.ok) throw new Error("account roles");
+      return response.json();
+    },
+  });
+  const location = useQuery<LocationSummary>({
+    queryKey: ["location-summary"],
+    enabled,
+    queryFn: async ({ signal }) => {
+      const response = await fetch("/api/settings/location-summary", { signal });
+      if (!response.ok) throw new Error("location summary");
+      return response.json();
+    },
+  });
+
+  const placeList = places.data?.places;
+  const excluded = placeList?.filter((p) => p.excludeFromTrips).length ?? 0;
+  const placesMeta = placeList
+    ? placeList.length === 0
+      ? "아직 없음 · 집·회사를 저장하면 방문에 이름이 붙어요"
+      : `${placeList.map((p) => p.name).join(" · ")} — ${excluded > 0 ? `여행 제외 ${excluded}곳` : "여행 제외 없음"}`
+    : null;
+
+  const accounts = roles.data?.accounts;
+  const suspect = accounts?.filter((a) => isSuspectAccount(a)).length ?? 0;
+  const rolesMeta = accounts
+    ? {
+        text: join(
+          `${formatCount(accounts.length)}개`,
+          suspect > 0 && `거래 1건뿐인 이름 ${suspect}개 확인 필요`
+        ),
+        warn: suspect > 0,
+      }
+    : null;
+
+  const loc = location.data;
+  const locationMeta = loc
+    ? {
+        text: join(
+          `${formatCount(loc.processedDays)}일 처리`,
+          loc.failedDays > 0 && `실패 ${formatCount(loc.failedDays)}일`,
+          `이상치 ${formatCount(loc.anomalies)}개`
+        ),
+        warn: loc.failedDays > 0,
+      }
+    : null;
+
+  return { placesMeta, roles: rolesMeta, locationMeta, location: loc ?? null };
 }

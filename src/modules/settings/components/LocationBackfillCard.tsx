@@ -1,21 +1,11 @@
 "use client";
 
-import {
-  AlertTriangle,
-  Car,
-  CheckCircle2,
-  ChevronDown,
-  Clock,
-  Loader2,
-  MapPin,
-  Navigation,
-  Shield,
-} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/ds";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { formatCount } from "@/lib/format";
+import { PanelActions, PanelNote, PanelStats, PanelText } from "./panel";
 
 interface DryRunResult {
   hasData: boolean;
@@ -59,12 +49,12 @@ interface ProgressEvent {
   error?: string;
 }
 
-const PHASE_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
-  anomaly: { label: "이상치 탐지", icon: <Shield className="h-3.5 w-3.5" /> },
-  visits: { label: "방문 감지", icon: <Navigation className="h-3.5 w-3.5" /> },
-  tracks: { label: "교통수단 감지", icon: <Car className="h-3.5 w-3.5" /> },
-  enrich: { label: "장소 정보 적용", icon: <MapPin className="h-3.5 w-3.5" /> },
-  trips: { label: "여행 감지", icon: <Navigation className="h-3.5 w-3.5" /> },
+const PHASE_LABELS: Record<string, string> = {
+  anomaly: "이상치 탐지",
+  visits: "방문 감지",
+  tracks: "교통수단 감지",
+  enrich: "장소 정보 적용",
+  trips: "여행 감지",
 };
 
 export function LocationBackfillCard() {
@@ -72,7 +62,6 @@ export function LocationBackfillCard() {
   const [isLoading, setIsLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchDryRun = useCallback(async () => {
@@ -151,111 +140,121 @@ export function LocationBackfillCard() {
     }
   };
 
+  const geo = dryRun?.hasData ? dryRun.geocoding : null;
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <MapPin className="h-5 w-5 text-primary" />
-            <div>
-              <CardTitle className="text-base">과거 위치 데이터 처리</CardTitle>
-              <CardDescription>
-                이상치 탐지 → 방문 감지 → 교통수단 분류 순서로 처리합니다
-              </CardDescription>
-            </div>
-          </div>
-          {!isRunning && (
-            <Button variant="ghost" size="sm" onClick={fetchDryRun} disabled={isLoading}>
-              {isLoading && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              새로고침
-            </Button>
+    <div className="flex flex-col gap-4">
+      <PanelText>
+        이상치 탐지 → 방문 감지 → 교통수단 분류 순서로 하루씩 처리해요. 매일 01:00에 전날이 자동으로
+        처리돼요.
+      </PanelText>
+
+      {isLoading && !dryRun ? (
+        <LoadingState variant="rows" rows={2} label="처리 상태를 확인하는 중" />
+      ) : null}
+      {dryRun && !dryRun.hasData ? <PanelText>아직 위치 기록이 없어요.</PanelText> : null}
+
+      {dryRun?.hasData ? (
+        <>
+          {dryRun.warnings.map((w) => (
+            <PanelNote key={w} tone="warn">
+              {w}
+            </PanelNote>
+          ))}
+
+          <PanelStats
+            items={[
+              {
+                label: "처리한 날",
+                value: dryRun.past.daysProcessed,
+                unit: `/ ${formatCount(dryRun.past.totalDays)}일`,
+              },
+              {
+                label: "남은 날",
+                value: dryRun.past.daysRemaining,
+                unit: "일",
+                tone: dryRun.past.daysRemaining > 0 ? "warn" : "muted",
+              },
+              { label: "이상치", value: dryRun.anomaly.anomaliesFound, unit: "개" },
+              { label: "좌표", value: dryRun.anomaly.totalPoints, unit: "개" },
+            ]}
+          />
+
+          {dryRun.past.needsBackfill ? (
+            <PanelNote tone="warn">
+              과거 <span className="num">{formatCount(dryRun.past.daysRemaining)}</span>일이 아직
+              처리되지 않았어요.
+            </PanelNote>
+          ) : (
+            <PanelNote tone="brand">
+              {formatDay(dryRun.dateRange.earliest)}부터{" "}
+              {formatDay(previousDateString(dryRun.dateRange.today, dryRun.dateRange.latest))}까지
+              모두 처리됐어요.
+            </PanelNote>
           )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {isLoading && !dryRun && (
-          <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-            처리 상태를 확인하는 중…
-          </div>
-        )}
+          {dryRun.today.pending ? (
+            <PanelNote>
+              오늘 좌표 <span className="num">{formatCount(dryRun.today.unscannedPoints)}</span>
+              개는 내일 01:00에 자동으로 처리돼요.
+            </PanelNote>
+          ) : null}
+          {geo && geo.uncachedTotal > 0 ? (
+            <PanelText className="text-ink-3">
+              주소를 아직 조회하지 않은 좌표 칸{" "}
+              <span className="num">{formatCount(geo.uncachedTotal)}</span>곳(국내{" "}
+              <span className="num">{formatCount(geo.uncachedKorea)}</span> · 해외{" "}
+              <span className="num">{formatCount(geo.uncachedOverseas)}</span>)은 지나가기만 한
+              곳이에요. 주소는 머문 곳(방문)만 조회해요.
+            </PanelText>
+          ) : null}
 
-        {dryRun && !dryRun.hasData && (
-          <p className="text-sm text-muted-foreground">위치 데이터가 없습니다.</p>
-        )}
-
-        {dryRun?.hasData && (
-          <>
-            {/* Warnings */}
-            {dryRun.warnings.length > 0 && (
-              <div className="space-y-2">
-                {dryRun.warnings.map((w) => (
-                  <div
-                    key={w}
-                    className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground"
-                  >
-                    <AlertTriangle
-                      aria-hidden="true"
-                      className="h-4 w-4 mt-0.5 shrink-0 text-warning"
-                    />
-                    <span>{w}</span>
-                  </div>
-                ))}
+          {isRunning && progress ? (
+            <div className="flex flex-col gap-2" role="status">
+              <div className="h-1 rounded-full bg-track">
+                <div
+                  className="h-1 rounded-full bg-brand transition-[width] duration-300"
+                  style={{ width: `${Math.max(2, progress.progress)}%` }}
+                />
               </div>
-            )}
-
-            {dryRun.past.needsBackfill ? (
-              <BacklogView dryRun={dryRun} />
-            ) : (
-              <SuccessView dryRun={dryRun} />
-            )}
-
-            {/* Progress bar during execution */}
-            {isRunning && progress && (
-              <div className="space-y-2">
-                <Progress value={progress.progress} className="h-2" />
-                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    {progress.phase !== "done" && progress.phase !== "error" && (
-                      <>
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        {PHASE_LABELS[progress.phase]?.icon}
-                        <span>{PHASE_LABELS[progress.phase]?.label}</span>
-                        {progress.day && <span className="text-foreground">{progress.day}</span>}
-                        {progress.detail && <span>— {progress.detail}</span>}
-                      </>
-                    )}
-                  </div>
-                  <span className="tabular-nums">{progress.progress}%</span>
-                </div>
+              <div className="flex items-center justify-between gap-2 text-xs text-ink-3">
+                <span className="min-w-0 truncate">
+                  {progress.phase !== "done" && progress.phase !== "error"
+                    ? [
+                        PHASE_LABELS[progress.phase],
+                        progress.day,
+                        progress.detail && `— ${progress.detail}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" ")
+                    : null}
+                </span>
+                <span className="num">{progress.progress}%</span>
               </div>
-            )}
+            </div>
+          ) : null}
 
-            {/* Actions */}
-            {!isRunning && (
-              <div className="space-y-2">
-                {(dryRun.past.needsBackfill || dryRun.today.pending) && (
-                  <p className="text-xs text-muted-foreground">
-                    처리하는 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지
-                    않습니다.
-                  </p>
-                )}
-                {dryRun.past.needsBackfill && (
+          {!isRunning ? (
+            <div className="flex flex-col gap-2.5">
+              {dryRun.past.needsBackfill || dryRun.today.pending ? (
+                <PanelText className="text-xs leading-[18px] text-ink-3">
+                  처리하는 기간의 도로 경로·지하철 매칭 결과는 지워지고 자동으로 복구되지 않아요.
+                </PanelText>
+              ) : null}
+              <PanelActions>
+                {dryRun.past.needsBackfill ? (
                   <Button
+                    size="sm"
                     onClick={() =>
                       runBackfill(
                         "past",
                         `과거 ${dryRun.past.daysRemaining}일의 위치 데이터를 처리할까요? 이 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다.`
                       )
                     }
-                    className="w-full"
                   >
-                    과거 데이터 처리 ({dryRun.past.daysRemaining}일)
+                    과거 {formatCount(dryRun.past.daysRemaining)}일 처리
                   </Button>
-                )}
-                {!dryRun.past.needsBackfill && dryRun.today.pending && (
+                ) : dryRun.today.pending ? (
                   <Button
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     onClick={() =>
                       runBackfill(
@@ -263,152 +262,25 @@ export function LocationBackfillCard() {
                         "오늘 위치 데이터를 지금 처리할까요? 오늘의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다."
                       )
                     }
-                    className="w-full"
                   >
                     오늘 데이터 지금 처리
                   </Button>
-                )}
-              </div>
-            )}
-
-            {/* Collapsible details — only shown in success state */}
-            {!dryRun.past.needsBackfill && (
-              <div className="border-t pt-3">
-                <button
-                  type="button"
-                  aria-expanded={detailsOpen}
-                  aria-controls="location-backfill-details"
-                  onClick={() => setDetailsOpen((v) => !v)}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform ${detailsOpen ? "rotate-180" : ""}`}
-                  />
-                  세부 상태 보기
-                </button>
-                {detailsOpen && (
-                  <div
-                    id="location-backfill-details"
-                    className="mt-3 space-y-1.5 text-xs text-muted-foreground"
-                  >
-                    <DetailRow
-                      icon={<Shield className="h-3.5 w-3.5" />}
-                      label="이상치 탐지"
-                      value={`${dryRun.past.daysProcessed}일 처리 · ${dryRun.anomaly.anomaliesFound.toLocaleString()}개 감지`}
-                    />
-                    <DetailRow
-                      icon={<Navigation className="h-3.5 w-3.5" />}
-                      label="방문 감지"
-                      value={`${dryRun.past.daysProcessed}일 처리`}
-                    />
-                    <DetailRow
-                      icon={<Car className="h-3.5 w-3.5" />}
-                      label="교통수단 감지"
-                      value={`${dryRun.past.daysProcessed}일 처리`}
-                    />
-                    <div className="pt-1.5 mt-1.5 border-t text-xs tabular-nums">
-                      {dryRun.dateRange.earliest} ~ {dryRun.dateRange.latest} ·{" "}
-                      {dryRun.anomaly.totalPoints.toLocaleString()}개 포인트
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SuccessView({ dryRun }: { dryRun: DryRunResult }) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-start gap-2 text-sm">
-        <CheckCircle2 aria-hidden="true" className="h-4 w-4 mt-0.5 shrink-0 text-success" />
-        <div>
-          <div className="font-medium text-success">모든 과거 데이터가 처리되었습니다</div>
-          <div className="text-xs text-muted-foreground mt-0.5">
-            {dryRun.dateRange.earliest} ~{" "}
-            {previousDateString(dryRun.dateRange.today, dryRun.dateRange.latest)} ·{" "}
-            {dryRun.past.daysProcessed}일 처리 완료
-          </div>
-        </div>
-      </div>
-
-      {dryRun.today.pending && (
-        <div className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-sm">
-          <Clock className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-          <div className="flex-1">
-            <div className="text-foreground">
-              오늘({dryRun.today.date}) 데이터 {dryRun.today.unscannedPoints.toLocaleString()}개는
-              내일 01:00에 자동 처리됩니다
+                ) : null}
+                <Button variant="ghost" size="sm" onClick={fetchDryRun} disabled={isLoading}>
+                  {isLoading ? "확인 중…" : "상태 다시 확인"}
+                </Button>
+              </PanelActions>
             </div>
-          </div>
-        </div>
-      )}
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }
 
-function BacklogView({ dryRun }: { dryRun: DryRunResult }) {
-  const processed = dryRun.past.daysProcessed;
-  const total = dryRun.past.totalDays;
-  const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
-
-  return (
-    <div className="space-y-3">
-      <div className="text-sm text-muted-foreground">
-        {dryRun.dateRange.earliest} ~ {dryRun.dateRange.latest} · {dryRun.dateRange.totalDays}일 ·{" "}
-        {dryRun.anomaly.totalPoints.toLocaleString()}개 포인트
-      </div>
-
-      <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground">
-        <AlertTriangle aria-hidden="true" className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
-        <span>과거 {dryRun.past.daysRemaining}일이 미처리 상태입니다</span>
-      </div>
-
-      <div className="space-y-2">
-        <PhaseRow label="이상치 탐지" icon={<Shield className="h-4 w-4" />} pct={pct} />
-        <PhaseRow label="방문 감지" icon={<Navigation className="h-4 w-4" />} pct={pct} />
-        <PhaseRow label="교통수단 감지" icon={<Car className="h-4 w-4" />} pct={pct} />
-      </div>
-
-      <div className="text-xs text-muted-foreground">
-        {processed}/{total}일 처리 완료
-        {dryRun.today.pending && " · 오늘 데이터는 자동 처리됩니다"}
-      </div>
-    </div>
-  );
-}
-
-function PhaseRow({ label, icon, pct }: { label: string; icon: React.ReactNode; pct: number }) {
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <div className="text-muted-foreground">{icon}</div>
-      <span className="font-medium w-24">{label}</span>
-      <Progress value={pct} className="h-1.5 flex-1" />
-      <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">{pct}%</span>
-    </div>
-  );
-}
-
-function DetailRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      {icon}
-      <span className="w-20">{label}</span>
-      <span className="text-foreground">{value}</span>
-    </div>
-  );
+function formatDay(key: string): string {
+  const [, m, d] = key.split("-").map(Number);
+  return `${m}월 ${d}일`;
 }
 
 function previousDateString(today: string, latest: string): string {

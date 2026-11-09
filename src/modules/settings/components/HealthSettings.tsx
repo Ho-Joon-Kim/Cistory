@@ -1,11 +1,10 @@
 "use client";
 
-import { Activity, AlertTriangle, Check, Clock, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatRelative } from "@/lib/format";
 import { useHealth } from "../hooks";
+import { OAuthPanel } from "./panel";
 
 interface HealthSettingsProps {
   hasConnection: boolean;
@@ -42,79 +41,26 @@ export function HealthSettings({ hasConnection, lastSyncedAt, needsReauth }: Hea
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Activity className="h-5 w-5" />
-          건강 · Google Health (Fitbit)
-        </CardTitle>
-        <CardDescription>
-          Fitbit Air를 Google Health로 연결해 수면·활동·심박·산소포화도 등을 수집합니다
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!hasHealthConnection ? (
-          <Button asChild>
-            {/* Full-page redirect into the OAuth flow (authorize → Google consent → callback). */}
-            <a href="/api/fitbit/authorize">
-              <Check className="h-4 w-4 mr-2" />
-              Google Health (Fitbit) 연결
-            </a>
-          </Button>
-        ) : (
-          <div className="space-y-4">
-            {needsReauth && (
-              <div className="flex items-start gap-2 p-3 rounded-lg border border-warning/40 bg-warning/10">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
-                <div className="space-y-2">
-                  <p className="text-sm">
-                    Google Health (Fitbit) 인증이 만료되었습니다. 다시 연결하면 데이터 동기화가
-                    재개됩니다.
-                  </p>
-                  <Button size="sm" asChild>
-                    <a href="/api/fitbit/authorize">다시 연결</a>
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <code className="min-w-0 flex-1 break-all p-2 rounded bg-muted text-xs sm:text-sm font-mono text-muted-foreground">
-                연결됨
-              </code>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
-                  {isSyncing ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <RotateCw className="h-4 w-4 mr-2" />
-                  )}
-                  {isSyncing ? "동기화 중…" : "지금 동기화"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDisconnect}
-                  disabled={isDisconnecting}
-                  className="text-destructive hover:text-destructive"
-                >
-                  {isDisconnecting ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4 mr-2" />
-                  )}
-                  연결 해제
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" />
-              마지막 동기화: {lastSyncedAt ? formatRelativeTime(lastSyncedAt) : "없음"}
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <OAuthPanel
+      description="Fitbit 기기를 Google Health로 연결해 걸음·심박·수면·운동·산소포화도를 가져와요."
+      connected={hasHealthConnection}
+      needsReauth={needsReauth}
+      authorizeHref="/api/fitbit/authorize"
+      providerName="Google Health"
+      stats={[
+        {
+          label: "마지막 동기화",
+          value: lastSyncedAt ? formatRelative(lastSyncedAt) : "없음",
+        },
+        { label: "주기", value: "10분마다" },
+      ]}
+      extraActions={
+        <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
+          {isSyncing ? "동기화 중…" : "지금 동기화"}
+        </Button>
+      }
+      isDisconnecting={isDisconnecting}
+      onDisconnect={handleDisconnect}
+    />
   );
 }

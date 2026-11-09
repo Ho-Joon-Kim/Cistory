@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
@@ -101,7 +101,11 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
       return response.json();
     },
     refetchInterval: (q) => (q.state.data?.jobs.some(ACTIVE) ? 5_000 : 30_000),
+    // Switching 7일/30일 keeps the previous range on screen (dimmed) instead of
+    // unmounting everything, so the entrance and count-ups don't replay.
+    placeholderData: keepPreviousData,
   });
+  const switching = query.isPlaceholderData;
 
   const recovery = useMutation({
     mutationFn: async (input: { source: string; from: string; to: string }) => {
@@ -159,8 +163,7 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
             title="수집 상태"
             meta={
               <>
-                <span className="num">{rangeText}</span> · {rangeDays}일 · 소스 {views.length || 7}
-                개
+                {rangeText} · {rangeDays}일 · 소스 {views.length || 7}개
               </>
             }
           />
@@ -203,7 +206,13 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
       ) : !data || !hero ? (
         <LoadingState variant="rows" rows={7} className="mt-8" label="수집 상태를 불러오는 중" />
       ) : (
-        <>
+        <div
+          aria-busy={switching}
+          className={cn(
+            "transition-opacity duration-200",
+            switching && "pointer-events-none opacity-55"
+          )}
+        >
           <section
             aria-label="요약"
             className="ds-enter mt-8 grid grid-cols-1 gap-8 [animation-delay:100ms] lg:grid-cols-12 lg:gap-6"
@@ -273,7 +282,7 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
               단정하지 않아요. 재수집은 1분마다 최대 3일씩 하루 단위로 처리돼요.
             </p>
           </section>
-        </>
+        </div>
       )}
     </>
   );
@@ -351,8 +360,7 @@ function HeroSummary({
       </div>
       {gap ? (
         <p className="m-0 max-w-[460px] text-sm leading-[22px] text-ink-2">
-          {gap.name} 기록은 <span className="num">{formatDateRuns(gap.gaps, now)}</span>이 비어
-          있습니다.{" "}
+          {gap.name} 기록은 {formatDateRuns(gap.gaps, now)}이 비어 있습니다.{" "}
           <button
             type="button"
             onClick={() => onOpenRow(gap.id)}
@@ -459,15 +467,21 @@ function FocusPanel({
   const r = recoveryRange(view);
   const recordDays = view.cells.filter((c) => c.count > 0).length;
   const unit = SOURCE_NAMES[view.id].unit;
+  // For a failing source, what's already stored is the reassuring number: none
+  // of it is lost while sync is down.
+  const retained = failing ? view.source.retained : null;
   const processed = job ? Math.max(0, dayCount(job.fromDate, job.nextDate)) : 0;
   const jobTotal = job ? dayCount(job.fromDate, job.toDate) + 1 : 0;
-  const description = view.source.error
-    ? view.source.error
-    : view.status === "reauth"
-      ? "제공자가 인증을 거부했어요. 설정에서 다시 연결해 주세요."
-      : view.status === "delayed"
-        ? "48시간 넘게 동기화에 성공하지 못했어요."
-        : `들어와야 할 기록이 ${view.gaps.length}일 비어 있어요.`;
+  // A confirmed auth failure is the precise diagnosis; the generic sync error
+  // message underneath it would only blur it.
+  const description =
+    view.status === "reauth"
+      ? "연결 인증이 끊겼어요. 지금까지 가져온 기록은 그대로 보관돼요."
+      : view.source.error
+        ? view.source.error
+        : view.status === "delayed"
+          ? "48시간 넘게 동기화에 성공하지 못했어요."
+          : `들어와야 할 기록이 ${view.gaps.length}일 비어 있어요.`;
 
   return (
     <div className="surface flex min-w-0 flex-col gap-5 p-5 sm:p-6 lg:col-span-7">
@@ -486,8 +500,11 @@ function FocusPanel({
       <EvidenceScope>
         <AiLine fact={fact} className="-mt-1.5 max-w-[620px]" />
       </EvidenceScope>
-      <div className="grid grid-cols-2 border-y border-line sm:grid-cols-[1.15fr_1fr_1fr]">
-        <Kpi label={failing ? "미동기화" : "공백"} className="col-span-2 pr-5 sm:col-span-1">
+      <div className="grid grid-cols-1 border-y border-line min-[360px]:grid-cols-2 sm:grid-cols-[1.15fr_1fr_1fr]">
+        <Kpi
+          label={failing ? "미동기화" : "공백"}
+          className="pr-5 min-[360px]:col-span-2 sm:col-span-1"
+        >
           <span className="num text-[40px] leading-[44px] font-medium sm:text-5xl sm:leading-[52px]">
             <CountUp
               value={failing ? (view.daysSinceSuccess ?? view.cells.length) : view.gaps.length}
@@ -497,7 +514,7 @@ function FocusPanel({
         </Kpi>
         <Kpi
           label="마지막 성공"
-          className="border-t border-line pr-4 sm:border-t-0 sm:border-l sm:px-5"
+          className="border-t border-line min-[360px]:pr-4 sm:border-t-0 sm:border-l sm:px-5"
           sub={
             last
               ? `${formatRelative(last, now)} · ${WEEKDAY_NAMES[new Date(last.getTime() + 9 * 3_600_000).getUTCDay()]}`
@@ -508,15 +525,27 @@ function FocusPanel({
             {last ? `${formatMonthDay(last, { now })} ${formatTime(last)}` : "없음"}
           </span>
         </Kpi>
-        <Kpi
-          label="이 기간 기록"
-          className="border-t border-l border-line pl-4 sm:border-t-0 sm:pl-5"
-          sub={view.total > 0 ? `${recordDays}일치 · ${unit}` : `${unit} 0건`}
-        >
-          <span className="num text-xl leading-7 font-medium whitespace-nowrap sm:text-[22px] lg:text-lg xl:text-[22px]">
-            {view.total > 0 ? formatCount(view.total) : "없음"}
-          </span>
-        </Kpi>
+        {retained && retained.count > 0 ? (
+          <Kpi
+            label={`보관된 ${unit}`}
+            className="border-t border-line min-[360px]:border-l min-[360px]:pl-4 sm:border-t-0 sm:pl-5"
+            sub={`${formatCount(retained.days)}일치 · 지워지지 않음`}
+          >
+            <span className="num text-xl leading-7 font-medium whitespace-nowrap sm:text-[22px] lg:text-lg xl:text-[22px]">
+              {formatCount(retained.count)}
+            </span>
+          </Kpi>
+        ) : (
+          <Kpi
+            label="이 기간 기록"
+            className="border-t border-line min-[360px]:border-l min-[360px]:pl-4 sm:border-t-0 sm:pl-5"
+            sub={view.total > 0 ? `${recordDays}일치 · ${unit}` : `${unit} 0건`}
+          >
+            <span className="num text-xl leading-7 font-medium whitespace-nowrap sm:text-[22px] lg:text-lg xl:text-[22px]">
+              {view.total > 0 ? formatCount(view.total) : "없음"}
+            </span>
+          </Kpi>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {view.source.canRecover ? (
@@ -543,7 +572,20 @@ function FocusPanel({
           )
         ) : REAUTH_HREF[view.id] && view.status === "reauth" ? (
           <Button asChild>
-            <a href={REAUTH_HREF[view.id]}>다시 연결</a>
+            <a href={REAUTH_HREF[view.id]}>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+              </svg>
+              다시 연결
+            </a>
           </Button>
         ) : null}
         <Button variant="ghost" asChild>
@@ -805,6 +847,7 @@ function SourceRow({
               unit={unit}
               hovered={hoverIndex}
               onHover={onHover}
+              failTone={view.status === "reauth" ? "warn" : "up"}
               className="relative z-[1]"
             />
             {tooltip}

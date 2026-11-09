@@ -1,10 +1,8 @@
 "use client";
 
-import { Loader2, Plane, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { TripDetectDialog } from "@/modules/location/components/TripDetectDialog";
 import { TripConfirmationError, useTripDetection } from "@/modules/location/hooks";
@@ -16,6 +14,15 @@ export function getTripConfirmationErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
     : "여행을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+function SubHead({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[13px] leading-5 font-semibold text-ink">{title}</span>
+      <span className="text-[13px] leading-5 text-ink-2">{text}</span>
+    </div>
+  );
 }
 
 function TripRegenerationSection() {
@@ -68,31 +75,24 @@ function TripRegenerationSection() {
   };
 
   return (
-    <div className="border-t pt-4 space-y-3">
-      <div>
-        <p className="text-sm font-medium">자동 여행 전체 재생성</p>
-        <p className="text-sm text-muted-foreground">
-          2025-03-08 이후 자동 감지 여행을 최신 판정 규칙으로 한 번에 교체합니다. 직접 만든 여행은
-          삭제하지 않습니다.
-        </p>
-      </div>
-      <Button variant="destructive" disabled={isRegenerating} onClick={handleRegenerate}>
-        {isRegenerating ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            후보 분석 및 교체 중…
-          </>
-        ) : (
-          <>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            자동 여행 전체 재생성
-          </>
-        )}
+    <div className="flex flex-col gap-2.5 border-t border-line pt-4">
+      <SubHead
+        title="자동 여행 전체 다시 만들기"
+        text="2025년 3월 8일 이후 자동 감지한 여행을 최신 규칙으로 한 번에 바꿔요. 직접 만든 여행은 그대로예요."
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        className="self-start text-gain hover:text-gain"
+        disabled={isRegenerating}
+        onClick={handleRegenerate}
+      >
+        {isRegenerating ? "분석하고 바꾸는 중…" : "자동 여행 다시 만들기"}
       </Button>
       {status ? (
         <p
           className={
-            status.kind === "error" ? "text-sm text-destructive" : "text-sm text-muted-foreground"
+            status.kind === "error" ? "m-0 text-[13px] text-gain" : "m-0 text-[13px] text-ink-2"
           }
           role={status.kind === "error" ? "alert" : "status"}
         >
@@ -191,119 +191,101 @@ export function TripDetectionCard() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <Plane className="h-4 w-4" />
-          여행 자동 감지
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {!showDialog ? (
-          <>
-            <p className="text-sm text-muted-foreground">
-              위치 데이터를 분석하여 올해의 여행을 자동으로 감지합니다. 집에서 100km를 초과한 곳에서
-              1박 이상 체류한 기간을 여행으로 판정합니다.
-            </p>
-            <Button variant="outline" disabled={isDetecting} onClick={handleDetect}>
-              {isDetecting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  분석 중…
-                </>
-              ) : (
-                <>
-                  <Plane className="h-4 w-4 mr-2" />
-                  {currentYear}년 여행 감지
-                </>
-              )}
-            </Button>
-          </>
-        ) : (
-          <div className="space-y-3">
-            <TripDetectDialog
-              trips={detected}
-              isSaving={isSaving}
-              onConfirm={handleConfirm}
-              onCancel={() => {
-                setConfirmationError(null);
-                setShowDialog(false);
-              }}
-            />
-            {confirmationError ? (
-              <p className="text-sm text-destructive" role="alert">
-                {confirmationError}
-              </p>
-            ) : null}
-          </div>
-        )}
-
-        <TripRegenerationSection />
-
-        <div className="border-t pt-4 space-y-3">
-          <div>
-            <p className="text-sm font-medium">교통수단 다시 판정</p>
-            <p className="text-sm text-muted-foreground">
-              선택한 기간의 이동 구간을 최신 비행 판정 기준으로 다시 계산합니다. 이 기간의 도로 경로
-              매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다.
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1 text-sm" htmlFor="transport-reclassify-from">
-              <span>시작일</span>
-              <Input
-                id="transport-reclassify-from"
-                type="date"
-                value={reclassifyFrom}
-                disabled={isReclassifying}
-                onChange={(event) => setReclassifyFrom(event.target.value)}
-              />
-            </label>
-            <label className="space-y-1 text-sm" htmlFor="transport-reclassify-to">
-              <span>종료일</span>
-              <Input
-                id="transport-reclassify-to"
-                type="date"
-                value={reclassifyTo}
-                disabled={isReclassifying}
-                onChange={(event) => setReclassifyTo(event.target.value)}
-              />
-            </label>
-          </div>
+    <div className="flex flex-col gap-5">
+      {!showDialog ? (
+        <div className="flex flex-col gap-2.5">
+          <SubHead
+            title="올해 여행 감지"
+            text="매주 일요일 02:00에 자동으로 감지해요. 집에서 100km 넘게 떨어진 곳에서 1박 이상 머문 기간을 여행으로 봐요."
+          />
           <Button
             variant="outline"
-            className="text-destructive hover:text-destructive"
-            disabled={
-              isReclassifying || !reclassifyFrom || !reclassifyTo || reclassifyFrom > reclassifyTo
-            }
-            onClick={handleReclassify}
+            size="sm"
+            className="self-start"
+            disabled={isDetecting}
+            onClick={handleDetect}
           >
-            {isReclassifying ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                날짜별 이동 구간 판정 중…
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                선택 기간 다시 판정
-              </>
-            )}
+            {isDetecting ? "분석 중…" : `${currentYear}년 여행 감지`}
           </Button>
-          {reclassificationStatus ? (
-            <p
-              className={
-                reclassificationStatus.kind === "error"
-                  ? "text-sm text-destructive"
-                  : "text-sm text-muted-foreground"
-              }
-              role={reclassificationStatus.kind === "error" ? "alert" : "status"}
-            >
-              {reclassificationStatus.message}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <TripDetectDialog
+            trips={detected}
+            isSaving={isSaving}
+            onConfirm={handleConfirm}
+            onCancel={() => {
+              setConfirmationError(null);
+              setShowDialog(false);
+            }}
+          />
+          {confirmationError ? (
+            <p className="m-0 text-[13px] text-gain" role="alert">
+              {confirmationError}
             </p>
           ) : null}
         </div>
-      </CardContent>
-    </Card>
+      )}
+
+      <TripRegenerationSection />
+
+      <div className="flex flex-col gap-2.5 border-t border-line pt-4">
+        <SubHead
+          title="교통수단 다시 판정"
+          text="고른 기간의 이동 구간을 최신 비행 판정 기준으로 다시 계산해요. 이 기간의 도로 경로·지하철 매칭 결과는 지워지고 자동으로 복구되지 않아요."
+        />
+        <div className="grid grid-cols-2 gap-3 sm:max-w-[360px]">
+          <label
+            className="flex flex-col gap-1 text-xs text-ink-3"
+            htmlFor="transport-reclassify-from"
+          >
+            <span>시작일</span>
+            <Input
+              id="transport-reclassify-from"
+              type="date"
+              value={reclassifyFrom}
+              disabled={isReclassifying}
+              onChange={(event) => setReclassifyFrom(event.target.value)}
+            />
+          </label>
+          <label
+            className="flex flex-col gap-1 text-xs text-ink-3"
+            htmlFor="transport-reclassify-to"
+          >
+            <span>종료일</span>
+            <Input
+              id="transport-reclassify-to"
+              type="date"
+              value={reclassifyTo}
+              disabled={isReclassifying}
+              onChange={(event) => setReclassifyTo(event.target.value)}
+            />
+          </label>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start text-gain hover:text-gain"
+          disabled={
+            isReclassifying || !reclassifyFrom || !reclassifyTo || reclassifyFrom > reclassifyTo
+          }
+          onClick={handleReclassify}
+        >
+          {isReclassifying ? "날짜별로 판정하는 중…" : "고른 기간 다시 판정"}
+        </Button>
+        {reclassificationStatus ? (
+          <p
+            className={
+              reclassificationStatus.kind === "error"
+                ? "m-0 text-[13px] text-gain"
+                : "m-0 text-[13px] text-ink-2"
+            }
+            role={reclassificationStatus.kind === "error" ? "alert" : "status"}
+          >
+            {reclassificationStatus.message}
+          </p>
+        ) : null}
+      </div>
+    </div>
   );
 }

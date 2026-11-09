@@ -391,7 +391,9 @@ export function rowSubline(
           : n !== null && n > 0
             ? `미동기화 ${n}일`
             : "동기화 실패",
-      tone: "gain",
+      // One severity per state: re-authorization is the amber state everywhere
+      // (badge, meter, strip), only a real failure is red.
+      tone: view.status === "reauth" ? "warn" : "gain",
     };
   }
   if (view.gaps.length > 0) {

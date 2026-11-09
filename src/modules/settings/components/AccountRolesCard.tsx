@@ -1,12 +1,14 @@
 "use client";
 
-import { Loader2, Save, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { LoadingState, Segmented } from "@/components/ds";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCount } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { PanelText } from "./panel";
 
-type Role = "default" | "spending" | "ignore";
+export type Role = "default" | "spending" | "ignore";
 
 interface AccountRow {
   accountName: string;
@@ -87,89 +89,82 @@ export function AccountRolesCard() {
   const currentRole = (a: AccountRow): Role => edited.get(a.accountName) ?? a.role;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Wallet className="h-5 w-5" />
-          계좌별 분류 역할
-        </CardTitle>
-        <CardDescription>
-          모임통장처럼 입금이 곧 소비인 계좌는 <b>소비 계좌</b>로 표시하세요. 분류는 자동, 예외는
-          거래별로 손으로 교정할 수 있습니다.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {isLoading ? (
-          <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> 불러오는 중…
-          </div>
-        ) : accounts.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            아직 분류할 거래가 없습니다. Toss 알림이 수집된 후 다시 확인하세요.
-          </p>
-        ) : (
-          <>
-            <div className="space-y-2">
-              {accounts.map((a) => {
-                const role = currentRole(a);
-                const isDirty = edited.has(a.accountName);
-                return (
-                  <div
-                    key={a.accountName}
-                    className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-md border p-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm truncate" title={a.accountName}>
-                          {a.accountName}
-                        </span>
-                        <span className="text-xs text-muted-foreground tabular-nums">
-                          {a.transactionCount}건
-                        </span>
-                        {isDirty && <span className="text-xs text-primary">변경됨</span>}
-                      </div>
-                    </div>
-                    <div
-                      role="group"
-                      aria-label={`${a.accountName} 분류 역할`}
-                      className="flex flex-wrap gap-1"
+    <div className="flex flex-col gap-4">
+      <PanelText>
+        모임통장처럼 입금이 곧 소비인 계좌는 <b className="text-ink">소비 계좌</b>로 두세요. 기본은
+        출금이 소비, 무시는 입출금 모두 집계에서 빠져요. 거래 한 건만 있는 이름은 알림 문구가 잘못
+        읽힌 것일 수 있어요.
+      </PanelText>
+      {isLoading ? (
+        <LoadingState variant="rows" rows={3} label="계좌 목록을 불러오는 중" />
+      ) : accounts.length === 0 ? (
+        <PanelText>아직 분류할 거래가 없어요. 토스 알림이 들어오면 계좌가 여기에 보여요.</PanelText>
+      ) : (
+        <>
+          <ul className="m-0 list-none border-t border-line p-0">
+            {accounts.map((a) => {
+              const role = currentRole(a);
+              const isDirty = edited.has(a.accountName);
+              const suspect = isSuspectAccount(a);
+              return (
+                <li
+                  key={a.accountName}
+                  className="flex flex-col gap-2 border-b border-line py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span
+                      className="text-sm leading-5 font-semibold [overflow-wrap:anywhere]"
+                      title={a.accountName}
                     >
-                      {ROLE_OPTIONS.map((opt) => (
-                        <Button
-                          key={opt.value}
-                          type="button"
-                          variant={role === opt.value ? "default" : "outline"}
-                          size="sm"
-                          aria-pressed={role === opt.value}
-                          onClick={() => setRole(a.accountName, opt.value)}
-                          title={opt.help}
-                          className="h-7 text-xs"
-                        >
-                          {opt.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
-              <p className="text-xs text-muted-foreground">
-                기본=출금이 소비 / 소비 계좌=입금이 소비 / 무시=양방향 집계 제외
-              </p>
-              <Button onClick={handleSave} disabled={edited.size === 0 || isSaving} size="sm">
-                {isSaving ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4 mr-2" />
-                )}
-                저장 ({edited.size})
-              </Button>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+                      {a.accountName}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-xs leading-4",
+                        suspect ? "text-warn" : isDirty ? "text-brand" : "text-ink-3"
+                      )}
+                    >
+                      거래 <span className="num">{formatCount(Number(a.transactionCount))}</span>건
+                      {suspect ? " · 이름 확인 필요" : isDirty ? " · 바뀜" : ""}
+                    </span>
+                  </span>
+                  <Segmented
+                    items={ROLE_ITEMS}
+                    value={role}
+                    onChange={(value) => setRole(a.accountName, value)}
+                    ariaLabel={`${a.accountName} 분류 역할`}
+                    className="sm:w-[220px]"
+                  />
+                </li>
+              );
+            })}
+          </ul>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-ink-3">
+              {edited.size > 0
+                ? `${edited.size}개 바뀜 — 저장해야 집계에 반영돼요`
+                : "바뀐 것 없음"}
+            </span>
+            <Button onClick={handleSave} disabled={edited.size === 0 || isSaving} size="sm">
+              {isSaving ? "저장 중…" : "저장"}
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
   );
+}
+
+const ROLE_ITEMS = ROLE_OPTIONS.map((o) => ({
+  value: o.value,
+  label: o.label,
+  ariaLabel: `${o.label} — ${o.help}`,
+}));
+
+/**
+ * A default-role account name seen on a single transaction: usually parser
+ * noise from an unusual notification ("계좌", a merchant name), worth a look.
+ */
+export function isSuspectAccount(a: { transactionCount: number | string; role: Role }): boolean {
+  return a.role === "default" && Number(a.transactionCount) <= 1;
 }

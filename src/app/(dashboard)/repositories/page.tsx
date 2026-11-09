@@ -3,10 +3,27 @@
 import Link from "next/link";
 import { EmptyState, LoadingState, PageContainer, PageTitle, SourceTile } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
+import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { formatCount, formatDateTime, formatRelative, formatShare } from "@/lib/format";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { useRepositories } from "@/modules/timeline/hooks";
+
+/**
+ * The repository's commits in record search: the year up to its latest commit
+ * (search caps a range at 366 days), commits only.
+ */
+function repoCommitsHref(fullName: string, lastCommitAt: string): string {
+  const to = toKstCalendarDate(new Date(lastCommitAt));
+  const p = new URLSearchParams({
+    q: "",
+    from: shiftDateKey(to, -365),
+    to,
+    source: "commit",
+    repo: fullName,
+  });
+  return `/search?${p}`;
+}
 
 export default function RepositoriesPage() {
   const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
@@ -61,30 +78,28 @@ export default function RepositoriesPage() {
                     return (
                       <li key={repo.fullName} className="border-b border-line">
                         <Link
-                          href={`/dashboard?repos=${encodeURIComponent(repo.fullName)}`}
+                          href={repoCommitsHref(repo.fullName, repo.lastCommitAt)}
                           className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-x-3 py-3 text-ink no-underline transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--sunken)_70%,transparent)] focus-visible:outline-2 focus-visible:outline-brand sm:grid-cols-[32px_minmax(0,1fr)_160px_96px]"
                         >
                           <SourceTile icon="github" />
                           <span className="flex min-w-0 flex-col">
                             <span
-                              className="truncate text-[15px] leading-[22px] font-semibold"
+                              className="text-[15px] leading-[22px] font-semibold [overflow-wrap:anywhere]"
                               title={repo.fullName}
                             >
                               {name}
                             </span>
-                            <span className="truncate text-[13px] leading-[18px] text-ink-3">
-                              {[
-                                owner,
-                                repo.isPrivate
-                                  ? "비공개"
-                                  : repo.isPrivate === false
-                                    ? "공개"
-                                    : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                              {" · "}
+                            <span className="text-[13px] leading-[18px] text-ink-3">
+                              {owner ? (
+                                <span className="max-[400px]:hidden">{owner} · </span>
+                              ) : null}
+                              {repo.isPrivate
+                                ? "비공개 · "
+                                : repo.isPrivate === false
+                                  ? "공개 · "
+                                  : null}
                               <time
+                                className="whitespace-nowrap"
                                 dateTime={repo.lastCommitAt}
                                 title={formatDateTime(new Date(repo.lastCommitAt))}
                               >
