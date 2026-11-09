@@ -68,12 +68,13 @@ export function SourceGlyph({ icon, size = 16 }: { icon: SourceIconName; size?: 
   );
 }
 
-export function Chevron({ className }: { className?: string }) {
+/** Disclosure chevron: --ink3, turns 180° when an ancestor has aria-expanded=true. */
+export function Chevron({ className, size = 16 }: { className?: string; size?: number }) {
   return (
     <svg
       aria-hidden="true"
-      width="16"
-      height="16"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

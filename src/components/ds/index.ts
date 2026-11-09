@@ -21,6 +21,15 @@ export { RowFlag, RowFlagReason } from "./RowFlag";
 export { Segmented, type SegmentedItem } from "./Segmented";
 export { ShareRow } from "./ShareRow";
 export { Sheet, SheetClose } from "./Sheet";
+export {
+  ArrowRight,
+  Chevron,
+  Disclosure,
+  SOURCE_ICON_PATHS,
+  SourceGlyph,
+  type SourceIconName,
+  SourceTile,
+} from "./SourceIcon";
 export { EmptyState, ErrorState, LoadingState } from "./States";
 export { StatusBadge } from "./StatusBadge";
 export {

@@ -5,13 +5,17 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   AiLine,
+  ArrowRight,
+  Chevron,
   CountUp,
+  Disclosure,
   EmptyState,
   ErrorState,
   EvidenceScope,
   LoadingState,
   PageTitle,
   Segmented,
+  SourceTile,
   StatusBadge,
   useEvidence,
 } from "@/components/ds";
@@ -43,7 +47,6 @@ import {
   sortBySeverity,
 } from "../insights";
 import type { DataStatusResponse, RecoveryJob, SourceId } from "../types";
-import { ArrowRight, Chevron, Disclosure, SourceTile } from "./SourceIcon";
 import { CELL_LABELS, cellStyle, cellText, StatusStrip } from "./StatusStrip";
 
 type RangeDays = "7" | "30";

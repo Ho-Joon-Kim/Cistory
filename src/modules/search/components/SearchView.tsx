@@ -3,7 +3,16 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
-import { AiLine, EmptyState, ErrorState, LoadingState, PageTitle } from "@/components/ds";
+import {
+  AiLine,
+  Chevron,
+  Disclosure,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageTitle,
+  SourceTile,
+} from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSession } from "@/lib/auth-client";
@@ -12,7 +21,6 @@ import { diagnosis } from "@/lib/facts/helpers";
 import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatDateRange, formatDay, formatTime, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Chevron, Disclosure, SourceTile } from "@/modules/data-status/components/SourceIcon";
 import { EXPENSE_CATEGORY_LABELS, isExpenseCategory } from "@/modules/spending/categories";
 import {
   type CommitGroup,

@@ -7,12 +7,17 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   AiLine,
+  Chevron,
   CountUp,
+  Disclosure,
   LoadingState,
   MetaLine,
   PageTitle,
   Segmented,
+  SOURCE_ICON_PATHS,
+  type SourceIconName,
   type SourceStatus,
+  SourceTile,
   StatusBadge,
 } from "@/components/ds";
 import { Button } from "@/components/ui/button";
@@ -38,13 +43,6 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
-import {
-  Chevron,
-  Disclosure,
-  SOURCE_ICON_PATHS,
-  type SourceIconName,
-  SourceTile,
-} from "@/modules/data-status/components/SourceIcon";
 import { buildSourceView, focusFact, type SourceView } from "@/modules/data-status/insights";
 import type { DataStatusResponse, SourceId } from "@/modules/data-status/types";
 import { LocationImport } from "@/modules/location/components/LocationImport";

@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { EmptyState, LoadingState, PageContainer, PageTitle } from "@/components/ds";
+import { EmptyState, LoadingState, PageContainer, PageTitle, SourceTile } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { formatCount, formatDateTime, formatRelative, formatShare } from "@/lib/format";
 import { useRequireAuth } from "@/modules/auth/hooks";
-import { SourceTile } from "@/modules/data-status/components/SourceIcon";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { useRepositories } from "@/modules/timeline/hooks";
 
