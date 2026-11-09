@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
 import { toLocalDateString } from "@/lib/utils";
+import type { OverviewHistoryResponse } from "./history";
 import {
   getPeriodKey,
   getPeriodRange,
@@ -435,4 +436,37 @@ export function useOverviewNarrative(periodType: PeriodType, periodKey: string, 
   }, [enabled, periodKey, periodType, requestKey, visible]);
 
   return narrative;
+}
+
+/**
+ * Stored-only period history for the hero (previous period + recent bars). Never
+ * enqueues work; refetches when `refreshKey` changes (e.g. the snapshot's
+ * computedAt), so a recompute is reflected once it lands.
+ */
+export function useOverviewHistory(
+  periodType: PeriodType,
+  periodKey: string,
+  enabled: boolean,
+  refreshKey: string | null
+) {
+  const [history, setHistory] = useState<OverviewHistoryResponse | null>(null);
+  useEffect(() => {
+    void refreshKey;
+    if (!enabled || periodType === "recent") return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ periodType, periodKey });
+    fetch(`/api/overview/history?${params.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("history unavailable");
+        return (await response.json()) as OverviewHistoryResponse;
+      })
+      .then((body) => setHistory(body))
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === "AbortError") return;
+        // History only adds comparisons; the page renders without it.
+        setHistory(null);
+      });
+    return () => controller.abort();
+  }, [enabled, periodKey, periodType, refreshKey]);
+  return history;
 }
