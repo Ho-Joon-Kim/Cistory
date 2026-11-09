@@ -1,0 +1,1 @@
+ALTER TABLE "period_narratives" ADD COLUMN "input_hash" text;

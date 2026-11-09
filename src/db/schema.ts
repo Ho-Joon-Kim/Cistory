@@ -615,6 +615,13 @@ export const periodNarratives = pgTable(
     lastError: text("last_error"),
     generatedAt: timestamp("generated_at"),
     model: text("model"),
+    // md5 of the snapshot input (domain envelopes minus their per-recompute
+    // computedAt/computeVersion stamps) the latest generation attempt was
+    // claimed against. A finalized snapshot whose input no longer matches is
+    // re-queued, so a compute-version bump that changes the numbers also
+    // regenerates the narrative describing them. NULL = generated before
+    // this column existed, i.e. input unknown → re-queued once.
+    inputHash: text("input_hash"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

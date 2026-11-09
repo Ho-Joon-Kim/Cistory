@@ -179,6 +179,45 @@ describe("narrative service", () => {
     expect(repository.fail).toHaveBeenCalledWith(claim, "AI unavailable", expect.any(Date));
   });
 
+  it.each(["max_tokens", "refusal", "model_context_window_exceeded"])(
+    "treats a %s stop as a retryable failure instead of storing a cut-off narrative",
+    async (stopReason) => {
+      // A narrative cut off by max_tokens (adaptive thinking spends from the
+      // same budget) used to be stored as `ready` — two live rows end
+      // mid-sentence. Only a clean finish may be published.
+      const repository = store();
+      const adapter = ai("문장이 중간에서 끊긴 회고");
+      adapter.generateText.mockResolvedValue({
+        content: "문장이 중간에서 끊긴 회고",
+        usage: { inputTokens: 10, outputTokens: 8000 },
+        stopReason,
+      } as never);
+
+      await expect(
+        createNarrativeService(repository, adapter).regenerate("user-1", "month", "2026-06", NOW)
+      ).rejects.toMatchObject({ status: 502, code: "NARRATIVE_GENERATION_FAILED" });
+      expect(repository.complete).not.toHaveBeenCalled();
+      expect(repository.fail).toHaveBeenCalledWith(
+        claim,
+        expect.stringContaining(stopReason),
+        expect.any(Date)
+      );
+    }
+  );
+
+  it("publishes a narrative that ended on a stop sequence", async () => {
+    const repository = store();
+    const adapter = ai();
+    adapter.generateText.mockResolvedValue({
+      content: "회고문",
+      usage: { inputTokens: 10, outputTokens: 20 },
+      stopReason: "stop_sequence",
+    } as never);
+
+    await createNarrativeService(repository, adapter).regenerate("user-1", "month", "2026-06", NOW);
+    expect(repository.complete).toHaveBeenCalled();
+  });
+
   it.each([
     ["not_ready", 409, "SNAPSHOT_NOT_READY"],
     ["concurrent", 409, "NARRATIVE_GENERATING"],
@@ -502,9 +541,122 @@ describe("database narrative queue", () => {
     expect(statements[2]).toContain("s.period_type IN ('week', 'month', 'year')");
     expect(statements[2]).toContain("LIMIT $1");
     expect(statements[2]).toContain("ON CONFLICT (user_id, period_type, period_key) DO NOTHING");
-    expect(statements[3]).toContain("FOR UPDATE OF n SKIP LOCKED");
-    expect(statements[3]).toContain(`n.attempt_count < $1`);
+    expect(statements[4]).toContain("FOR UPDATE OF n SKIP LOCKED");
+    expect(statements[4]).toContain(`n.attempt_count < $1`);
     expect(NARRATIVE_MAX_ATTEMPTS).toBe(3);
+  });
+
+  it("re-queues settled narratives whose snapshot input changed, and stamps the claimed input", async () => {
+    // Narratives were only ever inserted when none existed, so the
+    // 2026-10-08 OVERVIEW_COMPUTE_VERSION bump recomputed ten finalized
+    // snapshots while their narratives kept describing the old numbers.
+    const statements: string[] = [];
+    const dialect = new PgDialect();
+    const execute = vi.fn(async (query: SQL) => {
+      statements.push(dialect.sqlToQuery(query).sql.replace(/\s+/g, " ").trim());
+      return { rows: [] };
+    });
+    const db = {
+      transaction: async (callback: (tx: { execute: typeof execute }) => Promise<unknown>) =>
+        callback({ execute }),
+    } as unknown as Database;
+
+    await createDatabaseNarrativeStore(db).claimAutoBatch(NOW, 5);
+
+    const requeue = statements[3];
+    expect(requeue).toContain("UPDATE period_narratives");
+    expect(requeue).toContain("n.status IN ('ready', 'failed')");
+    expect(requeue).toMatch(/n\.input_hash IS DISTINCT FROM md5\(/);
+    expect(requeue).toContain("attempt_count = 0");
+    expect(requeue).toContain("s.finalized_at IS NOT NULL");
+    // Re-queueing keeps the old content visible until the new one lands.
+    expect(requeue).not.toMatch(/content = NULL/);
+    // The claim records which input it generated from, so the same input is
+    // never re-queued twice (no paid-call loop).
+    expect(statements[4]).toMatch(/input_hash = md5\(/);
+  });
+
+  it("hashes the snapshot domains without their per-recompute stamps", async () => {
+    const statements: string[] = [];
+    const dialect = new PgDialect();
+    const execute = vi.fn(async (query: SQL) => {
+      statements.push(dialect.sqlToQuery(query).sql.replace(/\s+/g, " ").trim());
+      return { rows: [] };
+    });
+    const db = {
+      transaction: async (callback: (tx: { execute: typeof execute }) => Promise<unknown>) =>
+        callback({ execute }),
+    } as unknown as Database;
+
+    await createDatabaseNarrativeStore(db).claimAutoBatch(NOW, 5);
+
+    for (const domain of ["coding", "location", "health", "spending", "assets"]) {
+      expect(statements[3]).toContain(`s.${domain} - 'computedAt' - 'computeVersion'`);
+    }
+  });
+
+  it("stamps the input hash on a manual claim too", async () => {
+    const statements: string[] = [];
+    const dialect = new PgDialect();
+    const results = [
+      { rows: [] },
+      {
+        rows: [
+          {
+            coding: null,
+            location: null,
+            health: null,
+            spending: null,
+            assets: null,
+            inputHash: "abc",
+          },
+        ],
+      },
+      { rows: [] },
+      { rows: [{ generatedAt: null }] },
+    ];
+    const execute = vi.fn(async (query: SQL) => {
+      statements.push(dialect.sqlToQuery(query).sql.replace(/\s+/g, " ").trim());
+      return results.shift() ?? { rows: [] };
+    });
+    const db = {
+      transaction: async (callback: (tx: { execute: typeof execute }) => Promise<unknown>) =>
+        callback({ execute }),
+    } as unknown as Database;
+
+    await expect(
+      createDatabaseNarrativeStore(db).acquireManual({
+        userId: "user-1",
+        periodType: "week",
+        periodKey: "2026-W28",
+        now: NOW,
+      })
+    ).resolves.toMatchObject({ status: "acquired" });
+
+    expect(statements[1]).toMatch(/md5\(.*AS "inputHash"/);
+    const insert = statements.find((statement) => statement.startsWith("INSERT"));
+    expect(insert).toContain("input_hash");
+    expect(insert).toContain("input_hash = EXCLUDED.input_hash");
+  });
+
+  it("keeps a failed regeneration retryable while old content stays visible", async () => {
+    // fail() used to flip any row that still had content straight back to
+    // `ready`, so a re-queued narrative whose first retry hit max_tokens kept
+    // the stale text forever. It now goes back to `pending` until attempts
+    // run out.
+    const statements: string[] = [];
+    const dialect = new PgDialect();
+    const execute = vi.fn(async (query: SQL) => {
+      statements.push(dialect.sqlToQuery(query).sql.replace(/\s+/g, " ").trim());
+      return { rows: [] };
+    });
+    const db = { execute } as unknown as Database;
+
+    await createDatabaseNarrativeStore(db).fail(claim, "max_tokens", NOW);
+
+    expect(statements[0]).toMatch(
+      /WHEN content IS NULL THEN 'failed' WHEN attempt_count < \$\d+ THEN 'pending' ELSE 'ready'/
+    );
   });
 
   it("renewLease binds a JS Date for the new lease instead of a bare now()", async () => {
