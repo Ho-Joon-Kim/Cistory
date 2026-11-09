@@ -7,6 +7,7 @@ import {
   niceScale,
   ordDateKey,
   ordTime,
+  pointPnl,
   positionReturn,
   previousTradingDate,
   previousWeekday,
@@ -15,11 +16,18 @@ import {
   sliceSeries,
 } from "./view-model";
 
-const snap = (accountId: string, asOfDate: string, totalEvalAmount: number, buy = 100) => ({
+const snap = (
+  accountId: string,
+  asOfDate: string,
+  totalEvalAmount: number,
+  buy = 100,
+  deposit = 1
+) => ({
   accountId,
   asOfDate,
   totalEvalAmount,
   totalPurchaseAmount: buy,
+  deposit,
 });
 
 describe("buildAssetSeries", () => {
@@ -36,9 +44,13 @@ describe("buildAssetSeries", () => {
       ["a", "b"]
     );
     expect(series).toEqual([
-      { date: "2026-11-02", value: 30, invested: 12 },
-      { date: "2026-11-03", value: 32, invested: 12 },
+      { date: "2026-11-02", value: 30, invested: 12, deposit: 2 },
+      { date: "2026-11-03", value: 32, invested: 12, deposit: 2 },
     ]);
+  });
+
+  it("reports P&L on holdings alone, cash excluded (the hero's definition)", () => {
+    expect(pointPnl({ date: "2026-11-09", value: 1000, invested: 700, deposit: 100 })).toBe(200);
   });
 
   it("returns nothing without accounts", () => {

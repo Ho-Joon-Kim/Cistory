@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   type FormEvent,
+  Fragment,
   type ReactNode,
   useCallback,
   useEffect,
@@ -32,6 +33,7 @@ import {
   mapLabels,
   modeLabel,
   pickHeroDay,
+  railServiceOn,
   routeByDay,
   routineInsight,
   shortCity,
@@ -164,10 +166,15 @@ function DetailHeader({
               onChange={(e) => setName(e.target.value)}
               className="h-11 min-w-0 rounded-control border-0 bg-surface px-3 font-serif text-2xl font-bold text-ink shadow-[inset_0_0_0_1px_var(--line)] outline-none focus-visible:shadow-[inset_0_0_0_1.5px_var(--brand)]"
             />
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving} className="max-sm:h-11">
               저장
             </Button>
-            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setEditing(false)}
+              className="max-sm:h-11"
+            >
               취소
             </Button>
           </form>
@@ -202,7 +209,7 @@ function DetailHeader({
         </p>
       </div>
       <div className={cn("flex items-center gap-2", editing && "hidden")}>
-        <Button variant="outline" onClick={() => setEditing(true)}>
+        <Button variant="outline" onClick={() => setEditing(true)} className="max-sm:h-11">
           이름 바꾸기
         </Button>
         <TripMenu
@@ -413,15 +420,33 @@ function RunCard({ run, hero }: { run: DenseRun; hero: HeroDay | null }) {
           <span className="flex flex-wrap items-baseline gap-x-2.5">
             <span className="text-[15px] leading-[22px] font-semibold">{run.label}</span>
             <span className="num text-xs text-ink-2">
-              {hm(run.startAt)}–{hm(run.endAt)} · {formatDurationMinutes(run.minutes)}
+              {hm(run.startAt)}–{hm(run.endAt)} ·{" "}
+              <span className="whitespace-nowrap">{formatDurationMinutes(run.minutes)}</span>
             </span>
           </span>
-          <span className="flex items-center gap-1.5 text-xs leading-4 text-ink-2">
-            <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-health" />
+          {/* Each fact keeps its unit and trailing "·" together, so a wrap never
+              opens a line with the separator; the dot sits on the first line. */}
+          <span className="flex items-start gap-1.5 text-xs leading-4 text-ink-2">
+            <span
+              aria-hidden="true"
+              className="mt-[5px] size-1.5 shrink-0 rounded-full bg-health"
+            />
             <span>
-              {isHeroRun ? "이 여행에서 가장 길게 걸은 구간 · " : ""}경유{" "}
-              <span className="num">{run.stops.length}</span>곳
-              {isHeroRun && hero ? ` · ${formatCount(hero.steps)}걸음의 날` : ""}
+              {[
+                isHeroRun ? "이 여행에서 가장 길게 걸은 구간" : null,
+                `경유 ${run.stops.length}곳`,
+                isHeroRun && hero ? `${formatCount(hero.steps)}걸음의 날` : null,
+              ]
+                .filter((part): part is string => part !== null)
+                .map((part, i, parts) => (
+                  <Fragment key={part}>
+                    <span className="whitespace-nowrap">
+                      {part}
+                      {i < parts.length - 1 ? " ·" : ""}
+                    </span>
+                    {i < parts.length - 1 ? " " : ""}
+                  </Fragment>
+                ))}
             </span>
           </span>
         </span>
@@ -677,7 +702,7 @@ function HealthGrid({
                   className={cn(
                     "num px-3 text-right whitespace-nowrap",
                     muted ? "py-[9px] text-ink-2" : "py-[11px] text-sm text-ink-2",
-                    hot && !muted && "font-semibold text-ink"
+                    hot && "font-semibold text-ink"
                   )}
                 >
                   {cell.text}
@@ -783,14 +808,24 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
   const table = healthTable(detail);
   if (table.primary.length === 0 && table.more.length === 0) return null;
   const heroDay = hero?.day ?? null;
+  const hotIndex = heroDay ? table.days.indexOf(heroDay) : -1;
   return (
     <section aria-labelledby="trip-health-h" className="flex max-w-[640px] flex-col gap-3.5">
       <h2 id="trip-health-h" className={H3}>
         건강
       </h2>
       <ScrollX label="건강 지표 표" minWidth={LABEL_COL_PX + table.days.length * DAY_COL_MIN_PX}>
-        <HotColumn index={heroDay ? table.days.indexOf(heroDay) : -1} count={table.days.length} />
-        <HealthGrid rows={table.primary} days={table.days} heroDay={heroDay} label="건강 지표" />
+        {/* The hero-day tint spans only the rows on screen: the main rows while
+            "다른 지표" is closed, everything once it is open. */}
+        {open && table.more.length > 0 ? (
+          <HotColumn index={hotIndex} count={table.days.length} />
+        ) : null}
+        <div className="relative">
+          {open && table.more.length > 0 ? null : (
+            <HotColumn index={hotIndex} count={table.days.length} />
+          )}
+          <HealthGrid rows={table.primary} days={table.days} heroDay={heroDay} label="건강 지표" />
+        </div>
         {table.more.length > 0 ? (
           <>
             <div className="sticky left-0 w-fit pt-3.5">
@@ -799,7 +834,7 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
                 aria-expanded={open}
                 aria-controls={id}
                 onClick={() => setOpen((v) => !v)}
-                className="-ml-2 px-2 text-[13px]"
+                className="-ml-2 px-2 text-[13px] max-sm:h-11"
               >
                 다른 지표 {table.more.length}개 <Chevron size={14} />
               </Button>
@@ -1011,6 +1046,8 @@ export function TravelDetailView({
   const out = routeDays.find((d) => d.role === "out");
   const back = routeDays.find((d) => d.role === "back");
   const middle = routeDays.filter((d) => d.role === "middle");
+  const outRail = out ? railServiceOn(detail, out.day) : null;
+  const backRail = back ? railServiceOn(detail, back.day) : null;
 
   return (
     <EvidenceScope>
@@ -1039,6 +1076,7 @@ export function TravelDetailView({
                     <line x1="0" y1="2" x2="18" y2="2" stroke="var(--place)" strokeWidth="2.5" />
                   </svg>
                   가는 길 {dayHead(out.day).replace(/ \(.\)$/, "")}
+                  {outRail ? ` · ${outRail}` : ""}
                 </span>
               ) : null}
               {back ? (
@@ -1055,6 +1093,7 @@ export function TravelDetailView({
                     />
                   </svg>
                   오는 길 {dayHead(back.day).replace(/ \(.\)$/, "")}
+                  {backRail ? ` · ${backRail}` : ""}
                 </span>
               ) : null}
               {middle.length > 0 ? (

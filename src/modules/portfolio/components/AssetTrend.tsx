@@ -19,12 +19,21 @@ import {
   formatWonCompact,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  axisTickIndices,
+  type Box,
+  boxesOverlap,
+  labelWidth,
+  placeCallout,
+  polylineHitsBox,
+} from "../chart-layout";
 import { chartFact, evidenceKey } from "../facts";
 import {
   type AssetPoint,
   type Cashflow,
   cashflowsInRange,
   niceScale,
+  pointPnl,
   rangeExtremes,
   sliceSeries,
 } from "../view-model";
@@ -50,50 +59,46 @@ const PAD_BOTTOM = 44;
 
 interface Annotation {
   key: string;
+  /** The annotated point. */
   x: number;
   y: number;
-  above: boolean;
-  /** Top of the label box (px). */
+  /** Label box (px). */
+  left: number;
   top: number;
   text: string;
-  align: "start" | "middle" | "end";
+  /** Leader end on the label box. */
+  leader: { x: number; y: number };
 }
 
 const ANN_H = 18;
-const annWidth = (text: string) => text.length * 7.2;
-function annLeft(a: Pick<Annotation, "x" | "align" | "text">): number {
-  const w = annWidth(a.text);
-  return a.align === "start" ? a.x : a.align === "middle" ? a.x - w / 2 : a.x - w;
-}
-function overlaps(
-  a: { x0: number; x1: number; y0: number; y1: number },
-  b: { x0: number; x1: number; y0: number; y1: number }
-): boolean {
-  return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
-}
+/** px-1 padding around the callout text. */
+const ANN_PAD = 8;
+const AXIS_FONT = 11;
 
 /**
- * A chart callout, anchored by its alignment but measured after layout and
- * shifted to stay inside the chart (estimated widths undershoot the mono digits
- * on narrow screens, which pushed "저점 …" past the left edge).
+ * A chart callout at its placed box. Measured after layout and nudged only if
+ * the real text runs wider than the estimate (so it never leaves the chart).
  */
 function AnnotationLabel({ a, width }: { a: Annotation; width: number }) {
   const ref = useRef<HTMLSpanElement>(null);
   const [left, setLeft] = useState<number | null>(null);
   useLayoutEffect(() => {
     const w = ref.current?.offsetWidth ?? 0;
-    const want = a.align === "start" ? a.x : a.align === "end" ? a.x - w : a.x - w / 2;
-    setLeft(Math.max(0, Math.min(width - w, want)));
-  }, [a.x, a.align, a.text, width]);
+    setLeft(Math.max(0, Math.min(width - w, a.left)));
+  }, [a.left, width]);
   return (
     <span
       ref={ref}
       className="num pointer-events-none absolute bg-page px-1 py-px text-xs leading-4 whitespace-nowrap text-ink"
-      style={{ left: left ?? a.x, top: a.top, visibility: left === null ? "hidden" : undefined }}
+      style={{ left: left ?? a.left, top: a.top, visibility: left === null ? "hidden" : undefined }}
     >
       {a.text}
     </span>
   );
+}
+
+function annBox(a: Annotation, w: number): Box {
+  return { x0: a.left, x1: a.left + w, y0: a.top, y1: a.top + ANN_H };
 }
 
 export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashflows: Cashflow[] }) {
@@ -152,29 +157,56 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
     const base = PAD_TOP + plotH;
     const area = `${line}L${xAt(n - 1).toFixed(1)} ${base}L${xAt(0).toFixed(1)} ${base}Z`;
 
-    const ann: Annotation[] = [];
-    const place = (j: number, above: boolean, text: string, key: string) => {
-      const x = xAt(j);
-      const y = yAt(pts[j].value);
-      const align = x < 140 ? "start" : x > W - 140 ? "end" : "middle";
-      let top = above ? y - 34 : y + 14;
-      if (!above) {
-        // Keep the label off the dashed cost line: drop it below the line when
-        // the line runs through the box, or lift it above the point if there's
-        // no room down there.
-        const x0 = annLeft({ x, align, text });
-        const x1 = x0 + annWidth(text);
-        let invY = Number.NEGATIVE_INFINITY;
-        for (let q = 0; q < n; q++) {
-          const qx = xAt(q);
-          if (qx >= x0 - 4 && qx <= x1 + 4) invY = Math.max(invY, yAt(pts[q].invested));
-        }
-        if (invY > top - 6 && invY < top + ANN_H + 6) {
-          top = invY + 8;
-          if (top + ANN_H > base - 2) top = y - 34;
-        }
+    // Screen-space polylines: every label below is placed off both lines.
+    const valuePts = pts.map((p, j) => ({ x: xAt(j), y: yAt(p.value) }));
+    const costPts = pts.map((p, j) => ({ x: xAt(j), y: yAt(p.invested) }));
+    const lines = [valuePts, costPts];
+
+    // Y-axis labels: above their grid line, else below it, whichever no line
+    // crosses (a halo keeps them legible where both are crossed). Placed first
+    // so callouts treat them as soft obstacles.
+    const grid: Array<{ y: number; label: string; labelY: number; box: Box; show: boolean }> = [];
+    for (let v = scale.min; v <= scale.max + 1; v += scale.step) {
+      const y = yAt(v);
+      const label = formatWonCompact(v);
+      const lw = labelWidth(label, AXIS_FONT) + 4;
+      const boxAt = (ly: number): Box => ({ x0: 0, x1: lw, y0: ly - 10, y1: ly + 2 });
+      const spots = [y - 6, y + 14].filter((ly) => ly - 10 >= 0 && ly + 2 < base);
+      const clear = spots.find((ly) => !lines.some((l) => polylineHitsBox(l, boxAt(ly), 1)));
+      const labelY = clear ?? spots[0];
+      if (labelY === undefined) {
+        grid.push({ y, label, labelY: y, box: { x0: 0, x1: 0, y0: y, y1: y }, show: false });
+        continue;
       }
-      ann.push({ key, x, y, above, top, text, align });
+      grid.push({ y, label, labelY, box: boxAt(labelY), show: true });
+    }
+
+    const ann: Annotation[] = [];
+    const place = (j: number, preferAbove: boolean, text: string, key: string) => {
+      const p = valuePts[j];
+      const w = labelWidth(text) + ANN_PAD;
+      const spot = placeCallout({
+        p,
+        w,
+        h: ANN_H,
+        preferAbove,
+        width: W,
+        top: 0,
+        bottom: base - 2,
+        lines,
+        avoid: ann.map((a) => annBox(a, w)),
+        soft: grid.map((g) => g.box),
+      });
+      if (!spot) return;
+      ann.push({
+        key,
+        x: p.x,
+        y: p.y,
+        left: spot.box.x0,
+        top: spot.box.y0,
+        text,
+        leader: spot.leader,
+      });
     };
     if (ext.peak !== n - 1) {
       place(
@@ -197,57 +229,42 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
         "low"
       );
     }
-
     const annBoxes = ann.flatMap((a) => {
-      const x0 = annLeft(a);
-      const label = { x0, x1: x0 + annWidth(a.text), y0: a.top, y1: a.top + ANN_H };
-      // The tick from the callout down/up to its point.
-      const tick = {
-        x0: a.x - 3,
-        x1: a.x + 3,
-        y0: Math.min(a.y, a.top + ANN_H),
-        y1: Math.max(a.y, a.top),
+      const box = annBox(a, labelWidth(a.text) + ANN_PAD);
+      // The leader from the point to its label.
+      const leader = {
+        x0: Math.min(a.x, a.leader.x) - 2,
+        x1: Math.max(a.x, a.leader.x) + 2,
+        y0: Math.min(a.y, a.leader.y),
+        y1: Math.max(a.y, a.leader.y),
       };
-      return [label, tick];
+      return [box, leader];
     });
-    // The dashed cost line where it crosses the axis-label column (x < 90).
-    const invNearAxis: number[] = [];
-    for (let q = 0; q < n && xAt(q) < 90; q++) invNearAxis.push(yAt(pts[q].invested));
-    const crossesCost = (y0: number, y1: number) =>
-      invNearAxis.some((iy) => iy > y0 - 2 && iy < y1 + 2);
+    // An axis label a callout still covers gives way to the callout.
+    for (const g of grid) g.show &&= !annBoxes.some((b) => boxesOverlap(b, g.box, 1));
 
-    const grid: Array<{ y: number; label: string; labelY: number; show: boolean }> = [];
-    for (let v = scale.min; v <= scale.max + 1; v += scale.step) {
-      const y = yAt(v);
-      const label = formatWonCompact(v);
-      const box = (ly: number) => ({ x0: 0, x1: label.length * 7 + 4, y0: ly - 11, y1: ly + 2 });
-      // Above the grid line by default; below it when the cost line strikes it.
-      let labelY = y - 6;
-      if (crossesCost(labelY - 11, labelY + 2)) labelY = y + 14;
-      const show =
-        !crossesCost(labelY - 11, labelY + 2) &&
-        labelY + 2 < base &&
-        !annBoxes.some((b) => overlaps(b, box(labelY)));
-      grid.push({ y, label, labelY, show });
-    }
+    // "매입금액" at the cost line's right end: below it, else above, clear of the
+    // value line and the callouts.
+    const invEnd = costPts[n - 1].y;
+    const invW = labelWidth("매입금액");
+    const invBox = (ly: number): Box => ({ x0: W - invW, x1: W, y0: ly - 12, y1: ly + 2 });
+    const invSpots = [invEnd + 16, invEnd - 6].filter((ly) => ly - 12 >= 0 && ly + 2 < base);
+    const invFree = (ly: number) => !annBoxes.some((b) => boxesOverlap(b, invBox(ly), 1));
+    const invLabelY =
+      invSpots.find((ly) => invFree(ly) && !polylineHitsBox(valuePts, invBox(ly), 1)) ??
+      invSpots.find(invFree) ??
+      null;
+    const invLabelShow = invLabelY !== null;
 
-    // "매입금액" sits under the cost line's right end, or above it if a callout is there.
-    const invEnd = yAt(pts[n - 1].invested);
-    const invLabelBox = (ly: number) => ({ x0: W - 52, x1: W, y0: ly - 12, y1: ly + 2 });
-    let invLabelY = invEnd + 16;
-    if (annBoxes.some((b) => overlaps(b, invLabelBox(invLabelY))) || invLabelY > base - 2) {
-      invLabelY = invEnd - 6;
-    }
-    const invLabelShow = !annBoxes.some((b) => overlaps(b, invLabelBox(invLabelY)));
-
-    const ticks = desktop ? 6 : 3;
-    const xl = Array.from({ length: Math.min(ticks, n) }, (_, t) => {
-      const count = Math.min(ticks, n);
-      const j = count === 1 ? 0 : Math.round((t * (n - 1)) / (count - 1));
+    // X-axis: every day when they fit, else evenly spaced back from the latest.
+    const xl = axisTickIndices(n, Math.max(2, Math.floor(W / (desktop ? 110 : 90)))).map((j) => {
+      const x = xAt(j);
+      const label = formatMonthDay(pts[j].date);
+      const half = labelWidth(label, AXIS_FONT) / 2;
       return {
-        x: xAt(j),
-        label: formatMonthDay(pts[j].date),
-        anchor: t === 0 ? "start" : t === count - 1 ? "end" : "middle",
+        x,
+        label,
+        anchor: x - half < 0 ? "start" : x + half > W ? "end" : "middle",
       } as const;
     });
 
@@ -257,7 +274,20 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
       return { key: `${c.date}-${c.amount}`, x: xAt(j) };
     });
 
-    return { xAt, yAt, line, inv, area, ann, grid, xl, markers, base, invLabelY, invLabelShow };
+    return {
+      xAt,
+      yAt,
+      line,
+      inv,
+      area,
+      ann,
+      grid,
+      xl,
+      markers,
+      base,
+      invLabelY: invLabelY ?? 0,
+      invLabelShow,
+    };
   }, [n, W, pts, plotH, ext, desktop, cfs]);
 
   const onPointer = (e: PointerEvent<SVGRectElement>) => {
@@ -343,7 +373,7 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
           </div>
           {fact ? (
             <div className="mt-1.5 max-w-[760px]">
-              <AiLine fact={fact} rows={fact.rows} />
+              <AiLine fact={fact} rows={fact.rows} className="max-lg:text-wrap" />
             </div>
           ) : null}
 
@@ -371,20 +401,15 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                   style={{ touchAction: "pan-y" }}
                 >
                   {geo.grid.map((g) => (
-                    <g key={g.y}>
-                      <line x1={0} x2={W} y1={g.y} y2={g.y} stroke="var(--line)" strokeWidth={1} />
-                      {g.show ? (
-                        <text
-                          x={0}
-                          y={g.labelY}
-                          fontSize={11}
-                          fill="var(--ink3)"
-                          fontFamily="var(--font-mono)"
-                        >
-                          {g.label}
-                        </text>
-                      ) : null}
-                    </g>
+                    <line
+                      key={g.y}
+                      x1={0}
+                      x2={W}
+                      y1={g.y}
+                      y2={g.y}
+                      stroke="var(--line)"
+                      strokeWidth={1}
+                    />
                   ))}
                   <path
                     d={geo.area}
@@ -410,6 +435,25 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                     opacity={cfLit ? 0.5 : 1}
                     style={{ transition: "opacity 150ms ease-out" }}
                   />
+                  {/* Axis labels over the lines, with a page-colour halo where one crosses. */}
+                  {geo.grid.map((g) =>
+                    g.show ? (
+                      <text
+                        key={`l-${g.y}`}
+                        x={0}
+                        y={g.labelY}
+                        fontSize={AXIS_FONT}
+                        fill="var(--ink3)"
+                        fontFamily="var(--font-mono)"
+                        stroke="var(--bg)"
+                        strokeWidth={4}
+                        strokeLinejoin="round"
+                        paintOrder="stroke"
+                      >
+                        {g.label}
+                      </text>
+                    ) : null
+                  )}
                   {geo.invLabelShow ? (
                     <text x={W} y={geo.invLabelY} textAnchor="end" fontSize={12} fill="var(--ink3)">
                       매입금액
@@ -430,9 +474,9 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                     <g key={a.key}>
                       <line
                         x1={a.x}
-                        x2={a.x}
-                        y1={a.above || a.top < a.y ? a.top + ANN_H : a.y + 4}
-                        y2={a.above || a.top < a.y ? a.y - 4 : a.top}
+                        y1={a.y}
+                        x2={a.leader.x}
+                        y2={a.leader.y}
                         stroke="var(--ink3)"
                         strokeWidth={1}
                       />
@@ -502,22 +546,30 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                 {hv && hover !== null ? (
                   <div
                     role="status"
-                    className="pointer-events-none absolute top-0 z-10 w-[200px] -translate-x-1/2 rounded-xl bg-surface px-3 py-2.5 text-xs leading-[18px] shadow-tip"
+                    className="pointer-events-none absolute top-0 z-10 w-[208px] -translate-x-1/2 rounded-xl bg-surface px-3 py-2.5 text-xs leading-[18px] shadow-tip"
                     style={{ left: Math.min(Math.max(geo.xAt(hover), 104), W - 104) }}
                   >
                     <div className="font-semibold">{formatDay(hv.date)}</div>
-                    <div className="mt-1 flex justify-between">
+                    {/* 평가손익 is on the holdings alone — 평가금액 − 예수금 − 매입금액 —
+                        the same definition as the hero's 총 평가손익. */}
+                    <div className="mt-1 flex justify-between gap-3">
                       <span className="text-ink-3">평가금액</span>
                       <span className="num">{formatWon(hv.value)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-ink-3">매입금액</span>
+                    {hv.deposit ? (
+                      <div className="flex justify-between gap-3">
+                        <span className="text-ink-3">− 예수금</span>
+                        <span className="num">{formatWon(hv.deposit)}</span>
+                      </div>
+                    ) : null}
+                    <div className="flex justify-between gap-3">
+                      <span className="text-ink-3">− 매입금액</span>
                       <span className="num">{formatWon(hv.invested)}</span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="mt-1 flex justify-between gap-3 border-t border-line pt-1">
                       <span className="text-ink-3">평가손익</span>
-                      <span className={cn("num", marketTone(hv.value - hv.invested))}>
-                        {formatWon(hv.value - hv.invested, { sign: true })}
+                      <span className={cn("num font-semibold", marketTone(pointPnl(hv)))}>
+                        {formatWon(pointPnl(hv), { sign: true })}
                       </span>
                     </div>
                   </div>

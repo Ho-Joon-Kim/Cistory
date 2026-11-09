@@ -90,7 +90,7 @@ function YearHero({
         {y.year}년 · {monthDay(today)}까지
       </span>
       <div className="flex flex-wrap items-baseline gap-x-5 gap-y-3 sm:gap-x-7">
-        <span className="num text-[40px] leading-[44px] font-medium tracking-[-0.03em] text-ink sm:text-[48px] sm:leading-[52px]">
+        <span className="num text-[40px] leading-[44px] font-medium tracking-[-0.03em]! text-ink sm:text-[48px] sm:leading-[52px]">
           <CountUp value={y.tripCount} />
           <span className="ml-0.5 font-sans text-[20px] font-medium tracking-normal text-ink-3">
             회
@@ -239,7 +239,7 @@ function TripRow({
   return (
     <div
       className={cn(
-        "relative flex items-center gap-3 border-b border-line transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--track)_60%,transparent)] lg:px-3",
+        "relative flex cursor-pointer items-center gap-3 border-b border-line transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--track)_60%,transparent)] lg:px-3",
         COLS,
         nested ? "py-2.5 lg:border-t lg:border-b-0" : "py-3 lg:py-3.5"
       )}
@@ -250,10 +250,12 @@ function TripRow({
         <span className="text-ink-3">({weekdayRange(trip.startDate, trip.endDate)})</span>
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        {/* Stretched link: its ::after covers the whole row, so the dates, km and
+            amount all open the trip; the ⋯ menu sits above it (z-[1]). */}
         <Link
           href={`/travel/${trip.id}`}
           className={cn(
-            "flex items-center gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-brand",
+            "flex items-center gap-2 outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-solid focus-visible:after:outline-brand",
             nested ? "text-sm font-medium" : "text-[15px] leading-[22px] font-semibold"
           )}
         >
@@ -288,7 +290,7 @@ function TripRow({
       <span className="shrink-0 text-right">
         <SpendCell trip={trip} spendingSince={actions.spendingSince} small={nested} />
       </span>
-      <span className="grid shrink-0 place-items-center">
+      <span className="relative z-[1] grid shrink-0 place-items-center">
         <TripMenu
           tripId={trip.id}
           tripName={trip.name}
@@ -317,6 +319,10 @@ function GroupRow({
   const thisYear = group.trips.filter((t) => t.startDate.startsWith(String(year))).length;
   const lit = isActive && group.trips.some((t) => stateOf(t.id) === "on");
   const wd = group.topWeekday;
+  const latest = group.trips.reduce<TravelTripListItem | null>(
+    (best, t) => (!best || t.startDate > best.startDate ? t : best),
+    null
+  );
   return (
     <div
       className={cn(
@@ -353,6 +359,12 @@ function GroupRow({
               <span className="hidden lg:inline">
                 {" "}
                 · {wd.weekday}요일 출발 {wd.count}회
+              </span>
+            ) : null}
+            {latest ? (
+              <span className="hidden lg:inline">
+                {" "}
+                · 최근 {rangeLabel(latest.startDate, latest.endDate)}
               </span>
             ) : null}
           </span>

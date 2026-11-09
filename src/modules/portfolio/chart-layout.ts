@@ -1,0 +1,139 @@
+/**
+ * Label placement for the asset-trend chart: callouts and axis labels are
+ * placed against the lines they annotate (value line, dashed cost line), each
+ * other, and the chart bounds — not just against a fixed offset from a point.
+ */
+
+export interface Box {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+export interface Pt {
+  x: number;
+  y: number;
+}
+
+/** Rendered width estimate for 12px chart text: Hangul ≈ 1em, mono digits ≈ 0.6em. */
+export function labelWidth(text: string, px = 12): number {
+  let em = 0;
+  for (const ch of text) {
+    if (/[ᄀ-ᇿ　-鿿가-힯]/u.test(ch)) em += 1;
+    else if (ch === " ") em += 0.35;
+    else em += 0.6;
+  }
+  return Math.ceil(em * px);
+}
+
+export function boxesOverlap(a: Box, b: Box, gap = 0): boolean {
+  return a.x0 < b.x1 + gap && b.x0 < a.x1 + gap && a.y0 < b.y1 + gap && b.y0 < a.y1 + gap;
+}
+
+/** Whether segment a→b passes through box `r` grown by `pad` (Liang–Barsky). */
+export function segmentHitsBox(a: Pt, b: Pt, r: Box, pad = 2): boolean {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  let t0 = 0;
+  let t1 = 1;
+  const edges: [number, number][] = [
+    [-dx, a.x - (r.x0 - pad)],
+    [dx, r.x1 + pad - a.x],
+    [-dy, a.y - (r.y0 - pad)],
+    [dy, r.y1 + pad - a.y],
+  ];
+  for (const [p, q] of edges) {
+    if (p === 0) {
+      if (q < 0) return false;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+  }
+  return t0 <= t1;
+}
+
+export function polylineHitsBox(points: readonly Pt[], r: Box, pad = 2): boolean {
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (Math.max(a.x, b.x) < r.x0 - pad || Math.min(a.x, b.x) > r.x1 + pad) continue;
+    if (segmentHitsBox(a, b, r, pad)) return true;
+  }
+  return false;
+}
+
+export interface CalloutPlacement {
+  box: Box;
+  /** Leader end on the box edge nearest the point. */
+  leader: Pt;
+}
+
+/**
+ * Places a callout of `w`×`h` near point `p`: tries offsets above and below at
+ * three distances and three horizontal alignments, keeps it inside
+ * [0, width]×[top, bottom], and picks the candidate that crosses no line and no
+ * other label, nearest the point (on the preferred side first). Returns null
+ * only when every candidate leaves the bounds.
+ */
+export function placeCallout(opts: {
+  p: Pt;
+  w: number;
+  h: number;
+  preferAbove: boolean;
+  width: number;
+  top: number;
+  bottom: number;
+  lines: readonly (readonly Pt[])[];
+  /** Hard obstacles (other callouts): never overlapped. */
+  avoid: readonly Box[];
+  /** Soft obstacles (axis labels): overlapped only if nothing else fits. */
+  soft?: readonly Box[];
+}): CalloutPlacement | null {
+  const { p, w, h, preferAbove, width, top, bottom, lines, avoid, soft = [] } = opts;
+  let best: { cost: number; box: Box } | null = null;
+  for (const above of [preferAbove, !preferAbove]) {
+    for (const dist of [12, 26, 42, 60]) {
+      const y0 = above ? p.y - dist - h : p.y + dist;
+      for (const shift of [0.5, 0.15, 0.85, 0, 1]) {
+        const x0 = Math.max(0, Math.min(width - w, p.x - w * shift));
+        const box = { x0, x1: x0 + w, y0, y1: y0 + h };
+        if (y0 < top || box.y1 > bottom) continue;
+        if (avoid.some((b) => boxesOverlap(b, box, 2))) continue;
+        let cost = dist + Math.abs((x0 + w / 2 - p.x) / 8) + (above === preferAbove ? 0 : 30);
+        for (const line of lines) if (polylineHitsBox(line, box)) cost += 1000;
+        if (soft.some((b) => boxesOverlap(b, box, 2))) cost += 200;
+        if (!best || cost < best.cost) best = { cost, box };
+      }
+    }
+  }
+  if (!best) return null;
+  const { box } = best;
+  const lx = Math.max(box.x0 + 4, Math.min(box.x1 - 4, p.x));
+  const ly = box.y1 <= p.y ? box.y1 : box.y0;
+  return { box, leader: { x: lx, y: ly } };
+}
+
+/**
+ * Indices of x-axis ticks: every point when they all fit, else evenly spaced
+ * counting back from the latest point (so the newest date is always labelled
+ * and the gaps are equal).
+ */
+export function axisTickIndices(n: number, maxLabels: number): number[] {
+  if (n <= 0) return [];
+  const max = Math.max(2, maxLabels);
+  if (n <= max) return Array.from({ length: n }, (_, i) => i);
+  // The densest even step that still fits `max` labels.
+  let step = Math.max(1, Math.floor((n - 1) / (max - 1)));
+  if (Math.floor((n - 1) / step) + 1 > max) step = Math.ceil((n - 1) / (max - 1));
+  const out: number[] = [];
+  for (let j = n - 1; j >= 0; j -= step) out.unshift(j);
+  return out;
+}

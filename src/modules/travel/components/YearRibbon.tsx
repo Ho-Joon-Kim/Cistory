@@ -1,6 +1,7 @@
 "use client";
 
-import { type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEvidence } from "@/components/ds";
 import { cn } from "@/lib/utils";
 import type { TravelListSummary } from "../hooks";
@@ -19,10 +20,15 @@ const HIT_SLOP_PX = 22;
  * take pointer input: one overlay over the strip snaps every pointer to the
  * nearest block (within {@link HIT_SLOP_PX}), which gives each trip a usable
  * hit area without ever resolving a tap to a trip the finger wasn't nearest.
- * A tap pins the tooltip until the next tap elsewhere.
+ * A tap pins the tooltip until the next tap elsewhere; a second tap on the
+ * pinned trip (or a mouse click, or Enter on a focused block) opens it.
  */
 export function YearRibbon({ summary, today }: { summary: TravelListSummary; today: string }) {
   const { stateOf } = useEvidence();
+  // Pointer picks go through the block's own link, so navigation stays
+  // client-side (the links are what keyboard users activate directly).
+  const open = (id: string) =>
+    rootRef.current?.querySelector<HTMLAnchorElement>(`a[data-span-id="${id}"]`)?.click();
   const [hover, setHover] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -38,7 +44,7 @@ export function YearRibbon({ summary, today }: { summary: TravelListSummary; tod
   const activeId = hover ?? pinned;
   const hovered = spans.find((s) => s.id === activeId);
 
-  const spanAt = (event: PointerEvent<HTMLDivElement>) => {
+  const spanAt = (event: MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width <= 0) return null;
     return nearestSpan(spans, (event.clientX - rect.left) / rect.width, HIT_SLOP_PX / rect.width);
@@ -76,7 +82,7 @@ export function YearRibbon({ summary, today }: { summary: TravelListSummary; tod
   }, [pinned]);
 
   return (
-    <div ref={rootRef} className="relative mt-3 pt-5">
+    <div ref={rootRef} className="relative pt-4">
       <span
         className="absolute top-0 z-[1] -translate-x-1/2 bg-page px-1 text-xs leading-4 font-semibold text-ink"
         style={{ left: `${todayX * 100}%` }}
@@ -106,9 +112,10 @@ export function YearRibbon({ summary, today }: { summary: TravelListSummary; tod
           />
         ))}
         {spans.map((span, i) => (
-          <button
+          <Link
             key={span.id}
-            type="button"
+            href={`/travel/${span.id}`}
+            data-span-id={span.id}
             aria-label={`${span.name} ${span.range} · ${span.stay}`}
             data-evidence={stateOf(span.id)}
             data-active={activeId === span.id ? "true" : undefined}
@@ -131,17 +138,29 @@ export function YearRibbon({ summary, today }: { summary: TravelListSummary; tod
         <div
           aria-hidden="true"
           data-testid="year-ribbon-hit"
-          className="absolute inset-x-0 -top-0.5 h-11"
+          className={cn("absolute inset-x-0 -top-0.5 h-11", hover && "cursor-pointer")}
           onPointerMove={(event) => {
             if (event.pointerType === "mouse") setHover(spanAt(event)?.id ?? null);
           }}
           onPointerLeave={(event) => {
             if (event.pointerType === "mouse") setHover(null);
           }}
+          onClick={(event) => {
+            // Mouse: a click opens the block under the pointer (keyboard users get
+            // the same through the focusable blocks).
+            const native = event.nativeEvent as globalThis.PointerEvent;
+            if (native.pointerType && native.pointerType !== "mouse") return;
+            const id = spanAt(event)?.id;
+            if (id) open(id);
+          }}
           onPointerDown={(event) => {
             if (event.pointerType === "mouse") return;
             const id = spanAt(event)?.id ?? null;
-            setPinned((prev) => (id && prev !== id ? id : null));
+            if (id && id === pinned) {
+              open(id);
+              return;
+            }
+            setPinned(id);
           }}
         />
         {hovered ? (
