@@ -1,19 +1,19 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { TravelDetailContent } from "@/modules/travel/components/TravelDetailContent";
+import { describe, expect, it, vi } from "vitest";
+import { buildGpx, TravelDetailView } from "@/modules/travel/components/TravelDetailView";
 import type { TravelRoute, TravelTripDetail } from "@/modules/travel/hooks";
 
-function detail(health: TravelTripDetail["health"] = []): TravelTripDetail {
+function detail(over: Partial<TravelTripDetail> = {}): TravelTripDetail {
   return {
     trip: {
       id: "trip-1",
       userId: "user-1",
       name: "제주 여행",
       startDate: "2026-07-15",
-      endDate: "2026-07-18",
-      totalDistanceMeters: 0,
-      visitedCities: ["제주"],
+      endDate: "2026-07-17",
+      totalDistanceMeters: 1_273_000,
+      visitedCities: ["제주특별자치도"],
       visitedCountries: ["대한민국"],
       isOverseas: false,
       autoDetected: true,
@@ -25,47 +25,82 @@ function detail(health: TravelTripDetail["health"] = []): TravelTripDetail {
     spending: { total: 0, dailyAverage: 0, categories: [], transactions: [] },
     transport: { totalDistanceMeters: 0, modes: [] },
     routine: { codingSeconds: 0, commitCount: 0, comparison: null },
-    health,
+    health: [],
+    spendingSince: "2026-03-03",
+    ...over,
   };
 }
 
-const route: TravelRoute = { points: [], count: 0, rawSampledCount: 0, maxPoints: 500 };
+const route: TravelRoute = { points: [], count: 0, rawSampledCount: 0, maxPoints: 1000 };
 
-describe("TravelDetailContent", () => {
-  it("건강 데이터가 없으면 건강 제목과 카드 자체를 렌더하지 않는다", () => {
-    const markup = renderToStaticMarkup(
-      createElement(TravelDetailContent, { detail: detail(), route })
-    );
+function render(d: TravelTripDetail): string {
+  return renderToStaticMarkup(
+    createElement(TravelDetailView, { detail: d, route, onRename: vi.fn(), onNotTrip: vi.fn() })
+  );
+}
 
-    expect(markup).toContain("여행 경로");
-    expect(markup).toContain("일자별 방문지");
+describe("TravelDetailView", () => {
+  it("labels the distance source and hides health when there is none", () => {
+    const markup = render(detail());
+    expect(markup).toContain("이동 거리");
+    expect(markup).toContain("GPS 경로 전체 합계");
+    expect(markup).toContain("일정");
     expect(markup).toContain("지출");
-    expect(markup).toContain("교통수단");
-    expect(markup).toContain("일상 변화");
     expect(markup).not.toContain("건강");
   });
 
-  it("건강 데이터가 있으면 날짜와 메트릭 값을 표시한다", () => {
-    const markup = renderToStaticMarkup(
-      createElement(TravelDetailContent, {
-        detail: detail([
+  it("limits health to steps, active zone and resting heart rate up front", () => {
+    const markup = render(
+      detail({
+        health: [
           {
             day: "2026-07-16",
             metric: "steps",
-            valueAvg: 1500,
-            valueMin: 100,
-            valueMax: 900,
+            valueAvg: null,
+            valueMin: null,
+            valueMax: null,
             valueSum: 8000,
-            count: 10,
+            count: 1,
           },
-        ]),
-        route,
+          {
+            day: "2026-07-16",
+            metric: "spo2",
+            valueAvg: 96,
+            valueMin: null,
+            valueMax: null,
+            valueSum: null,
+            count: 1,
+          },
+        ],
       })
     );
-
     expect(markup).toContain("건강");
-    expect(markup).toContain("걸음 수");
-    expect(markup).toContain("8,000걸음");
-    expect(markup).toContain("7월 16일");
+    expect(markup).toContain("8,000");
+    expect(markup).toContain("다른 지표 1개");
+  });
+
+  it("flags transport modes as low-confidence and says 기록 없음 before Toss data", () => {
+    const markup = render(
+      detail({
+        spendingSince: "2026-08-01",
+        transport: {
+          totalDistanceMeters: 100_000,
+          modes: [
+            { mode: "driving", distanceMeters: 100_000, durationSeconds: 3600, segmentCount: 2 },
+          ],
+        },
+      })
+    );
+    expect(markup).toContain("자동 분류 · 정확도 낮음");
+    expect(markup).toContain("기록 없음");
+  });
+
+  it("exports the route as GPX", () => {
+    const gpx = buildGpx("제주 <여행>", {
+      ...route,
+      points: [{ lat: 33.5, lon: 126.5, accuracy: null, timestamp: "2026-07-15T01:00:00.000Z" }],
+    });
+    expect(gpx).toContain('<trkpt lat="33.5" lon="126.5">');
+    expect(gpx).toContain("제주 &#60;여행&#62;");
   });
 });

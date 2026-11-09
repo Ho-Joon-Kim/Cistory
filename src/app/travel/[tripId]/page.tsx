@@ -1,78 +1,15 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { toast } from "sonner";
+import { EmptyState, ErrorState, LoadingState, PageContainer } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/modules/auth/hooks";
-import { TravelDetailContent } from "@/modules/travel/components/TravelDetailContent";
-import { type TravelRoute, type TravelTripDetail, useTravelDetail } from "@/modules/travel/hooks";
-
-function CenteredSpinner() {
-  return (
-    <div role="status" className="min-h-screen flex items-center justify-center">
-      <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
-      <span className="sr-only">로딩 중…</span>
-    </div>
-  );
-}
-
-interface TravelDetailStateProps {
-  detail: TravelTripDetail | null;
-  route: TravelRoute | null;
-  isLoading: boolean;
-  error: string | null;
-  notFound: boolean;
-  refresh: () => void;
-}
-
-function TravelDetailState({
-  detail,
-  route,
-  isLoading,
-  error,
-  notFound,
-  refresh,
-}: TravelDetailStateProps) {
-  if (isLoading) {
-    return (
-      <div role="status" className="flex items-center justify-center py-24">
-        <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
-        <span className="sr-only">로딩 중…</span>
-      </div>
-    );
-  }
-
-  if (!detail || !route) {
-    return (
-      <Card className="border-dashed py-12 text-center">
-        <CardContent>
-          <p className="font-medium">
-            {notFound ? "여행을 찾을 수 없습니다" : "여행 상세를 표시할 수 없습니다"}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {notFound ? "삭제되었거나 접근할 수 없는 여행입니다." : error}
-          </p>
-          <div className="mt-5 flex justify-center gap-2">
-            {!notFound ? (
-              <Button onClick={refresh} size="sm" variant="outline">
-                다시 시도
-              </Button>
-            ) : null}
-            <Button asChild size="sm" variant={notFound ? "default" : "ghost"}>
-              <Link href="/travel">여행 목록</Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return <TravelDetailContent detail={detail} route={route} />;
-}
+import { TravelDetailView } from "@/modules/travel/components/TravelDetailView";
+import { requestMarkNotTrip, requestRenameTrip, useTravelDetail } from "@/modules/travel/hooks";
 
 export default function TravelDetailPage() {
   const params = useParams<{ tripId: string }>();
@@ -88,22 +25,71 @@ export default function TravelDetailPage() {
     if (!isAuthLoading && !isAuthenticated) router.replace("/login");
   }, [isAuthLoading, isAuthenticated, router]);
 
-  if (isAuthLoading) return <CenteredSpinner />;
-  if (!isAuthenticated) return null;
+  if (!isAuthLoading && !isAuthenticated) return null;
+
+  const onRename = async (name: string) => {
+    try {
+      await requestRenameTrip(tripId, name.trim());
+      refresh();
+      return true;
+    } catch (renameError) {
+      toast.error(renameError instanceof Error ? renameError.message : "이름을 바꾸지 못했어요");
+      return false;
+    }
+  };
+
+  const onNotTrip = async () => {
+    try {
+      await requestMarkNotTrip(tripId);
+      toast("여행에서 뺐어요. 이 장소는 다음 감지부터 여행으로 보지 않아요.");
+      router.push("/travel");
+    } catch (markError) {
+      toast.error(markError instanceof Error ? markError.message : "여행에서 빼지 못했어요");
+    }
+  };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="flex min-h-screen flex-col bg-page text-ink">
       <Header />
-      <main id="main" className="flex-1 container mx-auto px-4 py-6">
-        <TravelDetailState
-          detail={detail}
-          route={route}
-          isLoading={isLoading}
-          error={error}
-          notFound={notFound}
-          refresh={refresh}
-        />
-      </main>
+      <PageContainer>
+        {isAuthLoading || isLoading ? (
+          <LoadingState variant="kpi" className="mt-4" label="여행 불러오는 중" />
+        ) : !detail || !route ? (
+          notFound ? (
+            <EmptyState
+              title="여행을 찾을 수 없어요"
+              description="삭제되었거나 여행 아님으로 표시된 여행이에요."
+              action={
+                <Button asChild variant="outline">
+                  <Link href="/travel">모든 여행</Link>
+                </Button>
+              }
+            />
+          ) : (
+            <ErrorState
+              title="여행을 불러오지 못했어요"
+              description={error ?? undefined}
+              actions={
+                <>
+                  <Button variant="outline" onClick={refresh}>
+                    다시 시도
+                  </Button>
+                  <Button asChild variant="ghost">
+                    <Link href="/travel">모든 여행</Link>
+                  </Button>
+                </>
+              }
+            />
+          )
+        ) : (
+          <TravelDetailView
+            detail={detail}
+            route={route}
+            onRename={onRename}
+            onNotTrip={() => void onNotTrip()}
+          />
+        )}
+      </PageContainer>
     </div>
   );
 }

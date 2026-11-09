@@ -7,6 +7,7 @@ import {
   parseTravelTripsPage,
   removePendingTripId,
   removeTravelTrip,
+  renameTravelTrip,
   requestCurrentTravelTripsPage,
   requestMarkNotTrip,
   type TravelTripListItem,
@@ -42,6 +43,7 @@ function trip(id: string, endDate: string): TravelTripListItem {
     updatedAt: "2026-07-22T00:00:00.000Z",
     totalSpending: 0,
     visitCount: 0,
+    anchorPlaceName: null,
   };
 }
 
@@ -227,5 +229,33 @@ describe("parseTravelRoute", () => {
     });
 
     expect(route.points[0]?.timestamp).toBe("2026-07-20T00:00:00.000Z");
+  });
+});
+
+describe("목록 요약과 이름 바꾸기", () => {
+  it("summary를 검증하고 anchorPlaceName이 없는 예전 응답은 null로 채운다", () => {
+    const { anchorPlaceName: _omit, ...legacy } = trip("trip-1", "2026-07-20");
+    const page = parseTravelTripsPage({
+      trips: [legacy],
+      nextCursor: null,
+      summary: { year: 2026, trips: [legacy], spendingSince: "2026-03-03" },
+    });
+    expect(page.trips[0].anchorPlaceName).toBeNull();
+    expect(page.summary).toEqual({
+      year: 2026,
+      trips: [{ ...legacy, anchorPlaceName: null }],
+      spendingSince: "2026-03-03",
+    });
+    expect(() =>
+      parseTravelTripsPage({ trips: [], nextCursor: null, summary: { year: "x", trips: [] } })
+    ).toThrow();
+  });
+
+  it("이름을 바꿔도 목록 순서를 유지한다", () => {
+    const list = [trip("a", "2026-07-20"), trip("b", "2026-07-10")];
+    expect(renameTravelTrip(list, "b", "새 이름").map((t) => [t.id, t.name])).toEqual([
+      ["a", "여행 a"],
+      ["b", "새 이름"],
+    ]);
   });
 });

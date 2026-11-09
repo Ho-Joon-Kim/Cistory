@@ -1,18 +1,21 @@
-import { and, asc, desc, eq, gte, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   accountRoles,
   codingDailyStats,
   commits,
   healthDailySummaries,
+  savedPlaces,
   transactions,
   transportationSegments,
   trips,
   users,
   visits,
 } from "@/db/schema";
-import { getKstDateWindow, shiftDateKey } from "@/lib/date-key";
+import { timestampFromDriver } from "@/db/sql";
+import { getKstDateWindow, shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { accountRolesJoinOn, bucketSql } from "@/modules/spending/classify";
+import { ROUTINE_PLACE_LABELS } from "./routine-places";
 
 export const DEFAULT_TRIP_LIST_LIMIT = 20;
 export const MAX_TRIP_LIST_LIMIT = 50;
@@ -42,6 +45,23 @@ export interface TravelTrip {
 export interface TripListItem extends TravelTrip {
   totalSpending: number;
   visitCount: number;
+  /**
+   * The saved place (other than home/office) the trip spent the most time at,
+   * e.g. "본가" — names a recurring destination. Null when none matched.
+   */
+  anchorPlaceName: string | null;
+}
+
+/** Everything the list hero needs for one calendar year, in one response. */
+export interface TripListSummary {
+  year: number;
+  /** Trips overlapping the year, oldest first (not paginated). */
+  trips: TripListItem[];
+  /**
+   * KST date of the first Toss transaction. Trips that ended before it have
+   * no spending record at all ("기록 없음"), which is not the same as 0원.
+   */
+  spendingSince: string | null;
 }
 
 export interface TripVisit {
@@ -56,6 +76,8 @@ export interface TripVisit {
   category: string | null;
   city: string | null;
   countryName: string | null;
+  savedPlaceName: string | null;
+  savedPlaceCategory: string | null;
 }
 
 export interface TripTransaction {
@@ -112,6 +134,8 @@ export interface TripDetail {
   transport: TripTransport;
   routine: TripRoutine;
   health: TripHealthSummary[];
+  /** See {@link TripListSummary.spendingSince}. */
+  spendingSince: string | null;
 }
 
 function parseStringArray(value: string | null): string[] {
@@ -131,6 +155,21 @@ function normalizeTrip(row: typeof trips.$inferSelect): TravelTrip {
     ...row,
     visitedCities: parseStringArray(row.visitedCities),
     visitedCountries: parseStringArray(row.visitedCountries),
+  };
+}
+
+type ListRow = typeof trips.$inferSelect & {
+  totalSpending: number;
+  visitCount: number;
+  anchorPlaceName: string | null;
+};
+
+function toListItem(row: ListRow): TripListItem {
+  return {
+    ...normalizeTrip(row),
+    totalSpending: Number(row.totalSpending),
+    visitCount: Number(row.visitCount),
+    anchorPlaceName: row.anchorPlaceName ?? null,
   };
 }
 
@@ -182,16 +221,109 @@ export function aggregateSpending(rows: TripTransaction[], dayCount: number): Tr
 export class TravelService {
   constructor(private readonly db: Database) {}
 
-  async listTrips(
-    userId: string,
-    options: { limit: number; cursor: TripCursor | null }
-  ): Promise<{ trips: TripListItem[]; nextCursor: string | null }> {
+  private async spendingBucket(userId: string) {
     const [userRow] = await this.db
       .select({ tossMyName: users.tossMyName })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    const bucket = bucketSql(userRow?.tossMyName ?? null);
+    return bucketSql(userRow?.tossMyName ?? null);
+  }
+
+  /** Columns of a list row: the trip plus visit count, spending and anchor place. */
+  private listFields(userId: string, bucket: SQL) {
+    const routineLabels = sql.join(
+      ROUTINE_PLACE_LABELS.map((label) => sql`${label}`),
+      sql`, `
+    );
+    return {
+      id: trips.id,
+      userId: trips.userId,
+      name: trips.name,
+      startDate: trips.startDate,
+      endDate: trips.endDate,
+      totalDistanceMeters: trips.totalDistanceMeters,
+      visitedCities: trips.visitedCities,
+      visitedCountries: trips.visitedCountries,
+      isOverseas: trips.isOverseas,
+      autoDetected: trips.autoDetected,
+      notes: trips.notes,
+      createdAt: trips.createdAt,
+      updatedAt: trips.updatedAt,
+      visitCount: sql<number>`(
+        SELECT count(*)
+        FROM ${visits}
+        WHERE ${visits.userId} = ${userId}
+          AND ${visits.startTime} >= (${trips.startDate}::date - interval '9 hours')
+          AND ${visits.startTime} < ((${trips.endDate}::date + interval '1 day') - interval '9 hours')
+      )`.as("visit_count"),
+      totalSpending: sql<number>`(
+        SELECT coalesce(sum(${transactions.amount}), 0)
+        FROM ${transactions}
+        LEFT JOIN ${accountRoles}
+          ON ${accountRolesJoinOn}
+        WHERE ${eq(transactions.userId, userId)}
+          AND ${transactions.transactedAt} >= (${trips.startDate}::date - interval '9 hours')
+          AND ${transactions.transactedAt} < ((${trips.endDate}::date + interval '1 day') - interval '9 hours')
+          AND ${bucket} = 'spending'
+      )`.as("total_spending"),
+      // Aliased explicitly: with a single-table select Drizzle renders columns
+      // unqualified, and visits/saved_places share `name`-like column names.
+      anchorPlaceName: sql<string | null>`(
+        SELECT sp.name
+        FROM visits v
+        JOIN saved_places sp ON sp.id = v.saved_place_id
+        WHERE v.user_id = ${userId}
+          AND v.start_time >= (${trips.startDate}::date - interval '9 hours')
+          AND v.start_time < ((${trips.endDate}::date + interval '1 day') - interval '9 hours')
+          AND lower(btrim(sp.name)) NOT IN (${routineLabels})
+          AND lower(btrim(coalesce(sp.category, ''))) NOT IN (${routineLabels})
+        GROUP BY sp.name
+        ORDER BY sum(v.duration_seconds) DESC, sp.name
+        LIMIT 1
+      )`.as("anchor_place_name"),
+    };
+  }
+
+  /** KST date of the user's first Toss transaction, or null when there is none. */
+  async getSpendingSince(userId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ first: sql<Date | string | null>`min(${transactions.transactedAt})` })
+      .from(transactions)
+      .where(eq(transactions.userId, userId));
+    if (row?.first == null) return null;
+    const instant =
+      row.first instanceof Date
+        ? row.first
+        : timestampFromDriver(transactions.transactedAt, row.first);
+    return Number.isFinite(instant.getTime()) ? toKstCalendarDate(instant) : null;
+  }
+
+  /** All trips overlapping `year` (KST calendar), oldest first, plus spending coverage. */
+  async getListSummary(userId: string, year: number): Promise<TripListSummary> {
+    const bucket = await this.spendingBucket(userId);
+    const [rows, spendingSince] = await Promise.all([
+      this.db
+        .select(this.listFields(userId, bucket))
+        .from(trips)
+        .where(
+          and(
+            eq(trips.userId, userId),
+            gte(trips.endDate, `${year}-01-01`),
+            lte(trips.startDate, `${year}-12-31`)
+          )
+        )
+        .orderBy(asc(trips.startDate), asc(trips.id)),
+      this.getSpendingSince(userId),
+    ]);
+    return { year, trips: rows.map(toListItem), spendingSince };
+  }
+
+  async listTrips(
+    userId: string,
+    options: { limit: number; cursor: TripCursor | null }
+  ): Promise<{ trips: TripListItem[]; nextCursor: string | null }> {
+    const bucket = await this.spendingBucket(userId);
     const { limit, cursor } = options;
     const cursorCondition = cursor
       ? or(
@@ -206,38 +338,7 @@ export class TravelService {
       : undefined;
 
     const rows = await this.db
-      .select({
-        id: trips.id,
-        userId: trips.userId,
-        name: trips.name,
-        startDate: trips.startDate,
-        endDate: trips.endDate,
-        totalDistanceMeters: trips.totalDistanceMeters,
-        visitedCities: trips.visitedCities,
-        visitedCountries: trips.visitedCountries,
-        isOverseas: trips.isOverseas,
-        autoDetected: trips.autoDetected,
-        notes: trips.notes,
-        createdAt: trips.createdAt,
-        updatedAt: trips.updatedAt,
-        visitCount: sql<number>`(
-          SELECT count(*)
-          FROM ${visits}
-          WHERE ${visits.userId} = ${userId}
-            AND ${visits.startTime} >= (${trips.startDate}::date - interval '9 hours')
-            AND ${visits.startTime} < ((${trips.endDate}::date + interval '1 day') - interval '9 hours')
-        )`.as("visit_count"),
-        totalSpending: sql<number>`(
-          SELECT coalesce(sum(${transactions.amount}), 0)
-          FROM ${transactions}
-          LEFT JOIN ${accountRoles}
-            ON ${accountRolesJoinOn}
-          WHERE ${eq(transactions.userId, userId)}
-            AND ${transactions.transactedAt} >= (${trips.startDate}::date - interval '9 hours')
-            AND ${transactions.transactedAt} < ((${trips.endDate}::date + interval '1 day') - interval '9 hours')
-            AND ${bucket} = 'spending'
-        )`.as("total_spending"),
-      })
+      .select(this.listFields(userId, bucket))
       .from(trips)
       .where(and(eq(trips.userId, userId), cursorCondition))
       .orderBy(desc(trips.endDate), desc(trips.startDate), desc(trips.id))
@@ -247,11 +348,7 @@ export class TravelService {
     const page = hasMore ? rows.slice(0, limit) : rows;
     const last = page.at(-1);
     return {
-      trips: page.map((row) => ({
-        ...normalizeTrip(row),
-        totalSpending: Number(row.totalSpending),
-        visitCount: Number(row.visitCount),
-      })),
+      trips: page.map(toListItem),
       nextCursor:
         hasMore && last
           ? encodeTripCursor({ endDate: last.endDate, startDate: last.startDate, id: last.id })
@@ -272,115 +369,121 @@ export class TravelService {
     const previousStartDate = shiftDateKey(trip.startDate, -window.dayCount);
     const previousStart = new Date(`${previousStartDate}T00:00:00+09:00`);
 
-    const [userRow] = await this.db
-      .select({ tossMyName: users.tossMyName })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    const bucket = bucketSql(userRow?.tossMyName ?? null);
+    const bucket = await this.spendingBucket(userId);
 
-    const [visitRows, transportRows, transactionRows, codingRows, commitRows, healthRows] =
-      await Promise.all([
-        this.db
-          .select({
-            id: visits.id,
-            centerLat: visits.centerLat,
-            centerLon: visits.centerLon,
-            startTime: visits.startTime,
-            endTime: visits.endTime,
-            durationSeconds: visits.durationSeconds,
-            placeName: visits.placeName,
-            address: visits.address,
-            category: visits.category,
-            city: visits.city,
-            countryName: visits.countryName,
-          })
-          .from(visits)
-          .where(
-            and(
-              eq(visits.userId, userId),
-              gte(visits.startTime, window.start),
-              lt(visits.startTime, window.end)
-            )
+    const [
+      visitRows,
+      transportRows,
+      transactionRows,
+      codingRows,
+      commitRows,
+      healthRows,
+      spendingSince,
+    ] = await Promise.all([
+      this.db
+        .select({
+          id: visits.id,
+          centerLat: visits.centerLat,
+          centerLon: visits.centerLon,
+          startTime: visits.startTime,
+          endTime: visits.endTime,
+          durationSeconds: visits.durationSeconds,
+          placeName: visits.placeName,
+          address: visits.address,
+          category: visits.category,
+          city: visits.city,
+          countryName: visits.countryName,
+          savedPlaceName: savedPlaces.name,
+          savedPlaceCategory: savedPlaces.category,
+        })
+        .from(visits)
+        .leftJoin(savedPlaces, eq(savedPlaces.id, visits.savedPlaceId))
+        .where(
+          and(
+            eq(visits.userId, userId),
+            gte(visits.startTime, window.start),
+            lt(visits.startTime, window.end)
           )
-          .orderBy(asc(visits.startTime)),
-        this.db
-          .select({
-            mode: transportationSegments.mode,
-            distanceMeters: transportationSegments.distanceMeters,
-            durationSeconds: transportationSegments.durationSeconds,
-          })
-          .from(transportationSegments)
-          .where(
-            and(
-              eq(transportationSegments.userId, userId),
-              gte(transportationSegments.date, trip.startDate),
-              lt(transportationSegments.date, window.endExclusiveDate)
-            )
+        )
+        .orderBy(asc(visits.startTime)),
+      this.db
+        .select({
+          mode: transportationSegments.mode,
+          distanceMeters: transportationSegments.distanceMeters,
+          durationSeconds: transportationSegments.durationSeconds,
+        })
+        .from(transportationSegments)
+        .where(
+          and(
+            eq(transportationSegments.userId, userId),
+            gte(transportationSegments.date, trip.startDate),
+            lt(transportationSegments.date, window.endExclusiveDate)
           )
-          .orderBy(asc(transportationSegments.startTime)),
-        this.db
-          .select({
-            id: transactions.id,
-            amount: transactions.amount,
-            merchant: transactions.merchant,
-            accountName: transactions.accountName,
-            category: transactions.category,
-            transactedAt: transactions.transactedAt,
-          })
-          .from(transactions)
-          .leftJoin(accountRoles, accountRolesJoinOn)
-          .where(
-            and(
-              eq(transactions.userId, userId),
-              gte(transactions.transactedAt, window.start),
-              lt(transactions.transactedAt, window.end),
-              sql`${bucket} = 'spending'`
-            )
+        )
+        .orderBy(asc(transportationSegments.startTime)),
+      this.db
+        .select({
+          id: transactions.id,
+          amount: transactions.amount,
+          merchant: transactions.merchant,
+          accountName: transactions.accountName,
+          category: transactions.category,
+          transactedAt: transactions.transactedAt,
+        })
+        .from(transactions)
+        .leftJoin(accountRoles, accountRolesJoinOn)
+        .where(
+          and(
+            eq(transactions.userId, userId),
+            gte(transactions.transactedAt, window.start),
+            lt(transactions.transactedAt, window.end),
+            sql`${bucket} = 'spending'`
           )
-          .orderBy(asc(transactions.transactedAt)),
-        this.db
-          .select({ date: codingDailyStats.date, totalSeconds: codingDailyStats.totalSeconds })
-          .from(codingDailyStats)
-          .where(
-            and(
-              eq(codingDailyStats.userId, userId),
-              gte(codingDailyStats.date, previousStartDate),
-              lt(codingDailyStats.date, window.endExclusiveDate)
-            )
+        )
+        .orderBy(asc(transactions.transactedAt)),
+      this.db
+        .select({ date: codingDailyStats.date, totalSeconds: codingDailyStats.totalSeconds })
+        .from(codingDailyStats)
+        .where(
+          and(
+            eq(codingDailyStats.userId, userId),
+            gte(codingDailyStats.date, previousStartDate),
+            lt(codingDailyStats.date, window.endExclusiveDate)
           )
-          .orderBy(asc(codingDailyStats.date)),
-        this.db
-          .select({ id: commits.id, committedAt: commits.committedAt })
-          .from(commits)
-          .where(
-            and(
-              eq(commits.userId, userId),
-              gte(commits.committedAt, previousStart),
-              lt(commits.committedAt, window.end)
-            )
+        )
+        .orderBy(asc(codingDailyStats.date)),
+      this.db
+        .select({ id: commits.id, committedAt: commits.committedAt })
+        .from(commits)
+        .where(
+          and(
+            eq(commits.userId, userId),
+            gte(commits.committedAt, previousStart),
+            lt(commits.committedAt, window.end)
           )
-          .orderBy(asc(commits.committedAt)),
-        this.db
-          .select({
-            day: healthDailySummaries.day,
-            metric: healthDailySummaries.metric,
-            valueAvg: healthDailySummaries.valueAvg,
-            valueMin: healthDailySummaries.valueMin,
-            valueMax: healthDailySummaries.valueMax,
-            valueSum: healthDailySummaries.valueSum,
-            count: healthDailySummaries.count,
-          })
-          .from(healthDailySummaries)
-          .where(
-            and(
-              eq(healthDailySummaries.userId, userId),
-              gte(healthDailySummaries.day, trip.startDate),
-              lt(healthDailySummaries.day, window.endExclusiveDate)
-            )
+        )
+        .orderBy(asc(commits.committedAt)),
+      this.db
+        .select({
+          day: healthDailySummaries.day,
+          metric: healthDailySummaries.metric,
+          valueAvg: healthDailySummaries.valueAvg,
+          valueMin: healthDailySummaries.valueMin,
+          valueMax: healthDailySummaries.valueMax,
+          valueSum: healthDailySummaries.valueSum,
+          count: healthDailySummaries.count,
+        })
+        .from(healthDailySummaries)
+        .where(
+          and(
+            eq(healthDailySummaries.userId, userId),
+            gte(healthDailySummaries.day, trip.startDate),
+            lt(healthDailySummaries.day, window.endExclusiveDate)
           )
-          .orderBy(asc(healthDailySummaries.day), asc(healthDailySummaries.metric)),
-      ]);
+        )
+        .orderBy(asc(healthDailySummaries.day), asc(healthDailySummaries.metric)),
+      this.getSpendingSince(userId),
+    ]);
 
     const modeMap = new Map<
       string,
@@ -449,6 +552,7 @@ export class TravelService {
           : null,
       },
       health: healthRows,
+      spendingSince,
     };
   }
 }

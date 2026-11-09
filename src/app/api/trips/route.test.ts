@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getAuthenticatedUser: vi.fn(),
   getDb: vi.fn(),
   listTrips: vi.fn(),
+  getListSummary: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-helpers", () => ({ getAuthenticatedUser: mocks.getAuthenticatedUser }));
@@ -18,6 +19,7 @@ vi.mock("@/modules/travel/service", async (importOriginal) => {
     ...actual,
     TravelService: class {
       listTrips = mocks.listTrips;
+      getListSummary = mocks.getListSummary;
     },
   };
 });
@@ -80,6 +82,30 @@ describe("GET /api/trips", () => {
 
     expect(mocks.listTrips).toHaveBeenCalledWith("user-1", { limit: 20, cursor: null });
     expect(body).toEqual({ trips: [{ id: "trip-1" }], nextCursor: "next" });
+  });
+
+  it("adds the current-year summary only when summary=1 is requested", async () => {
+    mocks.getDb.mockReturnValue({});
+    mocks.listTrips.mockResolvedValue({ trips: [{ id: "trip-1" }], nextCursor: null });
+    mocks.getListSummary.mockResolvedValue({
+      year: 2026,
+      trips: [{ id: "trip-1" }],
+      spendingSince: "2026-03-03",
+    });
+
+    const response = await GET(request("?summary=1"));
+    const body = await response.json();
+
+    expect(mocks.getListSummary).toHaveBeenCalledWith("user-1", expect.any(Number));
+    expect(body.summary).toEqual({
+      year: 2026,
+      trips: [{ id: "trip-1" }],
+      spendingSince: "2026-03-03",
+    });
+    expect(body.trips).toEqual([{ id: "trip-1" }]);
+
+    await GET(request());
+    expect(mocks.getListSummary).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a malformed cursor", async () => {
