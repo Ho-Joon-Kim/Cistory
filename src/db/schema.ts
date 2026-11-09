@@ -1189,7 +1189,9 @@ export const dataRecoveryJobs = pgTable(
   "data_recovery_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     source: text("source").notNull(),
     fromDate: text("from_date").notNull(),
     toDate: text("to_date").notNull(),
@@ -1203,13 +1205,18 @@ export const dataRecoveryJobs = pgTable(
     updatedAt: timestamp("updated_at").notNull(),
     completedAt: timestamp("completed_at"),
   },
-  (t) => [index("idx_data_recovery_user_source").on(t.userId, t.source), index("idx_data_recovery_queue").on(t.status, t.leaseExpiresAt)]
+  (t) => [
+    index("idx_data_recovery_user_source").on(t.userId, t.source),
+    index("idx_data_recovery_queue").on(t.status, t.leaseExpiresAt),
+  ]
 );
 
 export const sourceSyncStates = pgTable(
   "source_sync_states",
   {
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     source: text("source").notNull(),
     lastAttemptAt: timestamp("last_attempt_at").notNull(),
     lastSuccessAt: timestamp("last_success_at"),
