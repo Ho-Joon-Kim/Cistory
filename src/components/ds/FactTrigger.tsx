@@ -6,6 +6,7 @@ import type { FactEvidence, FactRow } from "@/lib/facts/types";
 import { cn } from "@/lib/utils";
 import { announceEvidenceOpen, useEvidencePopover } from "./evidence";
 import { chooseFactPopoverPlacement, factPopoverBounds, type Rect } from "./fact-placement";
+import { isMonoFactValue } from "./fact-text";
 
 /**
  * The evidence list: "이 문장에 쓴 사실" + metric/period → value rows + optional
@@ -37,7 +38,14 @@ export function FactPopover({
         {rows.map((row) => (
           <div key={`${row.label}|${row.value}`} className="flex items-baseline gap-4">
             <dt className="max-w-[60%] shrink-0 text-ink-2 [overflow-wrap:normal]">{row.label}</dt>
-            <dd className="num m-0 min-w-0 flex-1 text-right text-ink">{row.value}</dd>
+            <dd
+              className={cn(
+                "m-0 min-w-0 flex-1 text-right text-ink",
+                isMonoFactValue(row.value) && "num"
+              )}
+            >
+              {row.value}
+            </dd>
           </div>
         ))}
       </dl>
