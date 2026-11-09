@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { formatCount, formatWon } from "@/lib/format";
 import { formatBytes } from "@/lib/utils";
 import { type CleanupItem, type ReparseItem, useCleanup, useReparse } from "../hooks";
+import { displayNotificationTitle } from "../view-model";
 import { ActionButton, BlockTitle, ProgressBar } from "./parts";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -30,7 +31,7 @@ function Panel({
   children?: ReactNode;
 }) {
   return (
-    <section className="flex min-w-0 flex-col gap-3 rounded-[14px] bg-surface p-4 shadow-ring">
+    <section className="flex min-w-0 flex-col gap-3 border-t border-line pt-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <BlockTitle>{title}</BlockTitle>
@@ -44,7 +45,7 @@ function Panel({
 }
 
 function Preview({ title, text }: { title: string | null; text: string | null }) {
-  const full = `${title || "(제목 없음)"} — ${text || "(내용 없음)"}`;
+  const full = `${displayNotificationTitle(title) || "(제목 없음)"} — ${text || "(내용 없음)"}`;
   return (
     <p className="m-0 line-clamp-2 text-xs leading-[18px] break-words text-ink-3" title={full}>
       {full}
@@ -275,7 +276,7 @@ function CleanupPanel({ onChanged }: { onChanged: () => void }) {
 /** The two bulk maintenance actions over every stored notification. */
 export function BulkPanels({ onChanged }: { onChanged: () => void }) {
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <ReparsePanel onChanged={onChanged} />
       <CleanupPanel onChanged={onChanged} />
     </div>

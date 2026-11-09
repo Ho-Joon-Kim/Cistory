@@ -1,6 +1,13 @@
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AiLine, EvidenceScope, Segmented, useEvidence } from "@/components/ds";
 import { evidenceMatches } from "@/lib/facts/evidence";
 import { formatDay, formatMonthDay, formatTime } from "@/lib/format";
@@ -25,24 +32,33 @@ const pct = (n: number) => `${n}%`;
 function MetricTab({
   m,
   win,
+  range,
   on,
   onPick,
+  onKeyDown,
 }: {
   m: ActivityMetricView;
   win: ActivityWindow;
+  range: Range;
   on: boolean;
   onPick: () => void;
+  onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void;
 }) {
-  const present = m.values.filter((v): v is number => v != null);
+  // The sparkline follows the selected range (last 7 days or the full 30).
+  const start = range === "7" ? Math.max(0, win.days.length - 7) : 0;
+  const spark = m.values.slice(start);
+  const present = spark.filter((v): v is number => v != null);
   const max = present.length > 0 ? Math.max(...present) : 1;
   return (
     <button
       type="button"
       role="tab"
       aria-selected={on}
+      tabIndex={on ? 0 : -1}
       onClick={onPick}
+      onKeyDown={onKeyDown}
       className={cn(
-        "flex w-32 min-w-0 flex-none cursor-pointer flex-col gap-1.5 rounded-[10px] border-0 p-3 text-left transition-[background-color,scale] duration-150 ease-out active:scale-[.98] focus-visible:outline-2 focus-visible:outline-brand lg:w-auto lg:px-4 lg:pt-3.5 lg:pb-3",
+        "flex w-[140px] min-w-0 flex-none cursor-pointer flex-col gap-1.5 rounded-[10px] border-0 p-3 text-left transition-[background-color,scale] duration-150 ease-out active:scale-[.98] focus-visible:outline-2 focus-visible:outline-brand lg:w-auto lg:px-4 lg:pt-3.5 lg:pb-3",
         on ? "bg-brand-soft" : "bg-transparent hover:bg-track"
       )}
     >
@@ -53,12 +69,13 @@ function MetricTab({
         </span>
         <span className="text-xs font-medium text-ink-3 lg:text-[13px]"> {m.unit}</span>
       </span>
-      <span className="text-[11px] leading-[14px] text-ink-3 lg:text-xs lg:leading-4">
+      <span className="text-[11px] leading-[14px] whitespace-nowrap text-ink-3 lg:text-xs lg:leading-4">
         {win.fullDay === win.days[win.days.length - 2] ? "어제" : formatMonthDay(win.fullDay)} ·
         중앙값 <span className="num">{m.median != null ? fmtNum(m.median, m.decimals) : "—"}</span>
       </span>
       <span aria-hidden="true" className="hidden h-[22px] items-end gap-px lg:flex">
-        {m.values.map((v, i) => {
+        {spark.map((v, j) => {
+          const i = start + j;
           const partial = win.days[i] === win.partialDay;
           return (
             <span
@@ -131,6 +148,7 @@ function Bars({
             left: right ? cx - bw / 2 : cx + bw / 2,
             right,
             date: formatDay(win.days[hover]),
+            empty: v == null,
             val: v == null ? "기록 없음" : withUnit(fmtNum(v, m.decimals), m.unit),
             note:
               partial && v != null && lastSyncedAt
@@ -142,7 +160,7 @@ function Bars({
         })()
       : null;
 
-  const xl: { left: number; text: string; key: string }[] = [];
+  const xl: { left: number; text: string; key: string; narrowHide: boolean }[] = [];
   idx.forEach((i, j) => {
     const left = j * bw + bw / 2;
     if (range === "7") {
@@ -151,9 +169,17 @@ function Bars({
           key: win.days[i],
           left,
           text: compact ? `${Number(win.days[i].slice(8))}일` : formatDay(win.days[i]),
+          narrowHide: false,
         });
     } else if ((win.days.length - 1 - i) % 7 === 0) {
-      xl.push({ key: win.days[i], left, text: formatMonthDay(win.days[i]) });
+      // Below ~360px five "10월 13일" labels crowd; keep every other week.
+      const week = (win.days.length - 1 - i) / 7;
+      xl.push({
+        key: win.days[i],
+        left,
+        text: formatMonthDay(win.days[i]),
+        narrowHide: Boolean(compact) && week % 2 === 1,
+      });
     }
   });
 
@@ -271,7 +297,9 @@ function Bars({
             style={{ left: pct(tip.left) }}
           >
             <span className="text-xs text-ink-3">{tip.date}</span>
-            <span className="num text-sm font-semibold text-ink">{tip.val}</span>
+            <span className={cn("text-sm font-semibold text-ink", !tip.empty && "num")}>
+              {tip.val}
+            </span>
             {tip.note ? <span className="text-xs text-ink-3">{tip.note}</span> : null}
           </span>
         ) : null}
@@ -281,8 +309,10 @@ function Bars({
           <span
             key={x.key}
             className={cn(
-              "absolute top-1.5 text-[11px] leading-[14px] whitespace-nowrap text-ink-3",
-              x.left > 96 ? "" : "-translate-x-1/2"
+              // bg-page masks an annotation leader that drops through this row.
+              "absolute top-1.5 bg-page px-0.5 text-[11px] leading-[14px] whitespace-nowrap text-ink-3",
+              x.left > 96 ? "" : "-translate-x-1/2",
+              x.narrowHide && "max-[359px]:hidden"
             )}
             style={x.left > 96 ? { right: 0 } : { left: pct(x.left) }}
           >
@@ -311,6 +341,7 @@ export function ActivitySection({
 }) {
   const [range, setRange] = useState<Range>("30");
   const [key, setKey] = useState("steps");
+  const tablistRef = useRef<HTMLDivElement>(null);
   const views = useMemo(() => {
     const byKey = new Map(metrics.map((m) => [m.key, m]));
     return ACTIVITY_METRICS.map((def) => activityMetric(def, byKey.get(def.key), win));
@@ -413,6 +444,23 @@ export function ActivitySection({
     }
   }
 
+  // Roving tabindex: arrows/Home/End move selection between the metric tabs.
+  const onTabKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const i = views.findIndex((v) => v.key === m.key);
+    let next = i;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (i + 1) % views.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp")
+      next = (i - 1 + views.length) % views.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = views.length - 1;
+    else return;
+    e.preventDefault();
+    setKey(views[next].key);
+    const btn = tablistRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next];
+    btn?.focus();
+    btn?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+
   const medianLegend = (
     <span className="inline-flex items-center gap-1.5 text-xs text-ink-2">
       <span aria-hidden="true" className="w-4 border-t border-dashed border-ink-3" />
@@ -428,7 +476,7 @@ export function ActivitySection({
             id="h-act"
             className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[22px] lg:leading-[30px]"
           >
-            최근 30일 활동
+            최근 {range}일 활동
           </h2>
           <Segmented
             ariaLabel="기간"
@@ -443,6 +491,7 @@ export function ActivitySection({
         </div>
 
         <div
+          ref={tablistRef}
           role="tablist"
           aria-label="지표"
           className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:mt-5 lg:grid lg:grid-cols-5 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden"
@@ -452,8 +501,10 @@ export function ActivitySection({
               key={v.key}
               m={v}
               win={win}
+              range={range}
               on={v.key === m.key}
               onPick={() => setKey(v.key)}
+              onKeyDown={onTabKey}
             />
           ))}
         </div>

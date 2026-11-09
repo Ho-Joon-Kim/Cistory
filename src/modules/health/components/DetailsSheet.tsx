@@ -159,7 +159,7 @@ export function DetailsSheet({
           <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
           <DialogPrimitive.Content
             aria-describedby={undefined}
-            className="fixed inset-x-0 bottom-0 z-50 flex max-h-[min(720px,calc(100dvh-48px))] flex-col overflow-y-auto overscroll-contain rounded-t-[20px] bg-surface px-4 pt-2 pb-8 shadow-ring outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-4 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 lg:inset-x-6 lg:bottom-8 lg:max-h-[min(640px,calc(100dvh-64px))] lg:rounded-[18px] lg:px-7 lg:py-6 lg:shadow-pop min-[1400px]:inset-x-24"
+            className="fixed inset-x-0 bottom-0 z-50 flex max-h-[min(720px,calc(100dvh-48px))] flex-col overflow-y-auto overscroll-contain rounded-t-[20px] bg-surface px-4 pt-2 pb-8 shadow-ring outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-4 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 lg:inset-x-6 xl:inset-x-24 lg:bottom-8 lg:max-h-[min(640px,calc(100dvh-64px))] lg:rounded-[18px] lg:px-7 lg:py-6 lg:shadow-pop"
           >
             <span
               aria-hidden="true"

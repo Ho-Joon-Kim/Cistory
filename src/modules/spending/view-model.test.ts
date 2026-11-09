@@ -5,6 +5,7 @@ import type { MonthlyBarDataPoint } from "./types";
 import {
   averageBaseline,
   chartSplitFact,
+  displayNotificationTitle,
   type FlagContext,
   groupLedger,
   type HeroModel,
@@ -16,6 +17,7 @@ import {
   niceTicks,
   periodRange,
   previousMonth,
+  refundFlag,
   rowFlag,
   rowMark,
   signedAmount,
@@ -272,7 +274,7 @@ describe("ledger", () => {
     expect(rowFlag(month[0], ctx)?.label).toBe("1회성");
     expect(rowFlag(month[1], ctx)?.label).toBe("11월 최대");
     expect(rowFlag(month[2], ctx)).toBeNull();
-    expect(rowFlag(rows[1], ctx)?.reason).toContain("순지출 1,911,690원");
+    expect(rowFlag(rows[1], ctx)?.reason).toContain("순지출은 1,911,690원");
   });
 
   it("names the payer that dominates the top category", () => {
@@ -299,5 +301,34 @@ describe("periodRange", () => {
     expect(periodRange("prev", "2026-01-05")).toEqual({ from: "2025-12-01", to: "2025-12-31" });
     expect(periodRange("3m", "2026-02-10")).toEqual({ from: "2025-12-01", to: "2026-02-10" });
     expect(periodRange("1y", "2026-11-10")).toEqual({ from: "2025-12-01", to: "2026-11-10" });
+  });
+});
+
+describe("displayNotificationTitle", () => {
+  it("strips emoji and tidies whitespace", () => {
+    expect(displayNotificationTitle("📈 오늘의 수익률")).toBe("오늘의 수익률");
+    expect(displayNotificationTitle("토스뱅크 👨‍👩‍👧 모임 ✈️")).toBe("토스뱅크 모임");
+    expect(displayNotificationTitle("1,000원 결제")).toBe("1,000원 결제");
+    expect(displayNotificationTitle(null)).toBe("");
+  });
+});
+
+describe("refundFlag scoped to a row", () => {
+  it("talks about the row and names the period total apart", () => {
+    const ctx = {
+      oneOffThreshold: null,
+      monthTotal: 0,
+      monthRest: 0,
+      monthRestCount: 0,
+      monthMaxId: null,
+      monthLabel: "11월",
+      refundTotal: 172_200,
+      refundCount: 5,
+      spendTotal: 2_000_000,
+    };
+    const r = refundFlag(ctx, { count: 4, total: 133_800 }).reason;
+    expect(r).toContain("이 환불 4건 133,800원");
+    expect(r).toContain("모두 5건 172,200원");
+    expect(refundFlag(ctx, { count: 5, total: 172_200 }).reason).not.toContain("모두");
   });
 });

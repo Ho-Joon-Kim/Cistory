@@ -77,6 +77,52 @@ function MoreButton({ children, onClick }: { children: string; onClick: () => vo
   );
 }
 
+/** Switches the ledger to the raw Toss notifications — a quiet control, not a heading. */
+function ViewToggle({
+  raw,
+  onToggle,
+  className,
+}: {
+  raw: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={raw}
+      aria-controls={raw ? "spending-panel-raw" : "spending-panel-ledger"}
+      onClick={onToggle}
+      className={cn(
+        "inline-flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] border-0 bg-transparent px-2.5 text-[13px] font-semibold text-ink-2 transition-[scale,background-color,color] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-brand active:scale-[.96] sm:h-9 [@media(hover:hover)]:hover:bg-track [@media(hover:hover)]:hover:text-ink",
+        className
+      )}
+    >
+      <svg
+        aria-hidden="true"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {raw ? (
+          <path d="M15 18l-6-6 6-6" />
+        ) : (
+          <>
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+            <path d="M14 3v5h5M9 13h6M9 17h4" />
+          </>
+        )}
+      </svg>
+      {raw ? "거래 내역" : "원본 알림"}
+    </button>
+  );
+}
+
 export default function SpendingPage() {
   const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
   const today = toKstCalendarDate(new Date());
@@ -350,64 +396,75 @@ export default function SpendingPage() {
           </>
         )}
 
-        <section {...enter(4)} className="ds-enter flex flex-col gap-4" aria-label="거래 기록">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div role="tablist" aria-label="거래 기록 보기" className="flex items-baseline gap-5">
-              {(
-                [
-                  ["ledger", "거래 내역", ledger.isLoading && txCount === 0 ? null : txCount],
-                  ["raw", "원본 알림", tab === "raw" ? logs.total : null],
-                ] as const
-              ).map(([value, label, count]) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="tab"
-                  id={`spending-tab-${value}`}
-                  aria-selected={tab === value}
-                  aria-controls={`spending-panel-${value}`}
-                  onClick={() => setTab(value)}
-                  className={cn(
-                    "flex min-h-11 cursor-pointer items-baseline gap-2 border-0 bg-transparent p-0 transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand",
-                    tab === value ? "text-ink" : "text-ink-3 [@media(hover:hover)]:hover:text-ink-2"
-                  )}
-                >
-                  <span className="font-serif text-xl leading-7 font-semibold tracking-[-0.02em] sm:text-[22px] sm:leading-[30px]">
-                    {label}
-                  </span>
-                  {count !== null ? (
-                    <span className="num text-sm leading-[22px] text-ink-2">
-                      {formatCount(count)}건
+        <section
+          {...enter(4)}
+          className="ds-enter flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-4"
+          aria-label="거래 기록"
+        >
+          {tab === "ledger" ? (
+            // Phones: 돈의 흐름 is its own serif section before 거래 내역 (mock order).
+            // Desktop: it sits in the right column beside the ledger.
+            <aside
+              className="mb-8 flex flex-col gap-2 lg:col-start-2 lg:row-start-2 lg:mb-0 lg:pt-3"
+              aria-labelledby="spending-flow"
+            >
+              <SectionTitle className="lg:hidden">
+                <span id="spending-flow">돈의 흐름</span>
+              </SectionTitle>
+              <BlockTitle className="hidden lg:block" as="h3">
+                돈의 흐름
+              </BlockTitle>
+              <span className="text-label">{formatDateRange(range.from, range.to)}</span>
+              <CashFlow summary={ledger.summary} />
+            </aside>
+          ) : null}
+
+          <div className="flex flex-col gap-4 lg:col-span-2 lg:row-start-1 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center justify-between gap-3">
+              <SectionTitle className="flex items-baseline gap-2">
+                <span id={`spending-tab-${tab}`}>
+                  {tab === "ledger" ? "거래 내역" : "원본 알림"}
+                </span>
+                {tab === "ledger" ? (
+                  ledger.isLoading && txCount === 0 ? null : (
+                    <span className="num font-sans text-sm leading-[22px] font-normal tracking-normal text-ink-2">
+                      {formatCount(txCount)}건
                     </span>
-                  ) : null}
-                </button>
-              ))}
+                  )
+                ) : logs.total != null ? (
+                  <span className="num font-sans text-sm leading-[22px] font-normal tracking-normal text-ink-2">
+                    {formatCount(logs.total)}건
+                  </span>
+                ) : null}
+              </SectionTitle>
+              <ViewToggle
+                raw={tab === "raw"}
+                onToggle={() => setTab(tab === "raw" ? "ledger" : "raw")}
+                className="lg:hidden"
+              />
             </div>
-            <Segmented
-              items={LEDGER_PERIODS}
-              value={period}
-              onChange={(value) => {
-                setPeriod(value);
-                setShownDays(FIRST_DAYS);
-              }}
-              ariaLabel="기간"
-              className="sm:w-[300px]"
-            />
+            <div className="flex items-center gap-3">
+              <ViewToggle
+                raw={tab === "raw"}
+                onToggle={() => setTab(tab === "raw" ? "ledger" : "raw")}
+                className="hidden lg:inline-flex"
+              />
+              <Segmented
+                items={LEDGER_PERIODS}
+                value={period}
+                onChange={(value) => {
+                  setPeriod(value);
+                  setShownDays(FIRST_DAYS);
+                }}
+                ariaLabel="기간"
+                className="w-full sm:w-[300px]"
+              />
+            </div>
           </div>
 
           {tab === "ledger" ? (
-            <div
-              role="tabpanel"
-              id="spending-panel-ledger"
-              aria-labelledby="spending-tab-ledger"
-              className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-6"
-            >
-              <aside className="flex flex-col gap-2 lg:order-2 lg:pt-3" aria-label="돈의 흐름">
-                <BlockTitle>돈의 흐름</BlockTitle>
-                <span className="text-label">{formatDateRange(range.from, range.to)}</span>
-                <CashFlow summary={ledger.summary} />
-              </aside>
-              <div className="min-w-0 lg:order-1">
+            <div id="spending-panel-ledger" className="min-w-0 lg:col-start-1 lg:row-start-2">
+              <div className="min-w-0">
                 {ledger.error && ledger.transactions.length === 0 ? (
                   <ErrorState
                     title="거래 내역을 불러오지 못했어요"
@@ -442,10 +499,8 @@ export default function SpendingPage() {
             </div>
           ) : (
             <div
-              role="tabpanel"
               id="spending-panel-raw"
-              aria-labelledby="spending-tab-raw"
-              className="flex flex-col gap-4"
+              className="flex flex-col gap-4 lg:col-span-2 lg:row-start-2"
             >
               <BulkPanels
                 onChanged={() => {

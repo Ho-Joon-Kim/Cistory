@@ -143,10 +143,14 @@ function Hypnogram({ night, compact }: { night: Night; compact?: boolean }) {
       </div>
       <span />
       <div className="relative mt-1.5 h-4">
-        {ticks.map((t) => (
+        {ticks.map((t, i) => (
           <span
             key={t.label}
-            className="num absolute top-0 -translate-x-1/2 text-[11px] leading-[14px] tracking-normal whitespace-nowrap text-ink-3"
+            className={cn(
+              "num absolute top-0 -translate-x-1/2 text-[11px] leading-[14px] tracking-normal whitespace-nowrap text-ink-3",
+              // Below ~360px hourly labels touch; keep every other hour.
+              i % 2 === 1 && "max-[359px]:hidden"
+            )}
             style={{ left: pct(t.pct) }}
           >
             {t.label}
