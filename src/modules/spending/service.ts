@@ -1,6 +1,8 @@
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { accountRoles, transactions, users } from "@/db/schema";
+import { localDaySql } from "@/db/sql";
+import { toKstCalendarDate } from "@/lib/date-key";
 import type { CategoryTotals, SpendingCategoryKey } from "./categories";
 import { accountRolesJoinOn, bucketSql } from "./classify";
 import { forecastMonthEnd } from "./forecast";
@@ -15,7 +17,7 @@ import type {
 export class SpendingTrendService {
   constructor(private db: Database) {}
 
-  async getSpendingTrend(userId: string): Promise<SpendingTrendResponse> {
+  async getSpendingTrend(userId: string, now = new Date()): Promise<SpendingTrendResponse> {
     // Get user's tossMyName for self-transfer exclusion
     const [userRow] = await this.db
       .select({ tossMyName: users.tossMyName })
@@ -24,20 +26,22 @@ export class SpendingTrendService {
       .limit(1);
     const tossMyName = userRow?.tossMyName ?? null;
 
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth(); // 0-indexed
-    const todayDayNumber = now.getDate();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    // Calendar fields in KST regardless of the process TZ.
+    const [year, monthNumber, todayDayNumber] = toKstCalendarDate(now).split("-").map(Number);
+    const month = monthNumber - 1; // 0-indexed
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
 
     // Current month key
     const currentMonthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
 
     // Run queries in parallel. Historical daily spending query was dropped
     // along with the Tier 3/4 forecast tiers in commit 8.2.
-    const [monthlyTotals, currentMonthDaily] = await Promise.all([
-      this._getMonthlyTotals(userId, tossMyName, 12),
-      this._getCurrentMonthDaily(userId, tossMyName),
+    const monthStart = kstMidnight(year, month, 1);
+    const nextMonthStart = kstMidnight(year, month + 1, 1);
+    const [monthlyTotals, currentMonthDaily, currentMonthAmounts] = await Promise.all([
+      this._getMonthlyTotals(userId, tossMyName, kstMidnight(year, month - 12, 1)),
+      this._getCurrentMonthDaily(userId, tossMyName, monthStart, nextMonthStart),
+      this._getCurrentMonthAmounts(userId, tossMyName, monthStart, nextMonthStart),
     ]);
 
     // Separate current month from history for forecast
@@ -48,6 +52,7 @@ export class SpendingTrendService {
     const forecastResult = forecastMonthEnd({
       monthlyHistory: historyOnly,
       currentMonthDays: currentMonthDaily,
+      currentMonthAmounts,
       daysInMonth,
       todayDayNumber,
     });
@@ -97,17 +102,13 @@ export class SpendingTrendService {
   private async _getMonthlyTotals(
     userId: string,
     tossMyName: string | null,
-    months: number
+    cutoff: Date
   ): Promise<MonthlyTotal[]> {
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - months);
-    cutoff.setDate(1);
-    cutoff.setHours(0, 0, 0, 0);
-
     const bucket = bucketSql(tossMyName);
+    const monthKey = sql<string>`to_char(${localDaySql(transactions.transactedAt)}, 'YYYY-MM')`;
     const rows = await this.db
       .select({
-        month: sql<string>`to_char(${transactions.transactedAt}, 'YYYY-MM')`.as("month"),
+        month: monthKey.as("month"),
         category: transactions.category,
         total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
       })
@@ -120,8 +121,8 @@ export class SpendingTrendService {
           sql`${bucket} = 'spending'`
         )
       )
-      .groupBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM')`, transactions.category)
-      .orderBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM')`);
+      .groupBy(monthKey, transactions.category)
+      .orderBy(monthKey);
 
     const byMonth = new Map<string, MonthlyTotal>();
     for (const row of rows) {
@@ -137,17 +138,20 @@ export class SpendingTrendService {
 
   private async _getCurrentMonthDaily(
     userId: string,
-    tossMyName: string | null
+    tossMyName: string | null,
+    monthStart: Date,
+    nextMonthStart: Date
   ): Promise<DailySpending[]> {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
     const bucket = bucketSql(tossMyName);
+    // Group by KST calendar day: transacted_at is UTC wall time, so a bare
+    // to_char/extract would put 00:00–09:00 KST spending on the previous day.
+    const kstDay = localDaySql(transactions.transactedAt);
+    const dateKey = sql<string>`to_char(${kstDay}, 'YYYY-MM-DD')`;
+    const dow = sql<number>`extract(dow from ${kstDay})`;
     const rows = await this.db
       .select({
-        date: sql<string>`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`.as("date"),
-        dayOfWeek: sql<number>`extract(dow from ${transactions.transactedAt})`.as("dow"),
+        date: dateKey.as("date"),
+        dayOfWeek: dow.as("dow"),
         category: transactions.category,
         total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
       })
@@ -157,16 +161,12 @@ export class SpendingTrendService {
         and(
           eq(transactions.userId, userId),
           gte(transactions.transactedAt, monthStart),
-          lte(transactions.transactedAt, monthEnd),
+          lt(transactions.transactedAt, nextMonthStart),
           sql`${bucket} = 'spending'`
         )
       )
-      .groupBy(
-        sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`,
-        sql`extract(dow from ${transactions.transactedAt})`,
-        transactions.category
-      )
-      .orderBy(sql`to_char(${transactions.transactedAt}, 'YYYY-MM-DD')`);
+      .groupBy(dateKey, dow, transactions.category)
+      .orderBy(dateKey);
 
     const byDate = new Map<string, DailySpending>();
     for (const row of rows) {
@@ -183,6 +183,28 @@ export class SpendingTrendService {
       byDate.set(row.date, current);
     }
     return Array.from(byDate.values());
+  }
+
+  /** Individual spending amounts this month, for the forecast's one-off detection. */
+  private async _getCurrentMonthAmounts(
+    userId: string,
+    tossMyName: string | null,
+    monthStart: Date,
+    nextMonthStart: Date
+  ): Promise<number[]> {
+    const rows = await this.db
+      .select({ amount: transactions.amount })
+      .from(transactions)
+      .leftJoin(accountRoles, accountRolesJoinOn)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          gte(transactions.transactedAt, monthStart),
+          lt(transactions.transactedAt, nextMonthStart),
+          sql`${bucketSql(tossMyName)} = 'spending'`
+        )
+      );
+    return rows.map((r) => Number(r.amount));
   }
 
   private _buildCumulativeCurve(
@@ -241,6 +263,13 @@ export class SpendingTrendService {
     return curve;
   }
 }
+
+/** The instant of 00:00 KST on the given calendar day (month may over/underflow). */
+function kstMidnight(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month, day) - KST_OFFSET_MS);
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 export function createSpendingTrendService(db: Database) {
   return new SpendingTrendService(db);

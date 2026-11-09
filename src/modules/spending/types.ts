@@ -21,6 +21,8 @@ export interface DailySpending {
 export interface ForecastInput {
   monthlyHistory: MonthlyTotal[];
   currentMonthDays: DailySpending[];
+  /** Individual spending amounts this month to date, for one-off detection. */
+  currentMonthAmounts?: number[];
   daysInMonth: number;
   todayDayNumber: number; // 1-indexed
 }
