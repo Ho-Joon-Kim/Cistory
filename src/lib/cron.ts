@@ -24,7 +24,7 @@ import { createExpenseCategoryService } from "@/modules/spending/category-classi
 import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/subway/service";
 import { createSummaryService, SummaryService } from "@/modules/summary/service";
 import { createSyncService } from "@/modules/sync/service";
-import { createWakaTimeSyncService } from "@/modules/wakatime/service";
+import { createWakaTimeSyncServiceForUser } from "@/modules/wakatime/service";
 import { createWithingsSyncService } from "@/modules/withings/service";
 
 let isInitialized = false;
@@ -201,7 +201,6 @@ async function _syncAllUsersInner() {
         syncIntervalHours: users.syncIntervalHours,
         lastSyncedAt: users.lastSyncedAt,
         initialSyncCompleted: users.initialSyncCompleted,
-        wakatimeApiKey: users.wakatimeApiKey,
         wakatimeLastSyncedAt: users.wakatimeLastSyncedAt,
       })
       .from(users)
@@ -294,24 +293,22 @@ async function _syncAllUsersInner() {
           }
         }
 
-        // WakaTime sync
-        if (user.wakatimeApiKey) {
-          const shouldSync =
-            !user.wakatimeLastSyncedAt ||
-            Date.now() - user.wakatimeLastSyncedAt.getTime() > 24 * 60 * 60 * 1000;
-
-          if (shouldSync) {
-            try {
-              const wakatimeService = createWakaTimeSyncService(db, user.wakatimeApiKey);
-              await wakatimeService.syncUser(user.id);
-            } catch (wakatimeError) {
-              logger.error("[Cron] WakaTime sync error", {
-                userId: user.id,
-                githubLogin: user.githubLogin,
-                error:
-                  wakatimeError instanceof Error ? wakatimeError.message : String(wakatimeError),
-              });
-            }
+        // WakaTime sync (24h-gated) over the user's ACTIVE OAuth connection. The
+        // deprecated users.wakatime_api_key is never used: WakaTime rejects API
+        // keys for reads. No connection / needs_reauth → factory returns null.
+        const wakatimeDue =
+          !user.wakatimeLastSyncedAt ||
+          Date.now() - user.wakatimeLastSyncedAt.getTime() > 24 * 60 * 60 * 1000;
+        if (wakatimeDue) {
+          try {
+            const wakatimeService = await createWakaTimeSyncServiceForUser(db, user.id);
+            await wakatimeService?.syncUser(user.id);
+          } catch (wakatimeError) {
+            logger.error("[Cron] WakaTime sync error", {
+              userId: user.id,
+              githubLogin: user.githubLogin,
+              error: wakatimeError instanceof Error ? wakatimeError.message : String(wakatimeError),
+            });
           }
         }
 

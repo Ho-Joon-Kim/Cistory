@@ -7,20 +7,23 @@
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
-import { createWakaTimeAdapter, type WakaTimeAdapter } from "@/lib/adapters/wakatime/wakatime";
+import type { WakaTimeDataSource } from "@/lib/adapters/wakatime/wakatime";
 import { ApiError } from "@/lib/api-handler";
 import { dateKeyToUtcMillis } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 import { sleep, toLocalDateString } from "@/lib/utils";
 import { trackSourceSync } from "@/modules/data-status/telemetry";
+import { createWakaTimeConnectionService } from "./connection";
 
 export class WakaTimeSyncService {
   private db: Database;
-  private adapter: WakaTimeAdapter;
+  private adapter: WakaTimeDataSource;
 
-  constructor(db: Database, apiKey: string) {
+  /** `source` is normally the refresh-aware OAuth data source for one user
+   *  (see createWakaTimeSyncServiceForUser). */
+  constructor(db: Database, source: WakaTimeDataSource) {
     this.db = db;
-    this.adapter = createWakaTimeAdapter(apiKey);
+    this.adapter = source;
   }
 
   async syncDurations(userId: string, date: string): Promise<number> {
@@ -101,12 +104,6 @@ export class WakaTimeSyncService {
 
   async recoverDay(userId: string, date: string): Promise<number> {
     if (dateKeyToUtcMillis(date) === null) throw new ApiError(400, "올바른 날짜가 아닙니다");
-    const rows = await this.db
-      .select({ apiKey: users.wakatimeApiKey })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    if (!rows[0]?.apiKey) throw new ApiError(409, "WakaTime 연동이 필요합니다");
     const sessions = await this.syncDurations(userId, date);
     await this.syncSummaries(userId, date, date);
     return sessions;
@@ -244,6 +241,25 @@ export class WakaTimeSyncService {
   }
 }
 
-export function createWakaTimeSyncService(db: Database, apiKey: string): WakaTimeSyncService {
-  return new WakaTimeSyncService(db, apiKey);
+export function createWakaTimeSyncService(
+  db: Database,
+  source: WakaTimeDataSource
+): WakaTimeSyncService {
+  return new WakaTimeSyncService(db, source);
+}
+
+/**
+ * Sync service over the user's ACTIVE WakaTime OAuth connection, or null when
+ * there is none (never connected, or needs_reauth). The legacy
+ * users.wakatime_api_key is deliberately never used — WakaTime rejects API keys
+ * for reads.
+ */
+export async function createWakaTimeSyncServiceForUser(
+  db: Database,
+  userId: string
+): Promise<WakaTimeSyncService | null> {
+  const connections = createWakaTimeConnectionService(db);
+  const connection = await connections.getActiveConnection(userId);
+  if (!connection) return null;
+  return new WakaTimeSyncService(db, connections.dataSourceFor(connection));
 }

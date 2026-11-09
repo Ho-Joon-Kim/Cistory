@@ -71,9 +71,33 @@ describe("data collection status and recovery against PostgreSQL", () => {
     }
   });
 
-  const user = () => insertTestUser(db, { wakatimeApiKey: "fixture-key" });
+  // WakaTime recovery requires an ACTIVE OAuth connection (the legacy API key no
+  // longer counts as connected for recovery).
+  const user = async () => {
+    const id = await insertTestUser(db);
+    await db.insert(schema.wakatimeConnections).values({
+      userId: id,
+      accessTokenEnc: "fixture-enc",
+      refreshTokenEnc: "fixture-enc",
+    });
+    return id;
+  };
   const enqueue = (userId: string, to = "2026-09-02") =>
     enqueueRecovery(db, userId, "wakatime", "2026-09-01", to, now);
+
+  it("refuses WakaTime recovery for a legacy API key or a needs_reauth connection", async () => {
+    const legacy = await insertTestUser(db, { wakatimeApiKey: "fixture-key" });
+    await expect(enqueue(legacy)).rejects.toMatchObject({ status: 409 });
+    const stale = await user();
+    await db
+      .update(schema.wakatimeConnections)
+      .set({ status: "needs_reauth" })
+      .where(eq(schema.wakatimeConnections.userId, stale));
+    await expect(enqueue(stale)).rejects.toMatchObject({ status: 409 });
+    const status = await getDataStatus(db, legacy, "2026-09-01", "2026-09-03", now);
+    const waka = status.sources.find((s) => s.id === "wakatime")!;
+    expect(waka).toMatchObject({ connected: true, needsReauth: true, canRecover: false });
+  });
 
   it("serializes duplicate enqueue requests and claims a day only once", async () => {
     const id = await user();

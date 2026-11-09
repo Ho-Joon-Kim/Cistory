@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { healthConnections, users, withingsConnections } from "@/db/schema";
+import { healthConnections, users, wakatimeConnections, withingsConnections } from "@/db/schema";
 import { withAuth, withValidation } from "@/lib/api-handler";
 import { DEFAULT_USER_SETTINGS, type UserSettings } from "@/modules/settings/types";
 
@@ -29,7 +29,7 @@ const SettingsUpdateBody = z
 async function readUserSettings(userId: string): Promise<UserSettings> {
   const db = getDb();
   // All selects key only on userId and are independent — run them together.
-  const [userResult, withingsResult, healthResult] = await Promise.all([
+  const [userResult, withingsResult, healthResult, wakatimeResult] = await Promise.all([
     db
       .select({
         theme: users.theme,
@@ -60,6 +60,10 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
       })
       .from(healthConnections)
       .where(eq(healthConnections.userId, userId)),
+    db
+      .select({ status: wakatimeConnections.status })
+      .from(wakatimeConnections)
+      .where(eq(wakatimeConnections.userId, userId)),
   ]);
 
   if (userResult.length === 0) {
@@ -68,6 +72,7 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
 
   const withings = withingsResult[0];
   const health = healthResult[0];
+  const wakatime = wakatimeResult[0];
   const row = userResult[0];
   return {
     theme: (row.theme as UserSettings["theme"]) || DEFAULT_USER_SETTINGS.theme,
@@ -76,7 +81,9 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
     hasOwnTracksKey: !!row.ownTracksApiKey,
     hasTossKey: !!row.tossNotificationApiKey,
     tossMyName: row.tossMyName ?? null,
-    hasWakaTimeKey: !!row.wakatimeApiKey,
+    hasWakaTimeConnection: !!wakatime,
+    wakatimeNeedsReauth: wakatime?.status === "needs_reauth",
+    hasLegacyWakaTimeKey: !wakatime && !!row.wakatimeApiKey,
     lastLat: row.lastLat ?? null,
     lastLon: row.lastLon ?? null,
     hasWithingsConnection: !!withings,

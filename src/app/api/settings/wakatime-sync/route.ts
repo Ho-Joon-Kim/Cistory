@@ -11,7 +11,7 @@ import { getDb } from "@/db";
 import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
-import { createWakaTimeSyncService } from "@/modules/wakatime/service";
+import { createWakaTimeSyncServiceForUser } from "@/modules/wakatime/service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -77,22 +77,13 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
 
-    // Get user's WakaTime API key
-    const userRow = await db
-      .select({ wakatimeApiKey: users.wakatimeApiKey })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .limit(1);
-
-    const apiKey = userRow[0]?.wakatimeApiKey;
-    if (!apiKey) {
+    const service = await createWakaTimeSyncServiceForUser(db, user.id);
+    if (!service) {
       return NextResponse.json(
-        { error: "WakaTime API 키가 없습니다. 설정에서 WakaTime을 먼저 연결해 주세요." },
+        { error: "WakaTime 계정이 연결되지 않았습니다. 설정에서 WakaTime을 다시 연결해 주세요." },
         { status: 400 }
       );
     }
-
-    const service = createWakaTimeSyncService(db, apiKey);
 
     if (mode === "initial") {
       const result = await service.syncAllCommitDates(user.id);

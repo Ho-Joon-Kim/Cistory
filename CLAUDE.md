@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cistory is a personal life-logging application that aggregates several private data streams into one dashboard: GitHub commits with AI-powered summaries, location via OwnTracks (visit/track/transport-mode/trip/subway detection), coding activity via WakaTime, Toss financial transactions via MacroDroid push notifications (with AI expense categorization), brokerage portfolio data via the Korea Investment & Securities (KIS) API, body composition via Withings, and health/fitness (steps, heart rate, sleep, workouts) via the Google Health API (Fitbit) plus an on-device Health Connect importer. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. The reporting surface is a single `/overview` dashboard over precomputed period snapshots with AI narratives (it replaced the separate `/insights` and `/report` pages), plus a `/travel` trip browser, a cross-source `/search`, a `/data-status` collection-status/recovery page, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and background sync via node-cron (dedicated container in production, in-process during dev), with Sentry error tracking and Better Stack structured logging.
+Cistory is a personal life-logging application that aggregates several private data streams into one dashboard: GitHub commits with AI-powered summaries, location via OwnTracks (visit/track/transport-mode/trip/subway detection), coding activity via WakaTime (OAuth), Toss financial transactions via MacroDroid push notifications (with AI expense categorization), brokerage portfolio data via the Korea Investment & Securities (KIS) API, body composition via Withings, and health/fitness (steps, heart rate, sleep, workouts) via the Google Health API (Fitbit) plus an on-device Health Connect importer. Built with Next.js 16, Better Auth (GitHub OAuth), Drizzle ORM with PostgreSQL (PostGIS), and the Anthropic SDK. The reporting surface is a single `/overview` dashboard over precomputed period snapshots with AI narratives (it replaced the separate `/insights` and `/report` pages), plus a `/travel` trip browser, a cross-source `/search`, a `/data-status` collection-status/recovery page, map visualization (Mapbox/Kakao), OSM subway data via Overpass, and background sync via node-cron (dedicated container in production, in-process during dev), with Sentry error tracking and Better Stack structured logging.
 
 ## Development Commands
 
@@ -107,7 +107,7 @@ src/
 │   └── privacy|terms/       # Static pages required by the Google/Withings OAuth reviews
 ├── components/              # Shared components (Layout/, map/, ui/ shadcn components)
 ├── db/
-│   ├── schema.ts            # Drizzle schema (42 app tables)
+│   ├── schema.ts            # Drizzle schema (43 app tables)
 │   ├── sql.ts               # KST-aware SQL helpers (localDaySql, numericToNumber)
 │   └── index.ts             # Database singleton (throws if DATABASE_URL unset)
 ├── lib/
@@ -138,9 +138,9 @@ src/
 │   ├── logger.ts            # Structured logging (Better Stack / console fallback)
 │   ├── body-format.ts       # Shared Withings/body display formatting
 │   ├── map-extracts.ts      # MAP_EXTRACTS + extractsFingerprint() for Valhalla tiles
-│   ├── {google,withings}-oauth-state.ts  # Per-provider wrappers over oauth-state.ts
+│   ├── {google,withings,wakatime}-oauth-state.ts  # Per-provider wrappers over oauth-state.ts
 │   ├── geo.ts, subway-color.ts, drizzle-env.ts,
-│   │   {google-health,withings}-urls.ts  # Small shared helpers
+│   │   {google-health,withings,wakatime}-urls.ts  # Small shared helpers
 │   └── utils.ts             # cn, generateId, date helpers (parseDateLocal, …)
 ├── modules/                 # Feature modules (service.ts always; hooks.ts/components/ vary)
 │   ├── auth/               # Session hook + UserMenu (Better Auth client surface)
@@ -190,7 +190,7 @@ scripts/                     # migrate.ts, refresh-subway.ts, detect-trips.ts, v
 
 - `src/lib/auth-helpers.ts` — `getAuthenticatedUser(request)` for session check, `getGitHubToken(userId)` for reading the GitHub OAuth token (sourced from Better Auth's `account` table — the old `users.github_access_token` column was dropped in migration 0017).
 - `src/lib/api-handler.ts` — `withAuth` / `withValidation` wrappers that bundle session check + Zod body parse + structured error responses. Prefer these for new session-based routes. Throw `ApiError(status, message, code)` inside a handler to surface a structured error.
-- `src/lib/api-key-route.ts` — `createApiKeyRoute({ column, prefix, label })` factory for the POST/DELETE pair that generates or revokes a prefixed API key on `users`. Used by OwnTracks, Toss, and health-import key routes; WakaTime stays hand-written because it also verifies + kicks off an initial sync.
+- `src/lib/api-key-route.ts` — `createApiKeyRoute({ column, prefix, label })` factory for the POST/DELETE pair that generates or revokes a prefixed API key on `users`. Used by OwnTracks, Toss, and health-import key routes. WakaTime is no longer an API-key integration (see Third-party OAuth below); `/api/settings/wakatime-key` survives only to answer `POST` with 410 and to clear a leftover legacy key.
 - `src/lib/api-auth.ts` — hardening for public ingestion endpoints reachable by API key (OwnTracks, Toss, health-import). Exposes `verifyApiKey()` (DB probe + `timingSafeEqual`), `enforceRateLimit()` (in-memory 60 req / 60s per key+IP), `checkBodySize()`/`bodyExceedsLimit()` (10 KB default cap), `checkSameOrigin()`, and `logIngestionFailure()`. All ingestion routes must pass the request through these before touching DB state. `/api/health-import` deliberately raises its own cap to 2 MB because it is a batched push of the user's own history.
 
 ```typescript
@@ -206,9 +206,12 @@ export const POST = withValidation(Body, async ({ user, body }) => { ... });
 const accessToken = await getGitHubToken(user.id);
 ```
 
-**Third-party OAuth (Withings, Google Health)**: both providers use the shared stateless `state` codec in `src/lib/oauth-state.ts` (wrapped per provider by `withings-oauth-state.ts` / `google-oauth-state.ts`). State is an HMAC-SHA256-signed `userId + nonce + expiry` (10 min TTL) with the key derived from `KIS_ENCRYPTION_KEY` plus a **distinct per-provider context string** — one provider's state must never verify against another's callback. That isolation is a security invariant covered by cross-verify tests; keep the contexts unique when adding a provider. Access/refresh tokens are AES-256-GCM encrypted via `src/lib/crypto.ts`. Google refresh tokens do **not** rotate, so a refresh response that omits one must preserve the stored token; Withings rotates them. Both connections flip `status` to `needs_reauth` only on a *confirmed* auth failure so transient errors don't force re-linking.
+**Third-party OAuth (Withings, Google Health, WakaTime)**: all three providers use the shared stateless `state` codec in `src/lib/oauth-state.ts` (wrapped per provider by `withings-oauth-state.ts` / `google-oauth-state.ts`). State is an HMAC-SHA256-signed `userId + nonce + expiry` (10 min TTL) with the key derived from `KIS_ENCRYPTION_KEY` plus a **distinct per-provider context string** — one provider's state must never verify against another's callback. That isolation is a security invariant covered by cross-verify tests; keep the contexts unique when adding a provider. Access/refresh tokens are AES-256-GCM encrypted via `src/lib/crypto.ts`. Google refresh tokens do **not** rotate, so a refresh response that omits one must preserve the stored token; Withings rotates them. All connections flip `status` to `needs_reauth` only on a *confirmed* auth failure so transient errors don't force re-linking.
+
+**WakaTime** (`wakatime_connections`, `src/modules/wakatime/connection.ts`, routes `/api/wakatime/{authorize,callback}` + `DELETE /api/wakatime`): WakaTime made API keys write-only ("API keys are write-only and should only be used in WakaTime plugins") and reads with `Basic <api key>` now fail with 403 "API Keys are only for plugins, use your personal oauth token" — that is what stopped WakaTime sync in 2026-09. Reads now use `Authorization: Bearer <access token>`, scopes `read_summaries,read_heartbeats` (summaries / durations; we never call `/users/current`, which needs `email`). Code-flow tokens "expire after 100 years", so a missing expiry counts as fresh and refresh is mostly reactive (a 401 forces one refresh + retry). The docs don't say whether refresh rotates the refresh token, so a returned one replaces the stored one and an omitted one is kept. The token endpoint requires `redirect_uri` on every grant, so cron refreshes rebuild it from `NEXT_PUBLIC_APP_URL`. `needs_reauth` is set only on `invalid_grant` from the token endpoint or a 401 from a freshly refreshed token — never on 403/5xx/network. `users.wakatime_api_key` is **deprecated**: kept as a column, never used for API calls; when set without an OAuth connection the settings card and `/data-status` show a reconnect prompt, and connecting clears it. Sync, manual sync and `/data-status` recovery all go through `createWakaTimeSyncServiceForUser()`, which returns null without an *active* connection; the watermark stays on `users.wakatime_last_synced_at` and `trackSourceSync` telemetry is unchanged.
 
 **Adapter Pattern**: `lib/adapters/` groups external-service clients. Geocoding, overpass, google-health, withings, and kis expose an `interface.ts`; ai, vcs, wakatime, and map-matching intentionally merged their types into the impl file (`claude.ts`, `github.ts`, `wakatime.ts`, `valhalla.ts`) and are imported as concrete factories. Follow the `interface.ts` style only when a second implementation or a test double is actually needed:
+- `wakatime/wakatime.ts` — `WakaTimeAdapter` (Bearer data reads) plus `WakaTimeOAuthClient` (authorize URL, code exchange, refresh, revoke) and `parseTokenResponse`
 - `geocoding/interface.ts` — implemented by `kakao.ts` (Korea), `google.ts` (Google Places), `mapbox.ts` (international); auto-selected by coordinates in `index.ts`. Every implementation must return structured `region`/`country` (see `placeCache` below), not just a joined address string
 - `map-matching/valhalla.ts` — `createValhallaAdapter`; the only caller is `location/services/route-match/`. Its `ValhallaUnreachableError` vs. ordinary match-failure distinction is load-bearing (see Location Tracking below)
 - `overpass/interface.ts` — OSM subway lines/stations per city (`SEED_CITIES`, in its own `seed-cities.ts`, lists bbox-defined seed systems; `colour.ts` normalizes line colors)
@@ -229,10 +232,10 @@ import { getDb, users, commits, commitSummaries, syncJobs } from "@/db";
 const db = getDb();
 ```
 
-**Database Schema** (42 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
+**Database Schema** (43 app tables in `src/db/schema.ts`, plus 4 Better Auth tables: `user`, `session`, `account`, `verification`):
 
 *Core / GitHub*
-- `users` - Extended user data with `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `healthImportApiKey`, `wakatimeApiKey`, `lastLat`/`lastLon`, `syncIntervalHours` (UUID PK, references Better Auth `user.id`)
+- `users` - Extended user data with `ownTracksApiKey`, `tossNotificationApiKey`, `tossMyName`, `healthImportApiKey`, `wakatimeApiKey` (**deprecated**, see WakaTime above), `lastLat`/`lastLon`, `syncIntervalHours` (UUID PK, references Better Auth `user.id`)
 - `commits`, `commitSummaries` (status: pending/processing/completed/failed), `syncJobs` (status: fetching/summarizing/completed/failed)
 
 *Location*
@@ -248,6 +251,7 @@ const db = getDb();
 
 *Coding*
 - `codingSessions`, `codingDailyStats` (WakaTime)
+- `wakatimeConnections` - One WakaTime OAuth connection per user (0043): encrypted access/refresh tokens, `accessTokenExpiresAt`, `scope`, `status` `active`|`needs_reauth`, `wakatimeUserId` (token-response `uid`)
 
 *Money*
 - `notificationLogs` - Raw Toss/MacroDroid push payloads
@@ -275,7 +279,7 @@ const db = getDb();
 - `sourceSyncStates` - One row per `(userId, source)` (unique): `lastAttemptAt`/`lastSuccessAt`/`error`. Written by `trackSourceSync()` around pull syncs (currently WakaTime) and `recordSourceSuccess()` after successful OwnTracks/Toss ingestion. `error` is always a fixed Korean message — never a provider payload
 - `dataUsageCache` - Per-user per-table row count and estimated byte size. `estimatedBytes` is **bigint** (0036): it was `integer` until `location_points` reached 75% of int4's 2 GB ceiling, and the per-category `SUM(...)::int` in `insights/service.ts` would have thrown `integer out of range`. Cast byte sums to `::bigint`, never `::int`
 
-PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` lat/lon, while the `subway*` tables (0019/0020) use real PostGIS `geometry` columns. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (commit `a3df73a`), so don't reintroduce it. 0021 `account_roles`; 0022 brokerage tables; 0023 target allocations; 0024 backfill watermarks; 0025 transaction category columns; 0026 Withings; 0027 health; 0028 added `health_samples.source` to the unique key; 0029 `users.health_import_api_key`; 0030 `period_snapshots`; 0031 `location_heatmap_daily`; 0032 `location_processing_days`; 0033 `period_narratives`; 0034 saved-place trip exclusions + `trips.auto_detected`; 0035 relabelled Fitbit-native `health_samples.source` from `'unknown'` to `'FITBIT'` (data-only; must stay paired with the `sampleSource()` parser change, since `source` is part of the sample identity); 0036 widened `data_usage_cache.estimated_bytes` to bigint; 0037 tuned `location_points` autovacuum (scale factor 0.2 → 0.02 — the daily `SET anomaly` rewrite can never be HOT because `anomaly` sits in the `idx_location_points_not_anomaly` predicate, so the table accumulated 15% dead tuples before ever crossing the default threshold); 0038 dropped `idx_location_points_lonlat` — zero scans over the DB's whole life, because `lonlat` is only ever read as `ST_Distance(lonlat, LAG(lonlat))`, which a GiST index cannot serve. The column and its `set_lonlat` trigger stay; recreate the index if a real spatial predicate is ever added; 0039 added `location_processing_days.point_count` **and backfilled the 443 pre-0032 days** by reading the very column it retires (`anomaly IS NULL` = unscanned), which is why that backfill had to land before any reader switched over — days with even one unscanned point were deliberately left absent so the pipeline still picks them up, and `completed_at` stays NULL rather than inventing a completion time; 0040 `place_cache.region`/`country`; 0041 `segment_route_matches`; 0042 `data_recovery_jobs` + `source_sync_states` (both `ON DELETE cascade` from `users`)
+PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `doublePrecision` lat/lon, while the `subway*` tables (0019/0020) use real PostGIS `geometry` columns. Migration 0018 introduced and 0020 dropped a short-lived `fog_cells_cache` table — fog-of-war was removed (commit `a3df73a`), so don't reintroduce it. 0021 `account_roles`; 0022 brokerage tables; 0023 target allocations; 0024 backfill watermarks; 0025 transaction category columns; 0026 Withings; 0027 health; 0028 added `health_samples.source` to the unique key; 0029 `users.health_import_api_key`; 0030 `period_snapshots`; 0031 `location_heatmap_daily`; 0032 `location_processing_days`; 0033 `period_narratives`; 0034 saved-place trip exclusions + `trips.auto_detected`; 0035 relabelled Fitbit-native `health_samples.source` from `'unknown'` to `'FITBIT'` (data-only; must stay paired with the `sampleSource()` parser change, since `source` is part of the sample identity); 0036 widened `data_usage_cache.estimated_bytes` to bigint; 0037 tuned `location_points` autovacuum (scale factor 0.2 → 0.02 — the daily `SET anomaly` rewrite can never be HOT because `anomaly` sits in the `idx_location_points_not_anomaly` predicate, so the table accumulated 15% dead tuples before ever crossing the default threshold); 0038 dropped `idx_location_points_lonlat` — zero scans over the DB's whole life, because `lonlat` is only ever read as `ST_Distance(lonlat, LAG(lonlat))`, which a GiST index cannot serve. The column and its `set_lonlat` trigger stay; recreate the index if a real spatial predicate is ever added; 0039 added `location_processing_days.point_count` **and backfilled the 443 pre-0032 days** by reading the very column it retires (`anomaly IS NULL` = unscanned), which is why that backfill had to land before any reader switched over — days with even one unscanned point were deliberately left absent so the pipeline still picks them up, and `completed_at` stays NULL rather than inventing a completion time; 0040 `place_cache.region`/`country`; 0041 `segment_route_matches`; 0042 `data_recovery_jobs` + `source_sync_states` (both `ON DELETE cascade` from `users`); 0043 `wakatime_connections` (`ON DELETE cascade` from `users`)
 
 `location_velocity_migration_20260710_backup` is a leftover backup table from a one-off data fix, not part of the schema — don't build on it. Likewise `supabase-rls-policies.sql` at the repo root: this project runs its own Postgres, nothing references that file, and it predates the current stack.
 
@@ -296,7 +300,7 @@ PostGIS is set up by migration `0013_postgis_setup.sql`; location tables use `do
 
 | Schedule | Job | What it does |
 |---|---|---|
-| `*/10 * * * *` | `syncAllUsers` | Per-user commit sync (gated by `syncIntervalHours`), pending AI summaries (20/user), WakaTime sync, Withings sync (24h-gated), Google Health forward sync + `backfillPendingConnections`, KIS portfolio sync + `backfillPendingAccounts`, data-usage refresh, deletes sync jobs older than 7 days |
+| `*/10 * * * *` | `syncAllUsers` | Per-user commit sync (gated by `syncIntervalHours`), pending AI summaries (20/user), WakaTime sync (24h-gated, active OAuth connection only), Withings sync (24h-gated), Google Health forward sync + `backfillPendingConnections`, KIS portfolio sync + `backfillPendingAccounts`, data-usage refresh, deletes sync jobs older than 7 days |
 | `* * * * *` | `data-recovery` (`src/modules/data-status/cron.ts`) | `processRecoveryQueue` — claims and recovers up to 3 days per tick from `data_recovery_jobs` |
 | `*/10 * * * *` | `categorizePendingSpending` | AI expense categorization of uncategorized transactions (100/user, Haiku) |
 | `0 23 * * *` | `reparseTodayNotifications` | Reparses today's Toss notifications to pick up parser improvements |
@@ -383,7 +387,7 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - `/api/auth/[...all]` - Better Auth catch-all; `/api/auth/disconnect` - DELETE account (`deleteAccount()` removes app rows, every session, OAuth credentials and the Better Auth user in one transaction)
 - `/api/search` - GET owner-scoped record search (`?q=&from=&to=&source=all|commit|spending|visit|trip&page=`)
 - `/api/data-status` - GET collection status (`?from=&to=`); `/api/data-status/recover` - POST enqueue recovery (202)
-- `/api/settings` - GET/PUT settings; `/api/settings/{owntracks-key,wakatime-key,toss-key,health-import-key}` - POST/DELETE API keys; `/api/settings/wakatime-sync` - manual sync; `/api/settings/data-usage`; `/api/settings/db-benchmark`; `/api/settings/location-backfill` - GET dry-run / POST re-run pipeline (SSE); `/api/settings/subway-match-backfill`; `/api/settings/transportation-reclassify`; `/api/settings/trip-regenerate`; `/api/settings/account-roles`
+- `/api/settings` - GET/PUT settings; `/api/settings/{owntracks-key,toss-key,health-import-key}` - POST/DELETE API keys; `/api/settings/wakatime-key` - deprecated (POST → 410, DELETE clears legacy key); `/api/settings/wakatime-sync` - manual sync; `/api/settings/data-usage`; `/api/settings/db-benchmark`; `/api/settings/location-backfill` - GET dry-run / POST re-run pipeline (SSE); `/api/settings/subway-match-backfill`; `/api/settings/transportation-reclassify`; `/api/settings/trip-regenerate`; `/api/settings/account-roles`
 - `/api/sync` - POST manual sync; `/api/sync/status`; `/api/sync/jobs`
 - `/api/timeline` - GET paginated commits; `/api/timeline/{repos,stats,current-activity}`; `/api/timeline/commits/[commitId]{,/stats,/summary}`; `/api/timeline/locations{,/stay-points,/distances,/tracks,/import}`; `/api/timeline/{coding-sessions,coding-stats}`
 - `/api/trips` - GET/POST; `/api/trips/[id]` - PUT/DELETE; `/api/trips/detect` - POST auto-detect; `/api/trips/[id]/not-a-trip` - POST false-positive correction (creates a saved-place exclusion); `/api/trips/[id]/route-points` - GET map route
@@ -396,6 +400,7 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - `/api/health-import` - POST Health Connect ingestion (API key) / GET verification view (session)
 - `/api/fitbit` - DELETE disconnect Google Health; `/api/fitbit/{authorize,callback}` - OAuth; `/api/fitbit/sync` - POST manual sync; `/api/fitbit/summary` - GET 30-day trends, sleep sessions, workouts (powers `/health`); `/api/fitbit/activity-correlation` - GET 14-day health × coding × visits correlation
 - `/api/withings` - DELETE disconnect; `/api/withings/{authorize,callback}` - OAuth
+- `/api/wakatime` - DELETE disconnect (revokes tokens, clears legacy key + watermark); `/api/wakatime/{authorize,callback}` - OAuth
 - `/api/map/subway` - GET lines/stations for map rendering (viewport bbox filtered)
 - `/api/saved-places` - GET/POST; `/api/saved-places/[id]` - PUT/DELETE; `/api/saved-places/search`
 - `/api/spending` - GET analytics; `/api/spending/trend`; `/api/spending/reparse`; `/api/spending/transactions/[transactionId]` - DELETE; `/api/spending/notifications{,/cleanup}`
@@ -431,6 +436,9 @@ KIS_ENCRYPTION_KEY=...               # ≥32 chars. Master key for AES-256-GCM e
                                      # credential and in-flight OAuth state
 WITHINGS_CLIENT_ID=... / WITHINGS_CLIENT_SECRET=...   # Withings OAuth
 FITBIT_CLIENT_ID=... / FITBIT_CLIENT_SECRET=...       # Google Health OAuth (named "Fitbit" throughout the UI/routes)
+WAKATIME_CLIENT_ID=... / WAKATIME_CLIENT_SECRET=...   # WakaTime OAuth app (https://wakatime.com/apps). Redirect URI:
+                                     # ${NEXT_PUBLIC_APP_URL}/api/wakatime/callback (exact match; also
+                                     # sent on refresh, so NEXT_PUBLIC_APP_URL must be set in cron too)
 VALHALLA_URL=http://valhalla:8002    # Self-hosted map-matching container. Unset ⇒ route
                                      # matching is skipped entirely (one warning log line)
 VALHALLA_TILE_URLS="https://download.geofabrik.de/..." # Space-joined PBF extract URLs, one
@@ -451,7 +459,7 @@ DISABLE_CRON=true                    # Set on the production web container only
 RUN_ON_START=true                    # Immediate sync on boot (cron-enabled processes only)
 ```
 
-**`.env.example` is currently incomplete** — it carries 17 names, but `WITHINGS_CLIENT_ID`/`WITHINGS_CLIENT_SECRET`, `FITBIT_CLIENT_ID`/`FITBIT_CLIENT_SECRET`, `IMPORT_MAX_FILE_SIZE_MB`, `ENABLE_DB_BENCHMARK`, `NEXT_PUBLIC_ENABLE_DB_BENCHMARK`, `DISABLE_CRON` and `RUN_ON_START` are documented here and nowhere in it. Treat this list as the source of truth until that's reconciled. `TEST_DATABASE_URL`, `TEST_DB_HOST_PORT` (test harness) and `DRIZZLE_DATABASE_URL` (drizzle-kit override) are read at runtime but belong to neither list.
+**`.env.example` is currently incomplete** — it carries 19 names (incl. `WAKATIME_CLIENT_ID`/`WAKATIME_CLIENT_SECRET`), but `WITHINGS_CLIENT_ID`/`WITHINGS_CLIENT_SECRET`, `FITBIT_CLIENT_ID`/`FITBIT_CLIENT_SECRET`, `IMPORT_MAX_FILE_SIZE_MB`, `ENABLE_DB_BENCHMARK`, `NEXT_PUBLIC_ENABLE_DB_BENCHMARK`, `DISABLE_CRON` and `RUN_ON_START` are documented here and nowhere in it. Treat this list as the source of truth until that's reconciled. `TEST_DATABASE_URL`, `TEST_DB_HOST_PORT` (test harness) and `DRIZZLE_DATABASE_URL` (drizzle-kit override) are read at runtime but belong to neither list.
 
 ### Database Operations
 

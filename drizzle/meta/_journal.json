@@ -309,6 +309,13 @@
       "when": 1794239478902,
       "tag": "0043_narrative_input_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794240108564,
+      "tag": "0044_wakatime_oauth",
+      "breakpoints": true
     }
   ]
 }

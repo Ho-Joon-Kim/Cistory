@@ -14,6 +14,7 @@ import {
   sourceSyncStates,
   syncJobs,
   users,
+  wakatimeConnections,
   withingsConnections,
 } from "@/db/schema";
 import { localDaySql } from "@/db/sql";
@@ -66,7 +67,7 @@ export async function getDataStatus(
 ): Promise<DataStatusResponse> {
   if (!validateStatusRange(from, to, now))
     throw new ApiError(400, "오늘까지 최대 31일의 유효한 기간을 선택해 주세요.");
-  const [userRows, healthRows, withingsRows, accounts, states, jobRows, lastGithubJob] =
+  const [userRows, healthRows, withingsRows, wakaRows, accounts, states, jobRows, lastGithubJob] =
     await Promise.all([
       db
         .select({
@@ -74,7 +75,8 @@ export async function getDataStatus(
           wakaLastSyncedAt: users.wakatimeLastSyncedAt,
           owntracks: sql<boolean>`${users.ownTracksApiKey} IS NOT NULL`,
           toss: sql<boolean>`${users.tossNotificationApiKey} IS NOT NULL`,
-          waka: sql<boolean>`${users.wakatimeApiKey} IS NOT NULL`,
+          // Deprecated API key: only used to flag "reconnect via OAuth" below.
+          wakaLegacyKey: sql<boolean>`${users.wakatimeApiKey} IS NOT NULL`,
           healthImport: sql<boolean>`${users.healthImportApiKey} IS NOT NULL`,
         })
         .from(users)
@@ -95,6 +97,10 @@ export async function getDataStatus(
         })
         .from(withingsConnections)
         .where(eq(withingsConnections.userId, userId)),
+      db
+        .select({ status: wakatimeConnections.status })
+        .from(wakatimeConnections)
+        .where(eq(wakatimeConnections.userId, userId)),
       db
         .select({
           id: brokerageAccounts.id,
@@ -160,11 +166,15 @@ export async function getDataStatus(
       ?.toISOString() ?? null;
   const health = healthRows[0];
   const withings = withingsRows[0];
+  const waka = wakaRows[0];
+  // A leftover API key without an OAuth connection can no longer sync (WakaTime
+  // rejects API keys for reads) — surface it as "connected, needs re-auth".
+  const wakaNeedsReauth = waka ? waka.status === "needs_reauth" : user.wakaLegacyKey;
   const connections: Record<SourceId, boolean> = {
     github: github.rows[0]?.connected ?? false,
     location: user.owntracks,
     toss: user.toss,
-    wakatime: user.waka,
+    wakatime: !!waka || user.wakaLegacyKey,
     kis: accounts.some((a) => a.isActive),
     withings: !!withings,
     health: !!health || user.healthImport,
@@ -182,8 +192,13 @@ export async function getDataStatus(
     health: !!health?.error,
     kis: accounts.some((a) => !!a.error),
   };
+  const reauth: Partial<Record<SourceId, boolean>> = {
+    health: health?.status === "needs_reauth",
+    withings: withings?.status === "needs_reauth",
+    wakatime: wakaNeedsReauth,
+  };
   const recoveryAvailability: Partial<Record<SourceId, boolean>> = {
-    wakatime: user.waka,
+    wakatime: waka?.status === "active",
     withings: withings?.status === "active",
     health: health?.status === "active",
   };
@@ -199,12 +214,7 @@ export async function getDataStatus(
         state?.lastSuccessAt ?? null,
         success[id] ? new Date(success[id]!) : null,
       ]);
-      const needsReauth =
-        id === "health"
-          ? health?.status === "needs_reauth"
-          : id === "withings"
-            ? withings?.status === "needs_reauth"
-            : false;
+      const needsReauth = reauth[id] ?? false;
       return {
         id,
         label: LABELS[id],

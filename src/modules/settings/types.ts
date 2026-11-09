@@ -4,7 +4,7 @@
  * Single source of truth for both the API route (serializer) and the client
  * hook (consumer) — the two previously declared separate interfaces that had
  * already drifted: PUT returned a 3-field subset, and the hook replacing its
- * state with it silently wiped hasOwnTracksKey/hasTossKey/hasWakaTimeKey.
+ * state with it silently wiped hasOwnTracksKey/hasTossKey/hasWakaTimeKey (now WakaTime OAuth fields).
  */
 export interface UserSettings {
   theme: "light" | "dark" | "system";
@@ -13,7 +13,11 @@ export interface UserSettings {
   hasOwnTracksKey: boolean;
   hasTossKey: boolean;
   tossMyName: string | null;
-  hasWakaTimeKey: boolean;
+  hasWakaTimeConnection: boolean;
+  wakatimeNeedsReauth: boolean;
+  /** A deprecated API key is still stored but there is no OAuth connection —
+   *  WakaTime rejects API keys for reads, so the card prompts a reconnect. */
+  hasLegacyWakaTimeKey: boolean;
   lastLat: number | null;
   lastLon: number | null;
   hasWithingsConnection: boolean;
@@ -33,7 +37,9 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   hasOwnTracksKey: false,
   hasTossKey: false,
   tossMyName: null,
-  hasWakaTimeKey: false,
+  hasWakaTimeConnection: false,
+  wakatimeNeedsReauth: false,
+  hasLegacyWakaTimeKey: false,
   lastLat: null,
   lastLon: null,
   hasWithingsConnection: false,

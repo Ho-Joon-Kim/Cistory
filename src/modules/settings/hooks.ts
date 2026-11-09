@@ -397,11 +397,6 @@ export function useHealth(hasConnection: boolean) {
   return { hasHealthConnection, isDisconnecting, isSyncing, disconnect, syncNow };
 }
 
-interface WakaTimeUser {
-  displayName: string;
-  email: string;
-}
-
 export interface WakaTimeSyncStats {
   totalSessions: number;
   totalDays: number;
@@ -520,21 +515,19 @@ export function useDbBenchmark() {
   return { isRunning, currentResult, history, error, runBenchmark, deleteRun, clearHistory };
 }
 
-export function useWakaTimeKey(hasKey: boolean) {
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isRevoking, setIsRevoking] = useState(false);
-  const [hasWakaTimeKey, setHasWakaTimeKey] = useState(hasKey);
-  const [wakatimeUser, setWakatimeUser] = useState<WakaTimeUser | null>(null);
+export function useWakaTime(hasConnection: boolean) {
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [hasWakaTimeConnection, setHasWakaTimeConnection] = useState(hasConnection);
   const [syncStats, setSyncStats] = useState<WakaTimeSyncStats | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const prevHasKey = useRef(hasKey);
+  const prevHasConnection = useRef(hasConnection);
 
   useEffect(() => {
-    if (prevHasKey.current !== hasKey) {
-      setHasWakaTimeKey(hasKey);
-      prevHasKey.current = hasKey;
+    if (prevHasConnection.current !== hasConnection) {
+      setHasWakaTimeConnection(hasConnection);
+      prevHasConnection.current = hasConnection;
     }
-  }, [hasKey]);
+  }, [hasConnection]);
 
   const fetchSyncStats = useCallback(async () => {
     try {
@@ -549,12 +542,12 @@ export function useWakaTimeKey(hasKey: boolean) {
 
   // Auto-fetch sync stats when connected
   useEffect(() => {
-    if (hasWakaTimeKey) {
+    if (hasWakaTimeConnection) {
       fetchSyncStats();
     } else {
       setSyncStats(null);
     }
-  }, [hasWakaTimeKey, fetchSyncStats]);
+  }, [hasWakaTimeConnection, fetchSyncStats]);
 
   const triggerSync = useCallback(
     async (mode: "initial" | "regular") => {
@@ -571,7 +564,6 @@ export function useWakaTimeKey(hasKey: boolean) {
             data.error || "WakaTime을 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요."
           );
         }
-        // Refresh stats after sync
         await fetchSyncStats();
         return true;
       } finally {
@@ -581,54 +573,26 @@ export function useWakaTimeKey(hasKey: boolean) {
     [fetchSyncStats]
   );
 
-  const connect = useCallback(async (apiKey: string) => {
-    setIsConnecting(true);
+  /** Revokes the OAuth grant and deletes the connection (also clears a legacy API key). */
+  const disconnect = useCallback(async () => {
+    setIsDisconnecting(true);
     try {
-      const response = await fetch("/api/settings/wakatime-key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey }),
-      });
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        throw new Error(
-          data.error || "WakaTime을 연결하지 못했습니다. API 키를 확인한 뒤 다시 시도해 주세요."
-        );
-      }
-      const data = (await response.json()) as { wakatimeUser: WakaTimeUser };
-      setWakatimeUser(data.wakatimeUser);
-      setHasWakaTimeKey(true);
-      return true;
-    } finally {
-      setIsConnecting(false);
-    }
-  }, []);
-
-  const revoke = useCallback(async () => {
-    setIsRevoking(true);
-    try {
-      const response = await fetch("/api/settings/wakatime-key", {
-        method: "DELETE",
-      });
-      if (!response.ok) throw new Error("Failed to revoke key");
-      setHasWakaTimeKey(false);
-      setWakatimeUser(null);
+      const response = await fetch("/api/wakatime", { method: "DELETE" });
+      if (!response.ok) throw new Error("Failed to disconnect");
+      setHasWakaTimeConnection(false);
       setSyncStats(null);
       return true;
     } catch {
       return false;
     } finally {
-      setIsRevoking(false);
+      setIsDisconnecting(false);
     }
   }, []);
 
   return {
-    hasWakaTimeKey,
-    wakatimeUser,
-    isConnecting,
-    isRevoking,
-    connect,
-    revoke,
+    hasWakaTimeConnection,
+    isDisconnecting,
+    disconnect,
     syncStats,
     isSyncing,
     fetchSyncStats,
