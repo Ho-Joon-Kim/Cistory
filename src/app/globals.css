@@ -2456,6 +2456,24 @@
     }
   }
 
+  /* Mobile nav strip: an edge with hidden pills fades out, so a pill cut by the
+   * edge reads as "more this way" rather than a clipped label ("임라인"). */
+  @media (width < 64rem) {
+    .ds-nav-strip {
+      --fl: 0px;
+      --fr: 0px;
+      mask-image: linear-gradient(
+        to right,
+        transparent 0,
+        #000 var(--fl),
+        #000 calc(100% - var(--fr)),
+        transparent 100%
+      );
+    }
+    .ds-nav-strip[data-fade-left] { --fl: var(--nav-fade, 28px); }
+    .ds-nav-strip[data-fade-right] { --fr: var(--nav-fade, 28px); }
+  }
+
   /* Category mark tile (squircle). --cc is the category color. */
   .ds-cmk {
     box-sizing: border-box;

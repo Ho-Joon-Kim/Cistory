@@ -13,8 +13,14 @@ export function isNavItemActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/** Width of the mobile strip's edge fade; a revealed pill clears it. */
+export const NAV_FADE_PX = 28;
+
 /**
- * scrollLeft that centres a nav item in the mobile pill strip, clamped to the
+ * scrollLeft that brings a nav item into the mobile pill strip with the least
+ * movement: a pill already clear of the edge fades stays put (so a page whose
+ * pill fits starts at the first tab, as in the mocks); otherwise the strip
+ * scrolls just far enough for the pill to clear the fade, clamped to the
  * scrollable range (the first items stay flush left, the last flush right).
  */
 export function navScrollLeftFor({
@@ -22,13 +28,40 @@ export function navScrollLeftFor({
   itemWidth,
   viewportWidth,
   scrollWidth,
+  scrollLeft = 0,
+  margin = NAV_FADE_PX,
 }: {
+  /** Item's left edge in scroll-content coordinates. */
   itemLeft: number;
   itemWidth: number;
   viewportWidth: number;
   scrollWidth: number;
+  scrollLeft?: number;
+  margin?: number;
 }): number {
   const max = Math.max(0, scrollWidth - viewportWidth);
-  const centred = itemLeft + itemWidth / 2 - viewportWidth / 2;
-  return Math.round(Math.min(max, Math.max(0, centred)));
+  let next = scrollLeft;
+  if (itemLeft - margin < next) next = itemLeft - margin;
+  else if (itemLeft + itemWidth + margin > next + viewportWidth)
+    next = itemLeft + itemWidth + margin - viewportWidth;
+  // Within a fade's width of either end, go all the way (no sliver of padding).
+  if (next < margin) next = 0;
+  else if (max - next < margin) next = max;
+  return Math.round(Math.min(max, Math.max(0, next)));
+}
+
+/** Which edges of a horizontally scrolled strip have hidden content. */
+export function navEdges({
+  scrollLeft,
+  clientWidth,
+  scrollWidth,
+}: {
+  scrollLeft: number;
+  clientWidth: number;
+  scrollWidth: number;
+}): { left: boolean; right: boolean } {
+  return {
+    left: scrollLeft > 1,
+    right: scrollLeft + clientWidth < scrollWidth - 1,
+  };
 }

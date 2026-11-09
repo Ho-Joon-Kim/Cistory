@@ -13,7 +13,15 @@ export {
   LEDGER_MARK_PATHS,
   type LedgerMarkKind,
 } from "./category-marks";
-export { EvidenceScope, type EvidenceState, useEvidence, useEvidenceTrigger } from "./evidence";
+export {
+  announceEvidenceOpen,
+  EVIDENCE_OPEN_EVENT,
+  EvidenceScope,
+  type EvidenceState,
+  useDismissOnEvidence,
+  useEvidence,
+  useEvidenceTrigger,
+} from "./evidence";
 export { FactPopover, FactTrigger } from "./FactTrigger";
 export { CountUp, HeroNumber, SecondaryNumber } from "./Numbers";
 export { MetaLine, PageContainer, PageTitle } from "./PageTitle";
