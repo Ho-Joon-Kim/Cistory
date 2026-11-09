@@ -46,13 +46,18 @@ describe("navScrollLeftFor", () => {
   });
 
   it("keeps the strip at the first tab when the active pill already shows (mock)", () => {
-    // 건강 at 290–338 on a 390px strip: visible, so no scroll (QA: "임라인" clip).
-    expect(navScrollLeftFor({ ...strip, itemLeft: 290, itemWidth: 48 })).toBe(0);
+    // 여행 at 277–326 on a 390px strip: visible, so no scroll (QA: "임라인" clip).
+    expect(navScrollLeftFor({ ...strip, itemLeft: 277, itemWidth: 49 })).toBe(0);
+  });
+
+  it("nudges a pill out of the right fade without snapping back under it", () => {
+    // 건강 at 328–376: 376 + 20 - 390 = 6 (only 타임라인's padding goes under the left fade).
+    expect(navScrollLeftFor({ ...strip, itemLeft: 328, itemWidth: 48 })).toBe(6);
   });
 
   it("scrolls just far enough for an off-screen pill to clear the edge fade", () => {
-    // 여행 ends at 400: 400 + 28 - 390 = 38.
-    expect(navScrollLeftFor({ ...strip, itemLeft: 352, itemWidth: 48 })).toBe(38);
+    // 여행 ends at 400: 400 + 20 - 390 = 30.
+    expect(navScrollLeftFor({ ...strip, itemLeft: 352, itemWidth: 48 })).toBe(30);
   });
 
   it("clamps the last item to the end of the scroll range", () => {
@@ -61,7 +66,7 @@ describe("navScrollLeftFor", () => {
   });
 
   it("scrolls back left for a pill hidden behind the left edge", () => {
-    expect(navScrollLeftFor({ ...strip, itemLeft: 60, itemWidth: 50, scrollLeft: 130 })).toBe(32);
+    expect(navScrollLeftFor({ ...strip, itemLeft: 60, itemWidth: 50, scrollLeft: 130 })).toBe(40);
   });
 
   it("never scrolls a strip that fits", () => {

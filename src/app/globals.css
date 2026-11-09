@@ -2470,8 +2470,8 @@
         transparent 100%
       );
     }
-    .ds-nav-strip[data-fade-left] { --fl: var(--nav-fade, 28px); }
-    .ds-nav-strip[data-fade-right] { --fr: var(--nav-fade, 28px); }
+    .ds-nav-strip[data-fade-left] { --fl: var(--nav-fade, 20px); }
+    .ds-nav-strip[data-fade-right] { --fr: var(--nav-fade, 20px); }
   }
 
   /* Category mark tile (squircle). --cc is the category color. */

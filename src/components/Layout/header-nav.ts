@@ -14,7 +14,7 @@ export function isNavItemActive(pathname: string, href: string): boolean {
 }
 
 /** Width of the mobile strip's edge fade; a revealed pill clears it. */
-export const NAV_FADE_PX = 28;
+export const NAV_FADE_PX = 20;
 
 /**
  * scrollLeft that brings a nav item into the mobile pill strip with the least
@@ -44,9 +44,10 @@ export function navScrollLeftFor({
   if (itemLeft - margin < next) next = itemLeft - margin;
   else if (itemLeft + itemWidth + margin > next + viewportWidth)
     next = itemLeft + itemWidth + margin - viewportWidth;
-  // Within a fade's width of either end, go all the way (no sliver of padding).
-  if (next < margin) next = 0;
-  else if (max - next < margin) next = max;
+  // Within a fade's width of either end, go all the way (no sliver of padding) —
+  // unless that would push the pill back under the opposite edge's fade.
+  if (next < margin && itemLeft + itemWidth + margin <= viewportWidth) next = 0;
+  else if (max - next < margin && itemLeft - margin >= max) next = max;
   return Math.round(Math.min(max, Math.max(0, next)));
 }
 
