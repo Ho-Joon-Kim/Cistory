@@ -159,7 +159,7 @@ export function TargetAllocationEditor({
           </div>
 
           <div className="border rounded-md">
-            <div className="grid grid-cols-[110px_1fr_90px_36px] gap-2 px-3 py-2 text-xs text-muted-foreground border-b">
+            <div className="hidden grid-cols-[110px_minmax(0,1fr)_90px_36px] gap-2 px-3 py-2 text-xs text-muted-foreground border-b sm:grid">
               <div>티커</div>
               <div>종목명</div>
               <div className="text-right">비중 (%)</div>
@@ -174,21 +174,21 @@ export function TargetAllocationEditor({
                 rows.map((r, index) => (
                   <div
                     key={r.id}
-                    className="grid grid-cols-[110px_1fr_90px_36px] gap-2 px-3 py-2 items-center"
+                    className="grid grid-cols-[minmax(0,1fr)_96px_44px] items-center gap-2 px-3 py-3 sm:grid-cols-[110px_minmax(0,1fr)_90px_36px] sm:py-2"
                   >
                     <Input
                       value={r.ticker}
                       onChange={(e) => updateRow(r.id, { ticker: e.target.value.toUpperCase() })}
-                      placeholder="예: 005930"
+                      placeholder="티커 (예: 005930)"
                       aria-label={`${index + 1}번째 종목 티커`}
-                      className="h-8"
+                      className="h-11 sm:h-8"
                     />
                     <Input
                       value={r.name}
                       onChange={(e) => updateRow(r.id, { name: e.target.value })}
                       placeholder="종목명"
                       aria-label={`${index + 1}번째 종목명`}
-                      className="h-8"
+                      className="order-first col-span-3 h-11 sm:order-none sm:col-span-1 sm:h-8"
                     />
                     <Input
                       type="number"
@@ -197,14 +197,15 @@ export function TargetAllocationEditor({
                       max="100"
                       value={r.weightPct}
                       onChange={(e) => updateRow(r.id, { weightPct: e.target.value })}
+                      placeholder="비중 %"
                       aria-label={`${index + 1}번째 종목 비중 (%)`}
-                      className="h-8 text-right tabular-nums"
+                      className="h-11 text-right tabular-nums sm:h-8"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8"
+                      className="size-11 sm:size-8"
                       onClick={() => removeRow(r.id)}
                       aria-label={`${index + 1}번째 종목 삭제`}
                     >

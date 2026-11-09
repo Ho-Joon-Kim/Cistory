@@ -1,6 +1,14 @@
 "use client";
 
-import { type KeyboardEvent, type PointerEvent, useMemo, useState } from "react";
+import {
+  type KeyboardEvent,
+  type PointerEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AiLine, EmptyState, Segmented, useEvidence } from "@/components/ds";
 import {
   formatDateRange,
@@ -45,13 +53,54 @@ interface Annotation {
   x: number;
   y: number;
   above: boolean;
+  /** Top of the label box (px). */
+  top: number;
   text: string;
   align: "start" | "middle" | "end";
+}
+
+const ANN_H = 18;
+const annWidth = (text: string) => text.length * 7.2;
+function annLeft(a: Pick<Annotation, "x" | "align" | "text">): number {
+  const w = annWidth(a.text);
+  return a.align === "start" ? a.x : a.align === "middle" ? a.x - w / 2 : a.x - w;
+}
+function overlaps(
+  a: { x0: number; x1: number; y0: number; y1: number },
+  b: { x0: number; x1: number; y0: number; y1: number }
+): boolean {
+  return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+}
+
+/**
+ * A chart callout, anchored by its alignment but measured after layout and
+ * shifted to stay inside the chart (estimated widths undershoot the mono digits
+ * on narrow screens, which pushed "저점 …" past the left edge).
+ */
+function AnnotationLabel({ a, width }: { a: Annotation; width: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [left, setLeft] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const w = ref.current?.offsetWidth ?? 0;
+    const want = a.align === "start" ? a.x : a.align === "end" ? a.x - w : a.x - w / 2;
+    setLeft(Math.max(0, Math.min(width - w, want)));
+  }, [a.x, a.align, a.text, width]);
+  return (
+    <span
+      ref={ref}
+      className="num pointer-events-none absolute bg-page px-1 py-px text-xs leading-4 whitespace-nowrap text-ink"
+      style={{ left: left ?? a.x, top: a.top, visibility: left === null ? "hidden" : undefined }}
+    >
+      {a.text}
+    </span>
+  );
 }
 
 export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashflows: Cashflow[] }) {
   const [range, setRange] = useState<RangeKey>("30");
   const [hover, setHover] = useState<number | null>(null);
+  /** A touch put the crosshair down: it stays after lift until a tap elsewhere. */
+  const [pinned, setPinned] = useState(false);
   const [boxRef, width] = useElementWidth<HTMLDivElement>();
   const desktop = useIsDesktop();
   const { stateOf, active } = useEvidence();
@@ -106,14 +155,26 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
     const ann: Annotation[] = [];
     const place = (j: number, above: boolean, text: string, key: string) => {
       const x = xAt(j);
-      ann.push({
-        key,
-        x,
-        y: yAt(pts[j].value),
-        above,
-        text,
-        align: x < 140 ? "start" : x > W - 140 ? "end" : "middle",
-      });
+      const y = yAt(pts[j].value);
+      const align = x < 140 ? "start" : x > W - 140 ? "end" : "middle";
+      let top = above ? y - 34 : y + 14;
+      if (!above) {
+        // Keep the label off the dashed cost line: drop it below the line when
+        // the line runs through the box, or lift it above the point if there's
+        // no room down there.
+        const x0 = annLeft({ x, align, text });
+        const x1 = x0 + annWidth(text);
+        let invY = Number.NEGATIVE_INFINITY;
+        for (let q = 0; q < n; q++) {
+          const qx = xAt(q);
+          if (qx >= x0 - 4 && qx <= x1 + 4) invY = Math.max(invY, yAt(pts[q].invested));
+        }
+        if (invY > top - 6 && invY < top + ANN_H + 6) {
+          top = invY + 8;
+          if (top + ANN_H > base - 2) top = y - 34;
+        }
+      }
+      ann.push({ key, x, y, above, top, text, align });
     };
     if (ext.peak !== n - 1) {
       place(
@@ -137,18 +198,47 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
       );
     }
 
-    const grid: Array<{ y: number; label: string; show: boolean }> = [];
+    const annBoxes = ann.flatMap((a) => {
+      const x0 = annLeft(a);
+      const label = { x0, x1: x0 + annWidth(a.text), y0: a.top, y1: a.top + ANN_H };
+      // The tick from the callout down/up to its point.
+      const tick = {
+        x0: a.x - 3,
+        x1: a.x + 3,
+        y0: Math.min(a.y, a.top + ANN_H),
+        y1: Math.max(a.y, a.top),
+      };
+      return [label, tick];
+    });
+    // The dashed cost line where it crosses the axis-label column (x < 90).
+    const invNearAxis: number[] = [];
+    for (let q = 0; q < n && xAt(q) < 90; q++) invNearAxis.push(yAt(pts[q].invested));
+    const crossesCost = (y0: number, y1: number) =>
+      invNearAxis.some((iy) => iy > y0 - 2 && iy < y1 + 2);
+
+    const grid: Array<{ y: number; label: string; labelY: number; show: boolean }> = [];
     for (let v = scale.min; v <= scale.max + 1; v += scale.step) {
       const y = yAt(v);
-      const labelY = y - 6;
-      const show = !ann.some((a) => {
-        const w = a.text.length * 7.2;
-        const x0 = a.align === "start" ? a.x : a.align === "middle" ? a.x - w / 2 : a.x - w;
-        const top = a.above ? a.y - 34 : a.y + 14;
-        return x0 < 90 && top < labelY + 4 && top + 18 > labelY - 12;
-      });
-      grid.push({ y, label: formatWonCompact(v), show });
+      const label = formatWonCompact(v);
+      const box = (ly: number) => ({ x0: 0, x1: label.length * 7 + 4, y0: ly - 11, y1: ly + 2 });
+      // Above the grid line by default; below it when the cost line strikes it.
+      let labelY = y - 6;
+      if (crossesCost(labelY - 11, labelY + 2)) labelY = y + 14;
+      const show =
+        !crossesCost(labelY - 11, labelY + 2) &&
+        labelY + 2 < base &&
+        !annBoxes.some((b) => overlaps(b, box(labelY)));
+      grid.push({ y, label, labelY, show });
     }
+
+    // "매입금액" sits under the cost line's right end, or above it if a callout is there.
+    const invEnd = yAt(pts[n - 1].invested);
+    const invLabelBox = (ly: number) => ({ x0: W - 52, x1: W, y0: ly - 12, y1: ly + 2 });
+    let invLabelY = invEnd + 16;
+    if (annBoxes.some((b) => overlaps(b, invLabelBox(invLabelY))) || invLabelY > base - 2) {
+      invLabelY = invEnd - 6;
+    }
+    const invLabelShow = !annBoxes.some((b) => overlaps(b, invLabelBox(invLabelY)));
 
     const ticks = desktop ? 6 : 3;
     const xl = Array.from({ length: Math.min(ticks, n) }, (_, t) => {
@@ -167,11 +257,16 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
       return { key: `${c.date}-${c.amount}`, x: xAt(j) };
     });
 
-    return { xAt, yAt, line, inv, area, ann, grid, xl, markers, base };
+    return { xAt, yAt, line, inv, area, ann, grid, xl, markers, base, invLabelY, invLabelShow };
   }, [n, W, pts, plotH, ext, desktop, cfs]);
 
   const onPointer = (e: PointerEvent<SVGRectElement>) => {
     if (!geo) return;
+    // Touch/pen: keep receiving moves while the finger scrubs sideways.
+    if (e.type === "pointerdown" && e.pointerType !== "mouse") {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      setPinned(true);
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const j = Math.round(((x - 1) / Math.max(1, W - 2)) * (n - 1));
@@ -184,6 +279,17 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
       setHover((h) => Math.min(n - 1, Math.max(0, (h ?? n - 1) + step)));
     } else if (e.key === "Escape") setHover(null);
   };
+
+  useEffect(() => {
+    if (!pinned) return;
+    const onDown = (event: globalThis.PointerEvent) => {
+      if ((event.target as Element | null)?.closest?.("[data-asset-trend]")) return;
+      setPinned(false);
+      setHover(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [pinned]);
 
   const change = n >= 2 ? last.value - first.value : 0;
   const hv = hover !== null && hover < n && geo ? pts[hover] : null;
@@ -204,6 +310,7 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
           onChange={(v) => {
             setRange(v);
             setHover(null);
+            setPinned(false);
           }}
           ariaLabel="기간"
           className="lg:[&>button]:w-16"
@@ -240,20 +347,28 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
             </div>
           ) : null}
 
-          <div ref={boxRef} className="relative mt-3 lg:mt-4" style={{ height: H }}>
+          <div
+            ref={boxRef}
+            data-asset-trend=""
+            className="relative mt-3 lg:mt-4"
+            style={{ height: H }}
+          >
             {geo ? (
               <>
                 <svg
                   width={W}
                   height={H}
                   viewBox={`0 0 ${W} ${H}`}
-                  className="block overflow-visible outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                  className="block overflow-visible outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-4 focus-visible:outline-brand"
                   role="img"
                   aria-label={`평가금액과 매입금액 추이, ${formatDateRange(first.date, last.date)}. 좌우 화살표로 날짜별 값을 볼 수 있어요.`}
                   // biome-ignore lint/a11y/noNoninteractiveTabindex: arrow keys move the crosshair
                   tabIndex={0}
                   onKeyDown={onKey}
-                  onBlur={() => setHover(null)}
+                  onBlur={() => {
+                    if (!pinned) setHover(null);
+                  }}
+                  style={{ touchAction: "pan-y" }}
                 >
                   {geo.grid.map((g) => (
                     <g key={g.y}>
@@ -261,7 +376,7 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                       {g.show ? (
                         <text
                           x={0}
-                          y={g.y - 6}
+                          y={g.labelY}
                           fontSize={11}
                           fill="var(--ink3)"
                           fontFamily="var(--font-mono)"
@@ -295,15 +410,11 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                     opacity={cfLit ? 0.5 : 1}
                     style={{ transition: "opacity 150ms ease-out" }}
                   />
-                  <text
-                    x={W}
-                    y={geo.yAt(last.invested) + 16}
-                    textAnchor="end"
-                    fontSize={12}
-                    fill="var(--ink3)"
-                  >
-                    매입금액
-                  </text>
+                  {geo.invLabelShow ? (
+                    <text x={W} y={geo.invLabelY} textAnchor="end" fontSize={12} fill="var(--ink3)">
+                      매입금액
+                    </text>
+                  ) : null}
                   {geo.markers.map((m) => (
                     <circle
                       key={m.key}
@@ -320,8 +431,8 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                       <line
                         x1={a.x}
                         x2={a.x}
-                        y1={a.above ? a.y - 16 : a.y + 4}
-                        y2={a.above ? a.y - 4 : a.y + 14}
+                        y1={a.above || a.top < a.y ? a.top + ANN_H : a.y + 4}
+                        y2={a.above || a.top < a.y ? a.y - 4 : a.top}
                         stroke="var(--ink3)"
                         strokeWidth={1}
                       />
@@ -374,24 +485,19 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                     width={W}
                     height={H}
                     fill="transparent"
-                    onPointerMove={onPointer}
+                    style={{ touchAction: "pan-y" }}
+                    onPointerMove={(e) => {
+                      // Hovering mouse, or a finger that's down and scrubbing.
+                      if (e.pointerType === "mouse" || e.buttons !== 0) onPointer(e);
+                    }}
                     onPointerDown={onPointer}
-                    onPointerLeave={() => setHover(null)}
+                    onPointerLeave={(e) => {
+                      if (e.pointerType === "mouse") setHover(null);
+                    }}
                   />
                 </svg>
                 {geo.ann.map((a) => (
-                  <span
-                    key={a.key}
-                    className="num pointer-events-none absolute bg-page px-1 py-px text-xs leading-4 whitespace-nowrap text-ink"
-                    style={{
-                      left: a.x,
-                      top: a.above ? a.y - 34 : a.y + 14,
-                      translate:
-                        a.align === "start" ? "0 0" : a.align === "end" ? "-100% 0" : "-50% 0",
-                    }}
-                  >
-                    {a.text}
-                  </span>
+                  <AnnotationLabel key={a.key} a={a} width={W} />
                 ))}
                 {hv && hover !== null ? (
                   <div

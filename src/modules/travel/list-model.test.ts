@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { TravelListSummary, TravelTripListItem } from "./hooks";
 import {
   byYear,
+  cityLine,
   destinationOf,
   formatKm,
   groupLabel,
   groupRecurring,
   isSpendingRecorded,
+  nearestSpan,
   pickHighlights,
   rangeLabel,
   rangeWithWeekdays,
@@ -199,5 +201,33 @@ describe("ribbon and highlights", () => {
     expect(highlights[1].fact?.post).toContain(
       "지출 기록이 있는 3개 여행 중 하루 지출이 가장 컸고"
     );
+  });
+});
+
+describe("nearestSpan", () => {
+  const spans = [
+    { id: "a", from: 0.1, to: 0.11 },
+    { id: "b", from: 0.13, to: 0.14 },
+    { id: "c", from: 0.5, to: 0.6 },
+  ];
+  it("picks the span the point is inside", () => {
+    expect(nearestSpan(spans, 0.55, 0.01)?.id).toBe("c");
+  });
+  it("picks the closer neighbour, never the farther one", () => {
+    expect(nearestSpan(spans, 0.115, 0.05)?.id).toBe("a");
+    expect(nearestSpan(spans, 0.126, 0.05)?.id).toBe("b");
+  });
+  it("returns null outside the slop", () => {
+    expect(nearestSpan(spans, 0.3, 0.05)).toBeNull();
+    expect(nearestSpan([], 0.3, 1)).toBeNull();
+  });
+});
+
+describe("cityLine", () => {
+  it("drops Han-only values and repeats", () => {
+    expect(cityLine(["新界", "New Territories", "Kowloon", "Kowloon"])).toBe(
+      "New Territories · Kowloon"
+    );
+    expect(cityLine(["대전", "서울"])).toBe("대전 · 서울");
   });
 });

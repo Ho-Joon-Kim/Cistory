@@ -3,12 +3,15 @@ import {
   buildItinerary,
   dateKeysBetween,
   healthTable,
+  mapLabels,
+  mergeTransfers,
   mergeVisits,
   pickHeroDay,
   routeByDay,
   routineInsight,
   shortCity,
   spendingView,
+  stationOf,
   transportInsight,
   tripWindow,
 } from "./detail-model";
@@ -216,7 +219,8 @@ describe("health, hero day and route", () => {
     expect(table.primary[0].cells.map((c) => c.text)).toEqual(["4,044", "11,251", "3,509"]);
     expect(table.primary[1].cells.map((c) => c.text)).toEqual(["–", "207", "–"]);
     expect(table.more.map((r) => r.key)).toEqual(["heart_rate"]);
-    expect(table.more[0].cells[1].text).toBe("81 · 47–176");
+    expect(table.more[0].cells[1].text).toBe("81");
+    expect(table.more[0].cells[1].sub).toBe("47–176");
   });
 
   it("picks the day with by far the most steps and ties it to that day's dense run", () => {
@@ -317,5 +321,97 @@ describe("spending, transport and routine lines", () => {
     expect(dateKeysBetween("2026-12-31", "2027-01-01")).toEqual(["2026-12-31", "2027-01-01"]);
     expect(shortCity("제주특별자치도")).toBe("제주");
     expect(shortCity("Kowloon")).toBe("Kowloon");
+  });
+});
+
+describe("transfers and map labels", () => {
+  it("merges a same-station line change into one row", () => {
+    const items = mergeTransfers([
+      {
+        kind: "stop",
+        key: "a",
+        at: at("2026-09-23", "18:00"),
+        endAt: at("2026-09-23", "18:06"),
+        name: "동작역 9호선",
+        minutes: 6,
+      },
+      {
+        kind: "stop",
+        key: "b",
+        at: at("2026-09-23", "18:09"),
+        endAt: at("2026-09-23", "18:13"),
+        name: "동작역 4호선",
+        minutes: 4,
+      },
+      {
+        kind: "stop",
+        key: "c",
+        at: at("2026-09-23", "19:00"),
+        endAt: at("2026-09-23", "19:10"),
+        name: "서울역",
+        minutes: 10,
+      },
+    ]);
+    expect(items).toHaveLength(2);
+    const first = items[0];
+    expect(first.kind === "stop" && [first.name, first.minutes, first.note]).toEqual([
+      "동작역",
+      13,
+      "9호선 → 4호선 환승",
+    ]);
+  });
+
+  it("keeps two visits to one line, or two stations, apart", () => {
+    const items = mergeTransfers([
+      {
+        kind: "stop",
+        key: "a",
+        at: at("2026-09-23", "18:00"),
+        endAt: at("2026-09-23", "18:06"),
+        name: "동작역 9호선",
+        minutes: 6,
+      },
+      {
+        kind: "stop",
+        key: "b",
+        at: at("2026-09-23", "18:09"),
+        endAt: at("2026-09-23", "18:13"),
+        name: "동작역 9호선",
+        minutes: 4,
+      },
+      {
+        kind: "stop",
+        key: "c",
+        at: at("2026-09-23", "18:20"),
+        endAt: at("2026-09-23", "18:23"),
+        name: "사당역 4호선",
+        minutes: 3,
+      },
+    ]);
+    expect(items).toHaveLength(3);
+  });
+
+  it("labels saved places and stations, never shop names", () => {
+    const labels = mapLabels(
+      detail([
+        visit("2026-09-23", "18:00", "18:10", "서울역 경부선", { centerLat: 37.55 }),
+        visit("2026-09-23", "18:12", "18:40", "위니비니 서울역사점", { centerLat: 37.0 }),
+        visit("2026-09-23", "21:00", "23:00", "본가", { savedPlaceName: "본가", centerLat: 36.3 }),
+      ])
+    );
+    expect(labels.map((l) => [l.text, l.kind])).toEqual([
+      ["본가", "anchor"],
+      ["서울역", "station"],
+    ]);
+  });
+
+  it("reads stations off station concessions", () => {
+    expect(stationOf("위니비니 서울역사점")).toBe("서울역");
+    expect(stationOf("공차 SRT수서역점")).toBe("수서역");
+    expect(stationOf("엔제리너스 광명KTX점")).toBe("광명역");
+    expect(stationOf("육거리소문만두 대전ktx점")).toBe("대전역");
+    expect(stationOf("롯데리아 천안아산역사점")).toBe("천안아산역");
+    expect(stationOf("바나프레소 선정릉점")).toBeNull();
+    expect(stationOf("하이테이블 차병원사거리점")).toBeNull();
   });
 });

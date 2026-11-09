@@ -139,7 +139,7 @@ export function Disclosure({
         aria-expanded={open}
         aria-controls={id}
         onClick={onToggle}
-        className="group grid min-h-11 w-full cursor-pointer grid-cols-[minmax(0,1fr)_20px] items-center border-0 bg-transparent py-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand lg:grid-cols-[200px_minmax(0,1fr)_24px] lg:py-[18px]"
+        className="group grid min-h-11 w-full cursor-pointer grid-cols-[minmax(0,1fr)_20px] items-center border-0 bg-transparent py-3.5 text-left focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand lg:grid-cols-[200px_minmax(0,1fr)_24px] lg:py-[18px]"
       >
         <span className="flex flex-col gap-0.5 lg:contents">
           <span className="text-[15px] leading-[22px] font-semibold text-ink transition-colors duration-150 group-hover:text-ink">

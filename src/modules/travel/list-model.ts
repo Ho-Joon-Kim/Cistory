@@ -101,6 +101,18 @@ export function destinationOf(trip: Pick<TravelTripListItem, "name">): string {
   return name.replace(/\s*여행$/u, "") || name;
 }
 
+/**
+ * The row's city line. Drops values that are Han-only (a geocoder answering in
+ * Chinese, e.g. "新界") — the list reads Korean or English, never CJK leaks —
+ * and repeats.
+ */
+export function cityLine(cities: readonly string[]): string {
+  const keep = cities
+    .map((c) => c.trim())
+    .filter((c) => c && !(/\p{Script=Han}/u.test(c) && !/\p{Script=Hangul}/u.test(c)));
+  return [...new Set(keep)].join(" · ");
+}
+
 export function isSpendingRecorded(
   trip: Pick<TravelTripListItem, "endDate">,
   spendingSince: string | null
@@ -353,6 +365,31 @@ export function ribbonSpans(summary: TravelListSummary): RibbonSpan[] {
     range: rangeLabel(trip.startDate, trip.endDate),
     stay: stayLabel(trip.startDate, trip.endDate),
   }));
+}
+
+/**
+ * The span a pointer at year-fraction `x` should pick: the one whose interval is
+ * closest (0 when `x` lies inside it), ties broken toward the nearer centre, or
+ * null when nothing is within `slop` (also a year fraction).
+ */
+export function nearestSpan<T extends { from: number; to: number }>(
+  spans: readonly T[],
+  x: number,
+  slop: number
+): T | null {
+  let best: T | null = null;
+  let bestGap = Number.POSITIVE_INFINITY;
+  let bestCentre = Number.POSITIVE_INFINITY;
+  for (const span of spans) {
+    const gap = x < span.from ? span.from - x : x > span.to ? x - span.to : 0;
+    const centre = Math.abs(x - (span.from + span.to) / 2);
+    if (gap < bestGap || (gap === bestGap && centre < bestCentre)) {
+      best = span;
+      bestGap = gap;
+      bestCentre = centre;
+    }
+  }
+  return best && bestGap <= slop ? best : null;
 }
 
 /** Position of a date key in its year, 0..1 (start of that day). */

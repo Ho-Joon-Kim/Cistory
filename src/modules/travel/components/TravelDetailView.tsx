@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { CountUp, EvidenceScope, useEvidence } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +29,7 @@ import {
   type HeroDay,
   healthTable,
   type ItineraryDay,
+  mapLabels,
   modeLabel,
   pickHeroDay,
   routeByDay,
@@ -30,14 +39,14 @@ import {
   spendingView,
   transportInsight,
   tripWindow,
-  visitName,
 } from "../detail-model";
 import type { TravelRoute, TravelTripDetail } from "../hooks";
 import { dayCount, destinationOf, isSpendingRecorded, stayLabel } from "../list-model";
+import { REFERENCE_CITIES } from "../reference-cities";
 import { isRoutinePlace } from "../routine-places";
 import { Chevron, Collapse, enter, Fig, InsightLine, Pill } from "./parts";
 import { TripMenu } from "./TripMenu";
-import { type SketchLabel, TripRouteSketch, WalkSketch } from "./TripRouteSketch";
+import { TripRouteSketch, WalkSketch } from "./TripRouteSketch";
 
 const H3 =
   "m-0 font-serif text-[20px] leading-7 font-semibold tracking-[-0.02em] sm:text-[22px] sm:leading-[30px]";
@@ -134,7 +143,7 @@ function DetailHeader({
         <span className="text-label">
           <Link
             href="/travel"
-            className="rounded-sm hover:text-ink focus-visible:outline-2 focus-visible:outline-brand"
+            className="rounded-sm hover:text-ink focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-brand"
           >
             여행
           </Link>
@@ -192,8 +201,8 @@ function DetailHeader({
           {trip.autoDetected ? " · 자동 감지" : " · 직접 추가"}
         </p>
       </div>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" onClick={() => setEditing(true)} disabled={editing}>
+      <div className={cn("flex items-center gap-2", editing && "hidden")}>
+        <Button variant="outline" onClick={() => setEditing(true)}>
           이름 바꾸기
         </Button>
         <TripMenu
@@ -355,7 +364,7 @@ function Hero({
                 : "기간"}
             </span>
           </div>
-          <div className="flex flex-col gap-0.5 border-l border-line px-6">
+          <div className="flex flex-col gap-0.5 border-l border-line px-6 max-[359px]:pr-0">
             {recorded ? (
               <Fig value={<CountUp value={spending.total} />} unit="원" />
             ) : (
@@ -365,7 +374,7 @@ function Hero({
               지출{recorded ? ` · ${spending.transactions.length}건` : ""}
             </span>
           </div>
-          <div className="flex flex-col gap-0.5 border-l border-line pl-6">
+          <div className="flex flex-col gap-0.5 border-l border-line pl-6 max-[359px]:basis-full max-[359px]:border-l-0 max-[359px]:pl-0">
             <Fig value={formatCount(detail.visits.length)} unit="건" />
             <span className="text-label">머문 기록</span>
           </div>
@@ -398,7 +407,7 @@ function RunCard({ run, hero }: { run: DenseRun; hero: HeroDay | null }) {
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
-        className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-0 bg-transparent px-3.5 py-3 text-left text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-0 bg-transparent px-3.5 py-3 text-left text-ink focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
         <span className="flex min-w-0 flex-col gap-1">
           <span className="flex flex-wrap items-baseline gap-x-2.5">
@@ -602,6 +611,10 @@ function SpendingSection({ detail }: { detail: TravelTripDetail }) {
 
 // ── health ──────────────────────────────────────────────────────────────────
 
+/** Label column + one column per day; shared by both health tables so they line up. */
+const LABEL_COL_PX = 120;
+const DAY_COL_MIN_PX = 76;
+
 function HealthGrid({
   rows,
   days,
@@ -616,11 +629,11 @@ function HealthGrid({
   label: string;
 }) {
   return (
-    <table aria-label={label} className="w-full min-w-max border-collapse sm:min-w-0">
+    <table aria-label={label} className="relative w-full table-fixed border-collapse">
       <colgroup>
-        <col />
+        <col style={{ width: LABEL_COL_PX }} />
         {days.map((day) => (
-          <col key={day} className="w-[clamp(64px,18%,120px)]" />
+          <col key={day} />
         ))}
       </colgroup>
       <thead className={muted ? "sr-only" : undefined}>
@@ -633,7 +646,7 @@ function HealthGrid({
               key={day}
               scope="col"
               className={cn(
-                "text-label px-3 pb-2 text-right",
+                "text-label px-3 pb-2 text-right whitespace-nowrap",
                 day === heroDay && "font-semibold text-ink"
               )}
             >
@@ -648,7 +661,7 @@ function HealthGrid({
             <th
               scope="row"
               className={cn(
-                "text-left font-medium",
+                "pr-2 text-left font-medium",
                 muted ? "py-[9px] text-ink-2" : "py-[11px] text-sm text-ink"
               )}
             >
@@ -656,7 +669,7 @@ function HealthGrid({
               {row.unit ? <span className="text-xs font-normal text-ink-3">{row.unit}</span> : null}
             </th>
             {row.cells.map((cell, i) => {
-              const hot = !muted && days[i] === heroDay;
+              const hot = days[i] === heroDay;
               return (
                 <td
                   // biome-ignore lint/suspicious/noArrayIndexKey: one cell per day
@@ -664,15 +677,15 @@ function HealthGrid({
                   className={cn(
                     "num px-3 text-right whitespace-nowrap",
                     muted ? "py-[9px] text-ink-2" : "py-[11px] text-sm text-ink-2",
-                    hot && "font-semibold text-ink"
+                    hot && !muted && "font-semibold text-ink"
                   )}
-                  style={
-                    hot
-                      ? { background: "color-mix(in oklab, var(--health) 9%, transparent)" }
-                      : undefined
-                  }
                 >
                   {cell.text}
+                  {cell.sub ? (
+                    <span className="block text-[11px] leading-4 font-normal text-ink-3">
+                      {cell.sub}
+                    </span>
+                  ) : null}
                 </td>
               );
             })}
@@ -683,48 +696,128 @@ function HealthGrid({
   );
 }
 
+/** The hero day as one tinted column behind both tables (and the toggle between). */
+function HotColumn({ index, count }: { index: number; count: number }) {
+  if (index < 0) return null;
+  const col = `((100% - ${LABEL_COL_PX}px) / ${count})`;
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="hot-column"
+      className="pointer-events-none absolute inset-y-0"
+      style={{
+        left: `calc(${LABEL_COL_PX}px + ${index} * ${col})`,
+        width: `calc(${col})`,
+        background: "color-mix(in oklab, var(--health) 9%, transparent)",
+      }}
+    />
+  );
+}
+
+/** Horizontal scroller with a fade + arrow cue on whichever side has more to see. */
+function ScrollX({
+  children,
+  label,
+  minWidth,
+}: {
+  children: ReactNode;
+  label: string;
+  /** Content width below which the region scrolls instead of squeezing. */
+  minWidth: number;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const left = el.scrollLeft > 1;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [measure]);
+  return (
+    <div className="relative -mx-4 sm:mx-0">
+      <section
+        ref={ref}
+        aria-label={label}
+        tabIndex={edges.left || edges.right ? 0 : -1}
+        onScroll={measure}
+        className="overflow-x-auto px-4 outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-brand sm:px-0"
+      >
+        <div className="relative" style={{ minWidth }}>
+          {children}
+        </div>
+      </section>
+      {edges.left ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-linear-to-r from-page to-transparent"
+        />
+      ) : null}
+      {edges.right ? (
+        <span
+          aria-hidden="true"
+          data-testid="scroll-cue"
+          className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-start justify-end bg-linear-to-l from-page to-transparent pt-0.5 pr-1 text-ink-3"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroDay | null }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const table = healthTable(detail);
   if (table.primary.length === 0 && table.more.length === 0) return null;
+  const heroDay = hero?.day ?? null;
   return (
     <section aria-labelledby="trip-health-h" className="flex max-w-[640px] flex-col gap-3.5">
       <h2 id="trip-health-h" className={H3}>
         건강
       </h2>
-      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        <HealthGrid
-          rows={table.primary}
-          days={table.days}
-          heroDay={hero?.day ?? null}
-          label="건강 지표"
-        />
-      </div>
-      {table.more.length > 0 ? (
-        <div>
-          <Button
-            variant="ghost"
-            aria-expanded={open}
-            aria-controls={id}
-            onClick={() => setOpen((v) => !v)}
-            className="-ml-2 px-2 text-[13px]"
-          >
-            다른 지표 {table.more.length}개 <Chevron size={14} />
-          </Button>
-          <Collapse open={open} id={id}>
-            <div className="-mx-4 mt-1.5 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-              <HealthGrid
-                rows={table.more}
-                days={table.days}
-                heroDay={null}
-                muted
-                label="다른 건강 지표"
-              />
+      <ScrollX label="건강 지표 표" minWidth={LABEL_COL_PX + table.days.length * DAY_COL_MIN_PX}>
+        <HotColumn index={heroDay ? table.days.indexOf(heroDay) : -1} count={table.days.length} />
+        <HealthGrid rows={table.primary} days={table.days} heroDay={heroDay} label="건강 지표" />
+        {table.more.length > 0 ? (
+          <>
+            <div className="sticky left-0 w-fit pt-3.5">
+              <Button
+                variant="ghost"
+                aria-expanded={open}
+                aria-controls={id}
+                onClick={() => setOpen((v) => !v)}
+                className="-ml-2 px-2 text-[13px]"
+              >
+                다른 지표 {table.more.length}개 <Chevron size={14} />
+              </Button>
             </div>
-          </Collapse>
-        </div>
-      ) : null}
+            <Collapse open={open} id={id}>
+              <div className="mt-1.5">
+                <HealthGrid
+                  rows={table.more}
+                  days={table.days}
+                  heroDay={heroDay}
+                  muted
+                  label="다른 건강 지표"
+                />
+              </div>
+            </Collapse>
+          </>
+        ) : null}
+      </ScrollX>
     </section>
   );
 }
@@ -749,7 +842,7 @@ function DisclosureRow({
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
-        className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-1.5 border-0 bg-transparent py-4 text-left text-ink transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--track)_60%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand lg:grid-cols-[220px_minmax(0,1fr)_auto]"
+        className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-1.5 border-0 bg-transparent py-4 text-left text-ink transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--track)_60%,transparent)] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand lg:grid-cols-[220px_minmax(0,1fr)_auto]"
       >
         <span className="text-[15px] font-semibold">{title}</span>
         <span className="col-start-1 row-start-2 min-w-0 lg:col-start-2 lg:row-start-1">
@@ -904,19 +997,7 @@ export function TravelDetailView({
   const itinerary = buildItinerary(detail);
   const hero = pickHeroDay(detail, itinerary.runs);
   const routeDays = routeByDay(route.points, detail.trip.startDate, detail.trip.endDate);
-  const labels: SketchLabel[] = [];
-  const seen = new Set<string>();
-  const anchors = detail.visits.filter((v) => v.savedPlaceName);
-  const longStays = detail.visits
-    .filter((v) => !v.savedPlaceName && v.durationSeconds >= 20 * 60)
-    .sort((a, b) => b.durationSeconds - a.durationSeconds)
-    .slice(0, 5);
-  for (const v of [...anchors, ...longStays]) {
-    const text = v.savedPlaceName ?? visitName(v);
-    if (seen.has(text)) continue;
-    seen.add(text);
-    labels.push({ key: v.id, lat: v.centerLat, lon: v.centerLon, text });
-  }
+  const labels = mapLabels(detail);
   const run = hero?.run;
   const highlight =
     run && hero
@@ -947,6 +1028,7 @@ export function TravelDetailView({
             <TripRouteSketch
               days={routeDays}
               labels={labels}
+              references={REFERENCE_CITIES}
               highlight={highlight}
               ariaLabel={`여행 경로 지도: ${detail.trip.name}`}
             />

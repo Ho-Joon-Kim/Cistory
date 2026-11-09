@@ -1,31 +1,82 @@
 "use client";
 
-import { useState } from "react";
+import { type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEvidence } from "@/components/ds";
 import { cn } from "@/lib/utils";
 import type { TravelListSummary } from "../hooks";
-import { ribbonSpans, yearFraction } from "../list-model";
+import { nearestSpan, ribbonSpans, yearFraction } from "../list-model";
 
 const QUARTER_MONTHS = new Set([1, 4, 7, 10]);
+/** How far (px) from a block a pointer may land and still pick it. */
+const HIT_SLOP_PX = 22;
 
 /**
  * The year as one strip: each trip a block at its dates, month ticks, a "오늘"
  * marker and the rest of the year faded. Hover/focus a block for its name and
  * dates; an AI line hovered above lights up the trips it cites.
+ *
+ * Blocks are only a few px wide on a phone, so the buttons themselves don't
+ * take pointer input: one overlay over the strip snaps every pointer to the
+ * nearest block (within {@link HIT_SLOP_PX}), which gives each trip a usable
+ * hit area without ever resolving a tap to a trip the finger wasn't nearest.
+ * A tap pins the tooltip until the next tap elsewhere.
  */
 export function YearRibbon({ summary, today }: { summary: TravelListSummary; today: string }) {
   const { stateOf } = useEvidence();
   const [hover, setHover] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tipLeft, setTipLeft] = useState<number | null>(null);
   const spans = ribbonSpans(summary);
   const todayX = Math.min(1, Math.max(0, yearFraction(summary.year, today) + 0.5 / 365));
   const months = Array.from({ length: 12 }, (_, i) => ({
     month: i + 1,
     x: yearFraction(summary.year, `${summary.year}-${String(i + 1).padStart(2, "0")}-01`),
   }));
-  const hovered = spans.find((s) => s.id === hover);
+  const activeId = hover ?? pinned;
+  const hovered = spans.find((s) => s.id === activeId);
+
+  const spanAt = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    return nearestSpan(spans, (event.clientX - rect.left) / rect.width, HIT_SLOP_PX / rect.width);
+  };
+
+  // Clamp the tooltip inside the strip (which already sits inside the page gutter).
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    const tip = tipRef.current;
+    if (!hovered || !strip || !tip) {
+      setTipLeft(null);
+      return;
+    }
+    const width = strip.clientWidth;
+    const tipWidth = tip.offsetWidth;
+    const centre = ((hovered.from + hovered.to) / 2) * width;
+    setTipLeft(Math.max(0, Math.min(width - tipWidth, centre - tipWidth / 2)));
+  }, [hovered]);
+
+  // A pinned (tapped) tooltip stays until a tap lands outside the strip.
+  useEffect(() => {
+    if (!pinned) return;
+    const onDown = (event: globalThis.PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setPinned(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPinned(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [pinned]);
 
   return (
-    <div className="relative mt-3 pt-5">
+    <div ref={rootRef} className="relative mt-3 pt-5">
       <span
         className="absolute top-0 z-[1] -translate-x-1/2 bg-page px-1 text-xs leading-4 font-semibold text-ink"
         style={{ left: `${todayX * 100}%` }}
@@ -33,6 +84,7 @@ export function YearRibbon({ summary, today }: { summary: TravelListSummary; tod
         오늘
       </span>
       <div
+        ref={stripRef}
         role="img"
         aria-label={`${summary.year}년 여행 달력: ${spans.length}건`}
         className="relative h-10"
@@ -59,11 +111,10 @@ export function YearRibbon({ summary, today }: { summary: TravelListSummary; tod
             type="button"
             aria-label={`${span.name} ${span.range} · ${span.stay}`}
             data-evidence={stateOf(span.id)}
-            onMouseEnter={() => setHover(span.id)}
-            onMouseLeave={() => setHover(null)}
+            data-active={activeId === span.id ? "true" : undefined}
             onFocus={() => setHover(span.id)}
             onBlur={() => setHover(null)}
-            className="ds-growx absolute top-1.5 h-7 cursor-default rounded-[3px] bg-place p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand data-[evidence=on]:bg-brand"
+            className="ds-growx pointer-events-none absolute top-1.5 h-7 cursor-default rounded-[3px] bg-place p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand focus-visible:outline-solid data-[active=true]:bg-brand data-[evidence=on]:bg-brand"
             style={{
               left: `${span.from * 100}%`,
               width: `max(3px, calc(${(span.to - span.from) * 100}% - 1px))`,
@@ -76,10 +127,32 @@ export function YearRibbon({ summary, today }: { summary: TravelListSummary; tod
           className="absolute top-0.5 h-9 w-[1.5px] bg-ink"
           style={{ left: `${todayX * 100}%` }}
         />
+        {/* Pointer overlay: 44px tall (strip + padding), snaps to the nearest block. */}
+        <div
+          aria-hidden="true"
+          data-testid="year-ribbon-hit"
+          className="absolute inset-x-0 -top-0.5 h-11"
+          onPointerMove={(event) => {
+            if (event.pointerType === "mouse") setHover(spanAt(event)?.id ?? null);
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") setHover(null);
+          }}
+          onPointerDown={(event) => {
+            if (event.pointerType === "mouse") return;
+            const id = spanAt(event)?.id ?? null;
+            setPinned((prev) => (id && prev !== id ? id : null));
+          }}
+        />
         {hovered ? (
           <div
-            className="ds-pop pointer-events-none absolute top-12 z-20 -translate-x-1/2 rounded-[10px] bg-surface px-2.5 py-2 text-xs leading-[18px] whitespace-nowrap shadow-tip"
-            style={{ left: `${((hovered.from + hovered.to) / 2) * 100}%` }}
+            ref={tipRef}
+            data-testid="year-ribbon-tip"
+            className="ds-pop pointer-events-none absolute top-12 z-20 rounded-[10px] bg-surface px-2.5 py-2 text-xs leading-[18px] whitespace-nowrap shadow-tip"
+            style={{
+              left: tipLeft ?? 0,
+              visibility: tipLeft === null ? "hidden" : undefined,
+            }}
           >
             <b className="font-semibold">{hovered.name}</b>{" "}
             <span className="text-ink-2">

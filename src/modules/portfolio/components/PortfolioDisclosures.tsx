@@ -265,6 +265,8 @@ export function PortfolioDisclosures({
       : null;
   const unfilled = executions.filter((e) => e.filledQty === 0 && !e.cancelled).length;
   const lastFill = executions.find((e) => e.filledQty > 0);
+  // Orders that never filled (미체결/취소) are listed but not counted as fills.
+  const filledCount = executions.filter((e) => e.filledQty > 0).length;
 
   return (
     <section aria-label="자세히" className="pb-12 lg:pb-[72px]">
@@ -338,7 +340,7 @@ export function PortfolioDisclosures({
         id="pf-executions"
         title={
           <>
-            최근 체결 <span className="num">{executions.length}건</span>
+            최근 체결 <span className="num">{filledCount}건</span>
           </>
         }
         summary={

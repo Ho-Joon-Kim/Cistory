@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import type { RouteDay } from "../detail-model";
 
 export interface SketchLabel {
@@ -8,6 +9,15 @@ export interface SketchLabel {
   lat: number;
   lon: number;
   text: string;
+  /** anchor (default): ringed marker; station: small marker. */
+  kind?: "anchor" | "station";
+}
+
+/** Faint context label (a city the route passes near); no marker. */
+export interface SketchReference {
+  name: string;
+  lat: number;
+  lon: number;
 }
 
 export interface SketchHighlight {
@@ -91,6 +101,7 @@ const STROKE: Record<RouteDay["role"], { color: string; width: number; dash?: st
 export function TripRouteSketch({
   days,
   labels,
+  references = [],
   highlight,
   minHeight = 360,
   maxHeight = 680,
@@ -98,6 +109,7 @@ export function TripRouteSketch({
 }: {
   days: RouteDay[];
   labels: SketchLabel[];
+  references?: readonly SketchReference[];
   highlight?: SketchHighlight | null;
   minHeight?: number;
   maxHeight?: number;
@@ -114,9 +126,68 @@ export function TripRouteSketch({
   }
   const height = sketchHeight(all, width, minHeight, maxHeight);
   const project = fitProjection(all, width, height, 40);
-  const placed: { x: number; y: number; w: number }[] = [];
-  const free = (x: number, y: number, w: number) =>
-    placed.every((p) => Math.abs(p.y - y) > 14 || x + w < p.x - 4 || x > p.x + p.w + 4);
+  type Box = { x: number; y: number; w: number };
+  const placed: Box[] = [];
+  const free = (x: number, y: number, w: number, own?: Box) =>
+    placed.every(
+      (p) => p === own || Math.abs(p.y - y) > 14 || x + w < p.x - 4 || x > p.x + p.w + 4
+    );
+  const textWidth = (text: string, px: number) => text.length * px + 8;
+
+  // Markers: one per spot (two saved places a few px apart read as one blob).
+  const markers: { label: SketchLabel; x: number; y: number }[] = [];
+  for (const label of labels) {
+    const { x, y } = project(label);
+    if (markers.some((m) => Math.hypot(m.x - x, m.y - y) < 10)) continue;
+    markers.push({ label, x, y });
+  }
+  // Marker discs and the highlight callout are obstacles for every label.
+  const discs = markers.map((m) => ({ x: m.x - 5, y: m.y, w: 10 }));
+  placed.push(...discs);
+  const hl = highlight ? project(highlight) : null;
+  if (hl) placed.push({ x: hl.x - 5, y: hl.y, w: 10 });
+
+  // Saved places first: they always get a name (right, left, above, below —
+  // the first free spot, else right anyway since text draws on top). Stations
+  // are optional context: no free spot, no label and no marker.
+  const ordered = markers
+    .map((m, i) => ({ ...m, disc: discs[i] }))
+    .sort((p, q) => (p.label.kind === "station" ? 1 : 0) - (q.label.kind === "station" ? 1 : 0));
+  const markerText = ordered.flatMap((m) => {
+    const w = textWidth(m.label.text, 12);
+    type Spot = { tx: number; ty: number; anchor: "start" | "end" | "middle"; box: number };
+    const spots: Spot[] = (
+      [
+        { tx: m.x + 8, ty: m.y + 4, anchor: "start", box: m.x + 8 },
+        { tx: m.x - 8, ty: m.y + 4, anchor: "end", box: m.x - 8 - w },
+        { tx: m.x, ty: m.y - 9, anchor: "middle", box: m.x - w / 2 },
+        { tx: m.x, ty: m.y + 19, anchor: "middle", box: m.x - w / 2 },
+      ] satisfies Spot[]
+    ).filter((c) => c.box >= 4 && c.box + w <= width - 4 && c.ty > 12 && c.ty < height - 4);
+    const spot = spots.find((c) => free(c.box, c.ty - 4, w, m.disc));
+    const station = m.label.kind === "station";
+    if (!spot && station) {
+      placed.splice(placed.indexOf(m.disc), 1);
+      return [];
+    }
+    const chosen: Spot = spot ??
+      spots[0] ?? { tx: m.x + 8, ty: m.y + 4, anchor: "start", box: m.x + 8 };
+    placed.push({ x: chosen.box, y: chosen.ty - 4, w });
+    return [{ ...m, ...chosen }];
+  });
+  const drawn = new Set(markerText.map((m) => m.label.key));
+
+  const refs = references
+    .map((r) => ({ r, ...project(r) }))
+    .filter((r) => r.x > 16 && r.x < width - 16 && r.y > 14 && r.y < height - 10)
+    .filter((r) => !labels.some((l) => l.text.startsWith(r.r.name)))
+    .flatMap((r) => {
+      const w = textWidth(r.r.name, 11);
+      const box = r.x - w / 2;
+      if (box < 4 || box + w > width - 4 || !free(box, r.y, w)) return [];
+      placed.push({ x: box, y: r.y, w });
+      return [r];
+    });
 
   return (
     <div ref={ref} className="w-full min-w-0">
@@ -150,16 +221,36 @@ export function TripRouteSketch({
             />
           );
         })}
-        {labels.map((label) => {
-          const { x, y } = project(label);
-          const w = label.text.length * 12 + 8;
-          const right = x + 8 + w < width - 4;
-          const tx = right ? x + 8 : x - 8;
-          const show = free(right ? tx : tx - w, y, w);
-          if (show) placed.push({ x: right ? tx : tx - w, y, w });
-          return (
-            <g key={label.key}>
+        {refs.map(({ r, x, y }) => (
+          <text
+            key={`ref-${r.name}`}
+            x={x}
+            y={y + 4}
+            textAnchor="middle"
+            className="fill-ink-3 text-[11px] tracking-[0.04em]"
+            style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
+          >
+            {r.name}
+          </text>
+        ))}
+        {markers
+          .filter(({ label }) => drawn.has(label.key))
+          .map(({ label, x, y }) =>
+            label.kind === "station" ? (
+              <rect
+                key={label.key}
+                x={x - 3.5}
+                y={y - 3.5}
+                width={7}
+                height={7}
+                rx={1.5}
+                fill="var(--surface)"
+                stroke="var(--ink2)"
+                strokeWidth={1.5}
+              />
+            ) : (
               <circle
+                key={label.key}
                 cx={x}
                 cy={y}
                 r={4.5}
@@ -167,23 +258,11 @@ export function TripRouteSketch({
                 stroke="var(--ink)"
                 strokeWidth={1.8}
               />
-              {show ? (
-                <text
-                  x={tx}
-                  y={y + 4}
-                  textAnchor={right ? "start" : "end"}
-                  className="fill-ink text-xs font-medium"
-                  style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
-                >
-                  {label.text}
-                </text>
-              ) : null}
-            </g>
-          );
-        })}
+            )
+          )}
         {highlight
           ? (() => {
-              const { x, y } = project(highlight);
+              const { x, y } = hl ?? project(highlight);
               const left = x > width / 2;
               const lx = left ? Math.max(12, x - 140) : Math.min(width - 12, x + 140);
               const ly = Math.max(28, y - 24);
@@ -213,6 +292,22 @@ export function TripRouteSketch({
               );
             })()
           : null}
+        {/* Label text last, so a marker or callout never covers a name. */}
+        {markerText.map(({ label, tx, ty, anchor }) => (
+          <text
+            key={`t-${label.key}`}
+            x={tx}
+            y={ty}
+            textAnchor={anchor}
+            className={cn(
+              "text-xs font-medium",
+              label.kind === "station" ? "fill-ink-2" : "fill-ink"
+            )}
+            style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
+          >
+            {label.text}
+          </text>
+        ))}
       </svg>
     </div>
   );

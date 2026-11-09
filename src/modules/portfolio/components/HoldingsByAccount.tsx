@@ -121,7 +121,7 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
                     aria-controls={panelId}
                     onClick={() => setOpen(isOpen ? null : id)}
                     className={cn(
-                      "grid min-h-16 w-full cursor-pointer grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2 border-0 border-b border-line py-2.5 text-left transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand lg:h-14 lg:min-h-0 lg:gap-x-0 lg:py-0 [@media(hover:hover)]:hover:bg-sunken",
+                      "grid min-h-16 w-full cursor-pointer grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2 border-0 border-b border-line py-2.5 text-left transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-brand lg:h-14 lg:min-h-0 lg:gap-x-0 lg:py-0 [@media(hover:hover)]:hover:bg-sunken",
                       COLS,
                       isOpen ? "bg-sunken" : ev === "on" ? "bg-brand-soft" : "bg-transparent"
                     )}
@@ -129,7 +129,12 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
                     <Chevron open={isOpen} direction="right" size={14} className="lg:ml-1.5" />
                     <span className="flex min-w-0 flex-col gap-0.5 lg:gap-0">
                       <span className="flex min-w-0 items-center gap-2 text-sm leading-5 font-medium">
-                        <span className="min-w-0">{r.name}</span>
+                        <span
+                          title={r.name}
+                          className="line-clamp-2 min-w-0 break-keep [overflow-wrap:anywhere]"
+                        >
+                          {r.name}
+                        </span>
                         {r.flag ? (
                           <span className="hidden lg:inline-flex">
                             <Flag>{r.flag}</Flag>
@@ -139,8 +144,8 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
                       <span className="num hidden text-xs leading-4 text-ink-3 lg:block">
                         {r.ticker}
                       </span>
-                      <span className="flex items-center gap-1.5 text-xs leading-4 text-ink-3 lg:hidden">
-                        <span className="num">
+                      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-4 text-ink-3 lg:hidden">
+                        <span className="num whitespace-nowrap">
                           {formatCount(r.quantity)}주 · 비중 {pctOne(r.weight)}
                         </span>
                         {r.flag ? <Flag>{r.flag}</Flag> : null}
