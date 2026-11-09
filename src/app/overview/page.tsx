@@ -1,106 +1,77 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { LoadingState, PageContainer, PageTitle } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { toKstCalendarDate } from "@/lib/date-key";
 import { useAuth } from "@/modules/auth/hooks";
 import { resolveComparisonYears } from "@/modules/overview/comparison";
-import { AsOfBadge } from "@/modules/overview/components/AsOfBadge";
 import { ComputingState } from "@/modules/overview/components/ComputingState";
-import { OverviewCards } from "@/modules/overview/components/cards/OverviewCards";
 import { OverviewComparison } from "@/modules/overview/components/OverviewComparison";
-import { PeriodSwitcher } from "@/modules/overview/components/PeriodSwitcher";
+import { OverviewView } from "@/modules/overview/components/view/OverviewView";
+import { PeriodControls } from "@/modules/overview/components/view/PeriodControls";
+import type { HistoryPeriodType } from "@/modules/overview/history";
 import {
   type OverviewPeriodSelection,
   resolveOverviewPeriod,
+  useOverviewHistory,
   useOverviewNarrative,
   useOverviewSnapshot,
 } from "@/modules/overview/hooks";
 import { focusOverviewSection } from "@/modules/overview/section-focus";
-import type { OverviewSnapshotResponse } from "@/modules/overview/service";
+import { periodContext, periodMeta, periodTitle } from "@/modules/overview/view/labels";
+import { buildOverviewModel } from "@/modules/overview/view/model";
 import { shouldShowOverviewFailure } from "@/modules/overview/view-state";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 
-function OverviewResults({
-  snapshot,
-  error,
-  isLoading,
-  recompute,
-  narrative,
-  showNarrative,
-}: {
-  snapshot: OverviewSnapshotResponse | null;
-  error: string | null;
-  isLoading: boolean;
-  recompute: () => Promise<void>;
-  narrative: { content?: string | null; generatedAt?: string | null } | null;
-  showNarrative: boolean;
-}) {
-  if (error) {
-    return <ComputingState status="failed" error={error} onRecompute={() => void recompute()} />;
-  }
-  if (isLoading || !snapshot) return <ComputingState status="loading" />;
-  if (snapshot.status === "missing") return <ComputingState status="pending" />;
-  if (!("domains" in snapshot)) {
-    return <ComputingState status={snapshot.status} />;
-  }
-
-  return (
-    <>
-      {shouldShowOverviewFailure(snapshot) ? (
-        <ComputingState
-          status="failed"
-          error="일부 영역을 계산하지 못했습니다. 다시 계산을 요청해 주세요."
-          onRecompute={() => void recompute()}
-        />
-      ) : null}
-      <OverviewCards payload={snapshot.domains} periodType={snapshot.periodType} />
-      {showNarrative && narrative?.content ? (
-        <section data-overview-slot="narrative" aria-labelledby="narrative-title">
-          <Card>
-            <CardHeader className="flex-row items-start justify-between gap-3">
-              <CardTitle id="narrative-title" className="text-base">
-                회고
-              </CardTitle>
-              <AsOfBadge computedAt={narrative.generatedAt} />
-            </CardHeader>
-            <CardContent className="max-w-2xl whitespace-pre-wrap text-pretty text-sm leading-relaxed">
-              {narrative.content}
-            </CardContent>
-          </Card>
-        </section>
-      ) : null}
-    </>
-  );
+/**
+ * The redesigned overview offers 주·월·년. A legacy `recent` link (or none at all)
+ * lands on the current month.
+ */
+function resolveSelection(
+  rawType: string | null,
+  rawKey: string | null,
+  now: Date
+): { periodType: HistoryPeriodType; periodKey: string } {
+  const type = rawType === "week" || rawType === "month" || rawType === "year" ? rawType : "month";
+  const selection = resolveOverviewPeriod(type, type === rawType ? rawKey : null, now);
+  return selection as { periodType: HistoryPeriodType; periodKey: string };
 }
 
 function OverviewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
-  const [initialNow] = useState(() => new Date());
+  const [now] = useState(() => new Date());
+  const today = toKstCalendarDate(now);
   const rawPeriodType = searchParams.get("periodType");
   const rawPeriodKey = searchParams.get("periodKey");
   const isComparison = searchParams.get("mode") === "comparison";
   const comparisonYears = resolveComparisonYears(
     searchParams.get("year1"),
     searchParams.get("year2"),
-    initialNow
+    now
   );
-  const selection: OverviewPeriodSelection = isComparison
+  const selection: { periodType: HistoryPeriodType; periodKey: string } = isComparison
     ? { periodType: "year", periodKey: comparisonYears.year2 }
-    : resolveOverviewPeriod(rawPeriodType, rawPeriodKey, initialNow);
+    : resolveSelection(rawPeriodType, rawPeriodKey, now);
   const { snapshot, error, isLoading, recompute } = useOverviewSnapshot(
     selection.periodType,
     selection.periodKey,
     isAuthenticated && !isComparison
   );
+  const ready = snapshot && "domains" in snapshot ? snapshot : null;
   const narrative = useOverviewNarrative(
     selection.periodType,
     selection.periodKey,
     isAuthenticated && !isComparison && snapshot?.status === "ready"
+  );
+  const history = useOverviewHistory(
+    selection.periodType,
+    selection.periodKey,
+    isAuthenticated && !isComparison,
+    ready?.computedAt ?? null
   );
 
   useEffect(() => {
@@ -164,59 +135,113 @@ function OverviewContent() {
 
   const requestedSection = searchParams.get("section");
   useEffect(() => {
-    if (isComparison || requestedSection !== "health" || !snapshot || !("domains" in snapshot)) {
-      return;
-    }
+    if (isComparison || requestedSection !== "health" || !ready) return;
     const frame = window.requestAnimationFrame(() => {
       focusOverviewSection("health");
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isComparison, requestedSection, snapshot]);
+  }, [isComparison, requestedSection, ready]);
+
+  const model = useMemo(
+    () =>
+      ready
+        ? buildOverviewModel({
+            periodType: selection.periodType,
+            periodKey: selection.periodKey,
+            computedAt: ready.computedAt,
+            domains: ready.domains,
+            history,
+            today,
+            now,
+          })
+        : null,
+    [ready, history, selection.periodType, selection.periodKey, today, now]
+  );
+  const ctx = periodContext(selection.periodType, selection.periodKey, today, now);
 
   if (isAuthLoading) {
     return (
-      <output className="flex min-h-screen items-center justify-center">
-        <Loader2 aria-hidden="true" className="size-8 animate-spin text-muted-foreground" />
-        <span className="sr-only">로그인 상태 확인 중</span>
-      </output>
+      <div className="min-h-screen bg-page">
+        <PageContainer>
+          <LoadingState label="로그인 상태 확인 중" />
+        </PageContainer>
+      </div>
     );
   }
   if (!isAuthenticated) return null;
 
+  let body: ReactNode;
+  if (isComparison) {
+    body = (
+      <div className="mt-8">
+        <OverviewComparison
+          {...comparisonYears}
+          enabled={isAuthenticated}
+          onYearsChange={changeComparisonYears}
+        />
+      </div>
+    );
+  } else if (error) {
+    body = (
+      <div className="mt-10">
+        <ComputingState status="failed" error={error} onRecompute={() => void recompute()} />
+      </div>
+    );
+  } else if (isLoading || !snapshot) {
+    body = (
+      <div className="mt-10">
+        <ComputingState status="loading" />
+      </div>
+    );
+  } else if (!model || !ready) {
+    body = (
+      <div className="mt-10">
+        <ComputingState status={snapshot.status === "computing" ? "computing" : "pending"} />
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        {shouldShowOverviewFailure(ready) ? (
+          <div className="mt-8">
+            <ComputingState
+              status="failed"
+              error="일부 영역을 계산하지 못했어요. 다시 계산을 요청해 주세요."
+              onRecompute={() => void recompute()}
+            />
+          </div>
+        ) : null}
+        <OverviewView
+          key={`${selection.periodType}:${selection.periodKey}`}
+          model={model}
+          narrative={narrative?.status === "ready" ? (narrative.content ?? null) : null}
+        />
+      </>
+    );
+  }
+
   return (
     <SyncStatusProvider>
-      <div data-neon className="min-h-screen bg-background">
+      <div className="min-h-screen bg-page text-ink [--bar2:#8D948F] dark:[--bar2:#5F6862]">
         <Header />
-        <main id="main" className="container mx-auto space-y-6 px-4 py-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-ink-mute">통합 대시보드</p>
-              <h1 className="mt-1 text-2xl font-bold">내 흐름 한눈에 보기</h1>
-            </div>
-            {!isComparison ? (
-              <div className="w-full lg:w-[430px]">
-                <PeriodSwitcher {...selection} onChange={changePeriod} />
-              </div>
-            ) : null}
-          </div>
-
-          {isComparison ? (
-            <OverviewComparison
-              {...comparisonYears}
-              enabled={isAuthenticated}
-              onYearsChange={changeComparisonYears}
-            />
-          ) : (
-            <OverviewResults
-              snapshot={snapshot}
-              error={error}
-              isLoading={isLoading}
-              recompute={recompute}
-              narrative={narrative}
-              showNarrative={selection.periodType !== "recent"}
-            />
-          )}
-        </main>
+        <PageContainer>
+          <PageTitle
+            className="ds-enter"
+            title={isComparison ? "연간 비교" : periodTitle(ctx)}
+            meta={isComparison ? null : periodMeta(ctx, ready?.computedAt ?? null)}
+            actions={
+              isComparison ? null : (
+                <PeriodControls
+                  periodType={selection.periodType}
+                  periodKey={selection.periodKey}
+                  onChange={changePeriod}
+                  now={now}
+                />
+              )
+            }
+          />
+          {body}
+        </PageContainer>
       </div>
     </SyncStatusProvider>
   );
@@ -226,10 +251,11 @@ export default function OverviewPage() {
   return (
     <Suspense
       fallback={
-        <output className="flex min-h-screen items-center justify-center">
-          <Loader2 aria-hidden="true" className="size-8 animate-spin text-muted-foreground" />
-          <span className="sr-only">대시보드 준비 중</span>
-        </output>
+        <div className="min-h-screen bg-page">
+          <PageContainer>
+            <LoadingState label="개요 준비 중" />
+          </PageContainer>
+        </div>
       }
     >
       <OverviewContent />

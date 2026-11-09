@@ -1,5 +1,4 @@
-import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ErrorState, LoadingState } from "@/components/ds";
 
 interface ComputingStateProps {
   status: "loading" | "pending" | "computing" | "failed";
@@ -7,37 +6,41 @@ interface ComputingStateProps {
   onRecompute?: () => void;
 }
 
+/** Loading / computing / failed states for a stored period snapshot. */
 export function ComputingState({ status, error, onRecompute }: ComputingStateProps) {
   if (status === "failed") {
     return (
-      <div
-        role="alert"
-        className="flex flex-col items-center gap-3 rounded-xl border p-8 text-center"
-      >
-        <AlertCircle aria-hidden="true" className="size-6 text-destructive" />
-        <div>
-          <p className="font-medium">대시보드를 계산하지 못했습니다</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {error ?? "잠시 후 다시 시도해 주세요."}
-          </p>
-        </div>
-        {onRecompute ? (
-          <Button type="button" variant="outline" size="sm" onClick={onRecompute}>
-            <RefreshCw aria-hidden="true" className="size-4" />
-            다시 계산
-          </Button>
-        ) : null}
-      </div>
+      <ErrorState
+        title="이 기간을 계산하지 못했어요"
+        description={error ?? "잠시 후 다시 시도해 주세요."}
+        actions={
+          onRecompute ? (
+            <button
+              type="button"
+              onClick={onRecompute}
+              className="inline-flex h-9 cursor-pointer items-center rounded-[9px] border-0 bg-surface px-3.5 text-[13px] font-semibold text-ink shadow-ring transition-[scale,box-shadow] duration-150 hover:shadow-ring-hover active:scale-96 focus-visible:outline-2 focus-visible:outline-brand"
+            >
+              다시 계산
+            </button>
+          ) : null
+        }
+      />
     );
   }
 
+  const label = status === "loading" ? "개요를 불러오는 중" : "이 기간을 계산하는 중";
   return (
-    <output
-      aria-live="polite"
-      className="flex items-center justify-center gap-3 rounded-xl border p-8 text-sm text-muted-foreground"
-    >
-      <Loader2 aria-hidden="true" className="size-5 animate-spin" />
-      {status === "loading" ? "대시보드를 불러오는 중입니다" : "대시보드를 계산하는 중입니다"}
-    </output>
+    <div className="flex flex-col gap-3">
+      {status !== "loading" ? (
+        <output aria-live="polite" className="text-[13px] leading-5 text-ink-2">
+          이 기간을 계산하고 있어요. 끝나면 바로 보여드릴게요.
+        </output>
+      ) : null}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <LoadingState label={label} />
+        <LoadingState label={label} className="hidden lg:flex" />
+        <LoadingState label={label} className="hidden lg:flex" />
+      </div>
+    </div>
   );
 }
