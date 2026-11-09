@@ -18,6 +18,12 @@ interface SubwayLayerProps {
   minZoomLabels?: number;
   /** Optional: only keep the given line ids in the overlay (for Phase 2 highlights). */
   highlightLineIds?: string[] | null;
+  /**
+   * Quiet context rendering for the day map: neutral grey lines, hollow station
+   * rings and small grey names instead of line colours, so the user's own route
+   * stays the only colour on the map. Colors come from the page tokens.
+   */
+  muted?: { line: string; station: string; label: string; halo: string } | null;
 }
 
 /**
@@ -57,6 +63,7 @@ export function SubwayLayer({
   minZoomStations = 12,
   minZoomLabels = 14,
   highlightLineIds,
+  muted = null,
 }: SubwayLayerProps) {
   const { current: map } = useMap();
   const [bbox, setBbox] = useState<Bbox | null>(null);
@@ -120,11 +127,19 @@ export function SubwayLayer({
           id="subway-lines-layer"
           type="line"
           minzoom={minZoomLines}
-          paint={{
-            "line-color": ["get", "color"],
-            "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.1, 12, 1.9, 16, 3.2],
-            "line-opacity": isDark ? 0.42 : 0.68,
-          }}
+          paint={
+            muted
+              ? {
+                  "line-color": muted.line,
+                  "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 12, 1.4, 16, 2.4],
+                  "line-opacity": 0.32,
+                }
+              : {
+                  "line-color": ["get", "color"],
+                  "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.1, 12, 1.9, 16, 3.2],
+                  "line-opacity": isDark ? 0.42 : 0.68,
+                }
+          }
           layout={{ "line-join": "round", "line-cap": "round" }}
         />
       </Source>
@@ -133,26 +148,40 @@ export function SubwayLayer({
           id="subway-stations-layer"
           type="circle"
           minzoom={minZoomStations}
-          paint={{
-            // Transfer stations read as slightly larger dots.
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              11,
-              ["case", ["boolean", ["get", "isTransfer"], false], 2.6, 2],
-              14,
-              ["case", ["boolean", ["get", "isTransfer"], false], 5.2, 4],
-              17,
-              ["case", ["boolean", ["get", "isTransfer"], false], 9, 7],
-            ],
-            // Paint each station with its primary line's colour; fall back to
-            // the old neutral dot when no line matched its OSM line_refs.
-            "circle-color": ["coalesce", ["get", "color"], isDark ? "#d8dde5" : "#ffffff"],
-            // Light halo so a coloured dot stays legible on top of its own line.
-            "circle-stroke-color": isDark ? "#0d1117" : "#ffffff",
-            "circle-stroke-width": ["case", ["boolean", ["get", "isTransfer"], false], 2, 1.5],
-          }}
+          paint={
+            muted
+              ? {
+                  "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 1.6, 14, 2.6, 17, 4],
+                  "circle-color": muted.halo,
+                  "circle-stroke-color": muted.station,
+                  "circle-stroke-width": 1.2,
+                }
+              : {
+                  // Transfer stations read as slightly larger dots.
+                  "circle-radius": [
+                    "interpolate",
+                    ["linear"],
+                    ["zoom"],
+                    11,
+                    ["case", ["boolean", ["get", "isTransfer"], false], 2.6, 2],
+                    14,
+                    ["case", ["boolean", ["get", "isTransfer"], false], 5.2, 4],
+                    17,
+                    ["case", ["boolean", ["get", "isTransfer"], false], 9, 7],
+                  ],
+                  // Paint each station with its primary line's colour; fall back to
+                  // the old neutral dot when no line matched its OSM line_refs.
+                  "circle-color": ["coalesce", ["get", "color"], isDark ? "#d8dde5" : "#ffffff"],
+                  // Light halo so a coloured dot stays legible on top of its own line.
+                  "circle-stroke-color": isDark ? "#0d1117" : "#ffffff",
+                  "circle-stroke-width": [
+                    "case",
+                    ["boolean", ["get", "isTransfer"], false],
+                    2,
+                    1.5,
+                  ],
+                }
+          }
         />
         <Layer
           id="subway-stations-labels"
@@ -160,19 +189,29 @@ export function SubwayLayer({
           minzoom={minZoomLabels}
           layout={{
             "text-field": ["get", "name"],
-            "text-size": ["interpolate", ["linear"], ["zoom"], 13, 11.5, 16, 15],
-            "text-offset": [0, 1.2],
-            "text-anchor": "top",
+            "text-size": muted
+              ? ["interpolate", ["linear"], ["zoom"], 13, 10, 16, 12]
+              : ["interpolate", ["linear"], ["zoom"], 13, 11.5, 16, 15],
+            "text-offset": muted ? [0.6, 0] : [0, 1.2],
+            "text-anchor": muted ? "left" : "top",
             "text-letter-spacing": 0.02,
             "text-optional": true,
             "text-allow-overlap": false,
           }}
-          paint={{
-            "text-color": isDark ? "#f8fafc" : "#111827",
-            "text-halo-color": isDark ? "#111318" : "#ffffff",
-            "text-halo-width": 2,
-            "text-halo-blur": 0.4,
-          }}
+          paint={
+            muted
+              ? {
+                  "text-color": muted.label,
+                  "text-halo-color": muted.halo,
+                  "text-halo-width": 1.5,
+                }
+              : {
+                  "text-color": isDark ? "#f8fafc" : "#111827",
+                  "text-halo-color": isDark ? "#111318" : "#ffffff",
+                  "text-halo-width": 2,
+                  "text-halo-blur": 0.4,
+                }
+          }
         />
       </Source>
     </>
