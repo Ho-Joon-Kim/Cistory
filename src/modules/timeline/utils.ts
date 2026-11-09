@@ -1,3 +1,4 @@
+import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import type { TimelineCommit } from "./hooks";
 import type { TimeEventSubGroup, TimelineEvent } from "./types";
 
@@ -33,34 +34,26 @@ export interface DateEntry {
   isEmpty: boolean;
 }
 
-function toLocalDateKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-export function fillDateRange(groupedCommits: Record<string, TimelineCommit[]>): DateEntry[] {
+export function fillDateRange(
+  groupedCommits: Record<string, TimelineCommit[]>,
+  now: Date = new Date()
+): DateEntry[] {
   const dates = Object.keys(groupedCommits);
   if (dates.length === 0) return [];
 
-  // Find oldest date among commits
   const sorted = dates.sort(); // ascending "YYYY-MM-DD"
   const oldest = sorted[0];
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = new Date(`${oldest}T00:00:00`); // parse as local
-  start.setHours(0, 0, 0, 0);
+  // "Today" is the KST calendar day — the same anchor parseDateParam uses for
+  // the selected date. Anchoring on the browser's local day instead left the
+  // range empty between 00:00 and 09:00 KST on any non-KST browser (the
+  // selected KST date was "tomorrow" relative to the cursor's start).
+  const today = toKstCalendarDate(now);
+  const newest = sorted[sorted.length - 1] > today ? sorted[sorted.length - 1] : today;
 
   const entries: DateEntry[] = [];
-  const cursor = new Date(today);
-
-  while (cursor >= start) {
-    const key = toLocalDateKey(cursor);
+  for (let key = newest; key >= oldest; key = shiftDateKey(key, -1)) {
     const commits = groupedCommits[key] ?? [];
     entries.push({ date: key, commits, isEmpty: commits.length === 0 });
-    cursor.setDate(cursor.getDate() - 1);
   }
 
   return entries; // descending (newest first)
