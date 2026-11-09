@@ -1,7 +1,7 @@
 "use client";
 
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
-import { EvidenceScope, Segmented, useEvidence } from "@/components/ds";
+import { AiLine, EvidenceScope, Segmented, useEvidence } from "@/components/ds";
 import { evidenceMatches } from "@/lib/facts/evidence";
 import { formatDay, formatMonthDay, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -17,7 +17,6 @@ import {
   median,
   withUnit,
 } from "../view-model";
-import { HealthAiLine } from "./HealthAiLine";
 
 type Range = "7" | "30";
 
@@ -470,7 +469,7 @@ export function ActivitySection({
             ) : null}
           </p>
           <div className="max-w-[720px]">
-            <HealthAiLine fact={fact} title="걸음 × 장소 해석" />
+            <AiLine fact={fact} rows={fact?.rows} title="걸음 × 장소 해석" tint />
           </div>
         </div>
 

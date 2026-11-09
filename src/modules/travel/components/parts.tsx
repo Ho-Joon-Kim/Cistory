@@ -21,12 +21,7 @@ export function InsightLine({
   return (
     <AiLine evidence={insight.evidence} className={className} as={as}>
       {insight.pre}
-      <FactTrigger
-        rows={insight.rows}
-        note={insight.source}
-        align={align}
-        numeric={/^[\d,.]/.test(insight.trigger)}
-      >
+      <FactTrigger rows={insight.rows} note={insight.source} align={align}>
         {insight.trigger}
       </FactTrigger>
       {insight.post}

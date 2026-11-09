@@ -828,7 +828,9 @@ function RoutineDisclosure({ detail, hero }: { detail: TravelTripDetail; hero: H
           // interactive line (with its evidence popover) sits in the panel.
           <span className="ai-voice">
             {insight.pre}
-            <span className="ds-fact num cursor-[inherit]">{insight.trigger}</span>
+            <span className={cn("ds-fact cursor-[inherit]", /\d/.test(insight.trigger) && "num")}>
+              {insight.trigger}
+            </span>
             {insight.post}
           </span>
         ) : (

@@ -276,6 +276,28 @@ describe("templates", () => {
       "같은 30일 동안 GitHub 커밋 3,330건은 들어왔어요 — 수집이 멈춘 쪽은 WakaTime이에요."
     );
     expect(fact.score).toBe(1);
+    expect(renderTemplate(fact).numeric).toBe(true);
+  });
+
+  it("marks any trigger carrying a digit as numeric, words as voice", () => {
+    const base = {
+      metric: "m",
+      metricLabel: "수면",
+      period: OCT,
+      value: 72,
+      unit: "minutes" as const,
+      template: "깨어 있던 시간이 {fact}이에요.",
+    };
+    for (const [trigger, numeric] of [
+      ["72분", true],
+      ["85.2kg", true],
+      ["−3bpm", true],
+      ["3월 2일", true],
+      ["평소보다 짧게", false],
+    ] as const) {
+      const fact = diagnosis({ ...base, id: trigger, detail: { trigger } });
+      expect(renderTemplate(fact).numeric, trigger).toBe(numeric);
+    }
   });
 
   it("applies Korean particles", () => {

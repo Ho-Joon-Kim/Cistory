@@ -1,7 +1,7 @@
 "use client";
 
 import { type CSSProperties, type ReactNode, useMemo, useState } from "react";
-import { EmptyState, ErrorState, EvidenceScope, useEvidence } from "@/components/ds";
+import { AiLine, EmptyState, ErrorState, EvidenceScope, useEvidence } from "@/components/ds";
 import { evidenceMatches } from "@/lib/facts/evidence";
 import { formatDay, formatMonthDay, formatTime } from "@/lib/format";
 import { useAnimatedNumber } from "@/lib/hooks/useCountUp";
@@ -22,7 +22,6 @@ import {
   type WeightView,
   weightView,
 } from "../view-model";
-import { HealthAiLine } from "./HealthAiLine";
 
 // ── shared bits ──────────────────────────────────────────────────────────────
 
@@ -321,7 +320,7 @@ function SleepColumn({ sessions, today }: { sessions: HealthSleepSession[]; toda
           ) : null}
         </div>
         <div className="pt-1.5 lg:max-w-[592px]">
-          <HealthAiLine fact={fact} title="수면 해석" />
+          <AiLine fact={fact} rows={fact?.rows} title="수면 해석" tint />
         </div>
         <div className="pt-5 lg:pt-6">
           <div className="lg:hidden">
@@ -467,7 +466,7 @@ function RhrColumn({ series, days }: { series: HealthMetricSeries | undefined; d
           />
         </div>
         <div className="pt-1.5">
-          <HealthAiLine fact={fact} title="안정시 심박 해석" />
+          <AiLine fact={fact} rows={fact?.rows} title="안정시 심박 해석" tint />
         </div>
         <div className="hidden pt-6 lg:block">
           <RhrPlot view={view} height={272} />
@@ -652,7 +651,7 @@ function WeightColumn({
           )}
         </div>
         <div className="pt-1.5">
-          <HealthAiLine fact={fact} title="체중 추세 해석" />
+          <AiLine fact={fact} rows={fact?.rows} title="체중 추세 해석" tint />
         </div>
         <div className="pt-7 lg:pt-6">
           <div className="lg:hidden">

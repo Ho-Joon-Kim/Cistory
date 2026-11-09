@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { EmptyState, EvidenceScope, useEvidence } from "@/components/ds";
+import { AiLine, EmptyState, EvidenceScope, useEvidence } from "@/components/ds";
 import { toKstCalendarDate } from "@/lib/date-key";
 import { evidenceMatches } from "@/lib/facts/evidence";
 import { formatDateRange, formatDay, formatTime } from "@/lib/format";
@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import { workoutFact } from "../health-facts";
 import type { HealthWorkout } from "../types";
 import { groupWorkouts, type WorkoutIcon, workoutIcon, workoutName } from "../view-model";
-import { HealthAiLine } from "./HealthAiLine";
 
 const SHADES = ["var(--ink)", "var(--ink2)", "var(--ink3)", "var(--bar)", "var(--line)"];
 
@@ -97,7 +96,7 @@ function Body({ workouts }: { workouts: HealthWorkout[] }) {
           <span className="text-[15px] font-medium text-ink-3">분</span>
         </p>
         <div className="mt-1.5 lg:mt-2">
-          <HealthAiLine fact={fact} title="운동 기록 해석" />
+          <AiLine fact={fact} rows={fact?.rows} title="운동 기록 해석" tint />
         </div>
         <div
           aria-hidden="true"

@@ -78,7 +78,6 @@ function unitWord(fact: Fact): string {
 interface DefaultTemplate {
   template: string;
   trigger: string;
-  numeric: boolean;
 }
 
 function defaultTemplate(fact: Fact): DefaultTemplate {
@@ -90,7 +89,6 @@ function defaultTemplate(fact: Fact): DefaultTemplate {
       return {
         template: `{baseline}보다 {fact} ${word}.`,
         trigger: formatShare(Math.abs(ratio)),
-        numeric: true,
       };
     }
     case "concentration": {
@@ -98,7 +96,6 @@ function defaultTemplate(fact: Fact): DefaultTemplate {
         // The particle follows the subject (the share), not the parenthetical.
         template: `그중 {fact}({part})${iGa(formatShare(fact.value))} {windowLabel}에 몰렸어요.`,
         trigger: formatShare(fact.value),
-        numeric: true,
       };
     }
     case "record": {
@@ -107,7 +104,6 @@ function defaultTemplate(fact: Fact): DefaultTemplate {
       return {
         template: `{scopeLabel} 중 가장 ${word} {fact}${unit}${eyo(unit || bareNumber(fact.value, fact.unit))}.`,
         trigger: bareNumber(fact.value, fact.unit),
-        numeric: true,
       };
     }
     case "one_off": {
@@ -115,20 +111,17 @@ function defaultTemplate(fact: Fact): DefaultTemplate {
       return {
         template: `한 건이 {period} {metric} {baselineValue}의 {fact}${eyo(share)}.`,
         trigger: share,
-        numeric: true,
       };
     }
     case "streak":
       return {
         template: `${fact.metricLabel}${iGa(fact.metricLabel)} {fact}째 이어지고 있어요.`,
         trigger: `${formatCount(fact.value)}일`,
-        numeric: true,
       };
     case "diagnosis":
       return {
         template: fact.template ?? "{fact}",
         trigger: formatFactValue(fact.value, fact.unit, fact.unitLabel),
-        numeric: true,
       };
   }
 }
@@ -234,7 +227,8 @@ export function renderTemplate(fact: Fact, template?: string): RenderedFact {
     factId: fact.id,
     segments,
     text: segments.map((s) => s.text).join(""),
-    numeric: /^[\d,.−+-]+(%|일|건|원|보|km)?$/.test(trigger),
+    // Any trigger carrying a number is set in mono ("6%", "72분", "85.2kg").
+    numeric: /\d/.test(trigger),
   };
 }
 

@@ -1,13 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { HeroNumber, SecondaryNumber } from "@/components/ds";
+import { AiLine, HeroNumber, SecondaryNumber } from "@/components/ds";
 import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { HeroDelta, HeroFoot, HeroModel } from "@/modules/overview/view/hero";
 import type { PeriodContext } from "@/modules/overview/view/labels";
 import { Delta } from "./Delta";
-import { FactLine } from "./FactLine";
 import { CashPairs, MiniBars, NetBars, WeightLine } from "./MiniCharts";
 
 /*
@@ -87,7 +86,7 @@ export function OverviewHero({ hero, ctx }: { hero: HeroModel; ctx: PeriodContex
       <div className={cell(0, "pt-2")}>
         {commits ? <DeltaOrNothing delta={commits.delta} /> : null}
       </div>
-      <div className={cell(0, "pt-1.5")}>{commits ? <FactLine fact={commits.fact} /> : null}</div>
+      <div className={cell(0, "pt-1.5")}>{commits ? <AiLine fact={commits.fact} /> : null}</div>
       <div className={cell(0, "h-24 pt-5 lg:h-auto")}>
         {commits ? <MiniBars bars={commits.bars} label="기간별 커밋" /> : null}
       </div>
@@ -113,7 +112,7 @@ export function OverviewHero({ hero, ctx }: { hero: HeroModel; ctx: PeriodContex
       <div className={cell(1, "pt-2")}>
         {savings ? <DeltaOrNothing delta={savings.delta} /> : null}
       </div>
-      <div className={cell(1, "pt-1.5")}>{savings ? <FactLine fact={savings.fact} /> : null}</div>
+      <div className={cell(1, "pt-1.5")}>{savings ? <AiLine fact={savings.fact} /> : null}</div>
       <div className={cell(1, "pt-5")}>
         {savings?.pairs ? <CashPairs pairs={savings.pairs} /> : null}
         {savings?.netBars ? <NetBars bars={savings.netBars} label="월별 순저축" /> : null}
@@ -141,7 +140,7 @@ export function OverviewHero({ hero, ctx }: { hero: HeroModel; ctx: PeriodContex
         {body.weight ? <DeltaOrNothing delta={body.weight.delta} /> : null}
       </div>
       <div className={cell(2, "pt-1.5")}>
-        {body.weight ? <FactLine fact={body.weight.fact} /> : null}
+        {body.weight ? <AiLine fact={body.weight.fact} /> : null}
       </div>
       <div className={cell(2, "pt-5")}>
         {body.weight ? (
@@ -181,7 +180,7 @@ export function OverviewHero({ hero, ctx }: { hero: HeroModel; ctx: PeriodContex
             </div>
             {body.steps.fact ? (
               <div className="col-span-2 mt-2">
-                <FactLine fact={body.steps.fact} />
+                <AiLine fact={body.steps.fact} />
               </div>
             ) : null}
           </div>

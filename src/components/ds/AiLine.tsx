@@ -9,9 +9,11 @@ import { FactTrigger } from "./FactTrigger";
 
 /**
  * One line of interpretation attached to its host (6px under it): serif 500,
- * --ink2, 13/21 → 14/22. Exactly one fact inside is the dotted trigger. Hover or
- * focus anywhere on the line activates the fact's evidence in the nearest
- * EvidenceScope. Renders nothing when there is no notable fact — never filler.
+ * --ink2, 13/21 → 14/22. Exactly one fact inside is the dotted trigger, set in
+ * mono when it contains a digit ("72분", "85.2kg") and in the serif voice
+ * otherwise. Hover or focus anywhere on the line activates the fact's evidence
+ * in the nearest EvidenceScope. Renders nothing when there is no notable fact —
+ * never filler.
  *
  * Two ways to use it:
  *   <AiLine fact={pickOne(facts)} />                // template-rendered
@@ -22,8 +24,11 @@ export function AiLine({
   children,
   evidence,
   rows,
+  title,
   note,
   align,
+  side,
+  tint = false,
   className,
   as: Tag = "p",
 }: {
@@ -31,10 +36,18 @@ export function AiLine({
   children?: ReactNode;
   /** Evidence for hand-written lines (ignored when `fact` is given). */
   evidence?: FactEvidence | null;
-  /** Popover rows override for `fact` (default: factRows(fact)). */
+  /** Popover rows override for `fact` (default: factRows(fact)). Pass `fact.rows`
+   * when the fact's own rows already state the metric and baseline. */
   rows?: FactRow[];
+  /** Popover heading (default "이 문장에 쓴 사실"). */
+  title?: string;
   note?: ReactNode;
+  /** Popover alignment against the trigger. */
   align?: "start" | "center" | "end";
+  side?: "bottom" | "top";
+  /** Tint the line on hover/focus — for cards where the line itself is a hover
+   * target that lights evidence in a chart above it. */
+  tint?: boolean;
   className?: string;
   as?: "p" | "span" | "div";
 }) {
@@ -51,9 +64,11 @@ export function AiLine({
           // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
           key={i}
           rows={popRows}
+          title={title}
           note={note}
           numeric={rendered.numeric}
           align={align}
+          side={side}
         >
           {segment.text}
         </FactTrigger>
@@ -65,7 +80,16 @@ export function AiLine({
   }
 
   return (
-    <Tag className={cn("ai-voice m-0", className)} data-fact-id={fact?.id} {...handlers}>
+    <Tag
+      className={cn(
+        "ai-voice m-0 text-pretty",
+        tint &&
+          "-mx-1 rounded-md px-1 transition-colors duration-150 ease-out hover:bg-brand-soft focus-within:bg-brand-soft",
+        className
+      )}
+      data-fact-id={fact?.id}
+      {...handlers}
+    >
       {content}
     </Tag>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { type KeyboardEvent, useId, useRef, useState } from "react";
-import { SecondaryNumber, useEvidence } from "@/components/ds";
+import { AiLine, SecondaryNumber, useEvidence } from "@/components/ds";
 import { formatMonthDay, formatReturn, formatWonCompact, signToneClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { PeriodContext } from "@/modules/overview/view/labels";
@@ -12,7 +12,6 @@ import {
   formatHours,
   type MoveModel,
 } from "@/modules/overview/view/sections";
-import { FactLine } from "./FactLine";
 import { RankRow } from "./RankRow";
 import { useMeasuredWidth } from "./useMeasuredWidth";
 
@@ -44,7 +43,7 @@ export function MoveSection({ move }: { move: MoveModel }) {
           </div>
         ))}
       </dl>
-      <FactLine fact={move.fact} className="mt-2" />
+      <AiLine fact={move.fact} className="mt-2" />
       {move.places.length > 0 ? (
         <div className="mt-3 border-t border-line">
           {move.places.map((p) => (
@@ -107,7 +106,7 @@ export function AssetSection({ asset, ctx }: { asset: AssetModel; ctx: PeriodCon
         ) : null}
         <span className="text-label">기간 수익률 · {asset.days}일 기준</span>
       </div>
-      <FactLine fact={asset.fact} className="mt-2" />
+      <AiLine fact={asset.fact} className="mt-2" />
       <div ref={ref} className="mt-5">
         {W > 0 ? (
           <svg
@@ -300,7 +299,7 @@ export function DetailsSection({ tabs }: { tabs: DetailTab[] }) {
         aria-labelledby={`${baseId}-tab-${tab.id}`}
         className="mt-4 max-w-[760px] min-w-0 lg:mt-0 lg:h-[460px] lg:overflow-auto lg:pt-[46px]"
       >
-        <FactLine fact={tab.fact} />
+        <AiLine fact={tab.fact} />
         {tab.id === "hour" ? (
           <HourPanel tab={tab} />
         ) : (

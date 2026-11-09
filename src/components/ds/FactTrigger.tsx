@@ -41,6 +41,11 @@ export function FactPopover({
   );
 }
 
+/** Facts set in mono: anything carrying a number ("6%", "72분", "+3건"). */
+function hasDigit(text: string): boolean {
+  return /\d/.test(text);
+}
+
 /**
  * The one dotted-underlined fact inside an AI sentence. Click/tap (or Enter)
  * opens the evidence popover under it; outside click, Escape or a second click
@@ -51,7 +56,7 @@ export function FactTrigger({
   rows,
   title,
   note,
-  numeric = true,
+  numeric,
   align = "start",
   side = "bottom",
   label,
@@ -61,7 +66,8 @@ export function FactTrigger({
   rows: FactRow[];
   title?: string;
   note?: ReactNode;
-  /** Render the trigger in Geist Mono (default true — most facts are numbers). */
+  /** Render the trigger in Geist Mono. Default: when the text contains a digit
+   * (non-string children default to mono). */
   numeric?: boolean;
   align?: "start" | "center" | "end";
   side?: "bottom" | "top";
@@ -70,12 +76,13 @@ export function FactTrigger({
   className?: string;
 }) {
   const text = label ?? (typeof children === "string" ? children : undefined);
+  const mono = numeric ?? (text === undefined || hasDigit(text));
   return (
     <PopoverPrimitive.Root>
       <PopoverPrimitive.Trigger
         type="button"
         aria-label={text ? `근거 보기: ${text}` : "근거 보기"}
-        className={cn("ds-fact", numeric && "num", className)}
+        className={cn("ds-fact", mono && "num", className)}
       >
         {children}
       </PopoverPrimitive.Trigger>
