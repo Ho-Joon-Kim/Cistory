@@ -71,8 +71,8 @@ export function MonthlyChart({
           {average ? (
             <>
               <div
-                className="absolute left-0 right-8 z-[1] border-t-[1.5px] border-dashed sm:right-10"
-                style={{ bottom: `${pct(average.total)}%`, borderColor: "var(--ink2)" }}
+                className="absolute left-0 right-8 z-[1] border-t-[1.5px] border-dashed border-ink-2 sm:right-10"
+                style={{ bottom: `${pct(average.total)}%` }}
               />
               <span
                 className="absolute left-0 z-[2] hidden translate-y-[-4px] bg-page pr-1.5 text-xs text-ink-2 sm:block"
@@ -237,10 +237,7 @@ export function MonthlyChart({
             <>
               <dt className="inline-flex items-center gap-1.5 text-xs text-ink-3">
                 <span className="grid w-5 place-items-center">
-                  <span
-                    className="w-2.5 border-t-[1.5px] border-dashed"
-                    style={{ borderColor: "var(--ink2)" }}
-                  />
+                  <span className="w-2.5 border-t-[1.5px] border-dashed border-ink-2" />
                 </span>
                 {average.label} 평균
               </dt>

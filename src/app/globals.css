@@ -342,20 +342,26 @@
   --font-mono: var(--font-num);
 }
 
-* {
-  border-color: hsl(var(--border));
-}
+/* Element defaults live in the base layer so every utility (border-<color>,
+ * bg-*, text-*) wins over them. Unlayered, `*` beat all border-color utilities. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: hsl(var(--border));
+  }
 
-body {
-  background-color: var(--bg);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 22px;
-  -webkit-font-smoothing: antialiased;
-  /* Break Korean at word (eojeol) boundaries; still wrap unbreakable runs like URLs. */
-  word-break: keep-all;
-  overflow-wrap: anywhere;
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 22px;
+    -webkit-font-smoothing: antialiased;
+    /* Break Korean at word (eojeol) boundaries; still wrap unbreakable runs like URLs. */
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
 }
 
 .dark *:focus-visible {
