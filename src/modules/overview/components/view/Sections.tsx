@@ -1,12 +1,14 @@
 "use client";
 
-import { type KeyboardEvent, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
 import { AiLine, SecondaryNumber, useEvidence } from "@/components/ds";
 import { formatMonthDay, formatWonCompact, signToneClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useCategoryPaymentCounts } from "@/modules/overview/hooks";
 import type { PeriodContext } from "@/modules/overview/view/labels";
 import {
   type AssetModel,
+  categoryPaymentFlags,
   type DetailTab,
   type DetailTabId,
   formatHours,
@@ -232,11 +234,24 @@ function HourPanel({ tab }: { tab: DetailTab }) {
   );
 }
 
-export function DetailsSection({ tabs }: { tabs: DetailTab[] }) {
+export function DetailsSection({
+  tabs,
+  paymentRange = null,
+}: {
+  tabs: DetailTab[];
+  /** Period to count payments in, for `결제 N건` category flags (week/month). */
+  paymentRange?: { from: string; to: string } | null;
+}) {
   const [picked, setPicked] = useState<DetailTabId>(
     tabs.find((t) => t.id === "category")?.id ?? tabs[0]?.id ?? "repo"
   );
   const tab = tabs.find((t) => t.id === picked) ?? tabs[0];
+  const categoryRows = tabs.find((t) => t.id === "category")?.rows;
+  const counts = useCategoryPaymentCounts(categoryRows ? paymentRange : null);
+  const paymentFlags = useMemo(
+    () => categoryPaymentFlags(categoryRows ?? [], counts),
+    [categoryRows, counts]
+  );
   const baseId = useId();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const { stateOf } = useEvidence();
@@ -263,7 +278,7 @@ export function DetailsSection({ tabs }: { tabs: DetailTab[] }) {
         <div
           role="tablist"
           aria-label="상세 항목"
-          className="-mx-4 mt-4 flex gap-0.5 overflow-x-auto px-4 [mask-image:linear-gradient(to_right,#000_calc(100%-28px),transparent)] [scrollbar-width:none] lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:[mask-image:none] [&::-webkit-scrollbar]:hidden"
+          className="mt-4 flex flex-wrap gap-0.5 lg:flex-col lg:flex-nowrap"
         >
           {tabs.map((t, i) => {
             const on = t.id === tab.id;
@@ -315,7 +330,7 @@ export function DetailsSection({ tabs }: { tabs: DetailTab[] }) {
                 key={r.key}
                 name={r.name}
                 sub={r.sub}
-                flag={r.flag}
+                flag={r.flag ?? (tab.id === "category" ? paymentFlags[r.key] : null)}
                 flagTone={r.flagTone}
                 value={r.value}
                 trailing={r.pct}

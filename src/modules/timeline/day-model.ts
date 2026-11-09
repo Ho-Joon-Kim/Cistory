@@ -147,6 +147,8 @@ interface RowBase {
   /** Row the map highlights for this row (itself, or the stay it happened in). */
   mapId: string | null;
   flag?: RowFlagData;
+  /** Happened while a ride was under way (the list keeps the ride's dashed rail). */
+  onRide?: boolean;
 }
 
 export interface StayRow extends RowBase {
@@ -158,6 +160,8 @@ export interface StayRow extends RowBase {
   area: string;
   lat: number;
   lon: number;
+  /** Ride this stay was a stop on (the track spans it), so the list nests it. */
+  via?: string;
 }
 
 export interface RideSegmentView {
@@ -183,6 +187,8 @@ export interface RideRow extends RowBase {
   elevation: { up: number; down: number } | null;
   legs: string[];
   segments: RideSegmentView[];
+  /** Stays the track passed through (it spans them), in order. */
+  stops: string[];
 }
 
 export interface CommitLine {
@@ -432,32 +438,64 @@ function speedLabel(kmh: number | null | undefined): string | null {
   return kmh != null && Number.isFinite(kmh) && kmh > 0 ? `${kmh.toFixed(1)}km/h` : null;
 }
 
+/** The mode key a recorded workout stands for, so its speed can be checked too. */
+const WORKOUT_TYPE_MODES: Record<string, string> = {
+  WALKING: "walking",
+  HIKING: "walking",
+  RUNNING: "running",
+  JOGGING: "running",
+  BIKING: "cycling",
+  CYCLING: "cycling",
+};
+
+function workoutModeKey(w: HealthWorkout): string {
+  const byType = w.type ? WORKOUT_TYPE_MODES[w.type.toUpperCase()] : undefined;
+  if (byType) return byType;
+  const name = w.name ?? "";
+  if (/걷기|도보|산책|하이킹|등산/.test(name)) return "walking";
+  if (/달리기|러닝|조깅/.test(name)) return "running";
+  if (/자전거|사이클/.test(name)) return "cycling";
+  // Any other workout is still human-powered: hold it to the fastest of those.
+  return "cycling";
+}
+
+/** How far (minutes) a stay may sit from a ride's end to name that end. */
+const ENDPOINT_GAP_MIN = 10;
+
 function rideFromTrack(track: TrackData, date: string, workouts: HealthWorkout[]): RideRow {
   const t0 = clockInDay(track.startTime, date);
   const t1 = clockInDay(track.endTime, date);
   const classified = modeLabel(track.dominantMode);
   const workout = matchingWorkout(track, workouts);
   const workoutName = workout?.name?.replace(/\s+/g, "") ?? null;
-  const mode = workoutName ?? classified;
   const hours = track.durationSeconds / 3600;
   const avgKmh = hours > 0 ? track.distanceMeters / 1000 / hours : null;
   const maxKmh = Math.max(0, ...track.segments.map((s) => s.maxSpeedKmh ?? 0));
+  const peak = Math.max(maxKmh, avgKmh ?? 0);
+  const peakWord = maxKmh > (avgKmh ?? 0) ? "최고" : "평균";
+  const implausibleFor = (key: string | null | undefined) =>
+    !!key && MODE_MAX_KMH[key] != null && peak > MODE_MAX_KMH[key];
+
+  // A workout relabel is only trusted when the track's speed fits that workout:
+  // a "걷기" overlapping a 246km/h subway ride is a coincidence, not a match.
+  const workoutPlausible = workout ? !implausibleFor(workoutModeKey(workout)) : false;
+  const mode = workoutName && workoutPlausible ? workoutName : classified;
 
   let flag: RowFlagData | undefined;
-  if (workout && workoutName && workoutName !== classified) {
+  if (workout && workoutName && !workoutPlausible) {
+    flag = {
+      label: "수단 확인 필요",
+      reason: `같은 시각 Google Health에 ${workout.name} ${workout.minutes}분이 있지만 ${peakWord} ${peak.toFixed(0)}km/h가 기록돼 다른 수단이었을 수 있어요.`,
+    };
+  } else if (workout && workoutName && workoutName !== classified) {
     flag = {
       label: "건강 기록과 일치",
       reason: `위치 분류는 ${classified}였지만 같은 시각 Google Health에 ${workout.name} ${workout.minutes}분(${formatTime(new Date(workout.start))})이 있어 ${workoutName}로 표시했어요.`,
     };
-  } else if (
-    track.dominantMode &&
-    MODE_MAX_KMH[track.dominantMode] != null &&
-    Math.max(maxKmh, avgKmh ?? 0) > MODE_MAX_KMH[track.dominantMode]
-  ) {
-    const peak = Math.max(maxKmh, avgKmh ?? 0);
+  } else if (implausibleFor(track.dominantMode)) {
     flag = {
       label: "수단 확인 필요",
-      reason: `${classified}(으)로 분류됐지만 ${maxKmh > (avgKmh ?? 0) ? "최고" : "평균"} ${peak.toFixed(0)}km/h가 기록돼 다른 수단이었을 수 있어요.`,
+      reason: `${classified}(으)로 분류됐지만 ${peakWord} ${peak.toFixed(0)}km/h가 기록돼 다른 수단이었을 수 있어요.`,
     };
   } else if (avgKmh && maxKmh >= 30 && maxKmh >= avgKmh * 3 && track.dominantMode !== "flying") {
     flag = {
@@ -504,6 +542,7 @@ function rideFromTrack(track: TrackData, date: string, workouts: HealthWorkout[]
     avg: speedLabel(avgKmh),
     elevation,
     legs: legs.filter(Boolean),
+    stops: [],
     segments:
       track.segments.length > 1
         ? track.segments.map((s) => ({
@@ -594,6 +633,7 @@ export function ridesFromGaps(
       elevation: null,
       legs: [],
       segments: [],
+      stops: [],
     });
   }
   return rides;
@@ -893,10 +933,23 @@ export function buildDayModel(input: DayInput): DayModel {
           .sort((a, b) => a.start - b.start)
       : ridesFromGaps(input.locations, input.stayPoints, date);
   const stays = stayRows(mergeStayPoints(input.stayPoints, rides), date);
-  // A ride without a geocoded endpoint takes the neighbouring stay's name.
   for (const r of rides) {
-    if (!r.from) r.from = stays.filter((s) => s.start <= r.start).at(-1)?.name ?? "";
-    if (!r.to) r.to = stays.find((s) => s.start >= r.end - 1)?.name ?? "";
+    // Stays strictly inside a track are stops on it (a ride with stopovers):
+    // the list nests them under the ride instead of reading as overlaps.
+    const inside = stays.filter((s) => s.start > r.start && s.end <= r.end + 1 && !s.via);
+    for (const s of inside) s.via = r.id;
+    r.stops = inside.map((s) => s.name).filter((n, i, a) => n && n !== a[i - 1]);
+    // Endpoints follow the neighbouring stays the list shows (a geocoded track
+    // end can name the shop next door); the geocoder only fills a gap.
+    const before = stays.filter(
+      (s) => !s.via && s.start <= r.start && r.start - s.end <= ENDPOINT_GAP_MIN
+    );
+    const after = stays.find(
+      (s) => !s.via && s.start >= r.end - 1 && s.start - r.end <= ENDPOINT_GAP_MIN
+    );
+    r.from =
+      before.at(-1)?.name || r.from || stays.filter((s) => s.start <= r.start).at(-1)?.name || "";
+    r.to = after?.name || r.to || stays.find((s) => s.start >= r.end - 1)?.name || "";
   }
   const clusters = clusterCommits(input.commits, date);
   const { spend, income } = txRows(input.transactions, date);
@@ -921,6 +974,11 @@ export function buildDayModel(input: DayInput): DayModel {
       return before.at(-1) ?? stays[0];
     };
     for (const k of kids) k.mapId = owner(k.start).id;
+  }
+  for (const r of [...stays, ...kids]) {
+    if (r.kind === "stay" ? !!r.via : rides.some((x) => r.start > x.start && r.start < x.end)) {
+      r.onRide = true;
+    }
   }
 
   return {

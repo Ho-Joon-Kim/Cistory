@@ -506,3 +506,37 @@ export function useStayDays(focus: StayFocus | null): string[] {
   });
   return data ?? [];
 }
+
+/**
+ * Spending payment counts per category for a date range (the snapshot carries
+ * only totals), used to flag categories driven by one or two payments.
+ */
+export function useCategoryPaymentCounts(
+  range: { from: string; to: string } | null
+): Record<string, number> | null {
+  const { data } = useQuery({
+    queryKey: ["overview", "category-counts", range?.from, range?.to],
+    enabled: range != null,
+    staleTime: 10 * 60_000,
+    queryFn: async ({ signal }) => {
+      if (!range) return null;
+      const params = new URLSearchParams({
+        from: range.from,
+        to: range.to,
+        bucket: "spending",
+        limit: "1",
+      });
+      const response = await fetch(`/api/spending?${params.toString()}`, { signal });
+      if (!response.ok) return null;
+      const body = (await response.json()) as {
+        summary?: { categoryBreakdown?: { category: string | null; count: number }[] };
+      };
+      const counts: Record<string, number> = {};
+      for (const row of body.summary?.categoryBreakdown ?? []) {
+        counts[row.category ?? "uncategorized"] = row.count;
+      }
+      return counts;
+    },
+  });
+  return data ?? null;
+}

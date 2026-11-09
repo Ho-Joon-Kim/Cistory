@@ -76,7 +76,14 @@ export function DayStrip({
                 st === "dim" && "opacity-30"
               )}
             >
-              {(s.end - s.start) / DAY_MINUTES > labelMin ? s.name : ""}
+              {(s.end - s.start) / DAY_MINUTES > labelMin ? (
+                // A label that doesn't fit wraps onto a second, clipped line and
+                // disappears whole instead of being cut mid-glyph.
+                <span className="flex h-full flex-wrap items-center overflow-hidden">
+                  <span className="h-full w-0" />
+                  <span className="leading-5">{s.name}</span>
+                </span>
+              ) : null}
             </button>
           );
         })}

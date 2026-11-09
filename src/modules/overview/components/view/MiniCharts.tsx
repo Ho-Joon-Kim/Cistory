@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useEvidence } from "@/components/ds";
-import { formatMonthDay, formatWonCompact } from "@/lib/format";
+import { formatMonthDay } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CashPair, MiniBar, NetBar, WeightPoint } from "@/modules/overview/view/hero";
+import { wonColumn } from "@/modules/overview/view/sections";
 import { useMeasuredWidth } from "./useMeasuredWidth";
 
 function Tip({ children }: { children: string }) {
@@ -112,7 +113,7 @@ export function CashPairs({ pairs }: { pairs: CashPair[] }) {
                 style={{ width: `calc((100% - 104px) * ${Math.max(0.01, ratio)})` }}
               />
               <span className="text-xs whitespace-nowrap text-ink-2">
-                {name} <span className="num text-ink">{formatWonCompact(value)}</span>
+                {name} <span className="num text-ink">{wonColumn(value)}</span>
               </span>
             </div>
           ))}

@@ -1,6 +1,6 @@
 "use client";
 
-import type { FeatureCollection } from "geojson";
+import type { FeatureCollection, Point } from "geojson";
 import { Pause, Play, X } from "lucide-react";
 import type { GeoJSONSource, Map as MapboxMap } from "mapbox-gl";
 import { useTheme } from "next-themes";
@@ -252,6 +252,21 @@ export function DayMap({
     return list.map((m) => ({ ...m, label: labelled.has(m.stay.id) }));
   }, [stays]);
 
+  // An invisible copy of the markers in the symbol layer stack: Mapbox places
+  // it first, so basemap place names (서울특별시) step aside instead of
+  // printing under the DOM markers and their labels.
+  const markerShadow = useMemo<FeatureCollection<Point, { text: string }>>(
+    () => ({
+      type: "FeatureCollection",
+      features: markers.map((m) => ({
+        type: "Feature",
+        properties: { text: m.label ? `●  ${m.stay.name}` : "●" },
+        geometry: { type: "Point", coordinates: [m.stay.lon, m.stay.lat] },
+      })),
+    }),
+    [markers]
+  );
+
   // Keep the canvas the size of its frame: a viewport resize or rotation that
   // changes the container without a window resize event (grid reflow) would
   // otherwise leave a blank band and a clipped route.
@@ -391,6 +406,15 @@ export function DayMap({
     replay.stop();
     setReplayOn(false);
   }, [date]);
+
+  // Picking a place or ride from the list/strip ends a running replay: the
+  // camera follows the selection, so a moving dot elsewhere would mislead.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: react to a new selection only
+  useEffect(() => {
+    if (!selectedMapId || !replayOn) return;
+    replay.stop();
+    setReplayOn(false);
+  }, [selectedMapId]);
 
   const replayLabel = useMemo(() => {
     if (!replay.currentTimestamp) return "";
@@ -535,6 +559,25 @@ export function DayMap({
             </Source>
           </>
         ) : null}
+        {loaded ? (
+          <Source id="day-marker-shadow" type="geojson" data={markerShadow}>
+            <Layer
+              id="day-marker-shadow"
+              type="symbol"
+              layout={{
+                "text-field": ["get", "text"],
+                "text-font": ["Arial Unicode MS Regular"],
+                "text-size": 13,
+                "text-anchor": "left",
+                "text-offset": [-0.6, 0],
+                "text-padding": 6,
+                "text-allow-overlap": true,
+                "text-ignore-placement": false,
+              }}
+              paint={{ "text-opacity": 0 }}
+            />
+          </Source>
+        ) : null}
         <ScaleControl
           position="bottom-right"
           unit="metric"
@@ -616,7 +659,7 @@ export function DayMap({
           type="button"
           onClick={openReplay}
           aria-label="이동 다시 보기"
-          className="absolute top-3 right-3 z-[4] inline-flex size-9 items-center justify-center rounded-[10px] border-0 bg-surface text-ink shadow-ring transition-[scale,box-shadow] duration-150 hover:shadow-ring-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:scale-96"
+          className="absolute top-3 right-3 z-[4] inline-flex size-9 items-center justify-center rounded-[10px] border-0 bg-surface text-ink shadow-ring transition-[scale,box-shadow] duration-150 before:absolute before:-inset-1 before:content-[''] hover:shadow-ring-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:scale-96"
         >
           <Play className="size-4" aria-hidden="true" />
         </button>
@@ -627,13 +670,13 @@ export function DayMap({
         <div
           role="group"
           aria-label="이동 다시 보기"
-          className="ds-reveal absolute inset-x-3 bottom-9 z-[6] grid grid-cols-[36px_minmax(0,1fr)_28px] items-center gap-2.5 rounded-xl bg-surface px-3 py-2.5 shadow-ring"
+          className="ds-reveal absolute inset-x-3 bottom-12 z-[6] grid grid-cols-[36px_minmax(0,1fr)_28px] items-center gap-2.5 rounded-xl bg-surface px-3 py-2.5 shadow-ring"
         >
           <button
             type="button"
             onClick={replay.state === "playing" ? replay.pause : replay.play}
             aria-label={replay.state === "playing" ? "일시정지" : "재생"}
-            className="inline-flex size-9 items-center justify-center rounded-full border-0 bg-brand text-brand-ink transition-[scale] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:scale-96"
+            className="relative inline-flex size-9 items-center justify-center rounded-full border-0 bg-brand text-brand-ink before:absolute before:-inset-1 before:content-[''] transition-[scale] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:scale-96"
           >
             {replay.state === "playing" ? (
               <Pause className="size-3.5" fill="currentColor" aria-hidden="true" />
@@ -662,7 +705,7 @@ export function DayMap({
             type="button"
             onClick={closeReplay}
             aria-label="다시 보기 닫기"
-            className="inline-flex size-7 items-center justify-center rounded-lg border-0 bg-transparent text-ink-2 hover:bg-track focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            className="relative inline-flex size-7 items-center justify-center rounded-lg border-0 bg-transparent text-ink-2 before:absolute before:-inset-2 before:content-[''] hover:bg-track focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             <X className="size-3.5" strokeWidth={2.2} aria-hidden="true" />
           </button>

@@ -56,7 +56,7 @@ export function DateNav({
     });
 
   const navButton =
-    "relative inline-flex size-6 items-center justify-center rounded-md border-0 bg-transparent p-0 text-ink-3 transition-colors duration-150 ease-out before:absolute before:-inset-2.5 before:content-[''] hover:enabled:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-default disabled:opacity-35";
+    "relative z-[1] inline-flex size-6 items-center justify-center rounded-md border-0 bg-transparent p-0 text-ink-3 transition-colors duration-150 ease-out before:absolute before:-inset-2.5 before:content-[''] hover:enabled:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-default disabled:opacity-35";
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: a group of date controls, not a fieldset

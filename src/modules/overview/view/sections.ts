@@ -346,6 +346,8 @@ export interface DetailRow {
   flagTone?: "place" | "warn";
   current?: boolean;
   members?: { name: string; value: string }[] | null;
+  /** Raw amount behind `value` (spending categories), for client-side flags. */
+  amount?: number;
 }
 
 export type DetailTabId = "repo" | "category" | "mode" | "hour" | "heart";
@@ -358,6 +360,26 @@ export interface DetailTab {
   rows: DetailRow[];
   hours?: { hour: number; value: number; ratio: number; night: boolean }[];
   weekdays?: { label: string; value: number; ratio: number }[];
+}
+
+/**
+ * Row flags for spending categories carried by one or two payments (`결제 2건`):
+ * a category that is a sizable share of the period yet came from so few
+ * payments is a one-off, not a habit. Counts come from the ledger, not the
+ * snapshot, so rows stay unflagged until they arrive.
+ */
+export function categoryPaymentFlags(
+  rows: Pick<DetailRow, "key" | "amount">[],
+  counts: Record<string, number> | null
+): Record<string, string> {
+  if (!counts) return {};
+  const total = rows.reduce((s, r) => s + (r.amount ?? 0), 0);
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    const n = counts[r.key];
+    if (n && n <= 2 && total > 0 && (r.amount ?? 0) / total >= 0.2) out[r.key] = `결제 ${n}건`;
+  }
+  return out;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -513,6 +535,7 @@ function categoryTab(ctx: PeriodContext, spending: SpendingAggregate | null): De
       key: c.category,
       name: label(c.category),
       value: wonColumn(c.spending),
+      amount: c.spending,
       share: c.spending / top.spending,
       pct: pct(c.spending / total),
     })),

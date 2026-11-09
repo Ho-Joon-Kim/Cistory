@@ -332,6 +332,51 @@ describe("buildDayModel — QA fixes", () => {
     expect(model.rides[0].flag?.label).not.toContain("km/h");
   });
 
+  it("does not vouch for a workout match on an implausibly fast track", () => {
+    const model = buildDayModel({
+      ...base,
+      stayPoints: [],
+      workouts: [{ start: at("12:40"), minutes: 37, name: "걷기", type: "WALKING" }],
+      tracks: [
+        track("t1", "12:40", "13:18", {
+          dominantMode: "walking",
+          distanceMeters: 9916,
+          durationSeconds: 2241,
+          segments: [
+            {
+              mode: "walking",
+              startTime: at("12:40"),
+              endTime: at("13:02"),
+              distanceMeters: 3911,
+              durationSeconds: 1294,
+              avgSpeedKmh: 10.9,
+              maxSpeedKmh: 246.6,
+              subwayLegs: [],
+            },
+          ] as unknown as TrackData["segments"],
+        }),
+      ],
+    });
+    expect(model.rides[0].flag?.label).toBe("수단 확인 필요");
+    expect(model.rides[0].flag?.reason).toContain("걷기");
+  });
+
+  it("nests stays a track passes through and names its ends after the shown stays", () => {
+    const model = buildDayModel({
+      ...base,
+      stayPoints: [
+        stay("집", "08:00", "12:40"),
+        stay("커피빈", "12:44", "12:49"),
+        stay("수서역", "13:13", "13:16"),
+        stay("공차", "13:19", "14:12"),
+      ],
+      tracks: [track("t1", "12:40", "13:18", { endPlaceName: "라온&제면명가" })],
+    });
+    expect(model.rides[0]).toMatchObject({ from: "집", to: "공차", stops: ["커피빈", "수서역"] });
+    expect(model.stays.filter((s) => s.via).map((s) => s.name)).toEqual(["커피빈", "수서역"]);
+    expect(model.stays.find((s) => s.name === "공차")?.via).toBeUndefined();
+  });
+
   it("merges back-to-back visits to one place and splits distant deposits", () => {
     const model = buildDayModel({
       ...base,

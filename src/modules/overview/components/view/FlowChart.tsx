@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChartAnnotation, Segmented, useDismissOnEvidence, useEvidence } from "@/components/ds";
 import { formatCount, formatWon, formatWonCompact } from "@/lib/format";
 import { useStayDays } from "@/modules/overview/hooks";
@@ -143,6 +143,17 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
     return clash ? base : [...base, stay];
   }, [flow.annotations, metric, stay]);
   const tipWidth = width >= 700 ? 196 : 168;
+  // An evidence popover owns the chart while it is open: drop the day tooltip
+  // so a stale hover can't come back beside it once the popover closes.
+  useEffect(() => {
+    if (isActive) setHover(null);
+  }, [isActive]);
+  const avgLabel =
+    metric === "commits"
+      ? flow.averageLabel.commits
+      : metric === "steps"
+        ? flow.averageLabel.steps
+        : null;
 
   if (metrics.length === 0) return null;
 
@@ -163,6 +174,15 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
           className="sm:[&>button]:min-w-[78px]"
         />
       </div>
+      {avg !== null && avg > 0 && avgLabel ? (
+        // The average rule's label lives in a legend on clear background, never over the bars.
+        <p className="m-0 mb-2 flex items-center gap-2 text-[11px] leading-4 text-ink-2">
+          <svg width="18" height="2" aria-hidden="true" className="shrink-0">
+            <line x1="0" x2="18" y1="1" y2="1" stroke="var(--ink2)" strokeDasharray="4 3" />
+          </svg>
+          <span className="num">{avgLabel}</span>
+        </p>
+      ) : null}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: hover tooltip is a pointer enhancement; the values are in the chart label */}
       <div ref={ref} className="relative" onMouseLeave={() => setHover(null)}>
         {width > 0 ? (
@@ -287,19 +307,6 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                     stroke="var(--ink2)"
                     strokeDasharray="4 4"
                   />
-                  <text
-                    x="0"
-                    y={avgY}
-                    dy="-6"
-                    fontSize="11"
-                    fill="var(--ink2)"
-                    stroke="var(--bg)"
-                    strokeWidth={4}
-                    strokeLinejoin="round"
-                    paintOrder="stroke"
-                  >
-                    {metric === "commits" ? flow.averageLabel.commits : flow.averageLabel.steps}
-                  </text>
                 </g>
               ) : null}
               {metric === "cash" ? (
@@ -331,27 +338,30 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                 );
               })}
             </svg>
-            {annotations.map((a) => {
-              const ag = annotationGeometry(a, g, units, metric, max, cashMax);
-              const right = ag.cx > width * 0.62;
-              const top = a.low ? Math.min(base + 2, ag.barTop + 8) : ag.labelTop;
-              return (
-                <ChartAnnotation
-                  key={a.id}
-                  x={ag.cx}
-                  top={top}
-                  leader={0}
-                  side={right ? "left" : "right"}
-                  label={width < 700 && a.shortLabel ? a.shortLabel : a.label}
-                  rows={a.rows}
-                  evidence={
-                    a.from === a.to
-                      ? { kind: "keys", keys: [units[a.from].key] }
-                      : { kind: "range", from: units[a.from].key, to: units[a.to].key }
-                  }
-                />
-              );
-            })}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: clears the hover tooltip; the labels inside are the controls */}
+            <div className="contents" onPointerEnter={() => setHover(null)}>
+              {annotations.map((a) => {
+                const ag = annotationGeometry(a, g, units, metric, max, cashMax);
+                const right = ag.cx > width * 0.62;
+                const top = a.low ? Math.min(base + 2, ag.barTop + 8) : ag.labelTop;
+                return (
+                  <ChartAnnotation
+                    key={a.id}
+                    x={ag.cx}
+                    top={top}
+                    leader={0}
+                    side={right ? "left" : "right"}
+                    label={width < 700 && a.shortLabel ? a.shortLabel : a.label}
+                    rows={a.rows}
+                    evidence={
+                      a.from === a.to
+                        ? { kind: "keys", keys: [units[a.from].key] }
+                        : { kind: "range", from: units[a.from].key, to: units[a.to].key }
+                    }
+                  />
+                );
+              })}
+            </div>
             {hover !== null && units[hover] && !isActive ? (
               <Tooltip
                 unit={units[hover]}
