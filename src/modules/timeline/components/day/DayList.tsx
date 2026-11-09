@@ -142,9 +142,13 @@ export function DayList({
 // ── rail ─────────────────────────────────────────────────────────────────────
 
 function Rail({ row }: { row: DayRow }) {
+  // A stay the ride's track passed through sits on the ride's dashed rail.
+  const stop = row.kind === "stay" && !!row.via;
   const dot =
     row.kind === "stay"
-      ? "mt-[15px] size-[11px] bg-page shadow-[0_0_0_2px_var(--ink)]"
+      ? stop
+        ? "mt-[14px] size-[9px] bg-page shadow-[0_0_0_1.5px_var(--place)]"
+        : "mt-[15px] size-[11px] bg-page shadow-[0_0_0_2px_var(--ink)]"
       : row.kind === "ride"
         ? "mt-4 size-[7px] bg-place shadow-[0_0_0_3px_var(--bg)]"
         : row.kind === "commits"
@@ -157,7 +161,7 @@ function Rail({ row }: { row: DayRow }) {
       <span
         className={cn(
           "absolute inset-y-0 left-1/2",
-          row.kind === "ride"
+          row.kind === "ride" || row.onRide
             ? "-ml-px border-l-2 border-dashed border-[color-mix(in_oklab,var(--place)_70%,transparent)]"
             : "-ml-[0.5px] w-px bg-line"
         )}
@@ -235,8 +239,9 @@ function StayBody({
         aria-label={`${row.name} 지도에서 보기`}
         onClick={() => onSelect(row.id)}
       >
-        <Name depth={0}>{row.name}</Name>
+        <Name depth={row.via ? 1 : 0}>{row.name}</Name>
         <span className="num text-[13px] text-ink-2">{row.durationLabel}</span>
+        {row.via ? <span className="text-xs text-ink-3">경유</span> : null}
       </button>
       <p className="m-0 mt-0.5 text-[13px] leading-5 text-ink-2">
         <span className="num text-xs">{row.range}</span>
@@ -279,6 +284,9 @@ function RideBody({
       {routeLabel(row.from, row.to) ? (
         <p className="m-0 mt-0.5 text-[13px] leading-5 text-ink-2">
           {routeLabel(row.from, row.to)}
+          {row.stops.length > 0 ? (
+            <span className="text-ink-3"> · 경유 {row.stops.length}곳</span>
+          ) : null}
         </p>
       ) : null}
       {flag.flag ? (
@@ -400,7 +408,7 @@ function CommitBody({
           {row.summary}
           {rest > 0 ? (
             <>
-              {" "}
+              {/[.!?…]$/.test(row.summary.trim()) ? " 이 밖에 " : ". 이 밖에 "}
               <FactTrigger
                 rows={[
                   { label: "AI 요약", value: `${row.summarized}건` },
@@ -415,8 +423,9 @@ function CommitBody({
                 ]}
                 title="이 묶음의 커밋"
               >
-                {`외 ${rest}건`}
+                {`${rest}건`}
               </FactTrigger>
+              을 더 커밋했어요.
             </>
           ) : null}
         </AiLine>

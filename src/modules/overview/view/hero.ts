@@ -4,10 +4,11 @@
  * stored previous period; without one the delta line is simply omitted.
  */
 import { concentration, type Fact, oneOff, pickOne, recordLowHigh } from "@/lib/facts";
-import { formatCount, formatMonthDay, formatWonCompact } from "@/lib/format";
+import { formatCount, formatMonthDay } from "@/lib/format";
 import type { OverviewHistoryPeriod, OverviewHistoryResponse } from "../history";
 import type { CodingAggregate, HealthAggregate, SpendingAggregate } from "../types";
 import { type PeriodContext, seriesBarLabel, seriesTitle } from "./labels";
+import { wonColumn } from "./sections";
 import {
   cashByDay,
   changePhrase,
@@ -109,7 +110,11 @@ export interface HeroModel {
   body: BodyHero;
 }
 
-const won = (n: number, sign = false) => formatWonCompact(n, { sign });
+/**
+ * Hero money keeps one fixed decimal of 만원 throughout (`278.0만원` beside
+ * `239.3만원`), so amounts read side by side never mix precisions.
+ */
+const won = (n: number, sign = false) => `${sign && n > 0 ? "+" : ""}${wonColumn(n)}`;
 
 function direction(ratio: number): Direction {
   if (Math.round(ratio * 100) === 0) return null;
@@ -519,7 +524,7 @@ function weightBlock(
       points: recent,
       peak: null,
       axisFrom: recent[0].date,
-      axisTo: ctx.to,
+      axisTo: ctx.through,
       asOf: prior.date,
     };
   }
@@ -630,7 +635,7 @@ function weightBlock(
     points: all,
     peak: peak && peak.weight - (low?.weight ?? peak.weight) >= 0.5 ? peak : null,
     axisFrom: all[0].date,
-    axisTo: ctx.periodType === "year" ? last.date : ctx.to,
+    axisTo: ctx.periodType === "year" ? last.date : ctx.through,
     asOf: null,
   };
 }

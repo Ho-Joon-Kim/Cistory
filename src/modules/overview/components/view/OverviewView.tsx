@@ -66,7 +66,10 @@ export function OverviewView({ model }: { model: OverviewModel }) {
 
       {model.details.length > 0 ? (
         <Stage delay={400} as="div" className="mt-14 pt-8">
-          <DetailsSection tabs={model.details} />
+          <DetailsSection
+            tabs={model.details}
+            paymentRange={ctx.periodType === "year" ? null : { from: ctx.from, to: ctx.to }}
+          />
         </Stage>
       ) : null}
     </EvidenceScope>
