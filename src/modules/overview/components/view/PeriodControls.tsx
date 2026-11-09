@@ -1,10 +1,12 @@
 "use client";
 
 import { Segmented } from "@/components/ds";
+import { toKstCalendarDate } from "@/lib/date-key";
 import { cn } from "@/lib/utils";
 import type { HistoryPeriodType } from "@/modules/overview/history";
-import { shiftPeriodKey } from "@/modules/overview/history";
+import { periodDateRange, shiftPeriodKey } from "@/modules/overview/history";
 import { adjacentOverviewPeriod, currentOverviewPeriodKey } from "@/modules/overview/hooks";
+import { getPeriodKey } from "@/modules/overview/period";
 
 /**
  * Mirrors OVERVIEW_RETENTION_PERIODS in ../../service.ts (server-only module):
@@ -18,6 +20,26 @@ const PERIODS: { value: HistoryPeriodType; label: string; ariaLabel: string }[] 
   { value: "month", label: "월", ariaLabel: "월 단위" },
   { value: "year", label: "년", ariaLabel: "년 단위" },
 ];
+
+/**
+ * The period of `type` that holds the last day of the one on screen (or today,
+ * while it's in progress): 주 from 2026-10 lands on October's last week, not on
+ * the current one.
+ */
+export function switchPeriodType(
+  from: { periodType: HistoryPeriodType; periodKey: string },
+  type: HistoryPeriodType,
+  now: Date
+): string {
+  const current = currentOverviewPeriodKey(type, now);
+  const { to } = periodDateRange(from.periodType, from.periodKey);
+  const today = toKstCalendarDate(now);
+  const anchor = to < today ? to : today;
+  const [y, m, d] = anchor.split("-").map(Number);
+  const key = getPeriodKey(type, new Date(y, m - 1, d, 12));
+  const oldest = shiftPeriodKey(type, current, -(RETENTION[type] - 1));
+  return key > current ? current : key < oldest ? oldest : key;
+}
 
 const UNIT: Record<HistoryPeriodType, string> = { week: "주", month: "달", year: "해" };
 
@@ -90,7 +112,10 @@ export function PeriodControls({
         value={periodType}
         ariaLabel="기간 단위"
         onChange={(type) =>
-          onChange({ periodType: type, periodKey: currentOverviewPeriodKey(type, now) })
+          onChange({
+            periodType: type,
+            periodKey: switchPeriodType({ periodType, periodKey }, type, now),
+          })
         }
         className="flex-1 sm:w-[174px] sm:flex-none"
       />

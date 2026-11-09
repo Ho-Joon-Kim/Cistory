@@ -6,7 +6,7 @@ import type { GeoJSONSource, Map as MapboxMap } from "mapbox-gl";
 import { useTheme } from "next-themes";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayerProps, MapRef } from "react-map-gl/mapbox";
-import { Layer, default as MapGL, Marker, Source } from "react-map-gl/mapbox";
+import { Layer, default as MapGL, Marker, ScaleControl, Source } from "react-map-gl/mapbox";
 import { useEvidence } from "@/components/ds";
 import { SubwayLayer } from "@/components/map/SubwayLayer";
 import { formatTime } from "@/lib/format";
@@ -251,44 +251,89 @@ export function DayMap({
     return list.map((m) => ({ ...m, label: labelled.has(m.stay.id) }));
   }, [stays]);
 
+  // Keep the canvas the size of its frame: a viewport resize or rotation that
+  // changes the container without a window resize event (grid reflow) would
+  // otherwise leave a blank band and a clipped route.
+  const frameRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el || !loaded || typeof ResizeObserver === "undefined") return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        mapRef.current?.getMap().resize();
+        // Without a selection the whole day stays framed at the new size.
+        if (!selectionRef.current) fitDayRef.current?.(0);
+      });
+    });
+    observer.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [loaded]);
+
+  const fitDay = useCallback(
+    (duration: number) => {
+      const map = mapRef.current;
+      if (!map) return false;
+      const pts: [number, number][] = [
+        ...routes.flatMap((r) => r.coords),
+        ...stays.map((s) => [s.lon, s.lat] as [number, number]),
+      ];
+      if (pts.length === 0) return false;
+      const lons = pts.map((p) => p[0]);
+      const lats = pts.map((p) => p[1]);
+      map.fitBounds(
+        [
+          [Math.min(...lons), Math.min(...lats)],
+          [Math.max(...lons), Math.max(...lats)],
+        ],
+        { padding, maxZoom: 15.5, duration }
+      );
+      return true;
+    },
+    [routes, stays, padding]
+  );
+
+  const fitDayRef = useRef(fitDay);
+  fitDayRef.current = fitDay;
+  const selectionRef = useRef(selectedMapId);
+  selectionRef.current = selectedMapId;
+
   // Fit the day once its data arrives (and again on a new date).
   const fittedFor = useRef<string | null>(null);
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !loaded) return;
-    const pts: [number, number][] = [
-      ...routes.flatMap((r) => r.coords),
-      ...stays.map((s) => [s.lon, s.lat] as [number, number]),
-    ];
-    if (pts.length === 0) return;
+    if (!mapRef.current || !loaded) return;
     const key = `${date}:${routes.length}:${stays.length}`;
     if (fittedFor.current === key) return;
-    fittedFor.current = key;
-    const lons = pts.map((p) => p[0]);
-    const lats = pts.map((p) => p[1]);
-    map.fitBounds(
-      [
-        [Math.min(...lons), Math.min(...lats)],
-        [Math.max(...lons), Math.max(...lats)],
-      ],
-      { padding, maxZoom: 15.5, duration: 0 }
-    );
-  }, [date, loaded, routes, stays, padding]);
+    if (fitDay(0)) fittedFor.current = key;
+  }, [date, loaded, routes.length, stays.length, fitDay]);
 
-  // Bring a selection into view when it isn't.
+  // Zoom to a selection (a place close enough to read among its neighbours, a
+  // ride fitted whole); clearing the selection returns to the whole day.
+  const lastSelection = useRef<string | null>(null);
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !loaded || !selectedMapId) return;
-    const bounds = map.getBounds();
+    if (!map || !loaded || selectedMapId === lastSelection.current) return;
+    const had = lastSelection.current;
+    lastSelection.current = selectedMapId;
+    if (!selectedMapId) {
+      if (had) fitDay(cameraDuration(600));
+      return;
+    }
     const stay = stays.find((s) => s.id === selectedMapId);
     if (stay) {
-      if (bounds && !bounds.contains([stay.lon, stay.lat])) {
-        map.easeTo({ center: [stay.lon, stay.lat], duration: cameraDuration(600) });
-      }
+      map.easeTo({
+        center: [stay.lon, stay.lat],
+        zoom: Math.max(map.getZoom(), 14.5),
+        duration: cameraDuration(600),
+      });
       return;
     }
     const route = routes.find((r) => r.ride.id === selectedMapId);
-    if (route && bounds && !route.coords.every((c) => bounds.contains(c))) {
+    if (route) {
       const lons = route.coords.map((c) => c[0]);
       const lats = route.coords.map((c) => c[1]);
       map.fitBounds(
@@ -299,7 +344,7 @@ export function DayMap({
         { padding, maxZoom: 15.5, duration: cameraDuration(700) }
       );
     }
-  }, [selectedMapId, loaded, stays, routes, padding]);
+  }, [selectedMapId, loaded, stays, routes, padding, fitDay]);
 
   // ── replay ──
   const replay = useRouteReplay({ locations, stayPoints });
@@ -396,7 +441,11 @@ export function DayMap({
   const noData = loaded && locations.length === 0 && stays.length === 0;
 
   return (
-    <section className={cn("relative overflow-hidden bg-sunken", className)} aria-label="이동 지도">
+    <section
+      ref={frameRef}
+      className={cn("relative overflow-hidden bg-sunken", className)}
+      aria-label="이동 지도"
+    >
       <MapGL
         ref={mapRef}
         id="day-map"
@@ -406,7 +455,13 @@ export function DayMap({
         fadeDuration={0}
         attributionControl={false}
         style={{ width: "100%", height: "100%" }}
-        onLoad={() => setLoaded(true)}
+        language="ko"
+        performanceMetricsCollection={false}
+        onLoad={(e) => {
+          // Calm (and localize) the first style before it paints its English labels.
+          calmStyle(e.target, readPalette());
+          setLoaded(true);
+        }}
         interactiveLayerIds={loaded && routes.length > 0 ? ["day-routes-hit"] : undefined}
         onClick={(e) => {
           const feature = e.features?.[0] as { properties?: Record<string, unknown> } | undefined;
@@ -479,12 +534,29 @@ export function DayMap({
             </Source>
           </>
         ) : null}
+        <ScaleControl
+          position="bottom-right"
+          unit="metric"
+          maxWidth={80}
+          style={{
+            background: "color-mix(in oklab, var(--surface) 80%, transparent)",
+            borderColor: "var(--ink3)",
+            color: "var(--ink2)",
+            fontSize: 10,
+          }}
+        />
         {loaded
           ? markers.map((m) => {
               const on = m.ids.some((id) => stateOfId(id) === "on");
               const dim = !on && m.ids.every((id) => stateOfId(id) === "dim");
               return (
-                <Marker key={m.stay.id} longitude={m.stay.lon} latitude={m.stay.lat} anchor="left">
+                <Marker
+                  key={m.stay.id}
+                  longitude={m.stay.lon}
+                  latitude={m.stay.lat}
+                  anchor="left"
+                  style={{ zIndex: 1 + Number(on) * 2 }}
+                >
                   <button
                     type="button"
                     aria-label={`${m.stay.name} 선택`}
@@ -554,7 +626,7 @@ export function DayMap({
         <div
           role="group"
           aria-label="이동 다시 보기"
-          className="ds-reveal absolute inset-x-3 bottom-3 z-[6] grid grid-cols-[36px_minmax(0,1fr)_28px] items-center gap-2.5 rounded-xl bg-surface px-3 py-2.5 shadow-ring"
+          className="ds-reveal absolute inset-x-3 bottom-9 z-[6] grid grid-cols-[36px_minmax(0,1fr)_28px] items-center gap-2.5 rounded-xl bg-surface px-3 py-2.5 shadow-ring"
         >
           <button
             type="button"

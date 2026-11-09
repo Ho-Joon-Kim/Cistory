@@ -16,7 +16,6 @@ import {
   type OverviewPeriodSelection,
   resolveOverviewPeriod,
   useOverviewHistory,
-  useOverviewNarrative,
   useOverviewSnapshot,
 } from "@/modules/overview/hooks";
 import { focusOverviewSection } from "@/modules/overview/section-focus";
@@ -62,11 +61,6 @@ function OverviewContent() {
     isAuthenticated && !isComparison
   );
   const ready = snapshot && "domains" in snapshot ? snapshot : null;
-  const narrative = useOverviewNarrative(
-    selection.periodType,
-    selection.periodKey,
-    isAuthenticated && !isComparison && snapshot?.status === "ready"
-  );
   const history = useOverviewHistory(
     selection.periodType,
     selection.periodKey,
@@ -211,11 +205,7 @@ function OverviewContent() {
             />
           </div>
         ) : null}
-        <OverviewView
-          key={`${selection.periodType}:${selection.periodKey}`}
-          model={model}
-          narrative={narrative?.status === "ready" ? (narrative.content ?? null) : null}
-        />
+        <OverviewView key={`${selection.periodType}:${selection.periodKey}`} model={model} />
       </>
     );
   }

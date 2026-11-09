@@ -62,7 +62,7 @@ export function RankRow({
       <span
         aria-hidden="true"
         className={cn(
-          "ds-growx absolute inset-y-1.5 left-0 rounded-[6px]",
+          "ds-growx absolute top-1.5 left-0 h-7 rounded-[6px]",
           current || evidence === "on" ? "bg-brand-soft" : "bg-sunken"
         )}
         style={{ width: `${Math.max(0, Math.min(1, share)) * 100}%` }}

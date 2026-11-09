@@ -43,7 +43,7 @@ export function DayStrip({
     <div role="group" aria-label="하루 24시간" className="relative">
       {tip ? (
         <span
-          className="num pointer-events-none absolute -top-[34px] z-[5] -translate-x-1/2 rounded-lg bg-surface px-2 py-1 text-xs whitespace-nowrap text-ink shadow-ring"
+          className="num pointer-events-none absolute top-[calc(100%+4px)] z-[5] -translate-x-1/2 rounded-lg bg-surface px-2 py-1 text-xs whitespace-nowrap text-ink shadow-ring"
           style={{ left: tip.left }}
         >
           {tip.text}
@@ -96,6 +96,13 @@ export function DayStrip({
                 })
               }
               onMouseLeave={() => setTip(null)}
+              onFocus={() =>
+                setTip({
+                  text: `${r.mode} ${r.distance} · ${r.time}`,
+                  left: pct((r.start + r.end) / 2),
+                })
+              }
+              onBlur={() => setTip(null)}
               style={{ left: pct(r.start), width: `max(4px, ${pct(r.end - r.start)})` }}
               className={cn(
                 "absolute inset-y-0 rounded border-0 p-0 transition-[background-color,opacity] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",

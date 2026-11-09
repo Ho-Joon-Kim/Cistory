@@ -2,7 +2,7 @@
 
 import { type KeyboardEvent, useId, useRef, useState } from "react";
 import { AiLine, SecondaryNumber, useEvidence } from "@/components/ds";
-import { formatMonthDay, formatReturn, formatWonCompact, signToneClass } from "@/lib/format";
+import { formatMonthDay, formatWonCompact, signToneClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { PeriodContext } from "@/modules/overview/view/labels";
 import {
@@ -14,6 +14,12 @@ import {
 } from "@/modules/overview/view/sections";
 import { RankRow } from "./RankRow";
 import { useMeasuredWidth } from "./useMeasuredWidth";
+
+/** `-2.7%` — the period return at the precision the section reads at. */
+function returnOneDecimal(ratio: number): string {
+  const pct = Math.round(ratio * 1000) / 10;
+  return `${pct > 0 ? "+" : pct < 0 ? "−" : ""}${Math.abs(pct).toFixed(1)}%`;
+}
 
 export function SectionTitle({ children, id }: { children: string; id?: string }) {
   return (
@@ -101,7 +107,7 @@ export function AssetSection({ asset, ctx }: { asset: AssetModel; ctx: PeriodCon
               signToneClass(asset.twr, "market")
             )}
           >
-            {formatReturn(asset.twr)}
+            {returnOneDecimal(asset.twr)}
           </span>
         ) : null}
         <span className="text-label">기간 수익률 · {asset.days}일 기준</span>
@@ -257,7 +263,7 @@ export function DetailsSection({ tabs }: { tabs: DetailTab[] }) {
         <div
           role="tablist"
           aria-label="상세 항목"
-          className="-mx-4 mt-4 flex gap-0.5 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden"
+          className="-mx-4 mt-4 flex gap-0.5 overflow-x-auto px-4 [mask-image:linear-gradient(to_right,#000_calc(100%-28px),transparent)] [scrollbar-width:none] lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:[mask-image:none] [&::-webkit-scrollbar]:hidden"
         >
           {tabs.map((t, i) => {
             const on = t.id === tab.id;
@@ -297,7 +303,7 @@ export function DetailsSection({ tabs }: { tabs: DetailTab[] }) {
         role="tabpanel"
         id={`${baseId}-panel`}
         aria-labelledby={`${baseId}-tab-${tab.id}`}
-        className="mt-4 max-w-[760px] min-w-0 lg:mt-0 lg:h-[460px] lg:overflow-auto lg:pt-[46px]"
+        className="mt-4 max-w-[760px] min-w-0 lg:mt-0 lg:min-h-[460px] lg:pt-[46px]"
       >
         <AiLine fact={tab.fact} />
         {tab.id === "hour" ? (

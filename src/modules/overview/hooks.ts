@@ -1,8 +1,10 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
 import { toLocalDateString } from "@/lib/utils";
+import type { SearchResponse } from "@/modules/search/types";
 import type { OverviewHistoryResponse } from "./history";
 import {
   getPeriodKey,
@@ -12,6 +14,7 @@ import {
   periodTypes,
 } from "./period";
 import type { OverviewSnapshotResponse } from "./service";
+import type { StayFocus } from "./view/flow";
 
 export const OVERVIEW_POLL_INTERVAL_MS = 3_000;
 export const OVERVIEW_MAX_POLLS = 200;
@@ -469,4 +472,37 @@ export function useOverviewHistory(
     return () => controller.abort();
   }, [enabled, periodKey, periodType, refreshKey]);
   return history;
+}
+
+/**
+ * KST days in the period with a visit to `focus.area` — the snapshot has no
+ * per-day place data, so the flow chart's stay span reads the owner-scoped
+ * record search (visits matching the area's city). A few pages at most.
+ */
+export function useStayDays(focus: StayFocus | null): string[] {
+  const { data } = useQuery({
+    queryKey: ["overview", "stay-days", focus?.area, focus?.from, focus?.to],
+    enabled: focus != null,
+    staleTime: 10 * 60_000,
+    queryFn: async ({ signal }) => {
+      if (!focus) return [];
+      const days = new Set<string>();
+      for (let page = 1; page <= 5; page++) {
+        const params = new URLSearchParams({
+          q: focus.area,
+          source: "visit",
+          from: focus.from,
+          to: focus.to,
+          page: String(page),
+        });
+        const response = await fetch(`/api/search?${params.toString()}`, { signal });
+        if (!response.ok) break;
+        const body = (await response.json()) as SearchResponse;
+        for (const item of body.items) if (item.source === "visit") days.add(item.date);
+        if (!body.hasMore) break;
+      }
+      return [...days];
+    },
+  });
+  return data ?? [];
 }

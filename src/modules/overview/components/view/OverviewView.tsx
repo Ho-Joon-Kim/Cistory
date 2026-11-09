@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, type ReactNode, useId, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { EvidenceScope } from "@/components/ds";
 import { cn } from "@/lib/utils";
 import type { OverviewModel } from "@/modules/overview/view/model";
@@ -32,65 +32,17 @@ function Stage({
   );
 }
 
-/** The stored AI narrative, folded away: the facts above already carry the story. */
-function NarrativeContext({ label, content }: { label: string; content: string }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  return (
-    <div className="mt-6">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-0 text-[13px] font-medium text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-brand"
-      >
-        <svg
-          aria-hidden="true"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cn("text-ink-3 transition-[rotate] duration-150", open && "rotate-90")}
-        >
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        {label}의 맥락
-      </button>
-      {open ? (
-        <div
-          id={id}
-          className="ds-reveal mt-1 max-w-[760px] text-sm leading-6 whitespace-pre-wrap text-pretty text-ink-2"
-        >
-          {content}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-export function OverviewView({
-  model,
-  narrative,
-}: {
-  model: OverviewModel;
-  narrative: string | null;
-}) {
+export function OverviewView({ model }: { model: OverviewModel }) {
   const { ctx } = model;
   return (
     <EvidenceScope>
       <Stage delay={100} className="mt-8 pt-8 lg:mt-10" label="기간 요약">
         {model.headline ? (
-          <p className="m-0 mb-8 max-w-[860px] font-serif text-xl leading-[30px] font-semibold tracking-[-0.02em] text-balance text-ink sm:text-2xl sm:leading-[34px]">
+          <p className="m-0 mb-8 max-w-[860px] font-serif text-[22px] leading-[30px] font-semibold tracking-[-0.02em] text-balance text-ink sm:text-2xl sm:leading-[34px]">
             {model.headline}
           </p>
         ) : null}
         <OverviewHero hero={model.hero} ctx={ctx} />
-        {narrative ? <NarrativeContext label={ctx.label} content={narrative} /> : null}
       </Stage>
 
       <Stage delay={200} className="mt-14 pt-8">

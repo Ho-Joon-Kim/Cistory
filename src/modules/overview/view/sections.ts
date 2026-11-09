@@ -30,6 +30,16 @@ export function formatKm(meters: number): string {
   return km >= 100 ? formatCount(km) : (Math.round(km * 10) / 10).toLocaleString("ko-KR");
 }
 
+/**
+ * Amounts stacked in a mono column keep one fixed decimal of 만원 (`280.0만원`,
+ * `8.0만원`, `108.3만원`) so the digits line up.
+ */
+export function wonColumn(n: number): string {
+  if (Math.round(Math.abs(n)) < 10_000) return formatWonCompact(n);
+  const man = Math.round(Math.abs(n) / 1_000) / 10;
+  return `${n < 0 ? "−" : ""}${man.toLocaleString("ko-KR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}만원`;
+}
+
 // ── 이동과 장소 ───────────────────────────────────────────────────────────────
 
 const REGION_SUFFIXES = ["통합특별시", "특별자치도", "특별자치시", "광역시", "특별시"];
@@ -502,7 +512,7 @@ function categoryTab(ctx: PeriodContext, spending: SpendingAggregate | null): De
     rows: cats.map((c) => ({
       key: c.category,
       name: label(c.category),
-      value: formatWonCompact(c.spending),
+      value: wonColumn(c.spending),
       share: c.spending / top.spending,
       pct: pct(c.spending / total),
     })),

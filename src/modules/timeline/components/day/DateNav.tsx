@@ -89,7 +89,7 @@ export function DateNav({
             type="button"
             aria-haspopup="dialog"
             className={cn(
-              "rounded border-0 bg-transparent px-1 font-semibold whitespace-nowrap text-ink hover:bg-track focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+              "relative rounded border-0 bg-transparent px-1 font-semibold whitespace-nowrap before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] text-ink hover:bg-track focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
               pill ? "text-xs leading-5" : "text-sm leading-5"
             )}
           >
