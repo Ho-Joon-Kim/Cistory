@@ -109,9 +109,13 @@ export function groupByDay(items: SearchItem[]): DayGroup[] {
         if (seenRepo.has(repo)) continue;
         seenRepo.add(repo);
         const [owner, ...rest] = repo.split("/");
-        const types = new Map<string, number>();
-        for (const c of list)
-          types.set(commitType(c.title), (types.get(commitType(c.title)) ?? 0) + 1);
+        // The server's counts cover the whole day's group (the page may hold only
+        // a few of its commits); fall back to the loaded rows.
+        const types = new Map<string, number>(Object.entries(list[0]?.groupTypes ?? {}));
+        if (types.size === 0) {
+          for (const c of list)
+            types.set(commitType(c.title), (types.get(commitType(c.title)) ?? 0) + 1);
+        }
         day.rows.push({
           kind: "commits",
           key: `commits:${day.date}:${repo}`,
@@ -144,14 +148,17 @@ export function groupByDay(items: SearchItem[]): DayGroup[] {
 
 /**
  * "대부분 perf 작업" line for a large commit group: only when one conventional
- * type holds at least half of five or more commits.
+ * type holds at least half of five or more commits. Counted over the whole
+ * day's group (server type counts), so the quantifier matches the real share.
  */
 export function commitGroupFact(group: CommitGroup): Fact | null {
-  const n = group.items.length;
+  const n = group.typeCounts.reduce((sum, [, c]) => sum + c, 0);
   const [type, count] = group.typeCounts[0] ?? ["", 0];
   if (n < 5 || count / n < 0.5 || type === "other" || type === "merge" || /\d/.test(type)) {
     return null;
   }
+  const lead =
+    count === n ? "{total}건 모두" : `{total}건 중 ${count / n >= 0.75 ? "대부분" : "절반 넘게"}`;
   return diagnosis({
     id: `search.commits.${group.key}`,
     metric: "commits",
@@ -160,11 +167,19 @@ export function commitGroupFact(group: CommitGroup): Fact | null {
     value: count,
     unit: "count",
     unitLabel: "건",
-    template: `{total}건 중 대부분 ${TYPE_LABELS[type] ?? type} 작업({fact})이에요.`,
+    template: `${lead} ${TYPE_LABELS[type] ?? type} 작업({fact})이에요.`,
     detail: { total: n, trigger: `${type} ${count}건` },
     rows: [
       { label: "유형", value: group.typeCounts.map(([t, c]) => `${t} ${c}`).join(" · ") },
       ...(group.ticket ? [{ label: "티켓", value: group.ticket }] : []),
     ],
   });
+}
+
+/** Tab counts: exact below 1,000, then a short real figure ("1.2천", "3.4만"). */
+export function compactCount(n: number): string {
+  if (n < 1000) return String(n);
+  const [div, unit] = n < 10_000 ? [1000, "천"] : [10_000, "만"];
+  const v = n / div;
+  return `${v >= 100 ? Math.floor(v) : Math.floor(v * 10) / 10}${unit}`;
 }

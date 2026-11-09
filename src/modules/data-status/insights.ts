@@ -11,14 +11,18 @@ import type { Fact, FactRow } from "@/lib/facts/types";
 import { formatCount, formatDateRange, formatDateTime, formatMonthDay } from "@/lib/format";
 import type { SourceId, SourceStatus } from "./types";
 
-export const SOURCE_NAMES: Record<SourceId, { name: string; short: string; unit: string }> = {
-  wakatime: { name: "WakaTime", short: "WakaTime", unit: "세션" },
-  health: { name: "건강", short: "건강", unit: "샘플" },
-  github: { name: "GitHub 커밋", short: "GitHub", unit: "커밋" },
-  location: { name: "위치 기록", short: "위치", unit: "좌표" },
-  toss: { name: "토스 알림", short: "토스", unit: "알림" },
-  kis: { name: "KIS 자산", short: "KIS", unit: "스냅샷" },
-  withings: { name: "Withings 체성분", short: "Withings", unit: "측정" },
+/** `tiny` fits the hero meter's ~37px columns on a 320px phone. */
+export const SOURCE_NAMES: Record<
+  SourceId,
+  { name: string; short: string; tiny: string; unit: string }
+> = {
+  wakatime: { name: "WakaTime", short: "WakaTime", tiny: "코딩", unit: "세션" },
+  health: { name: "건강", short: "건강", tiny: "건강", unit: "샘플" },
+  github: { name: "GitHub 커밋", short: "GitHub", tiny: "커밋", unit: "커밋" },
+  location: { name: "위치 기록", short: "위치", tiny: "위치", unit: "좌표" },
+  toss: { name: "토스 알림", short: "토스", tiny: "토스", unit: "알림" },
+  kis: { name: "KIS 자산", short: "KIS", tiny: "KIS", unit: "스냅샷" },
+  withings: { name: "Withings 체성분", short: "Withings", tiny: "체성분", unit: "측정" },
 };
 
 /** Fixed display order of the hero meter (matches the source table's default). */
@@ -284,14 +288,18 @@ export function focusFact(view: SourceView, all: SourceView[], now: Date = new D
       value: `${others.length}개 중 ${othersOk}개 정상`,
     },
   ];
-  if (view.source.error) rows.push({ label: "오류", value: view.source.error });
+  // A confirmed auth refusal is the precise cause; the generic sync-failure text
+  // stored with it would contradict the sentence and badge.
+  if (view.status === "reauth")
+    rows.push({ label: "오류", value: "제공자가 인증을 거부함 · 다시 연결 필요" });
+  else if (view.source.error) rows.push({ label: "오류", value: view.source.error });
 
   if (view.status === "failed" || view.status === "reauth" || view.status === "delayed") {
     const cause =
       view.status === "reauth"
-        ? "제공자가 인증을 거부했어요 — 다시 연결하면 동기화가 이어집니다."
+        ? "제공자가 인증을 거부했어요 — 다시 연결하면 동기화가 이어져요."
         : view.source.canRecover
-          ? "서버보다는 연결 권한이 만료됐거나 바뀌었을 가능성이 커요 — 연결을 확인한 뒤 재수집하면 이 기간을 다시 가져옵니다."
+          ? "서버보다는 연결 권한이 만료됐거나 바뀌었을 가능성이 커요 — 연결을 확인한 뒤 재수집하면 이 기간을 다시 가져와요."
           : "연결 상태를 확인해 주세요.";
     const lead =
       othersOk === others.length && others.length > 0

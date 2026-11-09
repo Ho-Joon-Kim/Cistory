@@ -26,6 +26,7 @@ import { EXPENSE_CATEGORY_LABELS, isExpenseCategory } from "@/modules/spending/c
 import {
   type CommitGroup,
   commitGroupFact,
+  compactCount,
   groupByDay,
   type ItemRow,
   splitCommitTitle,
@@ -262,7 +263,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
   const totalCount = counts ? RECORD_SOURCES.reduce((sum, s) => sum + segCount(s), 0) : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col">
+    <div className="flex w-full max-w-[760px] flex-col">
       <PageTitle
         title="기록 검색"
         meta="커밋 · 소비 · 방문 · 여행을 한 번에 찾아요. 말하듯 적어도 돼요."
@@ -302,7 +303,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
               className="h-10 min-w-0 flex-1 border-0 bg-transparent text-base text-ink outline-none placeholder:text-ink-3"
             />
             <span id="search-hint" className="sr-only">
-              날짜, 기록 종류, 소비 분류, 시간대는 알아서 조건으로 바꿔요. Enter로 검색합니다.
+              날짜, 기록 종류, 소비 분류, 시간대는 알아서 조건으로 바꿔요. Enter로 검색해요.
             </span>
             {recent.length > 0 ? (
               <Popover>
@@ -486,7 +487,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
                       <time dateTime={day.date}>{formatDay(day.date)}</time>
                     </h2>
                     <span className="text-xs text-ink-3">
-                      <span className="num">{formatCount(day.total)}</span>건
+                      <span className="tabular-nums">{formatCount(day.total)}</span>건
                       {i === days.length - 1 && hasMore ? " · 이어서 더 있음" : ""}
                     </span>
                   </div>
@@ -692,7 +693,9 @@ function SourceSegment({
             aria-pressed={on}
             onClick={() => onChange(item.value)}
             className={cn(
-              "relative z-[1] inline-flex h-[30px] min-w-0 cursor-pointer max-sm:h-[38px] items-center justify-center gap-1 rounded-[7px] border-0 bg-transparent px-1 text-[13px] whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-brand",
+              // Phones: the button spans the track's full 44px (bleeding over its 3px
+              // padding) while the visible thumb stays 38px.
+              "relative z-[1] inline-flex h-[30px] min-w-0 cursor-pointer max-sm:-my-[3px] max-sm:h-11 items-center justify-center gap-1 rounded-[7px] border-0 bg-transparent px-1 text-[13px] whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-brand",
               on
                 ? "font-semibold text-ink"
                 : n === 0
@@ -702,8 +705,11 @@ function SourceSegment({
           >
             {item.label}
             {n !== null ? (
-              <span className="num text-[11px] font-normal text-ink-3 max-[359px]:hidden">
-                {n > 999 ? "999+" : n}
+              <span
+                className="num text-[11px] font-normal text-ink-3 max-[359px]:hidden"
+                title={n >= 1000 ? `${formatCount(n)}건` : undefined}
+              >
+                {compactCount(n)}
               </span>
             ) : null}
           </button>
@@ -820,7 +826,7 @@ function CommitGroupRow({ group }: { group: CommitGroup }) {
         <SourceTile icon="github" dot={DOT_FOR.commit} />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h3 className="m-0 text-[15px] leading-[22px] font-semibold">
-            {group.name} 커밋 <span className="num">{formatCount(group.total)}</span>건
+            {group.name} 커밋 <span className="tabular-nums">{formatCount(group.total)}</span>건
           </h3>
           <span className="truncate text-[13px] leading-[18px] text-ink-3">
             {[group.owner, group.ticket].filter(Boolean).join(" · ") || group.repository}
@@ -864,7 +870,8 @@ function CommitGroupRow({ group }: { group: CommitGroup }) {
                 href={repoSearchHref(group)}
                 className="inline-flex min-h-11 items-center gap-1 py-2 text-sm font-semibold text-brand no-underline hover:underline hover:underline-offset-[3px]"
               >
-                이날 커밋 <span className="num">{formatCount(group.total)}</span>건 모두 보기
+                이날 커밋 <span className="tabular-nums">{formatCount(group.total)}</span>건 모두
+                보기
                 <ArrowRight />
               </a>
             </li>

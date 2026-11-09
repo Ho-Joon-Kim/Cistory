@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderTemplate } from "@/lib/facts/template";
-import { commitGroupFact, groupByDay, splitCommitTitle } from "./grouping";
+import { commitGroupFact, compactCount, groupByDay, splitCommitTitle } from "./grouping";
 import type { SearchItem } from "./types";
 
 const commit = (id: string, title: string, date = "2026-11-09"): SearchItem => ({
@@ -76,5 +76,41 @@ describe("groupByDay with collapsed commit groups", () => {
     expect(days[0].total).toBe(30);
     expect(days[0].rows[0]).toMatchObject({ kind: "commits", total: 29 });
     expect((days[0].rows[0] as { items: unknown[] }).items).toHaveLength(2);
+  });
+});
+
+describe("commit group line over the whole day's group", () => {
+  it("uses the server's type counts when the view carries only a few rows", () => {
+    const types = { perf: 12, fix: 6, other: 5 };
+    const [group] = groupByDay([
+      { ...commit("a", "perf: a"), groupTotal: 23, groupTypes: types },
+      { ...commit("b", "fix: b"), groupTotal: 23, groupTypes: types },
+      { ...commit("c", "perf: c"), groupTotal: 23, groupTypes: types },
+    ])[0].rows;
+    if (group.kind !== "commits") throw new Error("expected group");
+    expect(renderTemplate(commitGroupFact(group)!).text).toBe(
+      "23건 중 절반 넘게 성능 작업(perf 12건)이에요."
+    );
+  });
+
+  it("says 모두 rather than 대부분 when every commit has the type", () => {
+    const items = ["perf: a", "perf: b", "perf: c", "perf: d", "perf: e"].map((t, i) =>
+      commit(String(i), t)
+    );
+    const [group] = groupByDay(items)[0].rows;
+    if (group.kind !== "commits") throw new Error("expected group");
+    expect(renderTemplate(commitGroupFact(group)!).text).toBe(
+      "5건 모두 성능 작업(perf 5건)이에요."
+    );
+  });
+});
+
+describe("compactCount", () => {
+  it("keeps small counts exact and shortens large ones without a fake cap", () => {
+    expect(compactCount(999)).toBe("999");
+    expect(compactCount(1000)).toBe("1천");
+    expect(compactCount(1290)).toBe("1.2천");
+    expect(compactCount(34_567)).toBe("3.4만");
+    expect(compactCount(1_234_567)).toBe("123만");
   });
 });

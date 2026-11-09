@@ -233,12 +233,15 @@ describe("unified record search against PostgreSQL", () => {
     const repoRows = mixed.items.filter((i) => i.repository === "owner/repository");
     expect(repoRows).toHaveLength(3);
     expect(repoRows.every((i) => i.groupTotal === 40)).toBe(true);
+    // Type counts cover the whole day's group, not the three rows shown.
+    expect(repoRows[0].groupTypes).toEqual({ other: 40 });
     expect(mixed.items.some((i) => i.title === "early shop")).toBe(true);
     expect(mixed.hasMore).toBe(false);
     expect(mixed.counts?.commit).toBe(41);
     const onlyCommits = await searchRecords(db, owner, { ...input, source: "commit" });
     expect(onlyCommits.items).toHaveLength(30);
     expect(onlyCommits.items[0].groupTotal).toBeUndefined();
+    expect(onlyCommits.items[0].groupTypes).toEqual({ other: 40 });
     const repo = await searchRecords(db, owner, { ...input, repo: "owner/other" });
     expect(repo.items.map((i) => i.title)).toEqual(["other repo"]);
     expect(repo.counts).toEqual({ commit: 1, spending: 0, visit: 0, trip: 0 });

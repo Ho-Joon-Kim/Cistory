@@ -33,6 +33,11 @@ export interface SearchItem {
    * carries just the newest few of them.
    */
   groupTotal?: number;
+  /**
+   * Commits only: conventional-commit type counts (`perf`, `fix`, `merge`,
+   * `other`, …) over every commit that day in this repository, not just the page.
+   */
+  groupTypes?: Record<string, number>;
 }
 export type SearchCounts = Record<Exclude<SearchSource, "all">, number>;
 export interface SearchResponse {

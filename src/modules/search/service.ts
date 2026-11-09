@@ -8,6 +8,7 @@ type Row = Omit<SearchItem, "href"> & {
   linkDate: string | null;
   koreanAddress: string | null;
   groupTotal: number | null;
+  groupTypes: Record<string, number> | null;
   repository: string | null;
   sha: string | null;
   amount: number | string | null;
@@ -15,6 +16,9 @@ type Row = Omit<SearchItem, "href"> & {
 };
 
 const PAGE_SIZE = 30;
+/** Postgres ARE twins of commitType()'s patterns (bound, so no escaping games). */
+const MERGE_RE = String.raw`^merge\y`;
+const TYPE_RE = String.raw`^(\w+)(?:\([^)]*\))?!?:`;
 /** Commits per (day, repository) shown in the mixed "전체" view. */
 const COLLAPSED_COMMITS = 3;
 
@@ -57,14 +61,14 @@ export async function searchRecords(
     visit: sql`SELECT v.id::text, 'visit'::text AS source,
       left(coalesce(p.name, v.place_name, v.address, '방문 기록'), 300) AS title,
       left(CASE
-        WHEN v.address ~ '[가-힣]' THEN v.address
+        WHEN v.address ~ '[가-힣]' AND v.address !~ '[A-Za-z]{3,}' THEN v.address
         WHEN coalesce(v.country_name, '대한민국') IN ('대한민국', '한국', 'South Korea', 'Korea')
           THEN coalesce(v.city, '')
         ELSE concat_ws(' · ', v.city, v.country_name)
       END, 500) AS description,
       greatest(v.start_time, ${lower}::timestamp) AS occurred_at, v.start_time AS link_at, NULL::text AS repository, NULL::text AS sha,
       NULL::float8 AS amount, NULL::text AS category,
-      CASE WHEN v.address ~ '[가-힣]' OR coalesce(v.country_name, '대한민국') NOT IN ('대한민국', '한국', 'South Korea', 'Korea')
+      CASE WHEN (v.address ~ '[가-힣]' AND v.address !~ '[A-Za-z]{3,}') OR coalesce(v.country_name, '대한민국') NOT IN ('대한민국', '한국', 'South Korea', 'Korea')
         THEN NULL ELSE v.center_lat END AS lat,
       v.center_lon AS lon
       FROM visits v LEFT JOIN saved_places p ON p.id = v.saved_place_id AND p.user_id = ${userId}
@@ -122,9 +126,26 @@ export async function searchRecords(
           ORDER BY occurred_at DESC, id ASC
         ) AS group_rank,
         count(*) OVER (PARTITION BY ${localDaySql(sql`occurred_at`)}, source, repository)::int
-          AS group_total
+          AS group_total,
+        -- Mirrors commitType() in grouping.ts: conventional prefix, 'merge', or 'other'.
+        CASE WHEN source = 'commit' THEN
+          CASE WHEN title ~* ${MERGE_RE}::text THEN 'merge'
+            ELSE coalesce(lower(substring(title FROM ${TYPE_RE}::text)), 'other')
+          END
+        END AS commit_type
       FROM (${union(selected)}) records
       ${hourFilter}
+    ),
+    -- Conventional-commit type counts over each whole (day, repository) group, so a
+    -- group's line describes every commit that day, not just the rows on this page.
+    group_types AS (
+      SELECT date, repository, jsonb_object_agg(commit_type, n) AS types
+      FROM (
+        SELECT date, repository, commit_type, count(*)::int AS n
+        FROM base WHERE source = 'commit'
+        GROUP BY 1, 2, 3
+      ) t
+      GROUP BY 1, 2
     ),
     page AS (
       SELECT * FROM base
@@ -135,14 +156,17 @@ export async function searchRecords(
     SELECT page.id, page.source, page.title, page.description, page.date, page."linkDate",
       page.repository, page.sha, page.amount, page.category, page."occurredAt",
       CASE WHEN page.source = 'commit' THEN page.group_total END AS "groupTotal",
+      gt.types AS "groupTypes",
       ko.address AS "koreanAddress"
     FROM page
+    LEFT JOIN group_types gt
+      ON page.source = 'commit' AND gt.date = page.date AND gt.repository = page.repository
     LEFT JOIN LATERAL (
       -- Romanized geocodes (Google/Mapbox for a Korean coordinate) read badly next
       -- to Korean place names: borrow the nearest Korean address already cached
       -- within ~200 m. Only the visible page is looked up.
       SELECT pc.address FROM place_cache pc
-      WHERE page.lat IS NOT NULL AND pc.address ~ '[가-힣]'
+      WHERE page.lat IS NOT NULL AND pc.address ~ '[가-힣]' AND pc.address !~ '[A-Za-z]{3,}'
         AND pc.lat_key BETWEEN page.lat - 0.002 AND page.lat + 0.002
         AND pc.lon_key BETWEEN page.lon - 0.002 AND page.lon + 0.002
       ORDER BY (pc.lat_key - page.lat) ^ 2 + (pc.lon_key - page.lon) ^ 2
@@ -166,26 +190,41 @@ export async function searchRecords(
   return {
     items: result.rows
       .slice(0, PAGE_SIZE)
-      .map(({ linkDate, repository, sha, amount, category, koreanAddress, groupTotal, ...row }) => {
-        let href = `/dashboard?date=${encodeURIComponent(linkDate ?? row.date)}`;
-        if (row.source === "trip") href = `/travel/${encodeURIComponent(row.id)}`;
-        if (row.source === "commit" && repository && sha) {
-          href = `https://github.com/${repository.split("/").map(encodeURIComponent).join("/")}/commit/${encodeURIComponent(sha)}`;
+      .map(
+        ({
+          linkDate,
+          repository,
+          sha,
+          amount,
+          category,
+          koreanAddress,
+          groupTotal,
+          groupTypes,
+          ...row
+        }) => {
+          let href = `/dashboard?date=${encodeURIComponent(linkDate ?? row.date)}`;
+          if (row.source === "trip") href = `/travel/${encodeURIComponent(row.id)}`;
+          if (row.source === "commit" && repository && sha) {
+            href = `https://github.com/${repository.split("/").map(encodeURIComponent).join("/")}/commit/${encodeURIComponent(sha)}`;
+          }
+          const description =
+            row.source === "visit"
+              ? visitRegion(koreanAddress ?? row.description)
+              : row.description;
+          return {
+            ...row,
+            description,
+            amount: amount === null || amount === undefined ? null : Number(amount),
+            category: category ?? null,
+            repository: row.source === "commit" ? repository : null,
+            ...(collapse && row.source === "commit" && groupTotal
+              ? { groupTotal: Number(groupTotal) }
+              : {}),
+            ...(row.source === "commit" && groupTypes ? { groupTypes } : {}),
+            href,
+          };
         }
-        const description =
-          row.source === "visit" ? visitRegion(koreanAddress ?? row.description) : row.description;
-        return {
-          ...row,
-          description,
-          amount: amount === null || amount === undefined ? null : Number(amount),
-          category: category ?? null,
-          repository: row.source === "commit" ? repository : null,
-          ...(collapse && row.source === "commit" && groupTotal
-            ? { groupTotal: Number(groupTotal) }
-            : {}),
-          href,
-        };
-      }),
+      ),
     hasMore: input.page < 100 && result.rows.length > PAGE_SIZE,
     page: input.page,
     counts,

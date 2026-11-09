@@ -78,6 +78,7 @@ export function StatusStrip({
   hovered,
   evidence,
   onHover,
+  onActivate,
   failTone,
   className,
 }: {
@@ -88,15 +89,23 @@ export function StatusStrip({
   /** Date keys lit by an AI line; others dim while set. */
   evidence?: ReadonlySet<string> | null;
   onHover?: (index: number | null) => void;
+  /** Pointer click anywhere on the strip (the row uses it to expand). */
+  onActivate?: () => void;
   failTone?: "up" | "warn";
   className?: string;
 }) {
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: pointer-only shortcut; keyboard users toggle the same row through its button.
     <ol
       aria-label={`${label} 날짜별 기록`}
-      className={cn("relative m-0 grid h-6 list-none gap-0.5 p-0 xl:gap-1", className)}
+      className={cn(
+        "relative m-0 grid h-6 list-none gap-0.5 p-0 xl:gap-1",
+        onActivate && "cursor-pointer",
+        className
+      )}
       style={{ gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))` }}
       onMouseLeave={() => onHover?.(null)}
+      onClick={onActivate}
     >
       {cells.map((cell, i) => {
         const ev = evidence ? (evidence.has(cell.date) ? "on" : "dim") : undefined;

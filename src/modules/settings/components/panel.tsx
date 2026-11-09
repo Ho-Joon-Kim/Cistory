@@ -3,6 +3,7 @@
  * shares one rhythm: 13/20 ink-2 copy, hairline stat rows instead of tinted
  * tiles, quiet notes with a status dot instead of colored boxes.
  */
+import * as SwitchPrimitive from "@radix-ui/react-switch";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -114,6 +115,101 @@ export function PanelStats({ items }: { items: PanelStat[] }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * A labelled on/off row: 36×22 track (brand when on) inside a ≥44px tall
+ * label, so the whole line is the hit area.
+ */
+export function PanelSwitch({
+  id,
+  checked,
+  disabled,
+  onCheckedChange,
+  children,
+}: {
+  id: string;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className={cn(
+        "inline-flex min-h-11 cursor-pointer items-center gap-2.5 self-start text-[13px] leading-5 text-ink-2 sm:min-h-9",
+        disabled && "cursor-not-allowed opacity-60"
+      )}
+    >
+      <SwitchPrimitive.Root
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+        className="inline-flex h-[22px] w-9 flex-none cursor-[inherit] items-center rounded-full border-0 bg-[color-mix(in_oklab,var(--ink)_24%,var(--track))] p-0.5 transition-colors duration-150 ease-out focus-ring data-[state=checked]:bg-brand"
+      >
+        <SwitchPrimitive.Thumb className="pointer-events-none block size-[18px] rounded-full bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.06)] transition-transform duration-150 ease-out data-[state=checked]:translate-x-3.5" />
+      </SwitchPrimitive.Root>
+      {children}
+    </label>
+  );
+}
+
+/** Rows of a panel list: hairline separated, flush with the panel text. */
+export function PanelList({ children, label }: { children: ReactNode; label?: string }) {
+  return (
+    <ul aria-label={label} className="m-0 list-none border-t border-line p-0">
+      {children}
+    </ul>
+  );
+}
+
+export function PanelListItem({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <li className={cn("flex items-start gap-3 border-b border-line py-3", className)}>
+      {children}
+    </li>
+  );
+}
+
+/** 36px (44px on phones) quiet icon button for row actions. */
+export function PanelIconButton({
+  label,
+  onClick,
+  disabled,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] border-0 bg-transparent transition-[background-color,color,scale] duration-150 ease-out focus-ring active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 max-sm:size-11 [&_svg]:size-[15px]",
+        danger
+          ? "text-ink-3 hover:bg-gain-soft hover:text-gain"
+          : "text-ink-2 hover:bg-track hover:text-ink"
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

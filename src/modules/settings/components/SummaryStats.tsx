@@ -59,8 +59,8 @@ export function SummaryStats() {
   return (
     <div className="flex flex-col gap-4">
       <PanelText>
-        커밋 <span className="num text-ink">{formatCount(stats.total)}</span>건 중{" "}
-        <span className="num font-semibold text-ink">
+        커밋 <span className="tabular-nums text-ink">{formatCount(stats.total)}</span>건 중{" "}
+        <span className="font-semibold tabular-nums text-ink">
           {completionText(stats.completed, stats.total)}
         </span>
         의 요약이 만들어졌어요. 새 커밋은 10분마다 백그라운드에서 요약돼요.
@@ -82,8 +82,8 @@ export function SummaryStats() {
             </Button>
           }
         >
-          실패한 <span className="num">{formatCount(stats.failed)}</span>건은 자동 재시도를 모두
-          써서 더는 저절로 다시 만들지 않아요.
+          실패한 <span className="tabular-nums">{formatCount(stats.failed)}</span>건은 자동 재시도를
+          모두 써서 더는 저절로 다시 만들지 않아요.
         </PanelNote>
       ) : null}
       {stats.pending > 0 ? (
@@ -95,8 +95,9 @@ export function SummaryStats() {
       ) : null}
       {unsummarized > 0 ? (
         <PanelText className="text-ink-3">
-          요약 기록이 아직 없는 커밋 <span className="num">{formatCount(unsummarized)}</span>건은
-          다음 동기화 때 대기열에 들어가요.
+          요약 기록이 아직 없는 커밋{" "}
+          <span className="tabular-nums">{formatCount(unsummarized)}</span>건은 다음 동기화 때
+          대기열에 들어가요.
         </PanelText>
       ) : null}
     </div>
