@@ -18,8 +18,11 @@ import type { PeriodAggregateInput, PeriodAggregatePayload } from "./types";
 // aggregate/location.ts's `visitedRegions` reads directly. v4 (2026-10):
 // fix/toss-transfer-parsing changed spending's `bucketSql` (pooled-account
 // deposits count only the user's own unmirrored ones; cancelled payments drop
-// out), which aggregate/spending.ts classifies with.
-export const OVERVIEW_COMPUTE_VERSION = 4;
+// out), which aggregate/spending.ts classifies with. v5 (2026-11):
+// aggregate/health.ts reads sleep from deduped sessions, reports steps/sleep
+// stats per day rather than per sample, skips weight-less body rows, and binds
+// its body window as UTC wall time (it was landing 9h late).
+export const OVERVIEW_COMPUTE_VERSION = 5;
 export const PRECOMPUTE_CLAIM_LIMIT = 5;
 export const PRECOMPUTE_MAX_ATTEMPTS = 3;
 export const PRECOMPUTE_USER_BATCH_LIMIT = 250;
