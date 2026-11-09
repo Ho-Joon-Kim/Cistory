@@ -3,71 +3,235 @@
 /* `dark:` follows next-themes' `.dark` class, not the OS preference. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* CSS Variables for theming (shadcn/ui compatible) */
+/* ============================================================================
+ * Design tokens (redesign v2 — source: the approved Main/AIInsights/CategoryMarks
+ * mockups). Two layers live side by side:
+ *
+ * 1. Design-system tokens: full colors, used as `var(--ink)` in CSS or through
+ *    the Tailwind utilities generated in `@theme inline` below.
+ *      mockup var        CSS var              Tailwind utility
+ *      --bg              --bg                 bg-page
+ *      --surface         --surface            bg-surface
+ *      --sunken          --sunken             bg-sunken
+ *      --track           --track              bg-track
+ *      --line            --line               border-line / bg-line
+ *      --ink/2/3         --ink/--ink2/--ink3  text-ink / text-ink-2 / text-ink-3
+ *      --accent          --brand              bg-brand / text-brand
+ *      --accent-ink      --brand-ink          text-brand-ink
+ *      --accent-soft     --brand-soft         bg-brand-soft
+ *      --gain(-soft)     --up(-soft)          text-gain / bg-gain-soft
+ *      --loss(-soft)     --down(-soft)        text-loss / bg-loss-soft
+ *      --warn(-soft)     --warn(-soft)        text-warn / bg-warn-soft
+ *      (success)         --ok(-soft)          text-ok / bg-ok-soft
+ *      --place --health  --place --health     text-place / text-health
+ *      --bar(-dim)       --bar(-dim)          bg-bar / bg-bar-dim
+ *      --scrim           --scrim              bg-scrim
+ *      --ring            --elev-ring          shadow-ring
+ *      --ring-hover      --elev-ring-hover    shadow-ring-hover
+ *      (popover shadow)  --elev-pop           shadow-pop
+ *    Category palette (14 hues, contrast-checked per theme): --cat-<id> and
+ *    --cat-<id>-tint → bg-cat-food, text-cat-food, bg-cat-food-tint, …
+ *    The renamed ones (--brand, --up, --down, --elev-*) avoid colliding with the
+ *    shadcn variables of the same mockup name.
+ *
+ * 2. shadcn/ui tokens: HSL triples (`hsl(var(--primary))`) kept so every existing
+ *    component and `hsl(var(--x) / a)` call keeps working; their values are now
+ *    derived from the palette above (primary = brand green, accent = neutral
+ *    hover tint = track, border = line, muted-foreground = ink3, …).
+ *
+ * Contrast (WCAG): ink2/ink3/brand/gain/loss/warn are all ≥ 4.6:1 on bg, surface
+ * and track in both themes; category hues are ≥ 4.6:1 as glyph colors.
+ * ============================================================================ */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 240 10% 3.9%;
+  --bg: #FBFBFA;
+  --surface: #FFFFFF;
+  --sunken: #F3F4F2;
+  --track: #EDEFED;
+  --line: #E6E9E6;
+  --ink: #141714;
+  --ink2: #4F5752;
+  --ink3: #5E6661;
+  --brand: #0E6B47;
+  --brand-ink: #FFFFFF;
+  --brand-soft: #E3F0E8;
+  --up: #C6352A;
+  --up-soft: #FBEAE8;
+  --down: #1F5DC0;
+  --down-soft: #E7EEFA;
+  --warn: #8F5300;
+  --warn-soft: #FBF0DD;
+  --ok: #0E6B47;
+  --ok-soft: #E3F0E8;
+  --place: #B4521A;
+  --health: #6446CF;
+  --bar: #B9C0BB;
+  --bar-dim: #E1E5E2;
+  --scrim: rgb(20 23 20 / 0.32);
+  --elev-ring: 0 0 0 1px rgb(20 23 20 / 0.06), 0 1px 2px -1px rgb(20 23 20 / 0.06),
+    0 2px 4px 0 rgb(20 23 20 / 0.04);
+  --elev-ring-hover: 0 0 0 1px rgb(20 23 20 / 0.09), 0 1px 2px -1px rgb(20 23 20 / 0.08),
+    0 4px 8px 0 rgb(20 23 20 / 0.06);
+  --elev-pop: var(--elev-ring-hover), 0 12px 32px -8px rgb(0 0 0 / 0.18);
+  --elev-tip: var(--elev-ring-hover), 0 8px 20px -6px rgb(0 0 0 / 0.18);
+  /* Commit-graph ramp (app bar): accent mixed into the page background. */
+  --heat-0: var(--line);
+  --heat-1: color-mix(in oklab, var(--brand) 34%, var(--bg));
+  --heat-2: color-mix(in oklab, var(--brand) 55%, var(--bg));
+  --heat-3: color-mix(in oklab, var(--brand) 78%, var(--bg));
+  --heat-4: var(--brand);
+
+  --cat-food: #A14600;
+  --cat-food-tint: #F4E5DD;
+  --cat-cafe: #663803;
+  --cat-cafe-tint: #E9E1DB;
+  --cat-transport: #0C54A0;
+  --cat-transport-tint: #DDE7F3;
+  --cat-shopping: #8D2661;
+  --cat-shopping-tint: #F1E0E7;
+  --cat-housing: #655401;
+  --cat-housing-tint: #E8E6DC;
+  --cat-subscription: #5B58AC;
+  --cat-subscription-tint: #E6E7F4;
+  --cat-health: #552886;
+  --cat-health-tint: #E5E0EF;
+  --cat-leisure: #01635D;
+  --cat-leisure-tint: #DEE8E7;
+  --cat-education: #2E5003;
+  --cat-education-tint: #DFE5DB;
+  --cat-gift: #7F1427;
+  --cat-gift-tint: #F0DEDE;
+  --cat-finance: #284960;
+  --cat-finance-tint: #DEE4E7;
+  --cat-travel: #05708A;
+  --cat-travel-tint: #DFEAEE;
+  --cat-other: #4F4333;
+  --cat-other-tint: #E4E2E0;
+  --cat-uncategorized: #656565;
+  --cat-uncategorized-tint: #E8E8E8;
+
+  /* shadcn/ui (HSL triples) */
+  --background: 60 11.1% 98.2%;
+  --foreground: 120 7% 8.4%;
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 3.9%;
+  --card-foreground: 120 7% 8.4%;
   --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 3.9%;
-  --primary: 153 60% 30%;
+  --popover-foreground: 120 7% 8.4%;
+  --primary: 157 76.9% 23.7%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 153 40% 95%;
-  --secondary-foreground: 153 60% 28%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 19% 40%;
-  /* Neutral hover/selection tint (same role as dark's --accent). */
-  --accent: 153 10% 94%;
-  --accent-foreground: 240 10% 3.9%;
-  --destructive: 0 72% 51%;
+  --secondary: 143 30.2% 91.6%;
+  --secondary-foreground: 157 76.9% 23.7%;
+  --muted: 120 5.9% 93.3%;
+  --muted-foreground: 142 4.1% 38.4%;
+  /* Neutral hover/selection tint (= --track), not the brand green. */
+  --accent: 120 5.9% 93.3%;
+  --accent-foreground: 120 7% 8.4%;
+  --destructive: 4 65% 47.1%;
   --destructive-foreground: 0 0% 100%;
   /* Semantic status tones. gain = red, loss = blue (Korean market convention). */
-  --success: 142 72% 27%;
+  --success: 157 76.9% 23.7%;
   --success-foreground: 0 0% 100%;
-  --warning: 32 95% 31%;
+  --warning: 35 100% 28%;
   --warning-foreground: 0 0% 100%;
-  --gain: 0 72% 45%;
+  --gain: 4 65% 47.1%;
   --gain-foreground: 0 0% 100%;
-  --loss: 217 80% 45%;
+  --loss: 217 72.2% 43.7%;
   --loss-foreground: 0 0% 100%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 153 60% 30%;
-  --radius: 0.5rem;
+  --border: 120 6.4% 90.8%;
+  --input: 120 6.4% 90.8%;
+  --ring: 157 76.9% 23.7%;
+  --radius: 0.625rem;
 }
 
 .dark {
-  --background: 0 0% 0%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 8%;
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 8%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 153 70% 53%;
-  --primary-foreground: 0 0% 0%;
-  --secondary: 153 20% 14%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 0 0% 14%;
-  --muted-foreground: 0 0% 64%;
-  --accent: 153 10% 16%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 84% 65%;
+  --bg: #0B0D0C;
+  --surface: #141816;
+  --sunken: #101311;
+  --track: #1A1F1C;
+  --line: #222825;
+  --ink: #ECEEEC;
+  --ink2: #A9B1AC;
+  --ink3: #8E9691;
+  --brand: #4BD69B;
+  --brand-ink: #04170E;
+  --brand-soft: #12291E;
+  --up: #FF7366;
+  --up-soft: #2C1513;
+  --down: #74A9FF;
+  --down-soft: #14213A;
+  --warn: #F2B655;
+  --warn-soft: #2A2112;
+  --ok: #4BD69B;
+  --ok-soft: #12291E;
+  --place: #F59D5E;
+  --health: #AA94FF;
+  --bar: #4A524D;
+  --bar-dim: #252B28;
+  --scrim: rgb(0 0 0 / 0.55);
+  --elev-ring: 0 0 0 1px rgb(255 255 255 / 0.08);
+  --elev-ring-hover: 0 0 0 1px rgb(255 255 255 / 0.13);
+  --elev-pop: var(--elev-ring-hover), 0 12px 32px -8px rgb(0 0 0 / 0.5);
+  --elev-tip: var(--elev-ring-hover), 0 8px 20px -6px rgb(0 0 0 / 0.5);
+
+  --cat-food: #D5753F;
+  --cat-food-tint: #2C241D;
+  --cat-cafe: #F0B786;
+  --cat-cafe-tint: #2E2B24;
+  --cat-transport: #71AEFA;
+  --cat-transport-tint: #202A31;
+  --cat-shopping: #EB84B7;
+  --cat-shopping-tint: #2E2629;
+  --cat-housing: #BDAA65;
+  --cat-housing-tint: #282A21;
+  --cat-subscription: #8788D9;
+  --cat-subscription-tint: #22262D;
+  --cat-health: #D1B4FE;
+  --cat-health-tint: #2A2B31;
+  --cat-leisure: #68BCB4;
+  --cat-leisure-tint: #1F2C29;
+  --cat-education: #ACD28D;
+  --cat-education-tint: #262E25;
+  --cat-gift: #FFAAAB;
+  --cat-gift-tint: #302A28;
+  --cat-finance: #A7C9E2;
+  --cat-finance-tint: #252D2E;
+  --cat-travel: #489FBB;
+  --cat-travel-tint: #1C282A;
+  --cat-other: #CFC2B1;
+  --cat-other-tint: #2A2C28;
+  --cat-uncategorized: #929292;
+  --cat-uncategorized-tint: #232725;
+
+  --background: 150 8.3% 4.7%;
+  --foreground: 120 5.6% 92.9%;
+  --card: 150 9.1% 8.6%;
+  --card-foreground: 120 5.6% 92.9%;
+  --popover: 150 9.1% 8.6%;
+  --popover-foreground: 120 5.6% 92.9%;
+  --primary: 155 62.9% 56.7%;
+  --primary-foreground: 152 70.4% 5.3%;
+  --secondary: 151 39% 11.6%;
+  --secondary-foreground: 120 5.6% 92.9%;
+  --muted: 144 8.8% 11.2%;
+  --muted-foreground: 142 3.7% 57.3%;
+  --accent: 144 8.8% 11.2%;
+  --accent-foreground: 120 5.6% 92.9%;
+  --destructive: 5 100% 70%;
   --destructive-foreground: 0 0% 0%;
-  --success: 142 70% 55%;
+  --success: 155 62.9% 56.7%;
   --success-foreground: 0 0% 0%;
-  --warning: 40 95% 60%;
+  --warning: 37 85.8% 64.1%;
   --warning-foreground: 0 0% 0%;
-  --gain: 0 85% 68%;
+  --gain: 5 100% 70%;
   --gain-foreground: 0 0% 0%;
-  --loss: 213 90% 68%;
+  --loss: 217 100% 72.7%;
   --loss-foreground: 0 0% 0%;
-  --border: 0 0% 14%;
-  --input: 0 0% 14%;
-  --ring: 153 70% 53%;
+  --border: 150 8.1% 14.5%;
+  --input: 150 8.1% 14.5%;
+  --ring: 155 62.9% 56.7%;
 }
 
 @theme inline {
+  /* shadcn/ui */
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
@@ -88,19 +252,84 @@
   --color-success-foreground: hsl(var(--success-foreground));
   --color-warning: hsl(var(--warning));
   --color-warning-foreground: hsl(var(--warning-foreground));
-  --color-gain: hsl(var(--gain));
+  --color-gain: var(--up);
   --color-gain-foreground: hsl(var(--gain-foreground));
-  --color-loss: hsl(var(--loss));
+  --color-loss: var(--down);
   --color-loss-foreground: hsl(var(--loss-foreground));
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+
+  /* design system */
+  --color-page: var(--bg);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-track: var(--track);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink2);
+  --color-ink-3: var(--ink3);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-gain-soft: var(--up-soft);
+  --color-loss-soft: var(--down-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-place: var(--place);
+  --color-health: var(--health);
+  --color-bar: var(--bar);
+  --color-bar-dim: var(--bar-dim);
+  --color-scrim: var(--scrim);
+  --color-cat-food: var(--cat-food);
+  --color-cat-food-tint: var(--cat-food-tint);
+  --color-cat-cafe: var(--cat-cafe);
+  --color-cat-cafe-tint: var(--cat-cafe-tint);
+  --color-cat-transport: var(--cat-transport);
+  --color-cat-transport-tint: var(--cat-transport-tint);
+  --color-cat-shopping: var(--cat-shopping);
+  --color-cat-shopping-tint: var(--cat-shopping-tint);
+  --color-cat-housing: var(--cat-housing);
+  --color-cat-housing-tint: var(--cat-housing-tint);
+  --color-cat-subscription: var(--cat-subscription);
+  --color-cat-subscription-tint: var(--cat-subscription-tint);
+  --color-cat-health: var(--cat-health);
+  --color-cat-health-tint: var(--cat-health-tint);
+  --color-cat-leisure: var(--cat-leisure);
+  --color-cat-leisure-tint: var(--cat-leisure-tint);
+  --color-cat-education: var(--cat-education);
+  --color-cat-education-tint: var(--cat-education-tint);
+  --color-cat-gift: var(--cat-gift);
+  --color-cat-gift-tint: var(--cat-gift-tint);
+  --color-cat-finance: var(--cat-finance);
+  --color-cat-finance-tint: var(--cat-finance-tint);
+  --color-cat-travel: var(--cat-travel);
+  --color-cat-travel-tint: var(--cat-travel-tint);
+  --color-cat-other: var(--cat-other);
+  --color-cat-other-tint: var(--cat-other-tint);
+  --color-cat-uncategorized: var(--cat-uncategorized);
+  --color-cat-uncategorized-tint: var(--cat-uncategorized-tint);
+
+  --shadow-ring: var(--elev-ring);
+  --shadow-ring-hover: var(--elev-ring-hover);
+  --shadow-pop: var(--elev-pop);
+  --shadow-tip: var(--elev-tip);
+
+  /* Radii: sm 6 · md 8 · lg 10 (segmented track) · xl 14 (surface) ·
+   * control 9 (buttons, chips) · sheet 20 (bottom sheet, phone frame). */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --radius-control: 9px;
+  --radius-sheet: 20px;
+
+  /* Fonts (next/font variables set on <body> in app/layout.tsx). */
+  --font-sans: var(--font-pretendard), "Noto Sans KR", system-ui, sans-serif;
+  --font-serif: var(--font-noto-serif-kr), "Noto Serif KR", serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 * {
@@ -108,40 +337,20 @@
 }
 
 body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: var(--font-sans), system-ui, sans-serif;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
   /* Break Korean at word (eojeol) boundaries; still wrap unbreakable runs like URLs. */
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
-/* Neon glow on primary buttons (dark only). Text itself stays unblurred. */
-.dark button[data-primary="true"]:not(:disabled),
-.dark button[class*="bg-primary"]:not(:disabled) {
-  box-shadow: 0 0 15px hsl(var(--primary) / 0.4),
-              0 0 30px hsl(var(--primary) / 0.2),
-              inset 0 0 10px hsl(var(--primary) / 0.1);
-}
-
-.dark button[data-primary="true"]:hover:not(:disabled),
-.dark button[class*="bg-primary"]:hover:not(:disabled) {
-  box-shadow: 0 0 20px hsl(var(--primary) / 0.6),
-              0 0 40px hsl(var(--primary) / 0.3),
-              0 0 60px hsl(var(--primary) / 0.1),
-              inset 0 0 15px hsl(var(--primary) / 0.2);
-}
-
 .dark *:focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid var(--brand);
   outline-offset: 2px;
-  box-shadow: 0 0 10px hsl(var(--ring) / 0.5),
-              0 0 20px hsl(var(--ring) / 0.3);
-}
-
-.dark svg[class*="text-primary"] {
-  filter: drop-shadow(0 0 8px hsl(var(--primary) / 0.6))
-          drop-shadow(0 0 15px hsl(var(--primary) / 0.3));
 }
 
 /* Enter/exit animations for shadcn/ui overlays (tw-animate-css subset).
@@ -1892,10 +2101,10 @@ body {
   --accent-blue: 215 85% 42%;
   --accent-red: 0 72% 45%;
 
-  --neon-card: 0 0% 100%;            /* card surface */
-  --hairline: 214 32% 91%;           /* card border (= --border) */
-  --ink-dim: 215 25% 27%;            /* secondary text */
-  --ink-mute: 215 19% 40%;           /* tertiary text (= --muted-foreground) */
+  --neon-card: 0 0% 100%;            /* card surface (= --surface) */
+  --hairline: 120 6.4% 90.8%;        /* card border (= --line) */
+  --ink-dim: 143 4.8% 32.5%;         /* secondary text (= --ink2) */
+  --ink-mute: 142 4.1% 38.4%;        /* tertiary text (= --ink3) */
 
   --glow-sm: 0 0 6px;
   --glow-md: 0 0 12px;
@@ -1913,10 +2122,10 @@ body {
   --accent-red: 0 70% 60%;
 
   /* Surface tokens (mockup-matching dark canvas) */
-  --neon-card: 0 0% 5%;              /* card surface — slightly lifted from page 0% */
-  --hairline: 0 0% 12%;              /* card border */
-  --ink-dim: 0 0% 78%;               /* secondary text */
-  --ink-mute: 0 0% 56%;              /* tertiary text */
+  --neon-card: 150 9.1% 8.6%;        /* card surface (= --surface) */
+  --hairline: 150 8.1% 14.5%;        /* card border (= --line) */
+  --ink-dim: 143 4.9% 67.8%;         /* secondary text (= --ink2) */
+  --ink-mute: 142 3.7% 57.3%;        /* tertiary text (= --ink3) */
 }
 
 [data-neon] {
@@ -2001,6 +2210,203 @@ body {
 
 /* ─────────── hairline divider ─────────── */
 [data-neon] .border-hairline { border-color: hsl(var(--hairline)); }
+
+/* ============================================================================
+ * Design-system primitives (redesign v2). Used by src/components/ds/* and the
+ * app bar; pages may use the utilities directly.
+ * ============================================================================ */
+
+/* Numbers are always Geist Mono with tabular figures. */
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* 12/16 500 --ink3 label. */
+@utility text-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--ink3);
+}
+
+/* The AI voice: serif 500, ink2. 13/21 on phones, 14/22 from sm. */
+@utility ai-voice {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 21px;
+  letter-spacing: -0.01em;
+  color: var(--ink2);
+  @media (width >= 40rem) {
+    font-size: 14px;
+    line-height: 22px;
+  }
+}
+
+/* Interactive surface unit: white/raised tile with the ring recipe. */
+@utility surface {
+  background: var(--surface);
+  box-shadow: var(--elev-ring);
+  border-radius: 14px;
+}
+
+@layer components {
+  /* Dotted-underlined fact inside an AI line (FactTrigger). */
+  .ds-fact {
+    display: inline;
+    border: 0;
+    background: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    letter-spacing: inherit;
+    color: var(--ink);
+    text-decoration: underline dotted;
+    text-decoration-color: var(--ink3);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+    cursor: help;
+    border-radius: 2px;
+  }
+  .ds-fact[aria-expanded="true"] {
+    text-decoration-style: solid;
+    text-decoration-color: var(--ink);
+  }
+  .ds-fact:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+
+  /* Evidence dimming: hosts mark items with data-evidence="on" | "dim". */
+  [data-evidence] {
+    transition-property: opacity, background-color, color;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+  [data-evidence="dim"] {
+    opacity: 0.35;
+  }
+
+  /* Segmented control with a sliding thumb. */
+  .ds-seg-thumb {
+    transition-property: translate;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  /* App-bar commit graph: 28 daily bars, √-scaled heights, 5-step brand ramp. */
+  .ds-hcg {
+    box-sizing: border-box;
+    position: relative;
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: 20px;
+    padding-bottom: 4px;
+    flex: none;
+  }
+  .ds-hcg > i {
+    position: relative;
+    display: block;
+    width: 3px;
+    height: 100%;
+    border-radius: 1px;
+    --h: 1px;
+    --hcgc: var(--heat-0);
+    background: linear-gradient(to top, var(--hcgc) 0 var(--h), transparent var(--h));
+  }
+  .ds-hcg > i[data-level="1"] { --hcgc: var(--heat-1); }
+  .ds-hcg > i[data-level="2"] { --hcgc: var(--heat-2); }
+  .ds-hcg > i[data-level="3"] { --hcgc: var(--heat-3); }
+  .ds-hcg > i[data-level="4"] { --hcgc: var(--heat-4); }
+  .ds-hcg > i[data-today]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -4px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--ink);
+  }
+  .ds-hcg > i::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 10px);
+    translate: -50% 0;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--ink);
+    color: var(--bg);
+    font: 500 12px/16px var(--font-sans);
+    letter-spacing: 0;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 60;
+    transition: opacity 120ms ease-out;
+  }
+  .ds-hcg > i:hover { --hcgc: var(--ink); }
+  .ds-hcg > i:hover::after { opacity: 1; }
+  .ds-hcg.is-compact { height: 16px; padding-bottom: 3px; }
+  .ds-hcg.is-compact > i { width: 2px; }
+  .ds-hcg.is-compact > i[data-today]::before { bottom: -3px; }
+
+  /* Category mark tile (squircle). --cc is the category color. */
+  .ds-cmk {
+    box-sizing: border-box;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    background: color-mix(in oklab, var(--cc) 12%, var(--bg));
+    color: var(--cc);
+    clip-path: path("M14 0C24.9 0 28 3.1 28 14S24.9 28 14 28 0 24.9 0 14 3.1 0 14 0Z");
+  }
+  .ds-cmk.is-sm {
+    width: 20px;
+    height: 20px;
+    clip-path: path("M10 0C17.8 0 20 2.2 20 10S17.8 20 10 20 0 17.8 0 10 2.2 0 10 0Z");
+  }
+  .ds-cmk svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    overflow: visible;
+  }
+  .ds-cmk.is-sm svg { width: 15px; height: 15px; stroke-width: 2.1; }
+}
+
+/* Motion. Everything here is opt-in by class and collapses to a short fade
+ * (or nothing) under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .ds-enter { animation: ds-enter 300ms ease-out both; }
+  @keyframes ds-enter { from { opacity: 0; translate: 0 12px; filter: blur(4px); } }
+  .ds-grow { animation: ds-grow 600ms ease-out both; transform-origin: bottom; }
+  @keyframes ds-grow { from { scale: 1 0; } }
+  .ds-growx { animation: ds-growx 600ms ease-out both; transform-origin: left; }
+  @keyframes ds-growx { from { scale: 0 1; } }
+  .ds-pop { animation: ds-pop 150ms ease-out both; }
+  @keyframes ds-pop { from { opacity: 0; scale: 0.96; } }
+  .ds-reveal { animation: ds-reveal 200ms ease-out both; }
+  @keyframes ds-reveal { from { opacity: 0; translate: 0 -4px; } }
+  .ds-delayed-in { animation: ds-fade 150ms ease-out 300ms both; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-enter, .ds-grow, .ds-growx, .ds-pop, .ds-reveal {
+    animation: ds-fade 200ms ease-out both;
+  }
+  .ds-delayed-in { animation: ds-fade 1ms linear 300ms both; }
+}
+@keyframes ds-fade { from { opacity: 0; } }
 
 /* ─────────── Reduced motion ───────────
  * Movement, scale and blur are dropped; entrances fall back to a short opacity

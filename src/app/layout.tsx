@@ -1,13 +1,31 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Noto_Serif_KR } from "next/font/google";
+import localFont from "next/font/local";
 import { QueryProvider } from "@/components/QueryProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Body: Pretendard (variable, self-hosted from the `pretendard` package). Not
+// preloaded — the variable file covers all of Hangul (~2 MB) and is cached
+// immutably after the first visit; text renders in the fallback until then.
+const pretendard = localFont({
+  src: "../../node_modules/pretendard/dist/web/variable/woff2/PretendardVariable.woff2",
+  variable: "--font-pretendard",
+  weight: "45 920",
+  display: "swap",
+  preload: false,
+  fallback: ["Noto Sans KR", "system-ui", "sans-serif"],
+});
+
+// Titles and AI lines. Google serves Korean as unicode-range slices, which
+// next/font self-hosts; only the slices a page uses are downloaded.
+const notoSerifKr = Noto_Serif_KR({
+  variable: "--font-noto-serif-kr",
+  weight: ["500", "600", "700"],
   subsets: ["latin"],
+  display: "swap",
+  preload: false,
 });
 
 const geistMono = Geist_Mono({
@@ -55,7 +73,7 @@ export default function RootLayout({
   return (
     <html lang="ko" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background`}
+        className={`${pretendard.variable} ${notoSerifKr.variable} ${geistMono.variable} antialiased min-h-screen bg-background`}
       >
         <ThemeProvider
           attribute="class"
