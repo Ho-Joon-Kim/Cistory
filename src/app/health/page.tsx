@@ -180,6 +180,7 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
               <HealthTrendCard series={seriesFor("distance")} />
               <HealthTrendCard series={seriesFor("exercise")} />
               <HealthTrendCard series={seriesFor("active_energy")} />
+              <HealthTrendCard series={seriesFor("total_calories")} />
               <HealthTrendCard series={seriesFor("active_zone_minutes")} />
             </div>
             <div className="mt-3.5">

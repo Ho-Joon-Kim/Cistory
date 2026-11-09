@@ -197,18 +197,56 @@ describe("pagination + rollup", () => {
     expect(String(url)).toContain(":dailyRollUp");
     expect((init as { method: string }).method).toBe("POST");
     const body = JSON.parse((init as { body: string }).body);
-    expect(body.range.start).toEqual({ year: 2026, month: 7, day: 1 });
+    // Live-verified body shape (2026-11-09): each bound wraps its CivilDate in `date`.
+    expect(body.range.start).toEqual({ date: { year: 2026, month: 7, day: 1 } });
+    expect(body.range.end).toEqual({ date: { year: 2026, month: 7, day: 7 } });
     expect(body.windowSizeDays).toBe(1);
+    expect(body.dataSourceFamily).toBeUndefined();
   });
 
-  it("dailyRollUp falls back to dataPoints when rollupDataPoints is absent", async () => {
-    fetchMock.mockResolvedValueOnce(resp({ dataPoints: [{ day: "2026-07-02" }] }));
+  it("dailyRollUp sends dataSourceFamily as the full resource name", async () => {
+    fetchMock.mockResolvedValueOnce(resp({}));
     const result = await adapter().dailyRollUp({
       accessToken: "at",
-      dataType: "steps",
+      dataType: "total-calories",
       range: { start: { year: 2026, month: 7, day: 1 }, end: { year: 2026, month: 7, day: 7 } },
+      dataSourceFamily: "google-wearables",
     });
-    expect(result.rollupDataPoints).toEqual([{ day: "2026-07-02" }]);
+    // An empty range answers `{}` — no points, no error.
+    expect(result.rollupDataPoints).toEqual([]);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+    expect(body.dataSourceFamily).toBe("users/me/dataSourceFamilies/google-wearables");
+  });
+
+  it("dailyRollUp returns the nextPageToken and forwards a pageToken", async () => {
+    fetchMock.mockResolvedValueOnce(resp({ rollupDataPoints: [{ a: 1 }], nextPageToken: "n2" }));
+    const result = await adapter().dailyRollUp({
+      accessToken: "at",
+      dataType: "total-calories",
+      range: { start: { year: 2026, month: 7, day: 1 }, end: { year: 2026, month: 8, day: 1 } },
+      pageToken: "p1",
+    });
+    expect(result.nextPageToken).toBe("n2");
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+    expect(body.pageToken).toBe("p1");
+  });
+});
+
+describe("getIdentity", () => {
+  it("returns healthUserId and never surfaces legacyUserId", async () => {
+    fetchMock.mockResolvedValueOnce(
+      resp({ name: "users/me/identity", legacyUserId: "ABCDEF", healthUserId: "1234567890" })
+    );
+    const out = await adapter().getIdentity("at");
+    expect(out).toEqual({ healthUserId: "1234567890" });
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://health.googleapis.com/v4/users/me/identity"
+    );
+  });
+
+  it("returns null when the field is missing or not a string", async () => {
+    fetchMock.mockResolvedValueOnce(resp({ healthUserId: 42 }));
+    expect(await adapter().getIdentity("at")).toEqual({ healthUserId: null });
   });
 });
 

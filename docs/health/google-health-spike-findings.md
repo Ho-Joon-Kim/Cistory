@@ -82,7 +82,7 @@ Fitbit data; see §6.**
 **`total-calories`**: `list` unsupported (`UNSUPPORTED_DATA_TYPE_ACTION`) — rollup /
 dailyRollUp only.
 
-## 4. `dailyRollUp` (not used by U5's first cut)
+## 4. `dailyRollUp` (not used by U5's first cut — verified and adopted in §7)
 
 `POST …/dataPoints:dailyRollUp` with `{ range: { start, end }, windowSizeDays }`.
 `range.start`/`range.end` reject a flat `{year,month,day}` — they need a nested
@@ -190,3 +190,30 @@ the connection-level `backfillCompletedAt` flag. Completion is now tracked per
 metric (`health_sync_state.backfilledFrom <= backfillFloor`, stamped at the floor
 when the presence probe proves history ended), so new metrics backfill on their own
 and the flag survives purely as the UI's "first backfill done" hint.
+
+## 7. Re-probe 2026-11-09 — 2026 data types, dataSourceFamily, webhooks
+
+Full write-up: `docs/superpowers/specs/2026-11-09-google-health-new-features-design.md`
+(조사 결과 B). Corrections to the sections above:
+
+- **§4 is resolved.** `dailyRollUp` returns 200 with body
+  `{ range: { start: { date: {year,month,day} }, end: { date: {…} } }, windowSizeDays: 1 }`
+  (no `time` needed) and response key `rollupDataPoints`. Points look like
+  `{ civilStartTime: {date, time:{}}, civilEndTime, <wrapper>: { <sum> } }` with **no
+  dataSource**; sums are numbers (`totalCalories.kcalSum`) or numeric strings
+  (`steps.countSum`). Long ranges page at 14 days. Its civil day equals the KST day
+  for this account, but the default `all-sources` family **sums** overlapping
+  sources; `dataSourceFamily: "users/me/dataSourceFamilies/google-wearables"` (body
+  field, full resource name — the short form is 400) gives the tracker-only value.
+- **§6 "Deliberately not synced" is partly superseded.** `total-calories` (rollup,
+  google-wearables) and `floors` (rollup; valid dataType, unlike `floors-climbed`,
+  but always empty on the Fitbit Air) are now synced via `MetricConfig.fetch:
+  "dailyRollUp"`. `daily-vo2-max`, `run-vo2-max`, `core-body-temperature` and
+  `blood-glucose` are enabled as ordinary `list` metrics (all still empty).
+  weight/body-fat/height stay unsynced (Withings owns body composition).
+- **"sleep/exercise unfilterable" (§3, §6) is wrong** — only `*.interval.start_time`
+  is rejected. `sleep.interval.end_time` and `exercise.interval.civil_start_time`
+  filter correctly; sessions now ride the windowed forward/backfill path
+  (`SYNCED_METRICS`, PR #55).
+- `GET /v4/users/me/identity` → `{ name, legacyUserId, healthUserId }` with the base
+  scopes; `healthUserId` differs from the OAuth `sub` and is the webhook user key.

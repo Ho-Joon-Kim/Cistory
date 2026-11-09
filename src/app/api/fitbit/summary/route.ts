@@ -3,7 +3,12 @@ import { NextResponse } from "next/server";
 import { getDb, healthConnections, healthDailySummaries, healthSamples } from "@/db";
 import { withAuth } from "@/lib/api-handler";
 import { bucketStats } from "@/modules/health/compaction";
-import { CURATED_METRIC_KEYS, CURATED_METRICS } from "@/modules/health/metrics-meta";
+import {
+  CURATED_METRIC_KEYS,
+  CURATED_METRICS,
+  mergeDailySeries,
+  metricSourceKeys,
+} from "@/modules/health/metrics-meta";
 import { EXERCISE_METRIC, SLEEP_METRIC } from "@/modules/health/service";
 import { dedupeSessions } from "@/modules/health/sessions";
 import { isNap, stageBreakdown, stageSegments } from "@/modules/health/sleep";
@@ -79,6 +84,12 @@ export const GET = withAuth(async ({ user }) => {
     byMetric.set(r.metric, list);
   }
 
+  // A card may merge several stored keys in preference order (VO₂max: Fitbit's
+  // daily_vo2_max first, then the Samsung-era vo2_max) — per day, never blended.
+  const sourceKeysByCard = new Map(CURATED_METRICS.map((m) => [m.key, metricSourceKeys(m)]));
+  const mergedPoints = (cardKey: string, from: Map<string, HealthDayPoint[]>) =>
+    mergeDailySeries((sourceKeysByCard.get(cardKey) ?? [cardKey]).map((k) => from.get(k) ?? []));
+
   const metrics = CURATED_METRICS.map((m) => ({
     key: m.key,
     label: m.label,
@@ -86,7 +97,7 @@ export const GET = withAuth(async ({ user }) => {
     agg: m.agg,
     scale: m.scale ?? null,
     decimals: m.decimals ?? 0,
-    points: byMetric.get(m.key) ?? [],
+    points: mergedPoints(m.key, byMetric),
   }));
 
   // ── Fallback: metrics present only as raw samples ───────────────────────────
@@ -94,7 +105,8 @@ export const GET = withAuth(async ({ user }) => {
   // summaries, so a metric sourced only from an import (or one whose cloud backfill
   // hasn't reached these days yet) would render empty. Aggregate its samples live
   // for exactly those metrics — one extra query, and only when something is missing.
-  const uncovered = metrics.filter((m) => m.points.length === 0).map((m) => m.key);
+  const uncoveredCards = metrics.filter((m) => m.points.length === 0).map((m) => m.key);
+  const uncovered = uncoveredCards.flatMap((k) => sourceKeysByCard.get(k) ?? [k]);
   if (uncovered.length > 0) {
     const cutoff = new Date(Date.now() - (TREND_WINDOW_DAYS + 1) * 24 * 60 * 60 * 1000);
     const sampleRows = await db
@@ -133,19 +145,25 @@ export const GET = withAuth(async ({ user }) => {
       days.set(day, cur);
       acc.set(r.metric, days);
     }
+    const live = new Map<string, HealthDayPoint[]>();
     for (const m of metrics) {
-      const days = acc.get(m.key);
-      if (!days) continue;
-      m.points = [...days.entries()]
-        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-        .map(([day, v]) => ({
-          day,
-          avg: v.sum / v.n,
-          min: v.min,
-          max: v.max,
-          sum: m.agg === "sum" ? v.sum : null,
-          count: v.n,
-        }));
+      if (!uncoveredCards.includes(m.key)) continue;
+      for (const key of sourceKeysByCard.get(m.key) ?? [m.key]) {
+        const days = acc.get(key);
+        if (!days) continue;
+        live.set(
+          key,
+          [...days.entries()].map(([day, v]) => ({
+            day,
+            avg: v.sum / v.n,
+            min: v.min,
+            max: v.max,
+            sum: m.agg === "sum" ? v.sum : null,
+            count: v.n,
+          }))
+        );
+      }
+      m.points = mergedPoints(m.key, live);
     }
   }
 

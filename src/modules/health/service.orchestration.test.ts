@@ -19,7 +19,7 @@ import {
   GoogleHealthApiError,
   GoogleHealthAuthError,
 } from "@/lib/adapters/google-health/interface";
-import { buildTimeFilter, HealthSyncService, SESSION_CONFIGS } from "./service";
+import { buildTimeFilter, HEALTH_METRICS, HealthSyncService, SESSION_CONFIGS } from "./service";
 
 // ── Fake DB ──────────────────────────────────────────────────────────────────
 // A minimal drizzle stand-in: select() resolves table-keyed fixture rows;
@@ -31,6 +31,8 @@ interface FakeCfg {
   /** Merge healthSyncState upserts back into syncStateRows (single-metric tests),
    *  so successive runs resume from the watermark the previous run wrote. */
   persistSyncState?: boolean;
+  /** min(sample_at) for the rollup backfill's lower bound (healthSamples select). */
+  oldestSample?: Date | null;
 }
 function fakeDb(cfg: FakeCfg = {}) {
   const rec = {
@@ -42,6 +44,7 @@ function fakeDb(cfg: FakeCfg = {}) {
   const resolveFor = (table: unknown) => {
     if (table === healthConnections) return Promise.resolve(cfg.connectionRows ?? []);
     if (table === healthSyncState) return Promise.resolve(cfg.syncStateRows ?? []);
+    if (table === healthSamples) return Promise.resolve([{ oldest: cfg.oldestSample ?? null }]);
     return Promise.resolve([]);
   };
   const select = () => {
@@ -144,6 +147,8 @@ describe("syncUser — lastSyncedAt gate on failure (fix #24)", () => {
     // Every metric returns one empty page → succeeds with 0 samples, no error.
     const svc = withAdapter(new HealthSyncService(db), {
       listDataPoints: vi.fn().mockResolvedValue({ dataPoints: [] }),
+      dailyRollUp: vi.fn().mockResolvedValue({ rollupDataPoints: [] }),
+      getIdentity: vi.fn().mockResolvedValue({ healthUserId: "1234" }),
     });
     await svc.syncUser("u1");
     const finalUpdate = rec.updates.at(-1);
@@ -239,6 +244,177 @@ describe("backfill — all-time walk, gap-proof stop (presence probe)", () => {
     expect(done.reachedFloor).toBe(false);
     const probeCalls = listDataPoints.mock.calls.filter((c) => c[0].pageSize === 1);
     expect(probeCalls.length).toBe(4); // probed on every empty window, kept going
+  });
+});
+
+describe("rollup metrics (dailyRollUp) — total_calories", () => {
+  const totalCalories = HEALTH_METRICS.find((c) => c.key === "total_calories")!;
+  const rollupPoint = (y: number, m: number, d: number, kcal: number) => ({
+    civilStartTime: { date: { year: y, month: m, day: d }, time: {} },
+    civilEndTime: { date: { year: y, month: m, day: d + 1 }, time: {} },
+    totalCalories: { kcalSum: kcal },
+  });
+  type Priv = {
+    syncMetricForward: (c: unknown, m: unknown, n: Date) => Promise<number>;
+    backfillRollupMetric: (
+      c: unknown,
+      m: unknown,
+      f: Date,
+      listPending: boolean
+    ) => Promise<{ upserted: number; reachedFloor: boolean }>;
+  };
+
+  it("forward sync reads by civil-date range with the google-wearables family", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
+    const dailyRollUp = vi
+      .fn()
+      .mockResolvedValue({ rollupDataPoints: [rollupPoint(2026, 11, 9, 2100)] });
+    const listDataPoints = vi.fn();
+    const svc = withAdapter(new HealthSyncService(db), { dailyRollUp, listDataPoints });
+    const now = new Date("2026-11-10T03:00:00Z"); // 12:00 KST
+    const n = await (svc as unknown as Priv).syncMetricForward(activeConn(), totalCalories, now);
+    expect(n).toBe(1);
+    expect(listDataPoints).not.toHaveBeenCalled(); // rollup-only types 400 on list
+    const opts = dailyRollUp.mock.calls[0][0];
+    expect(opts.dataType).toBe("total-calories");
+    expect(opts.dataSourceFamily).toBe("google-wearables");
+    expect(opts.windowSizeDays).toBe(1);
+    // fallback since = now − 7d (11-03) minus a day → 11-02; through tomorrow (exclusive 11-12).
+    expect(opts.range).toEqual({
+      start: { year: 2026, month: 11, day: 2 },
+      end: { year: 2026, month: 11, day: 12 },
+    });
+    const ins = rec.inserts.find((i) => i.table === healthSamples);
+    const row = (ins!.values as Array<Record<string, unknown>>)[0];
+    expect(row.metric).toBe("total_calories");
+    expect(row.source).toBe("rollup:google-wearables");
+    expect(row.value).toBe(2100);
+    // 2026-11-09 anchored at 12:00 KST = 03:00Z
+    expect((row.sampleAt as Date).toISOString()).toBe("2026-11-09T03:00:00.000Z");
+    expect(rec.inserts.some((i) => i.table === healthSyncState)).toBe(true);
+  });
+
+  it("follows nextPageToken and does not advance the watermark when truncated", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
+    const dailyRollUp = vi.fn().mockResolvedValue({ rollupDataPoints: [], nextPageToken: "more" });
+    const svc = withAdapter(new HealthSyncService(db), { dailyRollUp });
+    await (svc as unknown as Priv).syncMetricForward(activeConn(), totalCalories, new Date());
+    expect(dailyRollUp.mock.calls.length).toBeGreaterThan(1);
+    expect(dailyRollUp.mock.calls[1][0].pageToken).toBe("more");
+    expect(rec.inserts.some((i) => i.table === healthSyncState)).toBe(false);
+  });
+
+  it("backfill keeps walking through empty chunks down to the oldest observed day", async () => {
+    const oldest = new Date(Date.now() - 200 * 86_400_000);
+    const { db, rec } = fakeDb({
+      connectionRows: [activeConn()],
+      syncStateRows: [],
+      oldestSample: oldest,
+    });
+    const dailyRollUp = vi.fn().mockResolvedValue({ rollupDataPoints: [] });
+    const svc = withAdapter(new HealthSyncService(db), { dailyRollUp });
+    const done = await (svc as unknown as Priv).backfillRollupMetric(
+      activeConn(),
+      totalCalories,
+      new Date("2020-01-01T00:00:00Z"),
+      false
+    );
+    // Empty months are real (design §8), so an empty chunk never ends the walk.
+    expect(dailyRollUp).toHaveBeenCalledTimes(4);
+    expect(done.reachedFloor).toBe(false);
+    const cursorWrites = rec.inserts.filter((i) => i.table === healthSyncState);
+    expect(cursorWrites).toHaveLength(4);
+  });
+
+  it("backfill stamps the floor once it passes the oldest observed day", async () => {
+    const floor = new Date("2020-01-01T00:00:00Z");
+    const { db, rec } = fakeDb({
+      connectionRows: [activeConn()],
+      syncStateRows: [],
+      oldestSample: new Date(Date.now() - 10 * 86_400_000),
+    });
+    const dailyRollUp = vi.fn().mockResolvedValue({ rollupDataPoints: [] });
+    const svc = withAdapter(new HealthSyncService(db), { dailyRollUp });
+    const done = await (svc as unknown as Priv).backfillRollupMetric(
+      activeConn(),
+      totalCalories,
+      floor,
+      false
+    );
+    expect(done.reachedFloor).toBe(true);
+    // 7d start → 11d lower bound = one chunk, then the floor stamp.
+    expect(dailyRollUp).toHaveBeenCalledTimes(1);
+    const last = rec.inserts.filter((i) => i.table === healthSyncState).at(-1);
+    expect((last!.values as { backfilledFrom: Date }).backfilledFrom).toEqual(floor);
+  });
+
+  it("backfill waits (not done) while list metrics may still extend the bound", async () => {
+    const { db } = fakeDb({
+      connectionRows: [activeConn()],
+      syncStateRows: [],
+      oldestSample: new Date(Date.now() - 10 * 86_400_000),
+    });
+    const svc = withAdapter(new HealthSyncService(db), {
+      dailyRollUp: vi.fn().mockResolvedValue({ rollupDataPoints: [] }),
+    });
+    const done = await (svc as unknown as Priv).backfillRollupMetric(
+      activeConn(),
+      totalCalories,
+      new Date("2020-01-01T00:00:00Z"),
+      true
+    );
+    expect(done.reachedFloor).toBe(false);
+  });
+
+  it("backfill with no observed samples at all makes no calls", async () => {
+    const { db } = fakeDb({
+      connectionRows: [activeConn()],
+      syncStateRows: [],
+      oldestSample: null,
+    });
+    const dailyRollUp = vi.fn();
+    const svc = withAdapter(new HealthSyncService(db), { dailyRollUp });
+    const done = await (svc as unknown as Priv).backfillRollupMetric(
+      activeConn(),
+      totalCalories,
+      new Date("2020-01-01T00:00:00Z"),
+      false
+    );
+    expect(dailyRollUp).not.toHaveBeenCalled();
+    expect(done.reachedFloor).toBe(true);
+  });
+});
+
+describe("ensureHealthUserId — webhook mapping", () => {
+  it("stores the identity's healthUserId when missing", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()] });
+    const getIdentity = vi.fn().mockResolvedValue({ healthUserId: "5550001" });
+    const svc = withAdapter(new HealthSyncService(db), { getIdentity });
+    const conn = activeConn({ userId: "id-u1", healthUserId: null });
+    await svc.ensureHealthUserId(conn as never);
+    expect(getIdentity).toHaveBeenCalledWith("cached-at");
+    const write = rec.updates.find((u) => "healthUserId" in u.payload);
+    expect(write?.payload.healthUserId).toBe("5550001");
+  });
+
+  it("is a no-op when already stored", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()] });
+    const getIdentity = vi.fn();
+    const svc = withAdapter(new HealthSyncService(db), { getIdentity });
+    await svc.ensureHealthUserId(activeConn({ healthUserId: "x" }) as never);
+    expect(getIdentity).not.toHaveBeenCalled();
+    expect(rec.updates).toHaveLength(0);
+  });
+
+  it("swallows a lookup failure and throttles the retry", async () => {
+    const { db, rec } = fakeDb({ connectionRows: [activeConn()] });
+    const getIdentity = vi.fn().mockRejectedValue(new GoogleHealthApiError("forbidden", 403));
+    const svc = withAdapter(new HealthSyncService(db), { getIdentity });
+    const conn = activeConn({ userId: "id-u2", healthUserId: null });
+    await expect(svc.ensureHealthUserId(conn as never)).resolves.toBeUndefined();
+    await svc.ensureHealthUserId(conn as never);
+    expect(getIdentity).toHaveBeenCalledTimes(1);
+    expect(rec.updates).toHaveLength(0);
   });
 });
 

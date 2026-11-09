@@ -3,7 +3,7 @@
 날짜: 2026-11-09
 대상: `src/lib/adapters/google-health/`, `src/modules/health/service.ts`, `src/modules/health/sessions.ts`,
 신규 `src/app/api/fitbit/webhook/route.ts`, `src/lib/cron.ts`, `src/lib/sentry-scrub.ts`,
-`src/app/api/fitbit/{authorize,callback}`, `/health` UI, 신규 마이그레이션 0043~
+`src/app/api/fitbit/{authorize,callback}`, `/health` UI, 신규 마이그레이션 0045~
 
 > 개인정보: 이 문서는 API **형태와 필드명**만 기록한다. 라이브 스파이크의 실제 측정값은 적지 않았고,
 > 비교 수치는 비율로만 남겼다. 스파이크는 dev DB(`100.103.66.56`)에서 `SET default_transaction_read_only = on`으로
@@ -232,7 +232,7 @@ U1과 §6의 "`sleep`/`exercise`는 모든 filter가 400"은 `*.interval.start_t
 - 테스트: `buildTimeFilter`에 civil 형태 케이스를 추가하고, `parseExerciseWorkout`/`parseSleepSession`은 기존 테스트를 재사용한다.
   백필 presence probe가 civil 필터에서도 동작하는지 확인하는 단위 테스트를 둔다.
 
-### 1. `health_user_id` 매핑 (마이그레이션 0043)
+### 1. `health_user_id` 매핑 (마이그레이션 0045)
 
 - `health_connections.health_user_id text`(nullable)와 `UNIQUE (health_user_id) WHERE health_user_id IS NOT NULL`을 추가한다.
 - 어댑터에 `getIdentity(accessToken)`를 추가한다. `/api/fitbit/callback`에서 토큰을 교환한 직후 저장하고,
@@ -327,7 +327,7 @@ U1과 §6의 "`sleep`/`exercise`는 모든 filter가 400"은 `*.interval.start_t
   `logIngestionFailure`로 실패를 기록하고, `recordSourceSuccess("health")`로 수신 성공 시각을 남긴다.
 - 로그에는 개수, dataType, operation만 남긴다. `healthUserId`와 interval 시각은 로그에 쓰지 않는다.
 
-**4c. 큐 테이블 — `health_webhook_events` (마이그레이션 0044)**
+**4c. 큐 테이블 — `health_webhook_events` (마이그레이션 0046)**
 
 ```
 id uuid pk, user_id uuid fk users ON DELETE cascade, data_type text, operation text,
@@ -381,7 +381,7 @@ INDEX (status, received_at)
   - IRN: 필터 필드가 문서화되어 있지 않다. 스코프를 받은 뒤 `irregular_rhythm_notification.interval.start_time`을 시도하고, 실패하면 세션처럼 필터 없이 읽는다.
 - **저장 — 결정 필요.** 제안:
   - `health_samples`: `metric = "ecg"`, `value = beatsPerMinuteAvg`(문자열을 숫자로 변환), `valueJson = { resultClassification, samplingFrequencyHertz, millivoltsScalingFactor, leadNumber, medicalDeviceInfo }`. **파형은 넣지 않는다.**
-  - 파형은 별도 테이블 `health_ecg_waveforms(user_id fk cascade, sample_at, source, samples int2[]/bytea)`에 둔다(마이그레이션 0045). `/health`에서 그릴 때만 읽는다.
+  - 파형은 별도 테이블 `health_ecg_waveforms(user_id fk cascade, sample_at, source, samples int2[]/bytea)`에 둔다(마이그레이션 0047). `/health`에서 그릴 때만 읽는다.
   - `metric = "irn"`: `value = positive alertWindow 수`, `valueJson = alertWindows`(heartBeats 포함 여부는 결정 필요).
   - `health_raw_pages`는 원문(파형 포함)을 계속 영구 보관한다. ECG에는 **보존 기간이나 raw 제외 정책**이 필요할 수 있다(결정 목록).
   - 일별 요약은 만들지 않는다. sleep/exercise처럼 세션 읽기 경로를 쓴다.
@@ -468,9 +468,9 @@ INDEX (status, received_at)
 
 | 번호 | 내용 | 비고 |
 |---|---|---|
-| 0043 | `health_connections.health_user_id` + 부분 unique | 비파괴. 값은 지연 백필 |
-| 0044 | `health_webhook_events` | users cascade |
-| 0045 | `health_ecg_waveforms` (ECG를 진행할 때만) | users cascade |
+| 0045 | `health_connections.health_user_id` + 부분 unique | 비파괴. 값은 지연 백필 |
+| 0046 | `health_webhook_events` | users cascade |
+| 0047 | `health_ecg_waveforms` (ECG를 진행할 때만) | users cascade |
 
 세션 시간 창 전환(§0)과 신규 메트릭 행(§2)에는 스키마 변경이 없다. `health_sync_state`에 새 metric 행이 자연스럽게 생긴다.
 
@@ -527,7 +527,7 @@ INDEX (status, received_at)
 7. **total_calories 출처**: `google-wearables`.
 8. **ECG/IRN**: 둘 다 **선택 스코프**로 추가 동의를 받는다(기본 연결 스코프에는 넣지 않음). 설정의 Google Health 카드에
    "ECG/불규칙 심박 연결" 버튼을 두어 `include_granted_scopes`로 OAuth를 다시 돈다(두 스코프는 GCP 동의 화면에 이미 등록됨).
-9. **ECG 데이터 보존·개인정보**: 요약값만 저장한다(파형 테이블 `health_ecg_waveforms`와 마이그레이션 0045는 만들지 않음).
+9. **ECG 데이터 보존·개인정보**: 요약값만 저장한다(파형 테이블 `health_ecg_waveforms`와 마이그레이션 0047는 만들지 않음).
    `health_raw_pages`는 지금처럼 원문을 보관한다. IRN `heartBeats`는 `health_samples`에 저장하지 않는다(원문에는 남음).
    `/overview` AI 내러티브 입력에서 ECG/IRN을 제외하고, payload 키를 sentry-scrub denylist에 추가한다.
    소유자 기기(Fitbit Air)에는 ECG가 없으므로 파서는 문서상 형태 기준으로 관대하게 만들고, 실제 형태는 재동의 후 확인한다.
@@ -549,6 +549,8 @@ INDEX (status, received_at)
 - `ensureHealthUserId`는 `syncUser`(24h 게이트)뿐 아니라 매 tick 도는 `backfillPendingConnections`에서도 호출해서, 배포 후 한 tick 안에 매핑이 채워진다. 실패하면 프로세스당 1시간에 한 번만 다시 시도한다.
 - VO₂max 카드 병합은 `HealthMetricMeta.sourceKeys`(우선순위 순서)로 구현했다. 하루 단위로 첫 키의 값을 쓰고 섞지 않는다. 여행 상세 카드도 같은 매핑을 쓴다.
 - 교정 스크립트는 걸음 수만 비교한다(롤업 값 키가 검증된 유일한 누적 메트릭).
+- 마이그레이션 번호: 이 PR을 쓰는 동안 main에 `0043_narrative_input_hash`·`0044_wakatime_oauth`가 먼저 들어가서, `health_user_id`
+  마이그레이션은 main 위로 다시 쌓으면서 `yarn db:generate`로 `0045_health_user_id`로 재생성했다(SQL은 원래 0043과 동일).
 
 ## 범위 밖
 

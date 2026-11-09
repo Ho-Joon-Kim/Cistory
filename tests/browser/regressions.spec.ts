@@ -273,6 +273,67 @@ test("health auxiliary failures can retry into an honest empty state", async ({ 
   await expect(page.locator("main [role=alert]")).toHaveCount(0);
 });
 
+test("health shows the total-calories card and the merged VO₂max series", async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  // KST day keys for the last three days, computed in the browser-independent test
+  // process so the fixture always falls inside the card's 30-day window.
+  const kstDay = (offset: number) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(
+      new Date(Date.now() - offset * 86_400_000)
+    );
+  const point = (day: string, value: number, sum: boolean) => ({
+    day,
+    avg: sum ? null : value,
+    min: sum ? null : value,
+    max: sum ? null : value,
+    sum: sum ? value : null,
+    count: 1,
+  });
+  await page.route("**/api/fitbit/summary", (route) =>
+    route.fulfill({
+      json: {
+        hasConnection: true,
+        status: "active",
+        backfillCompletedAt: "2026-08-01",
+        lastSyncedAt: null,
+        hasAnyHistory: true,
+        metrics: [
+          {
+            key: "total_calories",
+            label: "총 소모 칼로리",
+            unit: "kcal",
+            agg: "sum",
+            scale: null,
+            decimals: 0,
+            points: [point(kstDay(2), 2210, true), point(kstDay(1), 2345, true)],
+          },
+          {
+            key: "vo2_max",
+            label: "VO₂max",
+            unit: "mL/kg·min",
+            agg: "avg",
+            scale: null,
+            decimals: 1,
+            points: [point(kstDay(3), 44.2, false), point(kstDay(1), 45.1, false)],
+          },
+        ],
+        workouts: [],
+        sleepSessions: [],
+      },
+    })
+  );
+  await page.goto("/health");
+  await expect(page.getByText("총 소모 칼로리")).toBeVisible();
+  // Latest-value headline of each card (the footer repeats it as "최대 …").
+  await expect(page.getByText("2,345", { exact: true })).toBeVisible();
+  await expect(page.getByText("45.1", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("health-new-metrics.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("collection status retries errors and retains a queued recovery on reload", async ({
   page,
 }, testInfo) => {

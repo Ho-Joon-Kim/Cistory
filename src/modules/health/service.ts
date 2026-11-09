@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   type HealthConnection,
@@ -20,7 +20,7 @@ import {
 } from "@/lib/adapters/google-health/interface";
 import { ApiError } from "@/lib/api-handler";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
-import { dateKeyToUtcMillis, getKstDateWindow } from "@/lib/date-key";
+import { dateKeyToUtcMillis, getKstDateWindow, shiftDateKey } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 
 // ── Tuning constants ─────────────────────────────────────────────────────────
@@ -37,6 +37,9 @@ const MAX_PAGES_PER_WINDOW = 200; // backstop against a malformed never-empty pa
 const BACKFILL_SAFETY_FLOOR_MS = 5 * 365 * 24 * 3600_000; // ~5y backstop (>> Health Connect retention)
 const BACKFILL_CHUNK_MS = 14 * 24 * 3600_000;
 const BACKFILL_CHUNKS_PER_RUN = 4;
+// A failing users/me/identity lookup is retried at most this often per process.
+const IDENTITY_RETRY_MS = 60 * 60_000;
+const identityAttemptAt = new Map<string, number>();
 
 // ── Metric config (ground-truthed by the U1 live spike) ──────────────────────
 // The Google Health `list` payload wraps each point under a camelCase key
@@ -94,6 +97,26 @@ export interface MetricConfig {
   forwardOverlapMs?: number;
   /** Custom point → row parser (structured metrics that still carry a scalar). */
   parsePoint?: (point: GoogleHealthDataPoint) => ParsedSample | null;
+  /**
+   * How the metric is read. `list` (default) pages raw data points through the
+   * AIP-160 `filter`. `dailyRollUp` is for rollup-only data types (`total-calories`,
+   * `floors` — `list` answers 400 UNSUPPORTED_DATA_TYPE_ACTION): one server-side
+   * point per civil day, read by civil-date range, and `filterField` is unused.
+   * For those, `wrapper`/`valueKey` address the rollup payload
+   * (`{ civilStartTime, civilEndTime, totalCalories: { kcalSum } }`).
+   */
+  fetch?: "list" | "dailyRollUp";
+  /**
+   * dataSourceFamily for a `dailyRollUp` metric. REQUIRED in practice: the API
+   * default `all-sources` sums overlapping sources (2026-11-09 spike: wearables /
+   * all-sources = 0.36–0.99 on steps), so leaving it unset double-counts.
+   */
+  rollupFamily?: string;
+}
+
+/** Rollup points carry no dataSource, so the stored `source` names the family. */
+export function rollupSource(config: MetricConfig): string {
+  return `rollup:${config.rollupFamily ?? "all-sources"}`;
 }
 
 export const HEALTH_METRICS: MetricConfig[] = [
@@ -227,6 +250,85 @@ export const HEALTH_METRICS: MetricConfig[] = [
     valueKey: "nightlyTemperatureCelsius",
     agg: "avg",
     revisable: true,
+  },
+  // ── 2026-04..10 data types (docs/superpowers/specs/2026-11-09-…-design.md §2a) ─
+  // All four were EMPTY for the owner's account on 2026-11-09; the rows exist so
+  // the connection reads "connected, no data" and starts collecting the day a
+  // device writes them. The backfill presence probe completes each in one call.
+  {
+    // Fitbit's own cardio-fitness estimate. The /health VO₂max card prefers it over
+    // the Samsung-era `vo2_max` series for any day that has both (metrics-meta).
+    // `cardioFitnessLevel` / `estimated` / covariance stay in health_raw_pages.
+    key: "daily_vo2_max",
+    dataType: "daily-vo2-max",
+    wrapper: "dailyVo2Max",
+    timeShape: "date",
+    filterField: "daily_vo2_max.date",
+    valueKey: "vo2Max",
+    agg: "avg",
+    revisable: true,
+  },
+  {
+    key: "run_vo2_max",
+    dataType: "run-vo2-max",
+    wrapper: "runVo2Max",
+    timeShape: "sampleTime",
+    filterField: "run_vo2_max.sample_time.physical_time",
+    valueKey: "runVo2Max",
+    agg: "avg",
+  },
+  {
+    key: "core_body_temperature",
+    dataType: "core-body-temperature",
+    wrapper: "coreBodyTemperature",
+    timeShape: "sampleTime",
+    filterField: "core_body_temperature.sample_time.physical_time",
+    valueKey: "temperatureCelsius",
+    agg: "avg",
+  },
+  {
+    // A CGM writes per-minute points, so this could grow like heart_rate once real
+    // data exists — revisit compaction then (design §2a).
+    key: "blood_glucose",
+    dataType: "blood-glucose",
+    wrapper: "bloodGlucose",
+    timeShape: "sampleTime",
+    filterField: "blood_glucose.sample_time.physical_time",
+    valueKey: "bloodGlucoseMilligramsPerDeciliter",
+    agg: "avg",
+  },
+  // ── Rollup-only types (`list` → 400 UNSUPPORTED_DATA_TYPE_ACTION) ────────────
+  // One point per civil day via dailyRollUp, anchored at 12:00 KST like `daily-*`,
+  // revisable (today's rollup keeps growing), and stored under source
+  // `rollup:<family>` because rollup points carry no dataSource.
+  {
+    // Live-verified shape: { civilStartTime:{date,time}, civilEndTime, totalCalories:{kcalSum:number} }.
+    key: "total_calories",
+    dataType: "total-calories",
+    wrapper: "totalCalories",
+    timeShape: "date",
+    filterField: "",
+    valueKey: "kcalSum",
+    agg: "sum",
+    revisable: true,
+    fetch: "dailyRollUp",
+    rollupFamily: "google-wearables",
+  },
+  {
+    // UNVERIFIED value key: every floors rollup back to 2018 was empty for the
+    // owner's Fitbit Air (no barometer), so `countSum` mirrors the verified
+    // `steps.countSum` shape. A different key just drops the point at parse time;
+    // the verbatim response still lands in health_raw_pages for re-normalization.
+    key: "floors",
+    dataType: "floors",
+    wrapper: "floors",
+    timeShape: "date",
+    filterField: "",
+    valueKey: "countSum",
+    agg: "sum",
+    revisable: true,
+    fetch: "dailyRollUp",
+    rollupFamily: "google-wearables",
   },
   // `exercise` and `sleep` are listed separately in SESSION_CONFIGS below.
 ];
@@ -472,10 +574,86 @@ export function parseSample(
     return { sampleAt, source, value: null, valueJson: wrapper };
   }
 
-  const raw = wrapper[config.valueKey];
-  const num = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : Number.NaN;
-  if (Number.isNaN(num)) return null; // scalar metric with no usable value → drop
+  const num = toNumber(wrapper[config.valueKey]);
+  if (num == null) return null; // scalar metric with no usable value → drop
   return { sampleAt, source, value: num, valueJson: null };
+}
+
+/** A number, or a numeric string (int64 fields arrive as strings); else null. */
+function toNumber(raw: unknown): number | null {
+  const num =
+    typeof raw === "string" && raw.trim() !== ""
+      ? Number(raw)
+      : typeof raw === "number"
+        ? raw
+        : Number.NaN;
+  return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * Normalize one `dailyRollUp` point. The live shape (2026-11-09) is
+ * `{ civilStartTime: { date, time:{} }, civilEndTime, <wrapper>: { <valueKey> } }`
+ * with no dataSource; the value is a number (`kcalSum`) or a numeric string
+ * (`steps.countSum`). The civil start date is anchored at 12:00 KST exactly like
+ * the `daily-*` list metrics. A day with no data arrives as NO point, never a 0.
+ */
+export function parseRollupPoint(
+  config: MetricConfig,
+  point: GoogleHealthDataPoint
+): ParsedSample | null {
+  const civil = point.civilStartTime as { date?: unknown } | undefined;
+  const sampleAt = civilDateToInstant(civil?.date);
+  if (!sampleAt) return null;
+  const wrapper = point[config.wrapper] as Record<string, unknown> | undefined;
+  if (!wrapper || typeof wrapper !== "object" || config.valueKey == null) return null;
+  const num = toNumber(wrapper[config.valueKey]);
+  if (num == null) return null;
+  return { sampleAt, source: rollupSource(config), value: num, valueJson: null };
+}
+
+/** health_raw_pages.method for a metric's reads. */
+function rawMethod(config: MetricConfig): "list" | "dailyRollUp" {
+  return config.fetch === "dailyRollUp" ? "dailyRollUp" : "list";
+}
+
+/** Parse a point with the reader that matches how the metric is fetched. */
+export function parsePoint(
+  config: MetricConfig,
+  point: GoogleHealthDataPoint
+): ParsedSample | null {
+  return config.fetch === "dailyRollUp"
+    ? parseRollupPoint(config, point)
+    : parseSample(config, point);
+}
+
+export interface CivilDate {
+  year: number;
+  month: number;
+  day: number;
+}
+
+/** 'YYYY-MM-DD' → CivilDate. */
+export function dateKeyToCivil(key: string): CivilDate {
+  const [year, month, day] = key.split("-").map(Number);
+  return { year, month, day };
+}
+
+/**
+ * The closed-open KST civil-day range `[startKey, endKeyExclusive)` covering the
+ * instants `[since, until)`: floor the start day, ceil the end day so a partial day
+ * at either edge is re-read rather than dropped (rollup metrics are revisable, so
+ * re-reading a day is free).
+ */
+export function rollupDayRange(
+  since: Date,
+  until: Date
+): { startKey: string; endKeyExclusive: string } {
+  const startKey = kstDay(since);
+  const untilDay = kstDay(until);
+  const midnight = getKstDateWindow(untilDay, untilDay).start;
+  const endKeyExclusive =
+    until.getTime() === midnight.getTime() ? untilDay : shiftDateKey(untilDay, 1);
+  return { startKey, endKeyExclusive };
 }
 
 /**
@@ -565,6 +743,17 @@ export class HealthSyncService {
     start: Date,
     end: Date
   ): Promise<ListResult[]> {
+    if (config.fetch === "dailyRollUp") {
+      const { startKey, endKeyExclusive } = rollupDayRange(start, end);
+      const { pages, truncated } = await this.fetchRollupPages(
+        connection,
+        config,
+        startKey,
+        endKeyExclusive
+      );
+      if (truncated) throw new ApiError(502, "건강 데이터 조회가 완료되지 않았습니다");
+      return pages;
+    }
     const pages: ListResult[] = [];
     let pageToken: string | undefined;
     do {
@@ -595,7 +784,7 @@ export class HealthSyncService {
     const unique = new Map<string, NewHealthSample>();
     for (const page of pages) {
       for (const point of page.dataPoints) {
-        const sample = parseSample(config, point);
+        const sample = parsePoint(config, point);
         if (!sample || sample.sampleAt < start || sample.sampleAt >= end) continue;
         unique.set(JSON.stringify([sample.source, sample.sampleAt.toISOString()]), {
           userId: connection.userId,
@@ -640,7 +829,7 @@ export class HealthSyncService {
           await tx.insert(healthRawPages).values({
             userId: connection.userId,
             dataType: config.dataType,
-            method: "list",
+            method: rawMethod(config),
             windowStart: start,
             windowEnd: end,
             rawJson: page.dataPoints,
@@ -799,6 +988,8 @@ export class HealthSyncService {
       return { userId, samplesUpserted: 0, skipped: true };
     }
 
+    await this.ensureHealthUserId(connection);
+
     const now = new Date();
     const errors: string[] = [];
     // Every metric (scalars and the exercise/sleep sessions alike) takes the
@@ -849,13 +1040,23 @@ export class HealthSyncService {
     const since = state?.syncedThrough
       ? new Date(state.syncedThrough.getTime() - (config.forwardOverlapMs ?? 0))
       : new Date(now.getTime() - FORWARD_FALLBACK_MS);
-    const { upserted, truncated } = await this.fetchWindowAndPersist(
-      connection,
-      config,
-      buildTimeFilter(config, since),
-      since,
-      now
-    );
+    // Rollups re-read from the day BEFORE the watermark's KST day through
+    // tomorrow, so yesterday's late-closing total is refreshed (design §2b).
+    const { upserted, truncated } =
+      config.fetch === "dailyRollUp"
+        ? await this.fetchRollupWindowAndPersist(
+            connection,
+            config,
+            new Date(since.getTime() - 86_400_000),
+            new Date(now.getTime() + 86_400_000)
+          )
+        : await this.fetchWindowAndPersist(
+            connection,
+            config,
+            buildTimeFilter(config, since),
+            since,
+            now
+          );
     // Don't advance the watermark past a window we couldn't fully page — otherwise
     // the unfetched tail is skipped permanently. Leave `since` for the next tick.
     if (!truncated) {
@@ -885,15 +1086,26 @@ export class HealthSyncService {
       return { userId, samplesUpserted: 0, skipped: true };
     }
 
+    // Runs every tick (unlike the 24h-gated forward sync), so a pre-0045
+    // connection gets its webhook mapping within one tick of the deploy.
+    await this.ensureHealthUserId(connection);
+
     const floor = connection.backfillFloor ?? (await this.seedBackfillFloor(connection));
     const pending = await this.pendingBackfillMetrics(userId, floor);
     if (pending.length === 0) return { userId, samplesUpserted: 0, skipped: true };
+    // A rollup's lower bound is the oldest OBSERVED sample, which keeps moving
+    // earlier while list metrics are still walking back — so a rollup may only
+    // declare itself done once no list metric is pending.
+    const listPending = pending.some((c) => c.fetch !== "dailyRollUp");
 
     let total = 0;
     let allComplete = true;
     for (const config of pending) {
       try {
-        const done = await this.backfillMetric(connection, config, floor);
+        const done =
+          config.fetch === "dailyRollUp"
+            ? await this.backfillRollupMetric(connection, config, floor, listPending)
+            : await this.backfillMetric(connection, config, floor);
         total += done.upserted;
         if (!done.reachedFloor) allComplete = false;
       } catch (err) {
@@ -979,6 +1191,200 @@ export class HealthSyncService {
     }
 
     return { upserted, reachedFloor: cursor.getTime() <= floor.getTime() };
+  }
+
+  /**
+   * Historical backfill for a `dailyRollUp` metric (design §8). There is no
+   * presence probe — `list` is 400 for these types and one rollup call can't span
+   * the remaining range — and real history has empty MONTHS (total-calories), so
+   * "stop at the first empty chunk" is wrong too. Instead the walk goes down to the
+   * connection's oldest observed sample minus one day (2025-07-08 for the owner,
+   * vs. the ~5y `backfillFloor`, which would cost ~130 empty rollups), and only
+   * declares itself done once no list metric is still extending that bound.
+   */
+  private async backfillRollupMetric(
+    connection: HealthConnection,
+    config: MetricConfig,
+    floor: Date,
+    listMetricsPending: boolean
+  ): Promise<{ upserted: number; reachedFloor: boolean }> {
+    const state = await this.getSyncState(connection.userId, config.key);
+    let cursor = state?.backfilledFrom ?? new Date(Date.now() - FORWARD_FALLBACK_MS);
+    const oldest = await this.oldestObservedSample(connection.userId);
+    const lower = oldest
+      ? new Date(Math.max(floor.getTime(), oldest.getTime() - 86_400_000))
+      : null;
+    let upserted = 0;
+
+    for (let chunk = 0; chunk < BACKFILL_CHUNKS_PER_RUN; chunk++) {
+      if (!lower || cursor.getTime() <= lower.getTime()) break;
+      const chunkStart = new Date(Math.max(lower.getTime(), cursor.getTime() - BACKFILL_CHUNK_MS));
+      const { upserted: got, truncated } = await this.fetchRollupWindowAndPersist(
+        connection,
+        config,
+        chunkStart,
+        cursor
+      );
+      upserted += got;
+      if (truncated) return { upserted, reachedFloor: false };
+      cursor = chunkStart;
+      await this.setSyncState(connection.userId, config.key, { backfilledFrom: cursor });
+    }
+
+    const exhausted = !lower || cursor.getTime() <= lower.getTime();
+    if (exhausted && !listMetricsPending) {
+      // Stamp AT the connection floor so pendingBackfillMetrics treats it as done.
+      await this.setSyncState(connection.userId, config.key, { backfilledFrom: floor });
+      return { upserted, reachedFloor: true };
+    }
+    return { upserted, reachedFloor: false };
+  }
+
+  /** Earliest list-sourced sample for this user — the rollup backfill's lower bound. */
+  private async oldestObservedSample(userId: string): Promise<Date | null> {
+    const rollupKeys = HEALTH_METRICS.filter((c) => c.fetch === "dailyRollUp").map((c) => c.key);
+    const [row] = await this.db
+      .select({
+        oldest: sql<Date | null>`min(${healthSamples.sampleAt})`.mapWith(healthSamples.sampleAt),
+      })
+      .from(healthSamples)
+      .where(
+        and(
+          eq(healthSamples.userId, userId),
+          rollupKeys.length ? notInArray(healthSamples.metric, rollupKeys) : undefined
+        )
+      )
+      .limit(1);
+    return row?.oldest ?? null;
+  }
+
+  /**
+   * Read a `dailyRollUp` metric over the KST days covering `[since, until)`,
+   * upsert its points + raw pages, and recompute the touched days' summaries. The
+   * rollup analog of fetchWindowAndPersist; shared by forward sync, backfill, and
+   * webhook-driven refreshes.
+   */
+  async fetchRollupWindowAndPersist(
+    connection: HealthConnection,
+    config: MetricConfig,
+    since: Date,
+    until: Date
+  ): Promise<{ upserted: number; truncated: boolean }> {
+    const { startKey, endKeyExclusive } = rollupDayRange(since, until);
+    const windowStart = getKstDateWindow(startKey, startKey).start;
+    const windowEnd = getKstDateWindow(endKeyExclusive, endKeyExclusive).start;
+    let upserted = 0;
+    let truncated = false;
+    try {
+      const result = await this.fetchRollupPages(
+        connection,
+        config,
+        startKey,
+        endKeyExclusive,
+        async (page) => {
+          upserted += await this.persistPage(
+            connection.userId,
+            config,
+            page,
+            windowStart,
+            windowEnd
+          );
+        }
+      );
+      truncated = result.truncated;
+    } finally {
+      if (upserted > 0) {
+        await this.recomputeDailySummaries(connection.userId, config, windowStart, windowEnd).catch(
+          (err) =>
+            logger.warn("[Health] daily summary recompute failed", {
+              userId: connection.userId,
+              metric: config.key,
+              error: err instanceof Error ? err.message : String(err),
+            })
+        );
+      }
+    }
+    return { upserted, truncated };
+  }
+
+  /**
+   * Page a dailyRollUp range. Each page is handed to `onPage` as it arrives (or
+   * collected and returned when no callback is given). A range spanning more than
+   * a page (14 days/page, live-verified) follows nextPageToken.
+   */
+  private async fetchRollupPages(
+    connection: HealthConnection,
+    config: MetricConfig,
+    startKey: string,
+    endKeyExclusive: string,
+    onPage?: (page: ListResult) => Promise<void>
+  ): Promise<{ pages: ListResult[]; truncated: boolean }> {
+    const adapter = this.getAdapter();
+    const pages: ListResult[] = [];
+    let pageToken: string | undefined;
+    let count = 0;
+    do {
+      const token = pageToken;
+      const res = await this.withAuthRetry(connection, (accessToken) =>
+        adapter.dailyRollUp({
+          accessToken,
+          dataType: config.dataType,
+          range: { start: dateKeyToCivil(startKey), end: dateKeyToCivil(endKeyExclusive) },
+          windowSizeDays: 1,
+          pageToken: token,
+          dataSourceFamily: config.rollupFamily,
+        })
+      );
+      const page: ListResult = {
+        dataPoints: res.rollupDataPoints,
+        nextPageToken: res.nextPageToken,
+      };
+      if (onPage) await onPage(page);
+      else pages.push(page);
+      pageToken = res.nextPageToken;
+      count++;
+      await new Promise((resolve) => setImmediate(resolve)); // event-loop yield
+    } while (pageToken && count < MAX_PAGES_PER_WINDOW);
+    if (pageToken) {
+      logger.warn("[Health] rollup window hit page cap; not advancing watermark", {
+        userId: connection.userId,
+        metric: config.key,
+        pages: count,
+      });
+    }
+    return { pages, truncated: !!pageToken };
+  }
+
+  /**
+   * Store the connection's Google Health user id (webhook mapping) when it is
+   * missing. Best effort and throttled per process: a failure never blocks a sync,
+   * and a connection whose lookup keeps failing is retried at most hourly.
+   */
+  async ensureHealthUserId(connection: HealthConnection): Promise<void> {
+    if (connection.healthUserId) return;
+    const last = identityAttemptAt.get(connection.userId) ?? 0;
+    if (Date.now() - last < IDENTITY_RETRY_MS) return;
+    identityAttemptAt.set(connection.userId, Date.now());
+    try {
+      const adapter = this.getAdapter();
+      const { healthUserId } = await this.withAuthRetry(connection, (accessToken) =>
+        adapter.getIdentity(accessToken)
+      );
+      if (!healthUserId) return;
+      await this.db
+        .update(healthConnections)
+        .set({ healthUserId, updatedAt: new Date() })
+        .where(eq(healthConnections.userId, connection.userId));
+      connection.healthUserId = healthUserId;
+      identityAttemptAt.delete(connection.userId);
+      logger.info("[Health] Stored Google Health user id", { userId: connection.userId });
+    } catch (err) {
+      logger.warn("[Health] health user id lookup failed (will retry)", {
+        userId: connection.userId,
+        status: err instanceof GoogleHealthApiError ? err.status : undefined,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**
@@ -1090,7 +1496,7 @@ export class HealthSyncService {
     await this.db.insert(healthRawPages).values({
       userId,
       dataType: config.dataType,
-      method: "list",
+      method: rawMethod(config),
       windowStart,
       windowEnd,
       rawJson: page.dataPoints,
@@ -1103,7 +1509,7 @@ export class HealthSyncService {
     // which would wedge that window forever. First one wins, as DO NOTHING did.
     const byIdentity = new Map<string, NewHealthSample>();
     for (const point of page.dataPoints) {
-      const parsed = parseSample(config, point);
+      const parsed = parsePoint(config, point);
       if (!parsed) continue;
       const identity = `${parsed.sampleAt.getTime()}|${parsed.source}`;
       if (byIdentity.has(identity)) continue;
@@ -1148,15 +1554,26 @@ export class HealthSyncService {
     pageSize: number = LIST_PAGE_SIZE
   ): Promise<ListResult> {
     const adapter = this.getAdapter();
-    const req = (accessToken: string) =>
+    return this.withAuthRetry(connection, (accessToken) =>
       adapter.listDataPoints({
         accessToken,
         dataType: config.dataType,
         filter,
         pageSize,
         pageToken,
-      });
+      })
+    );
+  }
 
+  /**
+   * Run one Google Health read with a valid token: a 401 despite an un-expired
+   * stored token forces one refresh and a retry; a brand-new token still failing
+   * auth flips the connection to needs_reauth (a confirmed re-link situation).
+   */
+  private async withAuthRetry<T>(
+    connection: HealthConnection,
+    req: (accessToken: string) => Promise<T>
+  ): Promise<T> {
     let token = await this.getValidToken(connection);
     try {
       return await req(token);
@@ -1169,7 +1586,7 @@ export class HealthSyncService {
         } catch (retryErr) {
           // A brand-new token still failing auth is a confirmed re-link situation.
           if (retryErr instanceof GoogleHealthAuthError) {
-            await this.markNeedsReauth(connection.userId, "list auth failed after refresh");
+            await this.markNeedsReauth(connection.userId, "read auth failed after refresh");
           }
           throw retryErr;
         }

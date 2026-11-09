@@ -1,0 +1,2 @@
+ALTER TABLE "health_connections" ADD COLUMN "health_user_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_health_conn_health_user_id" ON "health_connections" USING btree ("health_user_id") WHERE "health_connections"."health_user_id" IS NOT NULL;
