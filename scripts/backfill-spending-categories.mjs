@@ -25,10 +25,6 @@ const limit = Math.max(1, Math.min(Number(args.get("--limit") ?? 500), 5000));
 const batchSize = Math.max(1, Math.min(Number(args.get("--batch-size") ?? 25), 50));
 const userId = args.get("--user");
 const model = String(args.get("--model") ?? "claude-haiku-4-5");
-// Sonnet 5 / Opus 5 reject non-default sampling params (temperature) with a
-// 400. This script's default model accepts it and relies on it for
-// deterministic classification; only send it for models known to accept it.
-const SAMPLING_CAPABLE_MODELS = new Set(["claude-haiku-4-5"]);
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
 if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is required");
@@ -97,15 +93,15 @@ async function loadPending() {
   return result.rows;
 }
 
+// No temperature: API version 2026-10-21 (SDK 1.x) rejects temperature/top_p/
+// top_k with a 400 on every model, at any value.
 function buildRequestOptions(batch) {
-  const options = {
+  return {
     model,
     max_tokens: Math.max(500, batch.length * 60),
     system: "당신은 한국 소비 거래 분류기입니다. 유효한 JSON만 출력하세요.",
     messages: [{ role: "user", content: prompt(batch) }],
   };
-  if (SAMPLING_CAPABLE_MODELS.has(model)) options.temperature = 0;
-  return options;
 }
 
 async function run() {

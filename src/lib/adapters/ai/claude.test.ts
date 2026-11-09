@@ -101,34 +101,17 @@ describe("ClaudeAdapter response parsing", () => {
 });
 
 describe("ClaudeAdapter model capabilities", () => {
-  it("drops temperature for a model that rejects sampling params", async () => {
-    // Dropping the param silently would erase the caller's intent (e.g.
-    // temperature: 0 for deterministic classification) with no trace. An
-    // operator must be able to see it happened.
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
-    createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
-
-    await createClaudeAdapter("k", CLAUDE_MODELS.COMMIT_SUMMARY).generateText({
-      prompt: "p",
-      temperature: 0.5,
-    });
-
-    expect(lastRequest()).not.toHaveProperty("temperature");
-    expect(warnSpy).toHaveBeenCalledWith(
-      "Claude option dropped — model does not accept it",
-      expect.objectContaining({ model: CLAUDE_MODELS.COMMIT_SUMMARY, option: "temperature" })
-    );
-  });
-
-  it("keeps temperature for a model that accepts it", async () => {
+  it("never sends sampling params — API 2026-10-21 rejects them on every model", async () => {
     createMock.mockResolvedValueOnce(reply([{ type: "text", text: "ok" }]));
 
     await createClaudeAdapter("k", CLAUDE_MODELS.EXPENSE_CLASSIFIER).generateText({
       prompt: "p",
-      temperature: 0,
+      outputSchema: { type: "object" },
     });
 
-    expect(lastRequest().temperature).toBe(0);
+    for (const key of ["temperature", "top_p", "top_k"]) {
+      expect(lastRequest()).not.toHaveProperty(key);
+    }
   });
 
   it("drops effort for a model that rejects it", async () => {

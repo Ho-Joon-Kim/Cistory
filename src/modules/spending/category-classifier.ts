@@ -110,7 +110,6 @@ export async function classifyExpenses(
     system: "당신은 한국 소비 거래 분류기입니다. 설명 없이 유효한 JSON만 출력하세요.",
     prompt: buildExpenseClassificationPrompt(items),
     maxTokens: Math.max(500, items.length * 60),
-    temperature: 0,
     outputSchema: OUTPUT_JSON_SCHEMA,
   });
   const parsed = responseSchema.parse(extractJson(result.content));
