@@ -43,14 +43,25 @@ const CATEGORY_LABELS: Record<string, string> = {
   system: "시스템",
 };
 
-interface TableDef {
+export interface TableDef {
   category: string;
   table: string;
+  /**
+   * For tables without their own `user_id` column: the parent table that
+   * carries it and this table's FK to the parent's `id`. Filtering such a
+   * table by `user_id` directly raises "column does not exist", which the
+   * catch below swallows into a silent 0-row result.
+   */
+  ownedVia?: { parent: string; fk: string };
 }
 
-const TABLE_DEFS: TableDef[] = [
+export const TABLE_DEFS: TableDef[] = [
   { category: "commits", table: "commits" },
-  { category: "commits", table: "commit_summaries" },
+  {
+    category: "commits",
+    table: "commit_summaries",
+    ownedVia: { parent: "commits", fk: "commit_id" },
+  },
   { category: "location", table: "location_points" },
   { category: "location", table: "daily_distances" },
   { category: "location", table: "saved_places" },
@@ -84,12 +95,14 @@ const TABLE_DEFS: TableDef[] = [
  * identifiers, safe to inline); userId is a bound parameter — never
  * string-interpolate it.
  */
-function buildEstimateQuery(tableDef: TableDef, userId: string) {
-  const table = sql.raw(`"${tableDef.table}"`);
+export function buildEstimateQuery(tableDef: TableDef, userId: string) {
   const regclass = sql.raw(`to_regclass('"${tableDef.table}"')`);
+  const userRows = tableDef.ownedVia
+    ? sql`SELECT COUNT(*) FROM ${sql.raw(`"${tableDef.table}" t JOIN "${tableDef.ownedVia.parent}" p ON p."id" = t."${tableDef.ownedVia.fk}"`)} WHERE p."user_id" = ${userId}`
+    : sql`SELECT COUNT(*) FROM ${sql.raw(`"${tableDef.table}" t`)} WHERE t."user_id" = ${userId}`;
   return sql`
     SELECT
-      (SELECT COUNT(*) FROM ${table} WHERE "user_id" = ${userId})::bigint AS user_rows,
+      (${userRows})::bigint AS user_rows,
       GREATEST(COALESCE((SELECT reltuples FROM pg_class WHERE oid = ${regclass}), 0), 0)::bigint AS total_rows_est,
       COALESCE(pg_total_relation_size(${regclass}), 0)::bigint AS total_bytes
   `;
