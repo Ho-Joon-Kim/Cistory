@@ -154,6 +154,12 @@ variant is still rejected 400** (`INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER`;
 verified). So it rides the same unfiltered full-history re-read as `exercise`
 (`syncSessions`) — cheap at one row per night, and idempotent.
 
+> **Superseded (2026-11-09 re-probe):** only `*.interval.start_time` is rejected.
+> `sleep.interval.end_time` (RFC 3339) and `exercise.interval.civil_start_time`
+> (civil day string) both work, and the unfiltered read was capped at 10 pages, which
+> dropped every workout past the newest ~250. Sessions are now time-windowed with a
+> forward cursor + backward backfill (`SESSION_CONFIGS` in `src/modules/health/service.ts`).
+
 Its wrapper: `interval.{startTime,endTime}`, `type: "STAGES"`, `metadata.nap`, and
 `stages[]` of `{startTime, endTime, type}` where type ∈ AWAKE/LIGHT/DEEP/REM. Note
 this is a **different shape from the on-device Health Connect import** (epoch-millis
