@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HEADER_NAV_ITEMS, isNavItemActive } from "./header-nav";
+import { HEADER_NAV_ITEMS, isNavItemActive, navScrollLeftFor } from "./header-nav";
 
 describe("header navigation", () => {
   it("lists the seven destinations in the app-bar order", () => {
@@ -35,5 +35,30 @@ describe("header navigation", () => {
     expect(isNavItemActive("/travel/abc", "/travel")).toBe(true);
     expect(isNavItemActive("/travel", "/travel")).toBe(true);
     expect(isNavItemActive("/travelx", "/travel")).toBe(false);
+  });
+});
+
+describe("navScrollLeftFor", () => {
+  const strip = { viewportWidth: 390, scrollWidth: 520 };
+
+  it("leaves items that already fit at the start flush left", () => {
+    expect(navScrollLeftFor({ ...strip, itemLeft: 12, itemWidth: 72 })).toBe(0);
+  });
+
+  it("centres an item in the middle of the strip", () => {
+    expect(navScrollLeftFor({ ...strip, scrollWidth: 600, itemLeft: 300, itemWidth: 60 })).toBe(
+      135
+    );
+  });
+
+  it("clamps the last item to the end of the scroll range", () => {
+    // 검색 at 434px on a 390px strip (QA: off-screen with scrollLeft 0).
+    expect(navScrollLeftFor({ ...strip, itemLeft: 434, itemWidth: 56 })).toBe(130);
+  });
+
+  it("never scrolls a strip that fits", () => {
+    expect(
+      navScrollLeftFor({ itemLeft: 300, itemWidth: 60, viewportWidth: 600, scrollWidth: 520 })
+    ).toBe(0);
   });
 });

@@ -12,3 +12,23 @@ export const HEADER_NAV_ITEMS = [
 export function isNavItemActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
+
+/**
+ * scrollLeft that centres a nav item in the mobile pill strip, clamped to the
+ * scrollable range (the first items stay flush left, the last flush right).
+ */
+export function navScrollLeftFor({
+  itemLeft,
+  itemWidth,
+  viewportWidth,
+  scrollWidth,
+}: {
+  itemLeft: number;
+  itemWidth: number;
+  viewportWidth: number;
+  scrollWidth: number;
+}): number {
+  const max = Math.max(0, scrollWidth - viewportWidth);
+  const centred = itemLeft + itemWidth / 2 - viewportWidth / 2;
+  return Math.round(Math.min(max, Math.max(0, centred)));
+}

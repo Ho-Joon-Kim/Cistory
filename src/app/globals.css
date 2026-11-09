@@ -364,9 +364,26 @@
   }
 }
 
-.dark *:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
+/* One brand focus ring for keyboard focus, both themes. In the base layer so a
+ * component's own focus utilities (shadcn ring, `focus-ring`) still win; the old
+ * dark-only unlayered rule left light mode on the browser default (blue, 1px). */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+  /* Programmatic focus targets (skip-link landing, dialogs) never show a ring. */
+  [tabindex="-1"]:focus-visible {
+    outline: none;
+  }
+}
+
+/* Tailwind v4: `outline-none` pins --tw-outline-style to none, so a later
+ * `focus-visible:outline-2` draws a 2px outline of style none — i.e. nothing.
+ * Restore a solid style for exactly that combination (new code: use `focus-ring`). */
+.outline-none[class*="focus-visible:outline-"]:focus-visible {
+  --tw-outline-style: solid;
+  outline-style: solid;
 }
 
 /* Enter/exit animations for shadcn/ui overlays (tw-animate-css subset).
@@ -2273,6 +2290,30 @@
   }
 }
 
+/* The design-system keyboard focus ring (2px brand, 2px offset). Sets the full
+ * outline shorthand on :focus-visible, so it also works next to `outline-none`. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+}
+
+/* A ≥44×44 touch hit area around a smaller control (centred ::after). The
+ * control keeps its visual size; needs no positioned-ancestor setup. */
+@utility tap-target {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    translate: -50% -50%;
+  }
+}
+
 /* Interactive surface unit: white/raised tile with the ring recipe. */
 @utility surface {
   background: var(--surface);
@@ -2377,8 +2418,19 @@
     z-index: 60;
     transition: opacity 120ms ease-out;
   }
-  .ds-hcg > i:hover { --hcgc: var(--ink); }
-  .ds-hcg > i:hover::after { opacity: 1; }
+  .ds-hcg > i[data-active] { --hcgc: var(--ink); }
+  .ds-hcg > i[data-active]::after { opacity: 1; }
+  /* Keep the edge bars' tooltips on screen. */
+  .ds-hcg > i:nth-child(-n + 4)::after { left: 0; translate: 0 0; }
+  .ds-hcg > i:nth-last-child(-n + 4)::after { left: auto; right: 0; translate: 0 0; }
+  /* Interactive strip: a taller hit area (tap/scrub), keyboard focus ring. */
+  .ds-hcg[tabindex] { cursor: default; touch-action: pan-y; border-radius: 2px; }
+  .ds-hcg[tabindex]::before {
+    content: "";
+    position: absolute;
+    inset: -12px -4px -12px -4px;
+  }
+  .ds-hcg[tabindex]:focus-visible { outline-offset: 4px; }
   .ds-hcg.is-compact { height: 16px; padding-bottom: 3px; }
   .ds-hcg.is-compact > i { width: 2px; }
   .ds-hcg.is-compact > i[data-today]::before { bottom: -3px; }
@@ -2387,6 +2439,21 @@
     .ds-hcg:not(.is-full) { height: 16px; padding-bottom: 3px; }
     .ds-hcg:not(.is-full) > i { width: 2px; }
     .ds-hcg:not(.is-full) > i[data-today]::before { bottom: -3px; }
+  }
+
+  /* App-bar icon buttons: 36px visual, 44×44 hit area below the PC breakpoint
+   * (spaced 8px apart there so neighbouring hit areas never overlap). */
+  @media (width < 64rem) {
+    .ds-appbar-actions button { position: relative; }
+    .ds-appbar-actions button::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      translate: -50% -50%;
+    }
   }
 
   /* Category mark tile (squircle). --cc is the category color. */

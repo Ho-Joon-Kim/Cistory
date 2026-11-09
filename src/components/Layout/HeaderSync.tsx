@@ -16,7 +16,7 @@ function useNow(intervalMs = 30_000): Date | null {
   return now;
 }
 
-function SyncText() {
+function SyncText({ short = false }: { short?: boolean }) {
   const { status } = useSyncStatus();
   const now = useNow();
   if (!status || !now) return null;
@@ -24,7 +24,7 @@ function SyncText() {
   if (status.hasActiveSync) {
     const progress = status.activeJobs[0]?.progress ?? 0;
     return (
-      <span className="mr-1.5 text-[13px] text-ink-3" aria-live="polite">
+      <span className="mr-1.5 text-[13px] text-ink-3" aria-live={short ? undefined : "polite"}>
         동기화 중{progress > 0 ? <span className="num"> {progress}%</span> : null}
       </span>
     );
@@ -32,8 +32,13 @@ function SyncText() {
   if (!status.lastSyncTime) return null;
   const last = new Date(status.lastSyncTime);
   return (
-    <span className="mr-1.5 text-[13px] text-ink-3" title={formatDateTime(last, { now })}>
-      {formatRelative(last, now)} 동기화
+    <span
+      className="mr-1.5 inline-flex items-center gap-1.5 text-[13px] text-ink-3"
+      title={formatDateTime(last, { now })}
+    >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />
+      {formatRelative(last, now)}
+      {short ? null : " 동기화"}
     </span>
   );
 }
@@ -42,9 +47,15 @@ function SyncCluster({ onSyncStarted, compact }: { onSyncStarted?: () => void; c
   return (
     <>
       {!compact && (
-        <span className="hidden xl:inline-flex">
-          <SyncText />
-        </span>
+        <>
+          {/* Phones (≥380px, where the row has room): just "34분 전". */}
+          <span className="hidden min-[380px]:inline-flex lg:hidden">
+            <SyncText short />
+          </span>
+          <span className="hidden xl:inline-flex">
+            <SyncText />
+          </span>
+        </>
       )}
       <SyncButton size="icon" variant="ghost" onSyncStarted={onSyncStarted} />
     </>

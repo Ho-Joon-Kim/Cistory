@@ -19,6 +19,7 @@ export function ShareRow({
   color,
   evidence,
   selected,
+  emphasis = "pct",
   className,
   ...rest
 }: Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
@@ -36,6 +37,9 @@ export function ShareRow({
   color?: string;
   evidence?: "on" | "dim";
   selected?: boolean;
+  /** Which figure leads: "pct" (default: bold ink %, --ink2 value) or "value"
+   * (bold ink amount, light 12px % — the spending category list). */
+  emphasis?: "pct" | "value";
   className?: string;
 }) {
   const width = `${Math.max(0, Math.min(1, share)) * 100}%`;
@@ -63,8 +67,23 @@ export function ShareRow({
         {count ? <span className="num text-xs font-normal text-ink-3">{count}</span> : null}
       </span>
       <span className="relative flex shrink-0 items-center gap-3">
-        {value ? <span className="num text-ink-2">{value}</span> : null}
-        {pct ? <span className="num w-11 text-right font-semibold text-ink">{pct}</span> : null}
+        {value ? (
+          <span
+            className={cn("num", emphasis === "value" ? "font-semibold text-ink" : "text-ink-2")}
+          >
+            {value}
+          </span>
+        ) : null}
+        {pct ? (
+          <span
+            className={cn(
+              "num w-11 text-right",
+              emphasis === "value" ? "text-xs font-normal text-ink-3" : "font-semibold text-ink"
+            )}
+          >
+            {pct}
+          </span>
+        ) : null}
       </span>
     </div>
   );

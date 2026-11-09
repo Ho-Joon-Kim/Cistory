@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { factRows, renderTemplate } from "@/lib/facts/template";
 import type { Fact, FactEvidence, FactRow } from "@/lib/facts/types";
 import { cn } from "@/lib/utils";
-import { useEvidenceTrigger } from "./evidence";
+import { useEvidence, useEvidenceTrigger } from "./evidence";
 import { FactTrigger } from "./FactTrigger";
 
 /**
@@ -51,7 +51,13 @@ export function AiLine({
   className?: string;
   as?: "p" | "span" | "div";
 }) {
-  const handlers = useEvidenceTrigger(fact ? fact.evidence : evidence);
+  const ownEvidence = fact ? fact.evidence : evidence;
+  const handlers = useEvidenceTrigger(ownEvidence);
+  const { active } = useEvidence();
+  // Inside a scope the tint follows the scope's (single, page-wide) highlight, so
+  // it clears with the popover instead of lingering on focus-within after Esc.
+  const scoped = Object.keys(handlers).length > 0;
+  const lit = scoped && active !== null && active === ownEvidence;
   if (!fact && !children) return null;
 
   let content: ReactNode = children;
@@ -69,6 +75,7 @@ export function AiLine({
           numeric={rendered.numeric}
           align={align}
           side={side}
+          evidence={fact.evidence}
         >
           {segment.text}
         </FactTrigger>
@@ -83,8 +90,9 @@ export function AiLine({
     <Tag
       className={cn(
         "ai-voice m-0 text-pretty",
+        tint && "-mx-1 rounded-md px-1 transition-colors duration-150 ease-out",
         tint &&
-          "-mx-1 rounded-md px-1 transition-colors duration-150 ease-out hover:bg-brand-soft focus-within:bg-brand-soft",
+          (scoped ? lit && "bg-brand-soft" : "hover:bg-brand-soft focus-within:bg-brand-soft"),
         className
       )}
       data-fact-id={fact?.id}

@@ -59,3 +59,15 @@ export function commitGraphLabel(bars: CommitGraphBar[], now?: Date): string {
   if (today) parts.push(`오늘 ${formatCount(today.count)}건`);
   return parts.join(" · ");
 }
+
+/** The bar under a horizontal position on the strip (clamped to the ends). */
+export function barIndexAt(
+  x: number,
+  stripLeft: number,
+  stripWidth: number,
+  count: number
+): number {
+  if (count <= 0 || stripWidth <= 0) return 0;
+  const i = Math.floor(((x - stripLeft) / stripWidth) * count);
+  return Math.min(count - 1, Math.max(0, i));
+}
