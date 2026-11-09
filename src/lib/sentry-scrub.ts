@@ -2,8 +2,12 @@
  * Sentry scrubbing for health (Fitbit / Google Health) data — R13: raw health
  * payloads must never reach Sentry. Kept as a pure, dependency-free function so
  * it can be unit-tested without invoking Sentry.init (which the config file does
- * at import time). Wired into sentry.server.config.ts's beforeSend +
- * beforeSendTransaction.
+ * at import time). Wired into sentry.server.config.ts: `scrubHealthData` on
+ * beforeSend (error events), `scrubHealthSpan` on beforeSendSpan. Sentry v11
+ * streams spans instead of sending transaction events, so `beforeSendTransaction`
+ * no longer runs — every span (including the segment span that replaced the
+ * transaction) goes through `beforeSendSpan` as a `StreamedSpanJSON`
+ * (`name` + `attributes`), which is the shape `scrubHealthSpan` handles.
  */
 
 // Any URL/message touching these is a health request whose body must be dropped.
@@ -38,8 +42,8 @@ export interface ScrubbableEvent {
   extra?: Record<string, unknown>;
 }
 
-function isHealthUrl(value: string | undefined): boolean {
-  if (!value) return false;
+function isHealthUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
   return HEALTH_URL_MARKERS.some((marker) => value.includes(marker));
 }
 
@@ -74,11 +78,13 @@ function scrubRequest(request: NonNullable<ScrubbableEvent["request"]>): void {
 }
 
 /** Redact any extra/context key that looks like a health payload. */
+function isHealthPayloadKey(key: string): boolean {
+  return HEALTH_EXTRA_KEY_DENYLIST.some((deny) => key.toLowerCase().includes(deny));
+}
+
 function scrubExtra(extra: NonNullable<ScrubbableEvent["extra"]>): void {
   for (const key of Object.keys(extra)) {
-    if (HEALTH_EXTRA_KEY_DENYLIST.some((deny) => key.toLowerCase().includes(deny))) {
-      extra[key] = "[scrubbed:health]";
-    }
+    if (isHealthPayloadKey(key)) extra[key] = "[scrubbed:health]";
   }
 }
 
@@ -92,4 +98,94 @@ export function scrubHealthData<T extends ScrubbableEvent>(event: T): T {
   if (event.request) scrubRequest(event.request);
   if (event.extra) scrubExtra(event.extra);
   return event;
+}
+
+/**
+ * Structural subset of a v11 `StreamedSpanJSON` — only the fields we scrub.
+ * Attribute values are primitives, arrays (HTTP headers arrive as
+ * `http.request.header.<name>: string[]`) or `{ value, unit }` objects.
+ */
+export interface ScrubbableSpan {
+  name?: string;
+  attributes?: Record<string, unknown>;
+}
+
+/** Apply `fn` to every string inside a span attribute value. */
+export function mapAttributeStrings(value: unknown, fn: (value: string) => string): unknown {
+  if (typeof value === "string") return fn(value);
+  if (Array.isArray(value)) return value.map((item) => mapAttributeStrings(item, fn));
+  if (value && typeof value === "object" && "value" in value) {
+    return { ...value, value: mapAttributeStrings((value as { value: unknown }).value, fn) };
+  }
+  return value;
+}
+
+/** True if any string inside a span attribute value satisfies `predicate`. */
+export function someAttributeString(
+  value: unknown,
+  predicate: (value: string) => boolean
+): boolean {
+  if (typeof value === "string") return predicate(value);
+  if (Array.isArray(value)) return value.some((item) => someAttributeString(item, predicate));
+  if (value && typeof value === "object" && "value" in value) {
+    return someAttributeString((value as { value: unknown }).value, predicate);
+  }
+  return false;
+}
+
+// Span attributes that can carry a health request's querystring (the OAuth
+// `?code=&state=` grant), body, or credentials.
+const HEALTH_SPAN_DROP_KEYS = new Set([
+  "url.query",
+  "http.query",
+  "http.request.body.data",
+  "http.response.body.data",
+]);
+const HEALTH_SPAN_DROP_HEADER =
+  /^http\.(?:request|response)\.header\.(?:authorization|cookie|set-cookie)$/;
+
+function stripHealthQuery(value: string): string {
+  return isHealthUrl(value) ? value.replace(/\?[^\s]*/g, "") : value;
+}
+
+function scrubHealthAttributes(
+  original: Record<string, unknown>,
+  touchesHealth: boolean
+): Record<string, unknown> {
+  const attributes: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(original)) {
+    if (isHealthPayloadKey(key)) {
+      attributes[key] = "[scrubbed:health]";
+    } else if (!touchesHealth) {
+      attributes[key] = value;
+    } else if (!HEALTH_SPAN_DROP_KEYS.has(key) && !HEALTH_SPAN_DROP_HEADER.test(key)) {
+      attributes[key] = mapAttributeStrings(value, stripHealthQuery);
+    }
+  }
+  return attributes;
+}
+
+/**
+ * The span-level counterpart of `scrubHealthData` for Sentry v11 span streaming.
+ * Returns a new span (never mutates the input):
+ *  - attribute keys that look like health payloads become "[scrubbed:health]"
+ *    (the same denylist as `extra` — v11 maps scope data onto span attributes);
+ *  - on a span touching a health URL (its name or any attribute value), every
+ *    health URL loses its querystring and query/body/auth/cookie attributes
+ *    are dropped — the span equivalent of `scrubRequest`.
+ * Must never throw: Sentry sends the span UNMODIFIED if `beforeSendSpan` throws.
+ */
+export function scrubHealthSpan<T extends ScrubbableSpan>(span: T): T {
+  const original = span.attributes;
+  const touchesHealth =
+    isHealthUrl(span.name) ||
+    (original !== undefined &&
+      Object.values(original).some((value) => someAttributeString(value, isHealthUrl)));
+  const attributes = original && scrubHealthAttributes(original, touchesHealth);
+
+  return {
+    ...span,
+    ...(span.name !== undefined && touchesHealth && { name: stripHealthQuery(span.name) }),
+    ...(attributes && { attributes }),
+  };
 }
