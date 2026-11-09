@@ -375,7 +375,7 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - `backfillPendingAccounts()` walks each account back to `openedAt`, advancing the backfill watermarks so it's idempotent and resumable across cron runs (also exposed as `/api/portfolio/accounts/[id]/backfill`)
 - `returns.ts` computes TWR over `tot_evlu_amt` **alone** — KIS `tot_evlu_amt` already includes the cash deposit, so adding `deposit` on top double-counts every external deposit as fake gain. It infers cashflows from deposit deltas reconciled against a **T+2 business-day settlement** model and anchors every account's series to the `RETURNS_EPOCH` of `2026-05-12` (earlier snapshots include pre-settlement receivables that inflate the baseline). That constant is **not** in `returns.ts` — it lives in `src/app/api/portfolio/returns/route.ts` and is duplicated in `scripts/verify-returns.ts`, so changing the epoch means editing both
 
-**Logging**: `src/lib/logger.ts` wraps Better Stack (Logtail) with `info`, `warn`, `error`, `flush`. Falls back to console when `BETTER_STACK_SOURCE_TOKEN` is not set.
+**Logging**: `src/lib/logger.ts` wraps Better Stack (Logtail) with `info`, `warn`, `error`, `flush`. Falls back to console when `BETTER_STACK_SOURCE_TOKEN` is not set. `@logtail/node` 0.6 requires an `endpoint`; `logger.ts` passes `BETTER_STACK_INGESTING_HOST` or, when unset, `https://in.logs.betterstack.com` — the default copied from `@logtail/core@0.5.8`, so no new config is needed.
 
 ### API Routes
 
@@ -420,6 +420,9 @@ NEXT_PUBLIC_MAPBOX_TOKEN=pk...       # Map visualization (server code also accep
 KAKAO_REST_API_KEY=...               # Korean geocoding
 GOOGLE_MAPS_API_KEY=...              # Google Places geocoding
 BETTER_STACK_SOURCE_TOKEN=...        # Structured logging via Logtail
+BETTER_STACK_INGESTING_HOST=...      # Source's ingesting host (bare host or URL). Unset ⇒
+                                     # https://in.logs.betterstack.com, the default @logtail 0.5.x
+                                     # used implicitly (0.6 made `endpoint` required)
 NEXT_PUBLIC_SENTRY_DSN=...           # Sentry error tracking
 KIS_ENCRYPTION_KEY=...               # ≥32 chars. Master key for AES-256-GCM encryption of KIS app
                                      # key/secret AND Withings/Google Health tokens, and the HMAC

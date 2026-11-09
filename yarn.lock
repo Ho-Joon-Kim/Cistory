@@ -1408,44 +1408,42 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@logtail/core@npm:^0.5.8":
-  version: 0.5.8
-  resolution: "@logtail/core@npm:0.5.8"
+"@logtail/core@npm:^0.6.1":
+  version: 0.6.1
+  resolution: "@logtail/core@npm:0.6.1"
   dependencies:
-    "@logtail/tools": "npm:^0.5.8"
-    "@logtail/types": "npm:^0.5.8"
+    "@logtail/tools": "npm:^0.6.0"
+    "@logtail/types": "npm:^0.6.0"
     serialize-error: "npm:8.1.0"
-  checksum: 10c0/0b9ccf44ee50ba088ea0f169b4427436b1f82db2f9351e2bb6c0315f036d2f43594416915e001d2d353de682f4114ff7303c61da9c2d7ea03e11f76c7d72879c
+  checksum: 10c0/b547fb0faf3fb65a866631b9a6d0f59f4d0dba2daebf5b6ea6b121ca35a9788ce538effc643b2d0b36b517ec565470fc8c17fd657847ec940fff99ab3ecbd719
   languageName: node
   linkType: hard
 
-"@logtail/node@npm:^0.5.8":
-  version: 0.5.8
-  resolution: "@logtail/node@npm:0.5.8"
+"@logtail/node@npm:^0.6.1":
+  version: 0.6.1
+  resolution: "@logtail/node@npm:0.6.1"
   dependencies:
-    "@logtail/core": "npm:^0.5.8"
-    "@logtail/types": "npm:^0.5.8"
+    "@logtail/core": "npm:^0.6.1"
+    "@logtail/types": "npm:^0.6.0"
     "@msgpack/msgpack": "npm:^2.5.1"
-    "@types/stack-trace": "npm:^0.0.33"
-    minimatch: "npm:^9.0.5"
     stack-trace: "npm:0.0.10"
-  checksum: 10c0/b991bf2fd452b8f755282c2435c39be3f7ae02d249581479c3c24e37bc1054548b7740c796a036843901a4ff356844aa7c6e4a157788230114db2784f76f5929
+  checksum: 10c0/8b0c77e7e198cebc12a0f7d01d34c5e0e213caa52b8c5e93aac59fd2a51395bbf70fa52432b09f21000f5de9e410a9233e7b9a6b6e3808e95ad99898746901dc
   languageName: node
   linkType: hard
 
-"@logtail/tools@npm:^0.5.8":
-  version: 0.5.8
-  resolution: "@logtail/tools@npm:0.5.8"
+"@logtail/tools@npm:^0.6.0":
+  version: 0.6.0
+  resolution: "@logtail/tools@npm:0.6.0"
   dependencies:
-    "@logtail/types": "npm:^0.5.8"
-  checksum: 10c0/83714f75164ad6fbdf4112859fb297c56c7cdc045c2cebcc59efb552c57c19764c1c65143ce2bfc949c02b8b9464f6ee83941e2e5a4b2a1af0e25a0a875fefb7
+    "@logtail/types": "npm:^0.6.0"
+  checksum: 10c0/432057849a3f50e53bd56d9847420bac8c6ea2bf6340b6b51ca52c307bbac6c742d15e76a54cecc3da3a4ed6436b64eb6b915147d40e331abf0edd6c94108bfe
   languageName: node
   linkType: hard
 
-"@logtail/types@npm:^0.5.8":
-  version: 0.5.8
-  resolution: "@logtail/types@npm:0.5.8"
-  checksum: 10c0/c21299fd53d10a996cbe33ffee8df992cdee119d06da2d696047aed276e1146c1ddbdae54c98d35dfd1454f716b80f2bda99a2a15fcbde4559aa4f3286a28b6f
+"@logtail/types@npm:^0.6.0":
+  version: 0.6.0
+  resolution: "@logtail/types@npm:0.6.0"
+  checksum: 10c0/cbdc92daebf7e2dd37345fab81c4460f0e80eeeab12dcfa7eeac4849271f125ef2c730608eb6ded18c6b1bcecd58c8697b01bc52c5693995ae7f3387f130f46a
   languageName: node
   linkType: hard
 
@@ -3574,13 +3572,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/stack-trace@npm:^0.0.33":
-  version: 0.0.33
-  resolution: "@types/stack-trace@npm:0.0.33"
-  checksum: 10c0/cc8345f042f5de17f960652974d67aac71bf864b748f3efbd10a8c5315c0a7a8a13ab17931c239b9fe6b531a44378347509dc8a97a24dfa1247b93af3f943650
-  languageName: node
-  linkType: hard
-
 "@types/use-sync-external-store@npm:^0.0.6":
   version: 0.0.6
   resolution: "@types/use-sync-external-store@npm:0.0.6"
@@ -3909,13 +3900,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"balanced-match@npm:^1.0.0":
-  version: 1.0.2
-  resolution: "balanced-match@npm:1.0.2"
-  checksum: 10c0/9308baf0a7e4838a82bbfd11e01b1cb0f0cf2893bc1676c27c2a8c0e70cbae1c59120c3268517a8ae7fb6376b4639ef81ca22582611dbee4ed28df945134aaee
-  languageName: node
-  linkType: hard
-
 "balanced-match@npm:^4.0.2":
   version: 4.0.4
   resolution: "balanced-match@npm:4.0.4"
@@ -4042,15 +4026,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"brace-expansion@npm:^2.0.2":
-  version: 2.1.4
-  resolution: "brace-expansion@npm:2.1.4"
-  dependencies:
-    balanced-match: "npm:^1.0.0"
-  checksum: 10c0/6c0a0e2573eac1dc565b52b1e1bfbeba39bf1830d106ebbc61ff1eaefcf610e9111cd3baa091addd18e33292135c99e019d3184d966389d85dc958fdcdc1449f
-  languageName: node
-  linkType: hard
-
 "brace-expansion@npm:^5.0.8":
   version: 5.0.9
   resolution: "brace-expansion@npm:5.0.9"
@@ -4163,7 +4138,7 @@ __metadata:
   dependencies:
     "@anthropic-ai/sdk": "npm:0.124.0"
     "@biomejs/biome": "npm:^2.5.8"
-    "@logtail/node": "npm:^0.5.8"
+    "@logtail/node": "npm:^0.6.1"
     "@playwright/test": "npm:^1.63.0"
     "@radix-ui/react-avatar": "npm:^1.2.6"
     "@radix-ui/react-dialog": "npm:^1.1.23"
@@ -5482,15 +5457,6 @@ __metadata:
   dependencies:
     brace-expansion: "npm:^5.0.8"
   checksum: 10c0/4559a836243b98bd4d17ea9f7edae698717c76399eea7be374f3737f33164e4907f19e9726891ddeb122f750a5a7fa80d2ac43e851d6e5984dc4ff42ec127d3a
-  languageName: node
-  linkType: hard
-
-"minimatch@npm:^9.0.5":
-  version: 9.0.9
-  resolution: "minimatch@npm:9.0.9"
-  dependencies:
-    brace-expansion: "npm:^2.0.2"
-  checksum: 10c0/0b6a58530dbb00361745aa6c8cffaba4c90f551afe7c734830bd95fd88ebf469dd7355a027824ea1d09e37181cfeb0a797fb17df60c15ac174303ac110eb7e86
   languageName: node
   linkType: hard
 
