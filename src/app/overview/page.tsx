@@ -52,7 +52,7 @@ function OverviewResults({
       {shouldShowOverviewFailure(snapshot) ? (
         <ComputingState
           status="failed"
-          error="일부 또는 전체 영역 계산에 실패했습니다."
+          error="일부 영역을 계산하지 못했습니다. 다시 계산을 요청해 주세요."
           onRecompute={() => void recompute()}
         />
       ) : null}
@@ -66,7 +66,7 @@ function OverviewResults({
               </CardTitle>
               <AsOfBadge computedAt={narrative.generatedAt} />
             </CardHeader>
-            <CardContent className="whitespace-pre-wrap text-sm leading-7">
+            <CardContent className="max-w-2xl whitespace-pre-wrap text-pretty text-sm leading-relaxed">
               {narrative.content}
             </CardContent>
           </Card>
@@ -187,12 +187,10 @@ function OverviewContent() {
     <SyncStatusProvider>
       <div data-neon className="min-h-screen bg-background">
         <Header />
-        <main className="container mx-auto space-y-6 px-4 py-6">
+        <main id="main" className="container mx-auto space-y-6 px-4 py-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-mute">
-                통합 대시보드
-              </p>
+              <p className="text-sm font-semibold text-ink-mute">통합 대시보드</p>
               <h1 className="mt-1 text-2xl font-bold">내 흐름 한눈에 보기</h1>
             </div>
             {!isComparison ? (

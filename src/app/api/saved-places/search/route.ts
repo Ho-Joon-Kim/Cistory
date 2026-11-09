@@ -92,6 +92,9 @@ export async function GET(request: NextRequest) {
     logger.error("Address search error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "주소 검색에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "주소를 검색하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

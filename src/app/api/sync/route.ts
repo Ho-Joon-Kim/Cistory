@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
     if (!userResult[0]) {
       return NextResponse.json(
-        { error: "사용자를 찾을 수 없습니다. 다시 로그인해주세요" },
+        { error: "사용자 정보를 찾을 수 없습니다. 다시 로그인해 주세요." },
         { status: 404 }
       );
     }
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     const accessToken = await getGitHubToken(user.id);
     if (!accessToken) {
       return NextResponse.json(
-        { error: "GitHub 액세스 토큰이 없습니다. 다시 로그인해주세요" },
+        { error: "GitHub 로그인이 만료되었습니다. 다시 로그인해 주세요." },
         { status: 400 }
       );
     }
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        message: "동기화가 시작되었습니다",
+        message: "동기화가 시작되었습니다.",
         type: initialSyncCompleted ? "events" : "initial",
       },
       { status: 202 }
@@ -108,6 +108,9 @@ export async function POST(request: NextRequest) {
     logger.error("Sync trigger error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "동기화 실행에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "동기화를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

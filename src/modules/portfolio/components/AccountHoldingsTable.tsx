@@ -42,26 +42,27 @@ export function AccountHoldingsTable({ accounts, snapshots, positions }: Props) 
                 <button
                   type="button"
                   onClick={() => toggle(acc.id)}
+                  aria-expanded={!!open}
                   className="w-full px-4 py-3 flex items-center gap-3 hover:bg-muted/50 transition-colors text-left"
                 >
                   {open ? (
-                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    <ChevronDown aria-hidden="true" className="w-4 h-4 text-muted-foreground" />
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    <ChevronRight aria-hidden="true" className="w-4 h-4 text-muted-foreground" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
                       <span className="font-semibold">{acc.label}</span>
                       <span className="text-xs text-muted-foreground">
                         {ACCOUNT_TYPE_LABEL[acc.accountType] ?? acc.accountType} · {acc.cano}-
                         {acc.acntPrdtCd}
                       </span>
                       {acc.lastSyncError && (
-                        <span className="text-xs text-red-600 dark:text-red-400">동기화 실패</span>
+                        <span className="text-xs text-destructive">동기화 실패</span>
                       )}
                     </div>
                     {snap && (
-                      <div className="text-sm mt-0.5">
+                      <div className="text-sm mt-0.5 tabular-nums">
                         <span className="font-semibold">{formatKRW(snap.totalEvalAmount)}</span>
                         <span className={`ml-2 ${pnlColorClass(snap.totalPnl)}`}>
                           {formatKRW(snap.totalPnl, { sign: true })} (

@@ -96,6 +96,9 @@ export async function GET(request: NextRequest) {
     logger.error("Notification logs fetch error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "조회 실패" }, { status: 500 });
+    return NextResponse.json(
+      { error: "알림 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

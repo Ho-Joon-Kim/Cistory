@@ -9,15 +9,15 @@ import { formatRelativeTime } from "@/lib/utils";
 import { type BenchmarkItem, type BenchmarkRun, useDbBenchmark } from "../hooks";
 
 function getLatencyColor(ms: number): string {
-  if (ms < 5) return "text-emerald-500";
-  if (ms < 20) return "text-amber-500";
-  return "text-red-500";
+  if (ms < 5) return "text-success";
+  if (ms < 20) return "text-warning";
+  return "text-destructive";
 }
 
 function getBarColor(ms: number): string {
-  if (ms < 5) return "bg-emerald-500";
-  if (ms < 20) return "bg-amber-500";
-  return "bg-red-500";
+  if (ms < 5) return "bg-success";
+  if (ms < 20) return "bg-warning";
+  return "bg-destructive";
 }
 
 function StatsRow({
@@ -40,7 +40,7 @@ function StatsRow({
         <span className="text-muted-foreground w-24 shrink-0">{item.label}</span>
         <div className="flex-1 mx-3 h-5 bg-muted rounded overflow-hidden relative">
           <div
-            className={`h-full ${getBarColor(item.stats.mean)} rounded transition-all duration-300`}
+            className={`h-full ${getBarColor(item.stats.mean)} rounded transition-[width] duration-300 ease-out`}
             style={{ width: `${Math.max(barWidth, 2)}%` }}
           />
         </div>
@@ -52,7 +52,7 @@ function StatsRow({
         {diff !== null && (
           <span
             className={`tabular-nums text-xs w-16 text-right ${
-              diff < 0 ? "text-emerald-500" : diff > 0 ? "text-red-500" : "text-muted-foreground"
+              diff < 0 ? "text-success" : diff > 0 ? "text-destructive" : "text-muted-foreground"
             }`}
           >
             {diff > 0 ? "+" : ""}
@@ -132,7 +132,9 @@ function HistoryItem({
         }
       }}
     >
-      <span className="font-mono text-xs text-muted-foreground truncate flex-1">{run.dbHost}</span>
+      <span className="font-mono text-xs text-muted-foreground truncate flex-1" title={run.dbHost}>
+        {run.dbHost}
+      </span>
       <span className={`tabular-nums text-xs font-medium ${getLatencyColor(totalMean)}`}>
         avg {totalMean.toFixed(1)}ms
       </span>
@@ -141,13 +143,14 @@ function HistoryItem({
       </span>
       <button
         type="button"
-        className="p-0.5 text-muted-foreground/50 hover:text-destructive transition-colors"
+        aria-label={`${run.dbHost} 벤치마크 기록 삭제`}
+        className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
         onClick={(e) => {
           e.stopPropagation();
           onDelete();
         }}
       >
-        <Trash2 className="h-3 w-3" />
+        <Trash2 aria-hidden="true" className="h-3 w-3" />
       </button>
     </div>
   );
@@ -165,10 +168,10 @@ export function DbBenchmarkCard() {
   const handleRun = async () => {
     const result = await runBenchmark();
     if (result) {
-      toast.success("벤치마크 완료");
+      toast.success("벤치마크 측정이 완료되었습니다.");
       setCompareId(null);
     } else {
-      toast.error("벤치마크 실행에 실패했습니다");
+      toast.error("벤치마크를 실행하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -185,16 +188,19 @@ export function DbBenchmarkCard() {
         </div>
         <Button onClick={handleRun} disabled={isRunning} size="sm">
           {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          <span className="ml-1.5">{isRunning ? "측정 중..." : "벤치마크 실행"}</span>
+          <span className="ml-1.5">{isRunning ? "측정 중…" : "벤치마크 실행"}</span>
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {isRunning && (
-          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin mb-2" />
-            <p className="text-sm">6개 항목 x 11회 (warm-up 포함) 실행 중...</p>
+          <div
+            role="status"
+            className="flex flex-col items-center justify-center py-8 text-muted-foreground"
+          >
+            <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin mb-2" />
+            <p className="text-sm">6개 항목 × 11회 (워밍업 포함) 측정 중…</p>
           </div>
         )}
 
@@ -214,6 +220,8 @@ export function DbBenchmarkCard() {
             <button
               type="button"
               className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors w-full"
+              aria-expanded={showHistory}
+              aria-controls="db-benchmark-history"
               onClick={() => setShowHistory((v) => !v)}
             >
               {showHistory ? (
@@ -221,14 +229,19 @@ export function DbBenchmarkCard() {
               ) : (
                 <ChevronDown className="h-4 w-4" />
               )}
-              <span>히스토리 ({history.length}건)</span>
+              <span>기록 ({history.length}건)</span>
               {compareRun && (
-                <span className="ml-auto text-xs text-primary">비교 중: {compareRun.dbHost}</span>
+                <span
+                  className="ml-auto min-w-0 truncate text-xs text-primary"
+                  title={compareRun.dbHost}
+                >
+                  비교 중: {compareRun.dbHost}
+                </span>
               )}
             </button>
 
             {showHistory && (
-              <div className="mt-2 space-y-1">
+              <div id="db-benchmark-history" className="mt-2 space-y-1">
                 <p className="text-xs text-muted-foreground mb-2">
                   항목을 클릭하면 현재 결과와 비교합니다
                 </p>
@@ -246,13 +259,19 @@ export function DbBenchmarkCard() {
                   size="sm"
                   className="w-full mt-2 text-destructive hover:text-destructive"
                   onClick={() => {
+                    if (
+                      !window.confirm(
+                        `벤치마크 기록 ${history.length}건을 모두 삭제할까요? 삭제한 기록은 복구할 수 없습니다.`
+                      )
+                    )
+                      return;
                     clearHistory();
                     setCompareId(null);
-                    toast.success("히스토리가 삭제되었습니다");
+                    toast.success("벤치마크 기록이 삭제되었습니다.");
                   }}
                 >
                   <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                  전체 삭제
+                  기록 전체 삭제
                 </Button>
               </div>
             )}

@@ -66,7 +66,7 @@ export function TargetAllocationEditor({
 
   const fillFromCurrent = () => {
     if (currentPositions.length === 0) {
-      toast.error("보유 종목이 없습니다");
+      toast.error("이 계좌에 보유 종목이 없습니다. 종목 추가로 직접 입력해 주세요.");
       return;
     }
     setRows(
@@ -98,11 +98,12 @@ export function TargetAllocationEditor({
     if (!valid) return;
     const tickers = rows.map((r) => r.ticker.trim());
     if (tickers.some((t) => !t)) {
-      toast.error("티커를 모두 입력해주세요");
+      toast.error("비어 있는 티커가 있습니다. 모든 종목의 티커를 입력해 주세요.");
       return;
     }
-    if (new Set(tickers).size !== tickers.length) {
-      toast.error("중복된 티커가 있습니다");
+    const duplicate = tickers.find((t, i) => tickers.indexOf(t) !== i);
+    if (duplicate) {
+      toast.error(`티커 ${duplicate}이(가) 두 번 입력되었습니다. 한 줄을 지워 주세요.`);
       return;
     }
 
@@ -116,11 +117,11 @@ export function TargetAllocationEditor({
     try {
       const res = await saveTargetAllocations(account.id, targets);
       if (res.ok) {
-        toast.success("목표 비중 저장 완료");
+        toast.success("목표 비중이 저장되었습니다.");
         onSaved();
         onOpenChange(false);
       } else {
-        toast.error(res.error ?? "저장 실패");
+        toast.error(res.error ?? "목표 비중을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
       setSaving(false);
@@ -138,19 +139,20 @@ export function TargetAllocationEditor({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <Button type="button" variant="outline" size="sm" onClick={fillFromCurrent}>
               현재 비중으로 채우기
             </Button>
-            <div className="text-sm">
+            <div className="text-sm tabular-nums">
               합계{" "}
               <span
                 className={
                   Math.abs(totalPct - 100) < 0.5
-                    ? "text-green-600 dark:text-green-400 font-semibold"
-                    : "text-red-600 dark:text-red-400 font-semibold"
+                    ? "text-success font-semibold"
+                    : "text-destructive font-semibold"
                 }
               >
+                {Math.abs(totalPct - 100) < 0.5 ? "✓ " : "! "}
                 {totalPct.toFixed(2)}%
               </span>
             </div>
@@ -166,10 +168,10 @@ export function TargetAllocationEditor({
             <div className="divide-y">
               {rows.length === 0 ? (
                 <div className="px-3 py-6 text-sm text-muted-foreground text-center">
-                  아직 종목이 없습니다. "현재 비중으로 채우기" 또는 "+ 종목 추가"를 누르세요.
+                  아직 종목이 없습니다. "현재 비중으로 채우기" 또는 "종목 추가"를 누르세요.
                 </div>
               ) : (
-                rows.map((r) => (
+                rows.map((r, index) => (
                   <div
                     key={r.id}
                     className="grid grid-cols-[110px_1fr_90px_36px] gap-2 px-3 py-2 items-center"
@@ -178,12 +180,14 @@ export function TargetAllocationEditor({
                       value={r.ticker}
                       onChange={(e) => updateRow(r.id, { ticker: e.target.value.toUpperCase() })}
                       placeholder="예: 005930"
+                      aria-label={`${index + 1}번째 종목 티커`}
                       className="h-8"
                     />
                     <Input
                       value={r.name}
                       onChange={(e) => updateRow(r.id, { name: e.target.value })}
                       placeholder="종목명"
+                      aria-label={`${index + 1}번째 종목명`}
                       className="h-8"
                     />
                     <Input
@@ -193,7 +197,8 @@ export function TargetAllocationEditor({
                       max="100"
                       value={r.weightPct}
                       onChange={(e) => updateRow(r.id, { weightPct: e.target.value })}
-                      className="h-8 text-right"
+                      aria-label={`${index + 1}번째 종목 비중 (%)`}
+                      className="h-8 text-right tabular-nums"
                     />
                     <Button
                       type="button"
@@ -201,9 +206,9 @@ export function TargetAllocationEditor({
                       size="icon"
                       className="h-8 w-8"
                       onClick={() => removeRow(r.id)}
-                      aria-label="삭제"
+                      aria-label={`${index + 1}번째 종목 삭제`}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 aria-hidden="true" className="h-4 w-4" />
                     </Button>
                   </div>
                 ))
@@ -212,7 +217,7 @@ export function TargetAllocationEditor({
           </div>
 
           <Button type="button" variant="outline" size="sm" onClick={addRow}>
-            <Plus className="h-4 w-4 mr-1" />
+            <Plus aria-hidden="true" className="h-4 w-4 mr-1" />
             종목 추가
           </Button>
         </div>
@@ -222,7 +227,7 @@ export function TargetAllocationEditor({
             취소
           </Button>
           <Button onClick={handleSave} disabled={!valid || saving}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {saving && <Loader2 aria-hidden="true" className="h-4 w-4 mr-2 animate-spin" />}
             저장
           </Button>
         </DialogFooter>

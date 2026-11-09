@@ -58,7 +58,7 @@ function DriftDivergingBars({ rows, hasCash }: { rows: DriftBarRow[]; hasCash: b
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 text-xs text-muted-foreground px-1">
         <span>← 과매수 (현재가 목표보다 큼)</span>
         <span>부족 (매수 필요) →</span>
       </div>
@@ -69,13 +69,18 @@ function DriftDivergingBars({ rows, hasCash }: { rows: DriftBarRow[]; hasCash: b
           const beforeRight = r.beforePp >= 0;
           const afterRight = r.afterPp >= 0;
           return (
-            <div key={r.ticker} className="grid grid-cols-[160px_1fr_90px] gap-2 items-center">
+            <div
+              key={r.ticker}
+              className="grid grid-cols-[minmax(0,7rem)_1fr_4.5rem] sm:grid-cols-[160px_1fr_90px] gap-2 items-center"
+            >
               <div className="flex items-center gap-2 min-w-0">
                 <div
                   className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
                   style={{ backgroundColor: r.color }}
                 />
-                <div className="text-sm truncate">{r.name}</div>
+                <div className="text-sm truncate" title={r.name}>
+                  {r.name}
+                </div>
               </div>
               <div className="relative h-6">
                 <div className="absolute inset-y-0 left-1/2 w-px bg-border" />
@@ -107,7 +112,7 @@ function DriftDivergingBars({ rows, hasCash }: { rows: DriftBarRow[]; hasCash: b
                   />
                 )}
               </div>
-              <div className="text-right text-xs">
+              <div className="text-right text-xs tabular-nums">
                 {hasCash ? (
                   <div>
                     <div className={pnlColorClass(-r.beforePp)}>
@@ -220,10 +225,10 @@ export function RebalanceCard({ summary }: Props) {
           <CardTitle className="text-base font-medium text-muted-foreground">
             목표 비중 · 리밸런싱
           </CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {summary.accounts.length > 1 && (
               <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
-                <SelectTrigger size="sm" className="h-8 w-[200px]">
+                <SelectTrigger size="sm" className="h-8 w-[200px]" aria-label="계좌 선택">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -244,7 +249,7 @@ export function RebalanceCard({ summary }: Props) {
               onClick={() => setEditorOpen(true)}
               disabled={!account}
             >
-              <Settings2 className="h-4 w-4 mr-1" />
+              <Settings2 aria-hidden="true" className="h-4 w-4 mr-1" />
               목표 설정
             </Button>
           </div>
@@ -282,7 +287,7 @@ export function RebalanceCard({ summary }: Props) {
                     className="max-w-[260px]"
                   />
                 </div>
-                <div className="flex gap-6 text-sm">
+                <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm tabular-nums">
                   <div>
                     <div className="text-xs text-muted-foreground">평균 편차</div>
                     {hasCash ? (
@@ -291,9 +296,7 @@ export function RebalanceCard({ summary }: Props) {
                         <span className="text-muted-foreground mx-1">→</span>
                         <span
                           className={
-                            rebalance.avgDriftAfter < rebalance.avgDriftBefore
-                              ? "text-green-600 dark:text-green-400"
-                              : ""
+                            rebalance.avgDriftAfter < rebalance.avgDriftBefore ? "text-success" : ""
                           }
                         >
                           {(rebalance.avgDriftAfter * 100).toFixed(2)}%p
@@ -324,7 +327,7 @@ export function RebalanceCard({ summary }: Props) {
 
               {/* 통합 테이블 */}
               <div className="border rounded-md overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm tabular-nums">
                   <thead>
                     <tr className="border-b text-xs text-muted-foreground">
                       <th className="text-left px-3 py-2">종목</th>
@@ -352,7 +355,7 @@ export function RebalanceCard({ summary }: Props) {
                                 <div className="text-xs text-muted-foreground">
                                   {r.ticker}
                                   {r.status === "missing-price" && (
-                                    <span className="ml-1 text-amber-600">⚠ 신규</span>
+                                    <span className="ml-1 text-warning">⚠ 신규</span>
                                   )}
                                 </div>
                               </div>
@@ -397,7 +400,7 @@ export function RebalanceCard({ summary }: Props) {
               {hasCash && (
                 <div className="text-xs text-muted-foreground">
                   잔여 현금{" "}
-                  <span className="font-semibold text-foreground">
+                  <span className="font-semibold text-foreground tabular-nums">
                     {formatKRW(rebalance.remainingCash, { compact: true })}
                   </span>{" "}
                   · 정수 주식 매수의 한계로 일부 잔액이 남을 수 있습니다
@@ -405,7 +408,7 @@ export function RebalanceCard({ summary }: Props) {
               )}
 
               {rebalance.warnings.length > 0 && (
-                <div className="text-xs text-amber-600 dark:text-amber-400 space-y-1">
+                <div className="text-xs text-warning space-y-1">
                   {rebalance.warnings.map((w) => (
                     <div key={w}>• {w}</div>
                   ))}

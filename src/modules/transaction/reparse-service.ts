@@ -201,7 +201,7 @@ export async function reparseNotifications(
         text: "",
         receivedAt: log.receivedAt.toISOString(),
         action: "skip",
-        reason: "유효하지 않은 JSON",
+        reason: "알림 형식을 읽을 수 없음",
       });
       onProgress?.({ ...totals, processed: i + 1 });
       continue;
@@ -218,7 +218,7 @@ export async function reparseNotifications(
         text,
         receivedAt: log.receivedAt.toISOString(),
         action: "skip",
-        reason: "title 누락",
+        reason: "제목 없음",
       });
       onProgress?.({ ...totals, processed: i + 1 });
       continue;
@@ -233,7 +233,7 @@ export async function reparseNotifications(
         text,
         receivedAt: log.receivedAt.toISOString(),
         action: "skip",
-        reason: "파싱 실패 (패턴 불일치)",
+        reason: "분석 불가 (인식할 수 없는 알림 형식)",
       });
       onProgress?.({ ...totals, processed: i + 1 });
       continue;

@@ -17,12 +17,13 @@ export default function GlobalError({
   return (
     <html lang="ko">
       <body>
-        <div style={{ padding: "2rem", textAlign: "center" }}>
-          <h2>문제가 발생했습니다</h2>
+        <main id="main" style={{ padding: "2rem", textAlign: "center" }}>
+          <h1>문제가 발생했습니다</h1>
+          <p>앱을 불러오지 못했습니다. 다시 시도를 누르거나 잠시 후 다시 열어 주세요.</p>
           <button type="button" onClick={reset} style={{ marginTop: "1rem" }}>
             다시 시도
           </button>
-        </div>
+        </main>
       </body>
     </html>
   );

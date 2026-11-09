@@ -82,7 +82,7 @@ export function LocationBackfillCard() {
       if (!res.ok) throw new Error();
       setDryRun(await res.json());
     } catch {
-      toast.error("백필 분석에 실패했습니다");
+      toast.error("처리 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsLoading(false);
     }
@@ -92,7 +92,8 @@ export function LocationBackfillCard() {
     fetchDryRun();
   }, [fetchDryRun]);
 
-  const runBackfill = async (scope: "past" | "today" | "all") => {
+  const runBackfill = async (scope: "past" | "today" | "all", confirmMessage: string) => {
+    if (!window.confirm(confirmMessage)) return;
     setIsRunning(true);
     setProgress(null);
 
@@ -105,7 +106,7 @@ export function LocationBackfillCard() {
         signal: abort.signal,
       });
 
-      if (!res.ok || !res.body) throw new Error("백필 시작 실패");
+      if (!res.ok || !res.body) throw new Error("과거 데이터 처리를 시작하지 못했습니다.");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -127,11 +128,13 @@ export function LocationBackfillCard() {
 
             if (event.phase === "done") {
               toast.success(
-                `백필 완료: 이상치 ${event.totalAnomalies}건, 방문 ${event.totalVisits}건, 교통수단 ${event.totalSegments}건`
+                `위치 데이터 처리가 완료되었습니다. 이상치 ${event.totalAnomalies}건, 방문 ${event.totalVisits}건, 교통수단 ${event.totalSegments}건`
               );
               fetchDryRun();
             } else if (event.phase === "error") {
-              toast.error(`백필 실패: ${event.error}`);
+              toast.error(
+                `위치 데이터를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요. (${event.error})`
+              );
             }
           } catch {
             // ignore parse errors
@@ -140,7 +143,7 @@ export function LocationBackfillCard() {
       }
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
-        toast.error("백필 실행에 실패했습니다");
+        toast.error("위치 데이터를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
       setIsRunning(false);
@@ -151,11 +154,11 @@ export function LocationBackfillCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
             <div>
-              <CardTitle className="text-base">위치 데이터 백필</CardTitle>
+              <CardTitle className="text-base">과거 위치 데이터 처리</CardTitle>
               <CardDescription>
                 이상치 탐지 → 방문 감지 → 교통수단 분류 순서로 처리합니다
               </CardDescription>
@@ -163,16 +166,17 @@ export function LocationBackfillCard() {
           </div>
           {!isRunning && (
             <Button variant="ghost" size="sm" onClick={fetchDryRun} disabled={isLoading}>
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "새로고침"}
+              {isLoading && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+              새로고침
             </Button>
           )}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading && !dryRun && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            분석 중...
+          <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            처리 상태를 확인하는 중…
           </div>
         )}
 
@@ -188,9 +192,12 @@ export function LocationBackfillCard() {
                 {dryRun.warnings.map((w) => (
                   <div
                     key={w}
-                    className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                    className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground"
                   >
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                    <AlertTriangle
+                      aria-hidden="true"
+                      className="h-4 w-4 mt-0.5 shrink-0 text-warning"
+                    />
                     <span>{w}</span>
                   </div>
                 ))}
@@ -207,8 +214,8 @@ export function LocationBackfillCard() {
             {isRunning && progress && (
               <div className="space-y-2">
                 <Progress value={progress.progress} className="h-2" />
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1.5">
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                     {progress.phase !== "done" && progress.phase !== "error" && (
                       <>
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -219,7 +226,7 @@ export function LocationBackfillCard() {
                       </>
                     )}
                   </div>
-                  <span>{progress.progress}%</span>
+                  <span className="tabular-nums">{progress.progress}%</span>
                 </div>
               </div>
             )}
@@ -227,19 +234,38 @@ export function LocationBackfillCard() {
             {/* Actions */}
             {!isRunning && (
               <div className="space-y-2">
+                {(dryRun.past.needsBackfill || dryRun.today.pending) && (
+                  <p className="text-xs text-muted-foreground">
+                    처리하는 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지
+                    않습니다.
+                  </p>
+                )}
                 {dryRun.past.needsBackfill && (
-                  <Button onClick={() => runBackfill("past")} className="w-full">
-                    과거 데이터 백필 실행 ({dryRun.past.daysRemaining}일)
+                  <Button
+                    onClick={() =>
+                      runBackfill(
+                        "past",
+                        `과거 ${dryRun.past.daysRemaining}일의 위치 데이터를 처리할까요? 이 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다.`
+                      )
+                    }
+                    className="w-full"
+                  >
+                    과거 데이터 처리 ({dryRun.past.daysRemaining}일)
                   </Button>
                 )}
                 {!dryRun.past.needsBackfill && dryRun.today.pending && (
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => runBackfill("today")}
+                    onClick={() =>
+                      runBackfill(
+                        "today",
+                        "오늘 위치 데이터를 지금 처리할까요? 오늘의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다."
+                      )
+                    }
                     className="w-full"
                   >
-                    지금 처리하기
+                    오늘 데이터 지금 처리
                   </Button>
                 )}
               </div>
@@ -250,6 +276,8 @@ export function LocationBackfillCard() {
               <div className="border-t pt-3">
                 <button
                   type="button"
+                  aria-expanded={detailsOpen}
+                  aria-controls="location-backfill-details"
                   onClick={() => setDetailsOpen((v) => !v)}
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
@@ -259,7 +287,10 @@ export function LocationBackfillCard() {
                   세부 상태 보기
                 </button>
                 {detailsOpen && (
-                  <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
+                  <div
+                    id="location-backfill-details"
+                    className="mt-3 space-y-1.5 text-xs text-muted-foreground"
+                  >
                     <DetailRow
                       icon={<Shield className="h-3.5 w-3.5" />}
                       label="이상치 탐지"
@@ -275,7 +306,7 @@ export function LocationBackfillCard() {
                       label="교통수단 감지"
                       value={`${dryRun.past.daysProcessed}일 처리`}
                     />
-                    <div className="pt-1.5 mt-1.5 border-t text-[11px]">
+                    <div className="pt-1.5 mt-1.5 border-t text-xs tabular-nums">
                       {dryRun.dateRange.earliest} ~ {dryRun.dateRange.latest} ·{" "}
                       {dryRun.anomaly.totalPoints.toLocaleString()}개 포인트
                     </div>
@@ -294,11 +325,9 @@ function SuccessView({ dryRun }: { dryRun: DryRunResult }) {
   return (
     <div className="space-y-3">
       <div className="flex items-start gap-2 text-sm">
-        <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-green-600 dark:text-green-400" />
+        <CheckCircle2 aria-hidden="true" className="h-4 w-4 mt-0.5 shrink-0 text-success" />
         <div>
-          <div className="font-medium text-green-700 dark:text-green-400">
-            모든 과거 데이터가 처리되었습니다
-          </div>
+          <div className="font-medium text-success">모든 과거 데이터가 처리되었습니다</div>
           <div className="text-xs text-muted-foreground mt-0.5">
             {dryRun.dateRange.earliest} ~{" "}
             {previousDateString(dryRun.dateRange.today, dryRun.dateRange.latest)} ·{" "}
@@ -334,8 +363,8 @@ function BacklogView({ dryRun }: { dryRun: DryRunResult }) {
         {dryRun.anomaly.totalPoints.toLocaleString()}개 포인트
       </div>
 
-      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+      <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground">
+        <AlertTriangle aria-hidden="true" className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
         <span>과거 {dryRun.past.daysRemaining}일이 미처리 상태입니다</span>
       </div>
 
@@ -359,7 +388,7 @@ function PhaseRow({ label, icon, pct }: { label: string; icon: React.ReactNode; 
       <div className="text-muted-foreground">{icon}</div>
       <span className="font-medium w-24">{label}</span>
       <Progress value={pct} className="h-1.5 flex-1" />
-      <span className="text-xs text-muted-foreground w-10 text-right">{pct}%</span>
+      <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">{pct}%</span>
     </div>
   );
 }

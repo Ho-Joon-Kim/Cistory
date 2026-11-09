@@ -276,7 +276,7 @@ export async function processRecoveryQueue(
       await recover(claim);
     } catch {
       error =
-        "해당 날짜를 다시 가져오지 못했습니다. 제공자의 보관 기간과 연동 상태를 확인한 뒤 다시 요청해 주세요.";
+        "해당 날짜를 다시 가져오지 못했습니다. 제공자의 보관 기간과 연결 상태를 확인한 뒤 다시 요청해 주세요.";
       logger.warn("[Recovery] source/day failed", { jobId: claim.id, source: claim.source });
     } finally {
       clearInterval(timer);

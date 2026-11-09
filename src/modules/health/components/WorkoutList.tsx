@@ -62,10 +62,12 @@ export function WorkoutList({ workouts }: { workouts: HealthWorkout[] }) {
               return (
                 <div key={w.start} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-500/10 text-orange-500">
-                    <Icon size={18} />
+                    <Icon aria-hidden="true" size={18} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{w.name ?? "운동"}</div>
+                    <div className="truncate text-sm font-medium" title={w.name ?? "운동"}>
+                      {w.name ?? "운동"}
+                    </div>
                     <div className="text-xs text-muted-foreground">{whenLabel(w.start)}</div>
                   </div>
                   <div className="shrink-0 text-right">

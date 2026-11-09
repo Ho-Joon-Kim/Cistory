@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "리포트 | Cistory",
+  title: "리포트",
 };
 
 export default function ReportLayout({ children }: { children: React.ReactNode }) {

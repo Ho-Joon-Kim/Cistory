@@ -28,8 +28,8 @@ export const ACCOUNT_TYPE_LABEL: Record<string, string> = {
 };
 
 export function pnlColorClass(value: number): string {
-  if (value > 0) return "text-red-600 dark:text-red-400";
-  if (value < 0) return "text-blue-600 dark:text-blue-400";
+  if (value > 0) return "text-gain";
+  if (value < 0) return "text-loss";
   return "text-muted-foreground";
 }
 

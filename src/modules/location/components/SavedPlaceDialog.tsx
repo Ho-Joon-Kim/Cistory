@@ -337,10 +337,15 @@ export function SavedPlaceDialog({
             <div className="flex-1 p-6 pt-4 space-y-3 overflow-y-auto max-h-[60vh] sm:max-h-none">
               {/* Address Search */}
               <div className="space-y-1.5">
-                <Label>주소 검색</Label>
+                <Label htmlFor="place-search">주소 검색</Label>
                 <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Search
+                    className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
                   <Input
+                    id="place-search"
+                    type="search"
                     value={state.searchQuery}
                     onChange={(e) => handleSearchInput(e.target.value)}
                     onFocus={() =>
@@ -351,7 +356,10 @@ export function SavedPlaceDialog({
                     className="pl-9"
                   />
                   {state.isSearching && (
-                    <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                    <Loader2
+                      className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground"
+                      aria-label="검색 중"
+                    />
                   )}
                 </div>
                 {state.showResults && state.searchResults.length > 0 && (
@@ -363,8 +371,12 @@ export function SavedPlaceDialog({
                         className="w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors border-b last:border-b-0"
                         onClick={() => dispatch({ type: "SELECT_RESULT", result: r })}
                       >
-                        <p className="text-sm font-medium truncate">{r.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{r.address}</p>
+                        <p className="text-sm font-medium truncate" title={r.name}>
+                          {r.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate" title={r.address}>
+                          {r.address}
+                        </p>
                       </button>
                     ))}
                   </div>
@@ -421,8 +433,17 @@ export function SavedPlaceDialog({
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label>인식 반경: {state.radiusM}m</Label>
+                <Label id="place-radius-label">
+                  인식 반경: <span className="tabular-nums">{state.radiusM}m</span>
+                </Label>
                 <Slider
+                  // Radix puts role="slider" on the thumb, which the shared Slider
+                  // doesn't expose; point it at the visible label.
+                  ref={(el) =>
+                    el
+                      ?.querySelector('[role="slider"]')
+                      ?.setAttribute("aria-labelledby", "place-radius-label")
+                  }
                   value={[state.radiusM]}
                   onValueChange={(v) => dispatch({ type: "SET_RADIUS", value: v[0] })}
                   min={50}
@@ -430,7 +451,7 @@ export function SavedPlaceDialog({
                   step={10}
                 />
                 <p className="text-xs text-muted-foreground">
-                  이 반경 이내의 체류 지점은 자동으로 이 장소로 인식됩니다
+                  이 반경 안에 머문 기록은 자동으로 이 장소로 인식됩니다
                 </p>
               </div>
               <div className="space-y-1.5">
@@ -452,7 +473,7 @@ export function SavedPlaceDialog({
                   onChange={(e) =>
                     dispatch({ type: "SET_FIELD", field: "address", value: e.target.value })
                   }
-                  placeholder="예: 서울특별시 강남구..."
+                  placeholder="예: 서울특별시 강남구…"
                 />
               </div>
             </div>
@@ -470,7 +491,7 @@ export function SavedPlaceDialog({
                   />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4">
-                    <MapPin className="h-8 w-8 text-muted-foreground/50" />
+                    <MapPin className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
                     <p className="text-sm text-muted-foreground text-center">
                       {!hasMapbox
                         ? "Mapbox 토큰이 설정되지 않았습니다"
@@ -480,9 +501,7 @@ export function SavedPlaceDialog({
                 )}
                 {hasMapbox && hasValidCoords && (
                   <div className="absolute bottom-2 left-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 pointer-events-none">
-                    <p className="text-[10px] text-muted-foreground">
-                      클릭 또는 핀 드래그로 위치 조정
-                    </p>
+                    <p className="text-xs text-muted-foreground">클릭 또는 핀 드래그로 위치 조정</p>
                   </div>
                 )}
               </div>
@@ -498,7 +517,7 @@ export function SavedPlaceDialog({
                 type="submit"
                 disabled={isSaving || !state.name.trim() || !state.lat || !state.lon}
               >
-                {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />}
                 {isEditing ? "수정" : "저장"}
               </Button>
             </DialogFooter>

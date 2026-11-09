@@ -7,8 +7,8 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { getSubwayUsage } from "@/modules/location/services/subway-match/usage";
 import { logger } from "@/lib/logger";
+import { getSubwayUsage } from "@/modules/location/services/subway-match/usage";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -52,6 +52,9 @@ export async function GET(request: NextRequest) {
     logger.error("subway-usage error", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ error: "조회 실패" }, { status: 500 });
+    return NextResponse.json(
+      { error: "지하철 이용 기록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

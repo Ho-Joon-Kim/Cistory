@@ -105,7 +105,7 @@ describe("POST /api/settings/transportation-reclassify", () => {
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: "2026-07-02 재분류에 실패했습니다",
+      error: "2026-07-02의 교통수단을 다시 판정하지 못했습니다. 잠시 후 다시 시도해 주세요.",
       failedDate: "2026-07-02",
       daysProcessed: 1,
       trackCount: 2,

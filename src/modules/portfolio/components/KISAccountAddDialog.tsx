@@ -75,11 +75,14 @@ export function KISAccountAddDialog({ open, onOpenChange, onAdded }: Props) {
     setSubmitting(false);
 
     if (!result.ok) {
-      setError(result.error ?? "추가 실패");
+      setError(
+        result.error ??
+          "계좌를 추가하지 못했습니다. 입력한 키와 계좌번호를 확인한 뒤 다시 시도해 주세요."
+      );
       return;
     }
 
-    toast.success("계좌가 추가되었습니다");
+    toast.success("계좌가 추가되었습니다.");
     onAdded();
     onOpenChange(false);
     reset();
@@ -140,9 +143,9 @@ export function KISAccountAddDialog({ open, onOpenChange, onAdded }: Props) {
           </div>
 
           <div className="space-y-1.5">
-            <Label>계좌 종류</Label>
+            <Label htmlFor="accountType">계좌 종류</Label>
             <Select value={accountType} onValueChange={setAccountType}>
-              <SelectTrigger>
+              <SelectTrigger id="accountType">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -177,7 +180,11 @@ export function KISAccountAddDialog({ open, onOpenChange, onAdded }: Props) {
             />
           </div>
 
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
         </div>
 
         <DialogFooter>

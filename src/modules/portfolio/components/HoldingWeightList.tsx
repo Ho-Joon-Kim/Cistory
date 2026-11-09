@@ -52,14 +52,16 @@ export function HoldingWeightList({ positions, topN = 10 }: Props) {
             {aggregated.map((p) => (
               <div key={p.ticker} className="space-y-1">
                 <div className="flex items-baseline justify-between gap-2 text-sm">
-                  <div className="truncate font-medium">{p.name}</div>
+                  <div className="truncate font-medium" title={p.name}>
+                    {p.name}
+                  </div>
                   <div className="flex-shrink-0 font-semibold tabular-nums">
                     {(p.weight * 100).toFixed(1)}%
                   </div>
                 </div>
                 <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
                   <div>{p.ticker}</div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 tabular-nums">
                     <span>{formatKRW(p.evalAmount, { compact: true })}</span>
                     <span className={pnlColorClass(p.pnl)}>{formatPercent(p.pnlRate)}</span>
                   </div>

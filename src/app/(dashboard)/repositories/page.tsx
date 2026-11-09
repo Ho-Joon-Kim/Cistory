@@ -15,8 +15,9 @@ export default function RepositoriesPage() {
 
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div role="status" className="min-h-screen flex items-center justify-center">
+        <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="sr-only">로딩 중…</span>
       </div>
     );
   }
@@ -32,24 +33,25 @@ export default function RepositoriesPage() {
       <div className="min-h-screen bg-background">
         <Header />
 
-        <main className="container mx-auto px-4 py-6">
+        <main id="main" className="container mx-auto px-4 py-6">
           <div className="mb-6">
             <h1 className="text-2xl font-bold">레포지토리</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-sm text-muted-foreground mt-1 tabular-nums">
               {repositories.length}개 레포지토리 · {totalCommits}개 커밋
             </p>
           </div>
 
           {isLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div role="status" className="flex justify-center py-12">
+              <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+              <span className="sr-only">레포지토리를 불러오는 중…</span>
             </div>
           ) : repositories.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
                 <GitFork className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>동기화된 레포지토리가 없습니다.</p>
-                <p className="text-sm mt-2">타임라인에서 동기화를 시작해주세요.</p>
+                <p className="text-sm mt-2">상단의 동기화 버튼을 눌러 GitHub 커밋을 가져오세요.</p>
               </CardContent>
             </Card>
           ) : (
@@ -59,7 +61,7 @@ export default function RepositoriesPage() {
                   key={repo.fullName}
                   href={`/dashboard?repos=${encodeURIComponent(repo.fullName)}`}
                 >
-                  <Card className="transition-all hover:shadow-md hover:border-primary/50 cursor-pointer">
+                  <Card className="transition-[border-color,box-shadow] duration-150 ease-out hover:shadow-md hover:border-primary/50 cursor-pointer">
                     <CardContent className="px-4 py-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 min-w-0">
@@ -71,15 +73,17 @@ export default function RepositoriesPage() {
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-medium truncate">{repo.fullName}</p>
+                            <p className="font-medium truncate" title={repo.fullName}>
+                              {repo.fullName}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               마지막 커밋 {formatRelativeTime(repo.lastCommitAt)}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-1 text-sm text-muted-foreground flex-shrink-0">
-                          <GitCommit className="h-4 w-4" />
-                          <span>{repo.commitCount}</span>
+                          <GitCommit aria-hidden="true" className="h-4 w-4" />
+                          <span className="tabular-nums">{repo.commitCount}개 커밋</span>
                         </div>
                       </div>
                     </CardContent>

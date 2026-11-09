@@ -38,10 +38,10 @@ function PortfolioContent() {
     try {
       const r = await syncAllAccounts();
       if (r.ok) {
-        toast.success("동기화 완료");
+        toast.success("포트폴리오가 동기화되었습니다.");
         refresh();
       } else {
-        toast.error("동기화 실패");
+        toast.error("포트폴리오를 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
       setSyncing(false);
@@ -50,8 +50,9 @@ function PortfolioContent() {
 
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div role="status" className="min-h-screen flex items-center justify-center">
+        <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="sr-only">로딩 중…</span>
       </div>
     );
   }
@@ -77,8 +78,8 @@ function PortfolioContent() {
       <div className="min-h-screen flex flex-col bg-background">
         <Header showSync={false} />
 
-        <main className="flex-1 container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between mb-6">
+        <main id="main" className="flex-1 container mx-auto px-4 py-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold">포트폴리오</h1>
               <p className="text-sm text-muted-foreground mt-1">
@@ -87,17 +88,18 @@ function PortfolioContent() {
             </div>
             <Button onClick={handleSync} disabled={syncing} size="sm" variant="outline">
               {syncing ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 aria-hidden="true" className="w-4 h-4 mr-2 animate-spin" />
               ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
+                <RefreshCw aria-hidden="true" className="w-4 h-4 mr-2" />
               )}
               지금 동기화
             </Button>
           </div>
 
           {isLoading && !summary ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div role="status" className="flex items-center justify-center py-20">
+              <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+              <span className="sr-only">로딩 중…</span>
             </div>
           ) : !summary || summary.accounts.length === 0 ? (
             <div className="border-2 border-dashed rounded-lg p-12 text-center">
@@ -160,8 +162,9 @@ export default function PortfolioPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div role="status" className="min-h-screen flex items-center justify-center">
+          <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+          <span className="sr-only">로딩 중…</span>
         </div>
       }
     >

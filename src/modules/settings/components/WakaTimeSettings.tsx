@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { formatRelativeTime } from "@/lib/utils";
 import { useWakaTimeKey } from "../hooks";
 
@@ -40,34 +41,48 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
 
   const handleConnect = async () => {
     if (!apiKeyInput.trim()) {
-      toast.error("API 키를 입력해주세요");
+      toast.error("WakaTime API 키를 입력해 주세요.");
       return;
     }
 
     try {
       await connect(apiKeyInput.trim());
-      toast.success("WakaTime이 연결되었습니다");
+      toast.success("WakaTime이 연결되었습니다.");
       setApiKeyInput("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "WakaTime 연결에 실패했습니다");
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : "WakaTime을 연결하지 못했습니다. API 키를 확인한 뒤 다시 시도해 주세요."
+      );
     }
   };
 
   const handleRevoke = async () => {
+    if (
+      !window.confirm(
+        "WakaTime 연결을 해제할까요? 저장된 API 키가 삭제되어 코딩 기록 자동 동기화가 멈춥니다."
+      )
+    )
+      return;
     const success = await revoke();
     if (success) {
-      toast.success("WakaTime 연결이 해제되었습니다");
+      toast.success("WakaTime 연결이 해제되었습니다.");
     } else {
-      toast.error("WakaTime 연결 해제에 실패했습니다");
+      toast.error("WakaTime 연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
   const handleSync = async (mode: "initial" | "regular") => {
     try {
       await triggerSync(mode);
-      toast.success("WakaTime 동기화가 완료되었습니다");
+      toast.success("WakaTime이 동기화되었습니다.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "동기화에 실패했습니다");
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : "WakaTime을 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      );
     }
   };
 
@@ -79,16 +94,20 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
           Coding (WakaTime)
         </CardTitle>
         <CardDescription>
-          WakaTime과 연동하여 코딩 세션 데이터를 타임라인에 표시합니다
+          WakaTime과 연결하여 코딩 세션 데이터를 타임라인에 표시합니다
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {!hasWakaTimeKey ? (
-          <div className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="wakatime-api-key">WakaTime API 키</Label>
             <div className="flex gap-2">
               <Input
+                id="wakatime-api-key"
                 type="password"
-                placeholder="WakaTime API Key"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="waka_…"
                 value={apiKeyInput}
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -109,18 +128,24 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
         ) : (
           <div className="space-y-4">
             {/* Connection info */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <code className="p-2 rounded bg-muted text-sm font-mono text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <code className="min-w-0 break-all p-2 rounded bg-muted text-xs sm:text-sm font-mono text-muted-foreground">
                   waka_••••••••••••••••
                 </code>
                 {wakatimeUser && (
-                  <span className="text-sm text-muted-foreground">
+                  <span className="min-w-0 break-all text-sm text-muted-foreground">
                     ({wakatimeUser.displayName})
                   </span>
                 )}
               </div>
-              <Button variant="outline" size="sm" onClick={handleRevoke} disabled={isRevoking}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRevoke}
+                disabled={isRevoking}
+                className="text-destructive hover:text-destructive"
+              >
                 {isRevoking ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
@@ -138,7 +163,7 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                       <BarChart3 className="h-3.5 w-3.5" />총 세션 수
                     </div>
-                    <p className="text-lg font-semibold">
+                    <p className="text-lg font-semibold tabular-nums">
                       {syncStats.totalSessions.toLocaleString()}
                     </p>
                   </div>
@@ -147,14 +172,16 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
                       <Calendar className="h-3.5 w-3.5" />
                       기록 일수
                     </div>
-                    <p className="text-lg font-semibold">{syncStats.totalDays.toLocaleString()}</p>
+                    <p className="text-lg font-semibold tabular-nums">
+                      {syncStats.totalDays.toLocaleString()}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/50">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                       <Clock className="h-3.5 w-3.5" />
                       마지막 동기화
                     </div>
-                    <p className="text-sm font-medium">
+                    <p className="text-sm font-medium tabular-nums">
                       {syncStats.lastSyncedAt ? formatRelativeTime(syncStats.lastSyncedAt) : "없음"}
                     </p>
                   </div>
@@ -163,14 +190,14 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
                       <RefreshCw className="h-3.5 w-3.5" />
                       미동기화 일수
                     </div>
-                    <p className="text-lg font-semibold">
+                    <p className="text-lg font-semibold tabular-nums">
                       {syncStats.unsyncedDays.toLocaleString()}
                     </p>
                   </div>
                 </div>
 
                 {/* Sync buttons */}
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {syncStats.unsyncedDays > 0 && (
                     <Button
                       variant="outline"
@@ -209,7 +236,7 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
         <div className="p-3 rounded-lg bg-muted/50 space-y-2">
           <p className="text-sm font-medium">WakaTime 설정 가이드</p>
           <p className="text-sm text-muted-foreground">
-            WakaTime 계정의 Settings &gt; API Key에서 키를 복사하세요.
+            WakaTime 계정의 Settings &gt; API Key에서 키를 복사해 위에 붙여 넣으세요.
           </p>
           <Button variant="outline" size="sm" asChild>
             <a
@@ -218,7 +245,7 @@ export function WakaTimeSettings({ hasKey }: WakaTimeSettingsProps) {
               rel="noopener noreferrer"
             >
               <ExternalLink className="h-4 w-4 mr-2" />
-              WakaTime API Key 페이지
+              WakaTime API 키 페이지 열기
             </a>
           </Button>
         </div>

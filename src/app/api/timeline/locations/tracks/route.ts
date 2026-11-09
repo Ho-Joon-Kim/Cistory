@@ -9,10 +9,10 @@ import { and, asc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, tracks, transportationSegments } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 import { resolveLineColor } from "@/lib/subway-color";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { detectAndPersistTracks } from "@/modules/location/services/track-persister";
-import { logger } from "@/lib/logger";
 
 interface SubwayLegRow {
   segment_id: string;
@@ -193,7 +193,10 @@ export async function GET(request: NextRequest) {
     logger.error("Tracks GET error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "트랙 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "이동 경로를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -217,6 +220,9 @@ export async function POST(request: NextRequest) {
     logger.error("Tracks POST error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "트랙 생성에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "이동 경로를 만들지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

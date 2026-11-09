@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     if (!rate.allowed) {
       logIngestionFailure("map-subway", "rate_limited", request);
       return NextResponse.json(
-        { error: "요청이 너무 많습니다" },
+        { error: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." },
         { status: 429, headers: { "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)) } }
       );
     }
@@ -62,6 +62,9 @@ export async function GET(request: NextRequest) {
     logger.error("Failed to fetch subway overlay", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ error: "서버 오류가 발생했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

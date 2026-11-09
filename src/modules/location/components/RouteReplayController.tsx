@@ -1,7 +1,7 @@
 "use client";
 
 import { Gauge, LocateFixed, Pause, Play, Square } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Slider } from "@/components/ui/slider";
 
 interface RouteReplayControllerProps {
@@ -43,6 +43,13 @@ export function RouteReplayController({
   isFollowing,
   onRecenter,
 }: RouteReplayControllerProps) {
+  // Radix renders the focusable role="slider" on the thumb, which the shared
+  // Slider doesn't expose, so name it here once it mounts.
+  const sliderRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    sliderRef.current?.querySelector('[role="slider"]')?.setAttribute("aria-label", "재생 위치");
+  }, []);
+
   const handlePlayPause = useCallback(() => {
     if (state === "playing") {
       onPause();
@@ -72,9 +79,13 @@ export function RouteReplayController({
           type="button"
           onClick={handlePlayPause}
           className="flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent transition-colors"
-          aria-label={state === "playing" ? "Pause" : "Play"}
+          aria-label={state === "playing" ? "일시정지" : "재생"}
         >
-          {state === "playing" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          {state === "playing" ? (
+            <Pause className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <Play className="h-4 w-4" aria-hidden="true" />
+          )}
         </button>
 
         {/* Stop */}
@@ -82,9 +93,9 @@ export function RouteReplayController({
           type="button"
           onClick={onStop}
           className="flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent transition-colors"
-          aria-label="Stop"
+          aria-label="재생 중지"
         >
-          <Square className="h-3.5 w-3.5" />
+          <Square className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
 
         {/* Speed badge */}
@@ -92,9 +103,9 @@ export function RouteReplayController({
           type="button"
           onClick={handleSpeedCycle}
           className="flex items-center gap-1 h-7 px-2 rounded-md text-xs font-medium bg-muted hover:bg-accent transition-colors tabular-nums"
-          aria-label={`Speed: ${speed}x`}
+          aria-label={`재생 속도 ${speed}배`}
         >
-          <Gauge className="h-3 w-3" />
+          <Gauge className="h-3 w-3" aria-hidden="true" />
           {speed}x
         </button>
 
@@ -107,12 +118,14 @@ export function RouteReplayController({
           aria-label={isFollowing ? "경로 따라가기 사용 중" : "경로 다시 따라가기"}
           title={isFollowing ? "경로 따라가기 사용 중" : "경로 다시 따라가기"}
         >
-          <LocateFixed className="h-3.5 w-3.5" />
+          <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
 
         {/* Progress slider */}
         <div className="flex-1 min-w-0 px-1">
           <Slider
+            ref={sliderRef}
+            aria-label="재생 위치"
             value={[progress * 100]}
             min={0}
             max={100}

@@ -26,11 +26,17 @@ export function SavedPlacesSettings() {
   };
 
   const handleDelete = async (place: SavedPlaceData) => {
+    if (
+      !window.confirm(
+        `"${place.name}" 장소를 삭제할까요? 이 장소로 인식하던 방문 이름과 여행 감지 제외 설정이 사라집니다.`
+      )
+    )
+      return;
     const success = await deletePlace(place.id);
     if (success) {
-      toast.success(`"${place.name}" 장소가 삭제되었습니다`);
+      toast.success(`"${place.name}" 장소가 삭제되었습니다.`);
     } else {
-      toast.error("장소 삭제에 실패했습니다");
+      toast.error("장소를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -41,10 +47,10 @@ export function SavedPlacesSettings() {
     });
     if (success) {
       toast.success(
-        checked ? "여행 감지 제외 장소로 설정했습니다" : "여행 감지 제외를 해제했습니다"
+        checked ? "여행 감지 제외 장소로 설정되었습니다." : "여행 감지 제외가 해제되었습니다."
       );
     } else {
-      toast.error("여행 감지 제외 설정을 바꾸지 못했습니다");
+      toast.error("여행 감지 제외 설정을 바꾸지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -59,18 +65,18 @@ export function SavedPlacesSettings() {
     if (editingPlace) {
       const success = await updatePlace(editingPlace.id, data);
       if (success) {
-        toast.success("장소가 수정되었습니다");
+        toast.success("장소가 수정되었습니다.");
         return true;
       }
-      toast.error("장소 수정에 실패했습니다");
+      toast.error("장소를 수정하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       return false;
     }
     const success = await createPlace(data);
     if (success) {
-      toast.success("장소가 저장되었습니다");
+      toast.success("장소가 저장되었습니다.");
       return true;
     }
-    toast.error("장소 저장에 실패했습니다");
+    toast.error("장소를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     return false;
   };
 
@@ -86,12 +92,15 @@ export function SavedPlacesSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoading ? (
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <div role="status" className="flex items-center justify-center py-4">
+              <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="sr-only">저장된 장소를 불러오는 중…</span>
             </div>
           ) : places.length === 0 ? (
             <div className="text-center py-4">
-              <p className="text-sm text-muted-foreground">저장된 장소가 없습니다</p>
+              <p className="text-sm text-muted-foreground">
+                저장된 장소가 없습니다. 새 장소 추가로 집이나 회사를 등록하세요.
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -101,11 +110,15 @@ export function SavedPlacesSettings() {
                   className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{place.name}</p>
+                    <p className="text-sm font-medium truncate" title={place.name}>
+                      {place.name}
+                    </p>
                     {place.address && (
-                      <p className="text-xs text-muted-foreground truncate">{place.address}</p>
+                      <p className="text-xs text-muted-foreground truncate" title={place.address}>
+                        {place.address}
+                      </p>
                     )}
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
                       <Badge variant="secondary" className="text-xs">
                         반경 {place.radiusM}m
                       </Badge>
@@ -142,7 +155,7 @@ export function SavedPlacesSettings() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label="장소 편집"
+                      aria-label={`${place.name} 편집`}
                       className="h-8 w-8"
                       onClick={() => handleEdit(place)}
                     >
@@ -151,8 +164,8 @@ export function SavedPlacesSettings() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label="장소 삭제"
-                      className="h-8 w-8 text-destructive"
+                      aria-label={`${place.name} 삭제`}
+                      className="h-8 w-8 text-destructive hover:text-destructive"
                       onClick={() => handleDelete(place)}
                       disabled={isSaving}
                     >

@@ -28,25 +28,31 @@ export function KISAccountSettingsCard() {
     const r = await syncAccount(a.id);
     setBusyId(null);
     if (r.ok) {
-      toast.success(`${a.label} 동기화 완료`);
+      toast.success(`${a.label} 계좌가 동기화되었습니다.`);
       refresh();
     } else {
-      toast.error(r.error ?? "동기화 실패");
+      toast.error(
+        r.error ?? `${a.label} 계좌를 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요.`
+      );
     }
   };
 
   const handleDelete = async (a: AccountListItem) => {
-    if (!confirm(`${a.label} 계좌를 삭제하시겠습니까? 보유 종목·체결 내역이 함께 삭제됩니다.`)) {
+    if (
+      !confirm(
+        `${a.label} 계좌를 삭제할까요? 저장된 보유 종목·체결 내역·손익 기록이 함께 삭제되며 되돌릴 수 없습니다.`
+      )
+    ) {
       return;
     }
     setBusyId(a.id);
     const ok = await deleteAccount(a.id);
     setBusyId(null);
     if (ok) {
-      toast.success("계좌가 삭제되었습니다");
+      toast.success("계좌가 삭제되었습니다.");
       refresh();
     } else {
-      toast.error("삭제 실패");
+      toast.error("계좌를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -60,7 +66,7 @@ export function KISAccountSettingsCard() {
           </CardDescription>
         </div>
         <Button onClick={() => setDialogOpen(true)} size="sm">
-          <Plus className="w-4 h-4 mr-1" /> 계좌 추가
+          <Plus aria-hidden="true" className="w-4 h-4 mr-1" /> 계좌 추가
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -77,14 +83,22 @@ export function KISAccountSettingsCard() {
               <div key={a.id} className="border rounded-lg p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       {a.lastSyncError ? (
-                        <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0" />
+                        <XCircle
+                          aria-label="동기화 실패"
+                          className="w-4 h-4 text-destructive flex-shrink-0"
+                        />
                       ) : (
-                        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                        <CheckCircle2
+                          aria-label="동기화 정상"
+                          className="w-4 h-4 text-success flex-shrink-0"
+                        />
                       )}
-                      <span className="font-semibold truncate">{a.label}</span>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="font-semibold truncate" title={a.label}>
+                        {a.label}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
                         {ACCOUNT_TYPE_LABEL[a.accountType] ?? a.accountType}
                       </span>
                     </div>
@@ -100,9 +114,7 @@ export function KISAccountSettingsCard() {
                         <span>
                           마지막 동기화 {formatRelative(a.lastSyncedAt)}
                           {a.lastSyncError && (
-                            <span className="text-red-600 dark:text-red-400 ml-2">
-                              ({a.lastSyncError})
-                            </span>
+                            <span className="text-destructive ml-2">({a.lastSyncError})</span>
                           )}
                         </span>
                       </div>
@@ -114,11 +126,12 @@ export function KISAccountSettingsCard() {
                       variant="outline"
                       onClick={() => handleSync(a)}
                       disabled={busy}
+                      aria-label={`${a.label} 계좌 동기화`}
                     >
                       {busy ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin" />
                       ) : (
-                        <RefreshCw className="w-3.5 h-3.5" />
+                        <RefreshCw aria-hidden="true" className="w-3.5 h-3.5" />
                       )}
                       <span className="ml-1.5 hidden sm:inline">동기화</span>
                     </Button>
@@ -127,9 +140,10 @@ export function KISAccountSettingsCard() {
                       variant="ghost"
                       onClick={() => handleDelete(a)}
                       disabled={busy}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                      aria-label={`${a.label} 계좌 삭제`}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 aria-hidden="true" className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 </div>

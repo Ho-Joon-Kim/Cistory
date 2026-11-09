@@ -23,7 +23,10 @@ export async function GET(request: NextRequest) {
     logger.error("Get data usage error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "데이터 사용량 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "데이터 용량을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -39,6 +42,9 @@ export async function POST(request: NextRequest) {
     logger.error("Calculate data usage error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "데이터 사용량 계산에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "데이터 용량을 계산하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

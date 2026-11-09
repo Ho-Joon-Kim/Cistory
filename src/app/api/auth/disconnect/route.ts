@@ -17,7 +17,10 @@ export async function DELETE(request: NextRequest) {
       logger.warn("[auth/disconnect] rejected: cross-origin request", {
         reason: origin.reason,
       });
-      return NextResponse.json({ error: "허용되지 않은 요청" }, { status: 403 });
+      return NextResponse.json(
+        { error: "허용되지 않은 요청입니다. 이 앱 화면에서 다시 시도해 주세요." },
+        { status: 403 }
+      );
     }
 
     const { user, error: authError } = await getAuthenticatedUser(request);
@@ -33,7 +36,7 @@ export async function DELETE(request: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
-      message: "GitHub 연동이 해제되었고 모든 데이터가 삭제되었습니다",
+      message: "GitHub 연결이 해제되고 모든 데이터가 삭제되었습니다.",
     });
     // Forward Better Auth's expirations (token, cached session and chunks),
     // including the configured secure prefix/path/domain attributes.
@@ -45,6 +48,9 @@ export async function DELETE(request: NextRequest) {
     logger.error("Disconnect error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "계정 연결 해제에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "계정 연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

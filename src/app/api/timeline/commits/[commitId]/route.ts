@@ -78,6 +78,9 @@ export async function GET(
     logger.error("Get commit detail error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "커밋 상세 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "커밋 상세 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

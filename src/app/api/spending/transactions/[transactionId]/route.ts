@@ -44,7 +44,10 @@ export async function DELETE(
     logger.error("Transaction delete error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "삭제 실패" }, { status: 500 });
+    return NextResponse.json(
+      { error: "거래를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -131,6 +134,9 @@ export async function PATCH(
     logger.error("Transaction patch error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "수정 실패" }, { status: 500 });
+    return NextResponse.json(
+      { error: "거래를 수정하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

@@ -84,12 +84,12 @@ export function AssetTimelineChart() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
         <CardTitle className="text-base font-medium text-muted-foreground">자산 추이</CardTitle>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select
             value={inflationRate.toString()}
             onValueChange={(v) => setInflationRate(Number(v))}
           >
-            <SelectTrigger size="sm" className="h-8 w-[110px]">
+            <SelectTrigger size="sm" className="h-8 w-[110px]" aria-label="물가 상승률">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -100,18 +100,21 @@ export function AssetTimelineChart() {
               ))}
             </SelectContent>
           </Select>
-          <div className="flex gap-1">
+          <fieldset className="flex gap-1">
+            <legend className="sr-only">기간</legend>
             {RANGES.map((r) => (
               <Button
                 key={r.key}
+                type="button"
                 size="sm"
+                aria-pressed={range === r.key}
                 variant={range === r.key ? "default" : "outline"}
                 onClick={() => setRange(r.key)}
               >
                 {r.label}
               </Button>
             ))}
-          </div>
+          </fieldset>
         </div>
       </CardHeader>
       <CardContent>

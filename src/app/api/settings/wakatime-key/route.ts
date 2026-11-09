@@ -23,14 +23,17 @@ export async function POST(request: NextRequest) {
     const apiKey = body.apiKey?.trim();
 
     if (!apiKey) {
-      return NextResponse.json({ error: "API 키를 입력해주세요" }, { status: 400 });
+      return NextResponse.json({ error: "API 키를 입력해 주세요." }, { status: 400 });
     }
 
     const adapter = createWakaTimeAdapter(apiKey);
     const isValid = await adapter.verifyApiKey();
 
     if (!isValid) {
-      return NextResponse.json({ error: "유효하지 않은 API 키입니다" }, { status: 400 });
+      return NextResponse.json(
+        { error: "유효하지 않은 API 키입니다. WakaTime에서 키를 다시 복사해 주세요." },
+        { status: 400 }
+      );
     }
 
     const wakatimeUser = await adapter.getCurrentUser();
@@ -61,7 +64,10 @@ export async function POST(request: NextRequest) {
     logger.error("Save WakaTime key error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "WakaTime API 키 저장에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "WakaTime API 키를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -85,6 +91,9 @@ export async function DELETE(request: NextRequest) {
     logger.error("Remove WakaTime key error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "WakaTime API 키 삭제에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "WakaTime API 키를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

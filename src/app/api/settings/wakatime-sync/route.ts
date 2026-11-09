@@ -10,8 +10,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { codingDailyStats, codingSessions, commits, users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 import { logger } from "@/lib/logger";
+import { createWakaTimeSyncService } from "@/modules/wakatime/service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,10 +22,7 @@ export async function GET(request: NextRequest) {
 
     const [sessionCount, dayCount, userRow, unsyncedCount] = await Promise.all([
       // Total coding sessions
-      db
-        .select({ count: count() })
-        .from(codingSessions)
-        .where(eq(codingSessions.userId, user.id)),
+      db.select({ count: count() }).from(codingSessions).where(eq(codingSessions.userId, user.id)),
 
       // Total days with stats
       db
@@ -63,7 +60,10 @@ export async function GET(request: NextRequest) {
     logger.error("WakaTime sync stats error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "동기화 현황 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "동기화 현황을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -86,7 +86,10 @@ export async function POST(request: NextRequest) {
 
     const apiKey = userRow[0]?.wakatimeApiKey;
     if (!apiKey) {
-      return NextResponse.json({ error: "WakaTime API 키가 설정되지 않았습니다" }, { status: 400 });
+      return NextResponse.json(
+        { error: "WakaTime API 키가 없습니다. 설정에서 WakaTime을 먼저 연결해 주세요." },
+        { status: 400 }
+      );
     }
 
     const service = createWakaTimeSyncService(db, apiKey);
@@ -109,6 +112,9 @@ export async function POST(request: NextRequest) {
     logger.error("WakaTime sync error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "WakaTime 동기화에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "WakaTime을 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

@@ -5,18 +5,28 @@ import Link from "next/link";
 import { useState } from "react";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/auth-client";
 import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { validateStatusRange } from "@/modules/data-status/model";
 import type { DataStatusResponse, DayState, SourceStatus } from "@/modules/data-status/types";
 
-const STATES: Record<DayState, { label: string; color: string }> = {
-  observed: { label: "기록 있음", color: "bg-emerald-600 text-white" },
-  unknown: { label: "기록 없음 · 수집 여부 미확인", color: "bg-muted text-muted-foreground" },
-  checked: { label: "재조회 완료 · 기록 없음", color: "bg-sky-100 text-sky-900" },
-  failed: { label: "재조회 실패", color: "bg-red-100 text-red-900" },
-  pending: { label: "재조회 대기·진행", color: "bg-amber-100 text-amber-900" },
+// Each state carries a glyph as well as a color so the grid never relies on color alone.
+const STATES: Record<DayState, { label: string; glyph: string; color: string }> = {
+  observed: { label: "기록 있음", glyph: "●", color: "bg-success text-success-foreground" },
+  unknown: {
+    label: "기록 없음 · 수집 여부 미확인",
+    glyph: "?",
+    color: "bg-muted text-muted-foreground",
+  },
+  checked: {
+    label: "재수집 완료 · 기록 없음",
+    glyph: "✓",
+    color: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-100",
+  },
+  failed: { label: "재수집 실패", glyph: "!", color: "bg-destructive/15 text-destructive" },
+  pending: { label: "재수집 대기·진행", glyph: "…", color: "bg-warning/20 text-foreground" },
 };
 const timestamp = (value: string | null) =>
   value ? new Date(value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : "확인된 이력 없음";
@@ -43,25 +53,26 @@ function SourceCard({
         <p>선택 기간 마지막 기록: {timestamp(source.lastRecordAt)}</p>
       </div>
       {source.stale && (
-        <p className="text-sm text-amber-700 dark:text-amber-400">
-          48시간 이상 동기화 성공 이력이 없습니다.
-        </p>
+        <p className="text-sm text-warning">48시간 이상 동기화 성공 이력이 없습니다.</p>
       )}
       {source.error && <p className="text-sm text-destructive">{source.error}</p>}
       <ul className="grid grid-cols-7 gap-1" aria-label={`${source.label} 날짜별 기록`}>
         {source.days.map((day) => (
           <li
             key={day.date}
-            className={`rounded p-1.5 text-center text-xs ${STATES[day.state].color}`}
+            className={`min-w-0 rounded px-0.5 py-1 text-center text-xs leading-tight tabular-nums ${STATES[day.state].color}`}
             title={`${day.date}: ${STATES[day.state].label}, ${day.count}건`}
           >
             <span className="sr-only">
               {day.date}: {STATES[day.state].label},{" "}
             </span>
-            <span aria-hidden="true" className="whitespace-nowrap text-[10px]">
-              {day.date.slice(5)}
+            <span aria-hidden="true" className="block">
+              {Number(day.date.slice(8))}
             </span>
-            <span className="block text-[10px]">{day.count}건</span>
+            <span aria-hidden="true" className="block font-semibold">
+              {STATES[day.state].glyph}
+            </span>
+            <span className="block break-all">{day.count}건</span>
           </li>
         ))}
       </ul>
@@ -107,16 +118,21 @@ export default function DataStatusPage() {
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ["data-status"] }),
   });
-  if (isLoading) return <p className="p-8">로그인 확인 중…</p>;
+  if (isLoading)
+    return (
+      <p role="status" className="p-8">
+        로그인 확인 중…
+      </p>
+    );
   if (!isAuthenticated) return null;
   return (
     <div className="min-h-screen bg-background">
       <Header showSync={false} />
-      <main className="container mx-auto max-w-6xl p-4 py-6 space-y-5">
-        <div className="flex justify-between gap-3 items-center">
+      <main id="main" className="container mx-auto max-w-6xl p-4 py-6 space-y-5">
+        <div className="flex flex-wrap justify-between gap-3 items-center">
           <h1 className="text-2xl font-bold">수집 상태</h1>
           <Link href="/settings" className="text-sm underline">
-            연동 설정
+            연결 설정
           </Link>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -124,22 +140,22 @@ export default function DataStatusPage() {
           않습니다.
         </p>
         <div className="flex flex-wrap gap-3 items-end">
-          <label className="text-sm space-y-1">
+          <label htmlFor="data-status-from" className="text-sm space-y-1">
             시작일
-            <input
-              aria-label="시작일"
-              className="block rounded border bg-background p-2"
+            <Input
+              id="data-status-from"
+              className="block w-auto"
               type="date"
               max={today}
               value={range.from}
               onChange={(e) => setRange((previous) => ({ ...previous, from: e.target.value }))}
             />
           </label>
-          <label className="text-sm space-y-1">
+          <label htmlFor="data-status-to" className="text-sm space-y-1">
             종료일
-            <input
-              aria-label="종료일"
-              className="block rounded border bg-background p-2"
+            <Input
+              id="data-status-to"
+              className="block w-auto"
               type="date"
               max={today}
               value={range.to}
@@ -162,13 +178,16 @@ export default function DataStatusPage() {
         <div className="flex flex-wrap gap-2 text-xs">
           {Object.entries(STATES).map(([key, state]) => (
             <span key={key} className={`rounded px-2 py-1 ${state.color}`}>
+              <span aria-hidden="true" className="mr-1 font-semibold">
+                {state.glyph}
+              </span>
               {state.label}
             </span>
           ))}
         </div>
         {query.error && (
           <p role="alert" className="text-sm text-destructive">
-            {query.error.message} 새로고침으로 다시 시도하세요.
+            {query.error.message} 새로고침을 눌러 다시 시도해 주세요.
           </p>
         )}
         {recovery.error && (
@@ -178,7 +197,8 @@ export default function DataStatusPage() {
         )}
         {recovery.isSuccess && (
           <p role="status" className="text-sm">
-            재수집을 접수했습니다. 작업자가 분 단위로 처리하며 페이지를 닫아도 계속됩니다.
+            재수집 요청이 접수되었습니다. 백그라운드에서 날짜순으로 처리되며 페이지를 닫아도
+            계속됩니다.
           </p>
         )}
         {query.isLoading && <p role="status">수집 상태를 불러오는 중…</p>}
@@ -211,7 +231,7 @@ export default function DataStatusPage() {
                     </p>
                     <p>
                       {job.status === "completed"
-                        ? "완료"
+                        ? "재수집 완료"
                         : job.status === "failed"
                           ? `${job.nextDate} 처리 실패`
                           : `${job.nextDate}부터 ${job.status === "running" ? "처리 중" : "대기 중"}`}

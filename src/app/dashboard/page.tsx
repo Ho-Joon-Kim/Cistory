@@ -66,11 +66,11 @@ function DashboardContent() {
   const handleSyncCompleted = useCallback(
     (job: RecentSyncJob) => {
       if (job.totalCommits > 0) {
-        toast.success(`동기화 완료: ${job.totalCommits}개의 커밋이 추가되었습니다`);
+        toast.success(`커밋 ${job.totalCommits}개가 동기화되었습니다.`);
         refresh();
         refreshRepos();
       } else {
-        toast.info("동기화 완료: 새로운 커밋이 없습니다");
+        toast.info("동기화되었습니다. 새 커밋은 없습니다.");
       }
     },
     [refresh, refreshRepos]
@@ -78,18 +78,19 @@ function DashboardContent() {
 
   // 모든 활성 작업 완료 시 (동기화 + 요약 모두 완료) — 요약 반영을 위해 현재 데이터 갱신
   const handleAllSyncFinished = useCallback(() => {
-    toast.success("AI 요약 생성이 완료되었습니다");
+    toast.success("AI 요약이 생성되었습니다.");
     refresh();
   }, [refresh]);
 
   const handleSyncStarted = () => {
-    toast.success("동기화가 시작되었습니다");
+    toast.success("동기화가 시작되었습니다.");
   };
 
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div role="status" className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
+        <span className="sr-only">로딩 중…</span>
       </div>
     );
   }
@@ -106,11 +107,14 @@ function DashboardContent() {
       onSyncCompleted={handleSyncCompleted}
       onAllSyncFinished={handleAllSyncFinished}
     >
-      <div className="h-screen flex flex-col overflow-hidden bg-background">
+      <div className="h-dvh flex flex-col overflow-hidden bg-background">
         <Header onSyncStarted={handleSyncStarted} />
 
         {/* Main content */}
-        <main className="flex-1 overflow-hidden flex flex-col container mx-auto px-4 py-4">
+        <main
+          id="main"
+          className="flex-1 overflow-hidden flex flex-col container mx-auto px-4 py-4"
+        >
           {error ? (
             <div role="alert" className="mb-3 text-sm text-destructive">
               커밋을 불러오지 못했습니다.{" "}
@@ -120,7 +124,7 @@ function DashboardContent() {
             </div>
           ) : null}
           {showEmptyState && !error ? (
-            <div className="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-lg border p-3">
+            <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
               <p className="text-sm text-muted-foreground">
                 아직 동기화된 커밋이 없습니다. 생활 기록은 아래에서 확인하세요.
               </p>
@@ -129,13 +133,13 @@ function DashboardContent() {
                 onClick={async () => {
                   try {
                     await startInitialSync();
-                    toast.success("동기화가 시작되었습니다");
+                    toast.success("동기화가 시작되었습니다.");
                   } catch {
-                    toast.error("동기화 시작에 실패했습니다");
+                    toast.error("동기화를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
                   }
                 }}
               >
-                <RefreshCw className="h-4 w-4 mr-2" />
+                <RefreshCw className="h-4 w-4 mr-2" aria-hidden="true" />
                 커밋 동기화
               </Button>
             </div>
@@ -172,8 +176,9 @@ export default function DashboardPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div role="status" className="min-h-screen flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
+          <span className="sr-only">로딩 중…</span>
         </div>
       }
     >

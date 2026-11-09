@@ -47,19 +47,28 @@ export function ActivityCard({
 
       <div className="timeline-activity-main">
         <div className="timeline-activity-kind">
-          <span className="timeline-activity-dot" />
+          <span className="timeline-activity-dot" aria-hidden="true" />
           <span>{kind}</span>
           {chip && <span className="timeline-activity-chip">{chip}</span>}
         </div>
         <div className="timeline-activity-title">
-          <span className="timeline-activity-icon">{icon}</span>
-          <strong>{title}</strong>
+          <span className="timeline-activity-icon" aria-hidden="true">
+            {icon}
+          </span>
+          <strong title={typeof title === "string" ? title : undefined}>{title}</strong>
         </div>
         <div className="timeline-activity-trailing">{trailing}</div>
       </div>
 
       <div className="timeline-activity-secondary">
-        {detail && <div className="timeline-activity-detail">{detail}</div>}
+        {detail && (
+          <div
+            className="timeline-activity-detail"
+            title={typeof detail === "string" ? detail : undefined}
+          >
+            {detail}
+          </div>
+        )}
         <div className="timeline-activity-stats">{stats}</div>
       </div>
 

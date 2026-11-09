@@ -15,16 +15,17 @@ export default function CallbackPage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <main id="main" className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-xl">로그인 처리 중...</CardTitle>
-          <CardDescription>잠시만 기다려주세요</CardDescription>
+          <CardTitle className="text-xl">로그인 처리 중…</CardTitle>
+          <CardDescription>잠시만 기다려 주세요.</CardDescription>
         </CardHeader>
-        <CardContent className="flex justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <CardContent role="status" className="flex justify-center">
+          <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+          <span className="sr-only">로그인 처리 중…</span>
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }

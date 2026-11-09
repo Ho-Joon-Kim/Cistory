@@ -4,8 +4,8 @@ import { getDb } from "@/db";
 import { commits } from "@/db/schema";
 import { localDaySql } from "@/db/sql";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
-import { toLocalDateString } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import { toLocalDateString } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -55,6 +55,9 @@ export async function GET(request: NextRequest) {
     logger.error("Get daily stats error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "통계 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "통계를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

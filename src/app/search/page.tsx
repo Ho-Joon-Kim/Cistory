@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/auth-client";
 import { dateKeyToUtcMillis, shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { useRequireAuth } from "@/modules/auth/hooks";
@@ -90,7 +91,7 @@ function SearchResults({
         <Button variant="outline" disabled={page <= 1 || busy} onClick={() => onPage(page - 1)}>
           이전
         </Button>
-        <span className="text-sm">{page}페이지</span>
+        <span className="text-sm tabular-nums">{page}페이지</span>
         <Button
           variant="outline"
           disabled={!data.hasMore || page >= 100 || busy}
@@ -144,12 +145,17 @@ function SearchView({ params }: { params: URLSearchParams }) {
     else router.push(`/search?${target}`, { scroll: false });
   }
 
-  if (isLoading) return <p className="p-8">로그인 확인 중…</p>;
+  if (isLoading)
+    return (
+      <p role="status" className="p-8">
+        로그인 확인 중…
+      </p>
+    );
   if (!isAuthenticated) return null;
   return (
     <div className="min-h-screen bg-background">
       <Header showSync={false} />
-      <main className="container mx-auto max-w-4xl p-4 py-6 space-y-5">
+      <main id="main" className="container mx-auto max-w-4xl p-4 py-6 space-y-5">
         <div className="space-y-2">
           <h1 className="text-2xl font-bold">기록 검색</h1>
           <p className="text-sm text-muted-foreground">
@@ -165,11 +171,12 @@ function SearchView({ params }: { params: URLSearchParams }) {
             navigate(draft, 1);
           }}
         >
-          <label className="block space-y-1 text-sm">
+          <label htmlFor="search-q" className="block space-y-1 text-sm">
             검색어
-            <input
+            <Input
+              id="search-q"
               type="search"
-              className="block w-full min-w-0 rounded border bg-background p-2"
+              className="block"
               placeholder="커밋 메시지, 가맹점, 장소, 여행 이름"
               maxLength={200}
               value={draft.q}
@@ -177,20 +184,22 @@ function SearchView({ params }: { params: URLSearchParams }) {
             />
           </label>
           <div className="grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-4 gap-3 items-end">
-            <label className="min-w-0 space-y-1 text-sm">
+            <label htmlFor="search-from" className="min-w-0 space-y-1 text-sm">
               시작일
-              <input
-                className="block w-full min-w-0 rounded border bg-background p-2"
+              <Input
+                id="search-from"
+                className="block"
                 type="date"
                 required
                 value={draft.from}
                 onChange={(event) => setDraft({ ...draft, from: event.target.value })}
               />
             </label>
-            <label className="min-w-0 space-y-1 text-sm">
+            <label htmlFor="search-to" className="min-w-0 space-y-1 text-sm">
               종료일
-              <input
-                className="block w-full min-w-0 rounded border bg-background p-2"
+              <Input
+                id="search-to"
+                className="block"
                 type="date"
                 required
                 value={draft.to}
@@ -201,7 +210,7 @@ function SearchView({ params }: { params: URLSearchParams }) {
               기록 종류
               <select
                 aria-label="기록 종류"
-                className="block w-full min-w-0 rounded border bg-background p-2"
+                className="block h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-base md:text-sm"
                 value={draft.source}
                 onChange={(event) => setDraft({ ...draft, source: event.target.value })}
               >
@@ -273,7 +282,13 @@ function SearchFromUrl() {
 
 export default function SearchPage() {
   return (
-    <Suspense fallback={<p className="p-8">검색 화면을 불러오는 중…</p>}>
+    <Suspense
+      fallback={
+        <p role="status" className="p-8">
+          검색 화면을 불러오는 중…
+        </p>
+      }
+    >
       <SearchFromUrl />
     </Suspense>
   );

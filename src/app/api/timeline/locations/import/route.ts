@@ -25,6 +25,7 @@ import { createGunzip } from "node:zlib";
 import Busboy from "busboy";
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { logger } from "@/lib/logger";
 import { detectFormat } from "@/modules/location/services/import/format-detector";
 import { parseGeoJson } from "@/modules/location/services/import/geojson-parser";
 import {
@@ -35,7 +36,6 @@ import { parseGpx } from "@/modules/location/services/import/gpx-parser";
 import { type ImportProgress, importPoints } from "@/modules/location/services/import/importer";
 import { createJob, getJob, updateJob } from "@/modules/location/services/import/job-store";
 import type { ParsedPoint } from "@/modules/location/services/import/types";
-import { logger } from "@/lib/logger";
 
 // Hard cap as defense-in-depth. Bounds disk usage of the spooled temp file
 // and the bandwidth a single client can push.
@@ -205,7 +205,7 @@ function spoolUpload({ reqId, contentType, body }: SpoolArgs): Promise<SpooledUp
       writeStream.on("finish", () => {
         finish(() => {
           if (!tmpPath) {
-            reject(new Error("temp 파일 생성 실패"));
+            reject(new Error("업로드한 파일을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요."));
             return;
           }
           resolve({ tmpPath, fileName, bytes });
@@ -321,7 +321,10 @@ async function processImport({ reqId, jobId, userId, upload }: ProcessArgs): Pro
     logger.error(`[import:${reqId}:${jobId.slice(0, 8)}] processing threw`, {
       error: errMsg,
     });
-    updateJob(jobId, { phase: "error", error: `임포트 실패: ${errMsg}` } satisfies ImportProgress);
+    updateJob(jobId, {
+      phase: "error",
+      error: `위치 파일을 가져오지 못했습니다: ${errMsg}`,
+    } satisfies ImportProgress);
   } finally {
     try {
       await unlink(upload.tmpPath);

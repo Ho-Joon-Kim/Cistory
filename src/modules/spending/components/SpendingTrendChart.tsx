@@ -166,15 +166,12 @@ export function SpendingTrendChart({
         </ResponsiveContainer>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <span className="h-0.5 w-3 bg-red-500" />
           전체 누적
         </span>
         {activeCategories.map((category) => (
-          <span
-            key={category}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground"
-          >
+          <span key={category} className="flex items-center gap-1 text-xs text-muted-foreground">
             <span
               className="h-0.5 w-3"
               style={{ backgroundColor: SPENDING_CATEGORY_COLORS[category] }}

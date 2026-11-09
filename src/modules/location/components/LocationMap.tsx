@@ -8,6 +8,7 @@ import type { LayerProps, MapRef } from "react-map-gl/mapbox";
 import { Layer, default as MapGL, Marker, Popup, Source } from "react-map-gl/mapbox";
 import { toast } from "sonner";
 import { SubwayLayer } from "@/components/map/SubwayLayer";
+import { cameraDuration } from "../camera";
 import {
   type SavedPlaceData,
   type StayPointData,
@@ -118,7 +119,7 @@ function renderReplayFrame(
   map.easeTo({
     center: [frame.coord.lon, frame.coord.lat],
     zoom: Math.max(map.getZoom(), 14),
-    duration: isFirstFrame ? 700 : 450,
+    duration: cameraDuration(isFirstFrame ? 700 : 450),
     essential: true,
   });
   return now;
@@ -179,7 +180,7 @@ function StayPointMarkers({
               className={`stay-point-marker animate-bounce-in ${sp.savedPlaceId ? "stay-point-marker-saved" : ""} ${isSelected ? "stay-point-marker-selected" : ""}`}
               title={sp.placeName ?? undefined}
             >
-              <Navigation className="h-3.5 w-3.5 text-white" />
+              <Navigation className="h-3.5 w-3.5 text-white" aria-hidden="true" />
             </div>
           </Marker>
         );
@@ -203,7 +204,7 @@ function StayPointMarkers({
               <p className="stay-point-tooltip-address">{selectedPoint.address}</p>
             )}
             <div className="stay-point-tooltip-time">
-              <Clock className="h-3 w-3" />
+              <Clock className="h-3 w-3" aria-hidden="true" />
               <span>
                 {formatTime(selectedPoint.startTime)} – {formatTime(selectedPoint.endTime)} (
                 {formatDuration(selectedPoint.durationMinutes)})
@@ -221,7 +222,7 @@ function StayPointMarkers({
                   setSelectedPoint(null);
                 }}
               >
-                <Bookmark className="h-3 w-3" />이 장소 저장
+                <Bookmark className="h-3 w-3" aria-hidden="true" />이 장소 저장
               </button>
             )}
           </div>
@@ -359,9 +360,9 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
         category: sp.category || undefined,
       });
       if (success) {
-        toast.success("장소가 저장되었습니다");
+        toast.success("장소가 저장되었습니다.");
       } else {
-        toast.error("장소 저장에 실패했습니다");
+        toast.error("장소를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       }
     },
     [createPlace]
@@ -386,7 +387,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
         map.flyTo({
           center: [seg.stayPoint.lon, seg.stayPoint.lat],
           zoom: 16,
-          duration: 1000,
+          duration: cameraDuration(1000),
         });
       } else if (seg.type === "moving" && seg.coords.length > 0) {
         const lngs = seg.coords.map((c) => c[0]);
@@ -396,7 +397,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
             [Math.min(...lngs), Math.min(...lats)],
             [Math.max(...lngs), Math.max(...lats)],
           ],
-          { padding: 60, duration: 1000 }
+          { padding: 60, duration: cameraDuration(1000) }
         );
       }
     },
@@ -423,7 +424,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
   const handlePlaceSelect = useCallback((place: { lat: number; lon: number; name: string }) => {
     const map = mapRef.current;
     if (!map) return;
-    map.flyTo({ center: [place.lon, place.lat], zoom: 15, duration: 1000 });
+    map.flyTo({ center: [place.lon, place.lat], zoom: 15, duration: cameraDuration(1000) });
   }, []);
 
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
@@ -532,26 +533,28 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
                   : "bg-background/80 backdrop-blur-sm text-muted-foreground border-border/50 hover:bg-accent"
               }`}
               title={replayMode ? "재생 중지" : "경로 재생"}
+              aria-label="경로 재생"
+              aria-pressed={replayMode}
             >
-              <Play className="h-3.5 w-3.5" />
+              <Play className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
         )}
 
         {/* Loading indicator */}
         {(isLocationsLoading || isStayPointsLoading) && (
-          <div className="absolute top-3 left-3 z-10 pointer-events-none">
+          <div role="status" className="absolute top-3 left-[52px] z-10 pointer-events-none">
             <div className="bg-background/80 backdrop-blur-sm border border-border/50 rounded-lg px-3 py-2 shadow-sm flex flex-col gap-1.5">
               {isLocationsLoading && (
                 <div className="flex items-center gap-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                  <span className="text-xs text-muted-foreground">경로 불러오는 중...</span>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+                  <span className="text-xs text-muted-foreground">경로 불러오는 중…</span>
                 </div>
               )}
               {isStayPointsLoading && (
                 <div className="flex items-center gap-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                  <span className="text-xs text-muted-foreground">체류지점 분석 중...</span>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+                  <span className="text-xs text-muted-foreground">체류지점 분석 중…</span>
                 </div>
               )}
             </div>
@@ -562,7 +565,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
         {!isLocationsLoading && locations.length === 0 && mapLoaded && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="bg-background/80 backdrop-blur-sm rounded-lg px-4 py-3 flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <span className="text-sm text-muted-foreground">위치 데이터가 없습니다</span>
             </div>
           </div>
@@ -592,7 +595,7 @@ export function LocationMap({ date, className, initialCenter }: LocationMapProps
                 mapRef.current?.easeTo({
                   center: [replay.currentCoord.lon, replay.currentCoord.lat],
                   zoom: Math.max(mapRef.current.getZoom(), 14),
-                  duration: 450,
+                  duration: cameraDuration(450),
                 });
               }
             }}

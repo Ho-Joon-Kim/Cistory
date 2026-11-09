@@ -84,7 +84,7 @@ export function AccountHoldingsPieChart({ accounts, latestSnapshots, positions }
         </CardTitle>
         {accounts.length > 1 ? (
           <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
-            <SelectTrigger size="sm" className="h-8 w-[200px]">
+            <SelectTrigger size="sm" className="h-8 w-[200px]" aria-label="계좌 선택">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -163,12 +163,14 @@ export function AccountHoldingsPieChart({ accounts, latestSnapshots, positions }
                     style={{ backgroundColor: d.fill }}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{d.name}</div>
+                    <div className="font-medium truncate" title={d.name}>
+                      {d.name}
+                    </div>
                     {d.ticker !== "_other" && (
                       <div className="text-xs text-muted-foreground">{d.ticker}</div>
                     )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right tabular-nums">
                     <div className="font-semibold">{d.pct.toFixed(1)}%</div>
                     <div className="text-xs text-muted-foreground">
                       {formatKRW(d.value, { compact: true })}

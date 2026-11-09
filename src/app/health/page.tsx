@@ -25,8 +25,9 @@ import { BodyCard } from "@/modules/insights/components/BodyCard";
 
 function CenteredSpinner() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    <div role="status" className="min-h-screen flex items-center justify-center">
+      <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+      <span className="sr-only">로딩 중…</span>
     </div>
   );
 }
@@ -34,13 +35,13 @@ function CenteredSpinner() {
 function NeverConnected({ onGoSettings }: { onGoSettings: () => void }) {
   return (
     <div className="border-2 border-dashed rounded-lg p-12 text-center">
-      <Activity className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
-      <p className="text-muted-foreground mb-1">아직 건강 데이터가 연동되지 않았습니다</p>
+      <Activity aria-hidden="true" className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
+      <p className="text-muted-foreground mb-1">아직 건강 데이터가 연결되지 않았습니다</p>
       <p className="text-xs text-muted-foreground mb-4">
-        Google Health(Fitbit)를 연결하면 걸음·심박·산소포화도 추이를 볼 수 있어요
+        Google Health (Fitbit)를 연결하면 걸음·심박·산소포화도 추이를 볼 수 있어요
       </p>
       <Button onClick={onGoSettings} variant="outline">
-        설정에서 연동하기
+        설정에서 연결하기
       </Button>
     </div>
   );
@@ -48,14 +49,14 @@ function NeverConnected({ onGoSettings }: { onGoSettings: () => void }) {
 
 function ReauthBanner({ onGoSettings }: { onGoSettings: () => void }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
-      <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
-      <div className="flex-1 text-sm">
-        <p className="font-medium">연동이 만료되었습니다</p>
-        <p className="text-muted-foreground">다시 연동해야 새 데이터를 가져올 수 있어요.</p>
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3">
+      <AlertTriangle aria-hidden="true" className="h-5 w-5 shrink-0 text-warning" />
+      <div className="min-w-0 flex-1 text-sm">
+        <p className="font-medium">Google Health (Fitbit) 연결이 만료되었습니다</p>
+        <p className="text-muted-foreground">다시 연결해야 새 데이터를 가져올 수 있어요.</p>
       </div>
       <Button size="sm" variant="outline" onClick={onGoSettings}>
-        다시 연동
+        다시 연결
       </Button>
     </div>
   );
@@ -63,15 +64,15 @@ function ReauthBanner({ onGoSettings }: { onGoSettings: () => void }) {
 
 function DisconnectedHistoryBanner({ onGoSettings }: { onGoSettings: () => void }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-3">
-      <div className="flex-1 text-sm">
-        <p className="font-medium">연동 해제됨 · 과거 데이터 유지</p>
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 px-4 py-3">
+      <div className="min-w-0 flex-1 text-sm">
+        <p className="font-medium">연결 해제됨 · 과거 데이터 유지</p>
         <p className="text-muted-foreground">
-          연동은 해제되었지만 이전에 수집한 데이터는 그대로 보관되어 있어요.
+          연결은 해제되었지만 이전에 수집한 데이터는 그대로 보관되어 있어요.
         </p>
       </div>
       <Button size="sm" variant="outline" onClick={onGoSettings}>
-        다시 연동
+        다시 연결
       </Button>
     </div>
   );
@@ -79,11 +80,14 @@ function DisconnectedHistoryBanner({ onGoSettings }: { onGoSettings: () => void 
 
 function BackfillingNotice() {
   return (
-    <div className="border-2 border-dashed rounded-lg p-12 text-center">
-      <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground mb-4" />
-      <p className="text-muted-foreground mb-1">동기화 중 · 과거 데이터 백필 진행 중</p>
+    <div role="status" className="border-2 border-dashed rounded-lg p-12 text-center">
+      <Loader2
+        aria-hidden="true"
+        className="mx-auto h-8 w-8 animate-spin text-muted-foreground mb-4"
+      />
+      <p className="text-muted-foreground mb-1">동기화 중 · 과거 데이터 처리 중</p>
       <p className="text-xs text-muted-foreground">
-        처음 연동 후 과거 기록을 가져오고 있어요. 잠시 후 추이가 채워집니다.
+        처음 연결 후 과거 기록을 가져오고 있어요. 잠시 후 추이가 채워집니다.
       </p>
     </div>
   );
@@ -108,11 +112,12 @@ function Section({
     <section className="mb-8">
       <div className="mb-3.5 ml-0.5 flex items-center gap-2.5">
         <span
+          aria-hidden="true"
           className="h-[7px] w-[7px] rounded-full"
           style={{ background: dot, boxShadow: `0 0 8px ${dot}` }}
         />
-        <h2 className="text-xs font-semibold uppercase tracking-[0.09em] text-ink-dim">{title}</h2>
-        {note ? <span className="ml-auto text-[11px] text-ink-mute">{note}</span> : null}
+        <h2 className="text-sm font-semibold text-ink-dim">{title}</h2>
+        {note ? <span className="ml-auto text-xs text-ink-mute">{note}</span> : null}
       </div>
       {children}
     </section>
@@ -163,7 +168,7 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
         <>
           {backfilling ? (
             <p className="mb-4 text-xs text-muted-foreground">
-              과거 데이터 백필이 아직 진행 중입니다.
+              과거 데이터 처리가 아직 진행 중입니다.
             </p>
           ) : null}
 
@@ -246,8 +251,8 @@ export default function HealthPage() {
   return (
     <div data-neon className="min-h-screen flex flex-col bg-background">
       <Header showSync={false} />
-      <main className="flex-1 container mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
+      <main id="main" className="flex-1 container mx-auto px-4 py-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold">건강</h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -258,9 +263,9 @@ export default function HealthPage() {
           </div>
           <Button onClick={refresh} disabled={isLoading} size="sm" variant="outline">
             {isLoading ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <Loader2 aria-hidden="true" className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              <RefreshCw className="w-4 h-4 mr-2" />
+              <RefreshCw aria-hidden="true" className="w-4 h-4 mr-2" />
             )}
             새로고침
           </Button>
@@ -268,17 +273,20 @@ export default function HealthPage() {
 
         {error ? (
           <p role="alert" className="mb-4 text-sm text-destructive">
-            {error} 위의 새로고침 버튼으로 다시 시도하세요.
+            {error} 새로고침을 눌러 다시 시도해 주세요.
           </p>
         ) : null}
         {isLoading && !summary ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <div role="status" className="flex items-center justify-center py-20">
+            <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+            <span className="sr-only">로딩 중…</span>
           </div>
         ) : summary ? (
           <HealthBody summary={summary} />
         ) : (
-          <p className="text-sm text-muted-foreground">불러오지 못했습니다.</p>
+          <p className="text-sm text-muted-foreground">
+            건강 데이터를 불러오지 못했습니다. 새로고침을 눌러 다시 시도해 주세요.
+          </p>
         )}
       </main>
     </div>

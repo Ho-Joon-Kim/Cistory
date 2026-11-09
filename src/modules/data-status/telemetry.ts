@@ -38,7 +38,7 @@ export async function trackSourceSync<T>(
     // Never persist provider payloads, credentials, or private records in the UI error.
     await db
       .update(sourceSyncStates)
-      .set({ error: "동기화에 실패했습니다. 연동 상태를 확인하고 다시 시도해 주세요." })
+      .set({ error: "동기화하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요." })
       .where(ownAttempt);
     throw error;
   }

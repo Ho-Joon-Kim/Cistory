@@ -21,7 +21,10 @@ export async function GET(request: NextRequest) {
     logger.error("Saved places GET error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "저장된 장소 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "저장된 장소를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -65,6 +68,9 @@ export async function POST(request: NextRequest) {
     logger.error("Saved places POST error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "장소 저장에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "장소를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

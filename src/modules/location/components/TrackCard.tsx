@@ -74,24 +74,27 @@ function lineRefLabel(ref: string | null, name: string | null): string {
 }
 
 function ConfidenceDot({ score }: { score: number }) {
-  const color = score >= 0.8 ? "bg-green-500" : score >= 0.55 ? "bg-yellow-400" : "bg-zinc-300";
+  const color =
+    score >= 0.8 ? "bg-success" : score >= 0.55 ? "bg-warning" : "bg-muted-foreground/40";
   return (
-    <span
-      className={`inline-block w-1.5 h-1.5 rounded-full ${color}`}
-      title={`신뢰도 ${Math.round(score * 100)}%`}
-    />
+    <span className="inline-flex items-center gap-0.5 text-muted-foreground tabular-nums">
+      <span className={`inline-block w-1.5 h-1.5 rounded-full ${color}`} aria-hidden="true" />
+      <span className="sr-only">매칭 신뢰도 </span>
+      {Math.round(score * 100)}%
+    </span>
   );
 }
 
 function SubwayLegBadge({ leg }: { leg: SubwayLegData }) {
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px]"
-      style={{ borderColor: leg.lineColor, color: leg.lineColor }}
+      className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs text-foreground"
+      style={{ borderColor: leg.lineColor }}
     >
       <span
         className="inline-block w-2 h-2 rounded-full"
         style={{ backgroundColor: leg.lineColor }}
+        aria-hidden="true"
       />
       <span className="font-medium">{lineRefLabel(leg.lineRef, leg.lineName)}</span>
       {leg.startStationName && (
@@ -100,7 +103,8 @@ function SubwayLegBadge({ leg }: { leg: SubwayLegData }) {
           {leg.endStationName && (
             <>
               {" "}
-              <ArrowRight className="inline h-2.5 w-2.5" /> {leg.endStationName}
+              <ArrowRight className="inline h-2.5 w-2.5" aria-hidden="true" />
+              <span className="sr-only">→</span> {leg.endStationName}
             </>
           )}
         </span>
@@ -193,7 +197,12 @@ export function TrackCard({ track }: TrackCardProps) {
           <span key={chunk.segments[0]?.id} className="flex flex-wrap items-center gap-1">
             {chunk.legs.map(({ segmentId, leg }, index) => (
               <span key={`${segmentId}-${leg.legOrder}`} className="flex items-center gap-1">
-                {index > 0 && <ArrowLeftRight className="size-3 text-muted-foreground" />}
+                {index > 0 && (
+                  <>
+                    <ArrowLeftRight className="size-3 text-muted-foreground" aria-hidden="true" />
+                    <span className="sr-only">환승</span>
+                  </>
+                )}
                 <SubwayLegBadge leg={leg} />
               </span>
             ))}
@@ -215,15 +224,24 @@ export function TrackCard({ track }: TrackCardProps) {
       icon={<ArrowRight size={12} />}
       title={
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate">{startName}</span>
-          <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
-          <span className="truncate">{endName}</span>
+          <span className="truncate" title={startName}>
+            {startName}
+          </span>
+          <ArrowRight className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="sr-only">→</span>
+          <span className="truncate" title={endName}>
+            {endName}
+          </span>
         </span>
       }
       trailing={
         <span className="flex items-center gap-1.5">
           <time dateTime={track.startTime}>{formatTime(track.startTime)}</time>
-          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {expanded ? (
+            <ChevronUp size={14} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={14} aria-hidden="true" />
+          )}
         </span>
       }
       detail={subwayDetail}
@@ -236,7 +254,7 @@ export function TrackCard({ track }: TrackCardProps) {
           <span>{formatDuration(track.durationSeconds)}</span>
           {track.elevationGain != null && track.elevationGain > 0 && (
             <span className="flex items-center gap-0.5">
-              <Mountain className="size-3" />↑{track.elevationGain}m
+              <Mountain className="size-3" aria-hidden="true" />↑{track.elevationGain}m
               {track.elevationLoss != null && track.elevationLoss > 0 && (
                 <> ↓{track.elevationLoss}m</>
               )}

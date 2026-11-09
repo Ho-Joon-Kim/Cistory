@@ -1,7 +1,7 @@
 "use client";
 
 import { Clock, Layers, Search, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { TimelineSegment } from "../utils";
 import { LayersPanel, type LayerVisibility } from "./panels/LayersPanel";
 import { SearchPanel } from "./panels/SearchPanel";
@@ -10,9 +10,9 @@ import { TimelinePanel } from "./panels/TimelinePanel";
 type TabId = "layers" | "timeline" | "search";
 
 const TABS: { id: TabId; icon: React.ReactNode; label: string }[] = [
-  { id: "layers", icon: <Layers className="h-4 w-4" />, label: "레이어" },
-  { id: "timeline", icon: <Clock className="h-4 w-4" />, label: "타임라인" },
-  { id: "search", icon: <Search className="h-4 w-4" />, label: "검색" },
+  { id: "layers", icon: <Layers className="h-4 w-4" aria-hidden="true" />, label: "레이어" },
+  { id: "timeline", icon: <Clock className="h-4 w-4" aria-hidden="true" />, label: "타임라인" },
+  { id: "search", icon: <Search className="h-4 w-4" aria-hidden="true" />, label: "검색" },
 ];
 
 interface MapSidePanelProps {
@@ -36,6 +36,12 @@ export function MapSidePanel({
   const [isMobile, setIsMobile] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const iconBarRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  // The icon button that opened the panel, so focus can return to it on close.
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const wasOpenRef = useRef(false);
+  const panelId = useId();
+  const titleId = useId();
 
   // Detect mobile breakpoint (below lg = 1024px)
   useEffect(() => {
@@ -46,7 +52,8 @@ export function MapSidePanel({
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  const handleTabClick = useCallback((tabId: TabId) => {
+  const handleTabClick = useCallback((tabId: TabId, trigger: HTMLButtonElement) => {
+    triggerRef.current = trigger;
     setActiveTab((prev) => (prev === tabId ? null : tabId));
   }, []);
 
@@ -83,6 +90,32 @@ export function MapSidePanel({
 
   const isOpen = activeTab !== null;
 
+  // Escape closes the panel (mobile sheet and desktop side panel alike).
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setActiveTab(null);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isOpen]);
+
+  // Mobile sheet: move focus into the sheet on open, and back to the trigger on
+  // close — but only when focus was inside the sheet (or dropped to <body>), so an
+  // outside click on the map keeps focus where the user put it.
+  useEffect(() => {
+    if (isOpen && !wasOpenRef.current && isMobile) {
+      closeButtonRef.current?.focus();
+    }
+    if (!isOpen && wasOpenRef.current) {
+      const active = document.activeElement;
+      if (!active || active === document.body || panelRef.current?.contains(active)) {
+        triggerRef.current?.focus();
+      }
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen, isMobile]);
+
   const panelContent = (
     <>
       {activeTab === "layers" && (
@@ -118,8 +151,11 @@ export function MapSidePanel({
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-background/90 backdrop-blur text-muted-foreground border-border/50 hover:bg-accent"
                 }`}
-                onClick={() => handleTabClick(tab.id)}
+                onClick={(e) => handleTabClick(tab.id, e.currentTarget)}
                 title={tab.label}
+                aria-label={tab.label}
+                aria-pressed={activeTab === tab.id}
+                aria-controls={panelId}
               >
                 {tab.icon}
               </button>
@@ -132,27 +168,35 @@ export function MapSidePanel({
           <button
             type="button"
             aria-label="닫기"
+            tabIndex={-1}
             className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]"
             onClick={handleClose}
           />
         )}
         <div
           ref={panelRef}
+          id={panelId}
+          role="dialog"
+          aria-modal={isOpen}
+          aria-labelledby={titleId}
+          inert={!isOpen}
           className={`fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-t border-border/50 shadow-lg transition-transform duration-200 ease-out ${
             isOpen ? "translate-y-0" : "translate-y-full pointer-events-none"
           }`}
           style={{ maxHeight: "60vh" }}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
-            <span className="text-xs font-medium text-muted-foreground">
+            <h2 id={titleId} className="text-xs font-medium text-muted-foreground">
               {TABS.find((t) => t.id === activeTab)?.label}
-            </span>
+            </h2>
             <button
+              ref={closeButtonRef}
               type="button"
+              aria-label="닫기"
               className="h-6 w-6 flex items-center justify-center rounded hover:bg-accent"
               onClick={handleClose}
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
           <div className="overflow-y-auto" style={{ maxHeight: "calc(60vh - 36px)" }}>
@@ -180,8 +224,11 @@ export function MapSidePanel({
                 ? "bg-primary text-primary-foreground border-primary"
                 : "bg-background/90 backdrop-blur text-muted-foreground border-border/50 hover:bg-accent"
             }`}
-            onClick={() => handleTabClick(tab.id)}
+            onClick={(e) => handleTabClick(tab.id, e.currentTarget)}
             title={tab.label}
+            aria-label={tab.label}
+            aria-pressed={activeTab === tab.id}
+            aria-controls={panelId}
           >
             {tab.icon}
           </button>
@@ -191,8 +238,12 @@ export function MapSidePanel({
       {/* Slide panel */}
       <div
         ref={panelRef}
-        className={`pointer-events-auto absolute top-3 bottom-3 bg-background/95 backdrop-blur border border-border/50 rounded-lg shadow-lg transition-all duration-200 ease-out overflow-hidden ${
-          isOpen ? "left-[52px] w-[250px] opacity-100" : "left-[52px] w-0 opacity-0"
+        id={panelId}
+        inert={!isOpen}
+        className={`absolute top-3 bottom-3 left-[52px] w-[250px] bg-background/95 backdrop-blur border border-border/50 rounded-lg shadow-lg transition-[opacity,translate] duration-200 ease-out overflow-hidden ${
+          isOpen
+            ? "pointer-events-auto translate-x-0 opacity-100"
+            : "pointer-events-none -translate-x-2 opacity-0"
         }`}
       >
         <div className="w-[250px] h-full overflow-y-auto">{panelContent}</div>

@@ -39,19 +39,22 @@ export const SPENDING_CATEGORY_LABELS: Record<SpendingCategoryKey, string> = {
   uncategorized: "미분류",
 };
 
+// Neighbouring categories that read alike (food/cafe, housing/subscription,
+// health/leisure, education/travel, shopping/gift) differ in hue *and*
+// lightness so the stacked bar and legend swatches stay distinguishable.
 export const SPENDING_CATEGORY_COLORS: Record<SpendingCategoryKey, string> = {
   food: "#f97316",
-  cafe: "#d97706",
+  cafe: "#92400e",
   transport: "#3b82f6",
   shopping: "#ec4899",
   housing: "#8b5cf6",
-  subscription: "#6366f1",
+  subscription: "#3730a3",
   health: "#10b981",
-  leisure: "#14b8a6",
+  leisure: "#84cc16",
   education: "#06b6d4",
-  gift: "#f43f5e",
+  gift: "#be123c",
   finance: "#64748b",
-  travel: "#0ea5e9",
+  travel: "#eab308",
   other: "#a3a3a3",
   uncategorized: "#d4d4d4",
 };

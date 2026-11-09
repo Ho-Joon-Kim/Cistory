@@ -548,7 +548,7 @@ export class HealthSyncService {
     if (dateKeyToUtcMillis(date) === null) throw new ApiError(400, "올바른 날짜가 아닙니다");
     const connection = await this.getConnection(userId);
     if (connection?.status !== "active") {
-      throw new ApiError(409, "건강 연동을 확인해 주세요");
+      throw new ApiError(409, "Google Health (Fitbit) 연결을 확인해 주세요.");
     }
     const { start, end } = getKstDateWindow(date, date);
     let total = 0;
@@ -617,7 +617,8 @@ export class HealthSyncService {
         .from(healthConnections)
         .where(eq(healthConnections.userId, connection.userId))
         .for("share");
-      if (active?.status !== "active") throw new ApiError(409, "건강 연동을 확인해 주세요");
+      if (active?.status !== "active")
+        throw new ApiError(409, "Google Health (Fitbit) 연결을 확인해 주세요.");
       if (sources.length) {
         await tx
           .delete(healthSamples)

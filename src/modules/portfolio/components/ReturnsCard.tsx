@@ -74,8 +74,12 @@ export function ReturnsCard({ accounts }: Props) {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button type="button" className="text-muted-foreground hover:text-foreground">
-                  <HelpCircle className="w-3.5 h-3.5" />
+                <button
+                  type="button"
+                  aria-label="수익률 설명"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <HelpCircle aria-hidden="true" className="w-3.5 h-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs text-xs leading-relaxed">
@@ -92,9 +96,9 @@ export function ReturnsCard({ accounts }: Props) {
             </Tooltip>
           </TooltipProvider>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={accountId} onValueChange={setAccountId}>
-            <SelectTrigger size="sm" className="h-8 w-[140px]">
+            <SelectTrigger size="sm" className="h-8 w-[140px]" aria-label="계좌 선택">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -106,18 +110,21 @@ export function ReturnsCard({ accounts }: Props) {
               ))}
             </SelectContent>
           </Select>
-          <div className="flex gap-1">
+          <fieldset className="flex gap-1">
+            <legend className="sr-only">기간</legend>
             {RANGES.map((r) => (
               <Button
                 key={r.key}
+                type="button"
                 size="sm"
+                aria-pressed={rangeKey === r.key}
                 variant={rangeKey === r.key ? "default" : "outline"}
                 onClick={() => setRangeKey(r.key)}
               >
                 {r.label}
               </Button>
             ))}
-          </div>
+          </fieldset>
         </div>
       </CardHeader>
       <CardContent>
@@ -146,7 +153,9 @@ export function ReturnsCard({ accounts }: Props) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <div className="text-xs text-muted-foreground">TWR (누적)</div>
-                <div className={`text-2xl font-bold mt-1 ${pctColorClass(data.twr.totalReturn)}`}>
+                <div
+                  className={`text-2xl font-bold mt-1 tabular-nums ${pctColorClass(data.twr.totalReturn)}`}
+                >
                   {fmtPct(data.twr.totalReturn)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
@@ -156,13 +165,13 @@ export function ReturnsCard({ accounts }: Props) {
               <div>
                 <div className="text-xs text-muted-foreground">TWR (연환산)</div>
                 <div
-                  className={`text-2xl font-bold mt-1 ${pctColorClass(data.twr.annualizedReturn)}`}
+                  className={`text-2xl font-bold mt-1 tabular-nums ${pctColorClass(data.twr.annualizedReturn)}`}
                 >
                   {fmtPct(data.twr.annualizedReturn)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
                   {shortPeriod ? (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                    <Badge variant="outline" className="text-xs px-1.5 py-0">
                       기간이 짧아 변동성 큼
                     </Badge>
                   ) : (
@@ -172,7 +181,7 @@ export function ReturnsCard({ accounts }: Props) {
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">XIRR (연환산)</div>
-                <div className={`text-2xl font-bold mt-1 ${pctColorClass(data.xirr)}`}>
+                <div className={`text-2xl font-bold mt-1 tabular-nums ${pctColorClass(data.xirr)}`}>
                   {fmtPct(data.xirr)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">Money-Weighted Return</div>
@@ -181,14 +190,16 @@ export function ReturnsCard({ accounts }: Props) {
 
             <div className="mt-4 pt-4 border-t flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
               <div>
-                시작 총자산: <span className="font-medium">{formatKRW(data.startValue)}</span>
+                시작 총자산:{" "}
+                <span className="font-medium tabular-nums">{formatKRW(data.startValue)}</span>
               </div>
               <div>
-                현재 총자산: <span className="font-medium">{formatKRW(data.endValue)}</span>
+                현재 총자산:{" "}
+                <span className="font-medium tabular-nums">{formatKRW(data.endValue)}</span>
               </div>
               <div>
                 추정 현금흐름 합계:{" "}
-                <span className="font-medium">
+                <span className="font-medium tabular-nums">
                   {formatKRW(
                     data.cashflows.reduce((s, c) => s + c.amount, 0),
                     { sign: true }
@@ -202,30 +213,32 @@ export function ReturnsCard({ accounts }: Props) {
                 <button
                   type="button"
                   onClick={() => setShowCashflows((v) => !v)}
+                  aria-expanded={showCashflows}
+                  aria-controls="returns-cashflows"
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {showCashflows ? (
-                    <ChevronUp className="w-3.5 h-3.5" />
+                    <ChevronUp aria-hidden="true" className="w-3.5 h-3.5" />
                   ) : (
-                    <ChevronDown className="w-3.5 h-3.5" />
+                    <ChevronDown aria-hidden="true" className="w-3.5 h-3.5" />
                   )}
                   감지된 현금흐름 {data.cashflows.length}건
                 </button>
                 {showCashflows && (
-                  <div className="mt-2 space-y-1 text-xs">
+                  <div id="returns-cashflows" className="mt-2 space-y-1 text-xs">
                     {data.cashflows.map((cf) => (
                       <div
                         key={`${cf.date}-${cf.amount}`}
                         className="flex justify-between items-center py-1 border-b last:border-b-0"
                       >
                         <span className="text-muted-foreground">{cf.date}</span>
-                        <span className={`font-medium ${pnlColorClass(cf.amount)}`}>
+                        <span className={`font-medium tabular-nums ${pnlColorClass(cf.amount)}`}>
                           {cf.amount > 0 ? "입금 " : "출금 "}
                           {formatKRW(Math.abs(cf.amount), { compact: true })}
                         </span>
                       </div>
                     ))}
-                    <p className="pt-1 text-[10px] text-muted-foreground">
+                    <p className="pt-1 text-xs text-muted-foreground">
                       예수금 변화와 체결의 결제 시점을 대조한 추정치입니다. 공휴일 결제 지연,
                       배당·이자·수수료는 현금흐름 및 수익률에 오차를 만들 수 있습니다.
                     </p>

@@ -156,7 +156,7 @@ export function CorrelationCard({
         </div>
       ) : (
         <>
-          <div className="mb-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-mute">
+          <div className="mb-2.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-mute">
             <LegendDot color={GREEN} label="걸음(막대)" />
             <LegendDot color={BLUE} label="외출한 장소 수" />
             <LegendDot color={ORANGE} label="코딩 강도" />
@@ -178,7 +178,7 @@ export function CorrelationCard({
             )}
           />
           {activityObservation(days) ? (
-            <p className="mt-3.5 rounded-lg border border-hairline bg-white/[0.03] px-3 py-2.5 text-[12px] leading-relaxed text-ink-dim">
+            <p className="mt-3.5 rounded-lg border border-hairline bg-white/[0.03] px-3 py-2.5 text-xs leading-relaxed text-ink-dim">
               {activityObservation(days)}
             </p>
           ) : null}

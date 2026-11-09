@@ -41,19 +41,17 @@ function Stat({
 }) {
   return (
     <div className="border-hairline px-4 py-4 first:pl-0.5 [&:not(:first-child)]:border-l max-[640px]:[&:nth-child(3)]:border-l-0 max-[640px]:[&:nth-child(n+3)]:border-t">
-      <div className="text-[10px] uppercase tracking-[0.12em] text-ink-mute">{label}</div>
+      <div className="text-xs text-ink-mute">{label}</div>
       <div
-        className="mt-2 tabular-mono text-[32px] font-semibold leading-none"
+        className="mt-2 tabular-mono text-[2rem] font-semibold leading-none"
         style={{ color: glow }}
       >
         {value}
         <span className="ml-1 text-sm font-medium text-ink-mute">{unit}</span>
       </div>
-      <div className="mt-2 flex items-center gap-2 text-[11px] text-ink-mute">
+      <div className="mt-2 flex items-center gap-2 text-xs text-ink-mute">
         {when ? (
-          <span className="tabular-mono rounded bg-muted/60 px-1.5 py-px text-[10.5px]">
-            {when}
-          </span>
+          <span className="tabular-mono rounded bg-muted/60 px-1.5 py-px text-xs">{when}</span>
         ) : null}
         {caption ? <span>{caption}</span> : null}
       </div>

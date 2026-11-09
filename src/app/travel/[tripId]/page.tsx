@@ -13,8 +13,9 @@ import { type TravelRoute, type TravelTripDetail, useTravelDetail } from "@/modu
 
 function CenteredSpinner() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    <div role="status" className="min-h-screen flex items-center justify-center">
+      <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+      <span className="sr-only">로딩 중…</span>
     </div>
   );
 }
@@ -38,8 +39,9 @@ function TravelDetailState({
 }: TravelDetailStateProps) {
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div role="status" className="flex items-center justify-center py-24">
+        <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="sr-only">로딩 중…</span>
       </div>
     );
   }
@@ -92,7 +94,7 @@ export default function TravelDetailPage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header showSync={false} />
-      <main className="flex-1 container mx-auto px-4 py-6">
+      <main id="main" className="flex-1 container mx-auto px-4 py-6">
         <TravelDetailState
           detail={detail}
           route={route}

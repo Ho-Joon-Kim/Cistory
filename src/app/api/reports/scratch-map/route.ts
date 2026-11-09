@@ -147,7 +147,10 @@ export async function GET(request: NextRequest) {
     logger.error("Scratch map error", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ error: "서버 오류가 발생했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 

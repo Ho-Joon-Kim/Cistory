@@ -13,7 +13,11 @@ const RecomputeBody = z.object({
 export const POST = withValidation(RecomputeBody, async ({ user, request, body }) => {
   const origin = checkSameOrigin(request);
   if (!origin.ok) {
-    throw new ApiError(403, "허용되지 않은 요청입니다", "INVALID_ORIGIN");
+    throw new ApiError(
+      403,
+      "허용되지 않은 요청입니다. 이 앱 화면에서 다시 시도해 주세요.",
+      "INVALID_ORIGIN"
+    );
   }
 
   const service = createOverviewService(createDatabaseOverviewStore(getDb()));

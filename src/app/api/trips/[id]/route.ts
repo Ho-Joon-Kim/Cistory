@@ -33,7 +33,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
     logger.error("Trip GET error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "여행 조회에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "여행을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -76,7 +79,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     logger.error("Trip PUT error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "여행 수정에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "여행을 수정하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }
 
@@ -105,6 +111,9 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     logger.error("Trip DELETE error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "여행 삭제에 실패했습니다" }, { status: 500 });
+    return NextResponse.json(
+      { error: "여행을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 }
+    );
   }
 }

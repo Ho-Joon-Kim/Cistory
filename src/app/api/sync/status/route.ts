@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
         // 30초 후 자동 종료 (클라이언트가 재연결)
         setTimeout(() => {
           if (timer) clearTimeout(timer);
-          sendEvent("reconnect", { message: "Please reconnect" });
+          sendEvent("reconnect", { message: "연결을 새로 고칩니다." });
           closeController();
         }, 30000);
       },
@@ -102,10 +102,13 @@ export async function GET(request: NextRequest) {
     logger.error("SSE error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return new Response(JSON.stringify({ error: "SSE 연결에 실패했습니다" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "동기화 상태를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 }
 

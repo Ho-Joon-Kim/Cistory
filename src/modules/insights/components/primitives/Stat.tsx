@@ -3,10 +3,19 @@
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
-export type StatTone = "green" | "amber" | "orange" | "violet" | "blue" | "red" | "neutral";
+export type StatTone =
+  | "green"
+  | "amber"
+  | "orange"
+  | "violet"
+  | "blue"
+  | "red"
+  | "gain"
+  | "loss"
+  | "neutral";
 
 interface StatProps {
-  /** Small uppercase eyebrow label. */
+  /** Small eyebrow label. */
   label: React.ReactNode;
   /** Big numeric value. */
   value: React.ReactNode;
@@ -14,7 +23,8 @@ interface StatProps {
   suffix?: React.ReactNode;
   /** Optional supporting text shown under value. */
   caption?: React.ReactNode;
-  /** Color treatment for the value. Default: neutral (foreground). */
+  /** Color treatment for the value. Default: neutral (foreground). Use gain/loss for signed
+   * investment figures (gain = red, loss = blue). */
   tone?: StatTone;
   /** Compact size for stat strips. */
   size?: "sm" | "md" | "lg";
@@ -23,13 +33,28 @@ interface StatProps {
   className?: string;
 }
 
-const TONE_TEXT: Record<StatTone, string> = {
+const TONE_GLOW: Record<StatTone, string> = {
   green: "glow-text-green",
   amber: "glow-text-amber",
   orange: "glow-text-orange",
   violet: "glow-text-violet",
   blue: "glow-text-blue",
   red: "glow-text-red",
+  gain: "text-gain",
+  loss: "text-loss",
+  neutral: "text-foreground",
+};
+
+// Literal class names so Tailwind can see them (no string interpolation).
+const TONE_TEXT: Record<StatTone, string> = {
+  green: "text-[hsl(var(--accent-green))]",
+  amber: "text-[hsl(var(--accent-amber))]",
+  orange: "text-[hsl(var(--accent-orange))]",
+  violet: "text-[hsl(var(--accent-violet))]",
+  blue: "text-[hsl(var(--accent-blue))]",
+  red: "text-[hsl(var(--accent-red))]",
+  gain: "text-gain",
+  loss: "text-loss",
   neutral: "text-foreground",
 };
 
@@ -40,7 +65,7 @@ const SIZE_VALUE: Record<NonNullable<StatProps["size"]>, string> = {
 };
 
 const SIZE_SUFFIX: Record<NonNullable<StatProps["size"]>, string> = {
-  sm: "text-[10px]",
+  sm: "text-xs",
   md: "text-xs",
   lg: "text-sm",
 };
@@ -59,16 +84,11 @@ export function Stat({
   glow = false,
   className,
 }: StatProps) {
-  const toneClass =
-    glow && tone !== "neutral"
-      ? TONE_TEXT[tone]
-      : tone === "neutral"
-        ? "text-foreground"
-        : `text-[hsl(var(--accent-${tone}))]`;
+  const toneClass = glow ? TONE_GLOW[tone] : TONE_TEXT[tone];
 
   return (
     <div className={cn("min-w-0", className)}>
-      <div className="text-[10px] uppercase tracking-[0.08em] text-ink-mute">{label}</div>
+      <div className="text-xs text-ink-mute">{label}</div>
       <div
         className={cn("mt-1 tabular-mono font-semibold leading-none", SIZE_VALUE[size], toneClass)}
       >
@@ -77,7 +97,7 @@ export function Stat({
           <span className={cn("ml-1 font-normal text-ink-mute", SIZE_SUFFIX[size])}>{suffix}</span>
         ) : null}
       </div>
-      {caption ? <div className="mt-1 text-[11px] text-ink-mute">{caption}</div> : null}
+      {caption ? <div className="mt-1 text-xs text-ink-mute">{caption}</div> : null}
     </div>
   );
 }

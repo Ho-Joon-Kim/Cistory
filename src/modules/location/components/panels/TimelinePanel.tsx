@@ -33,9 +33,7 @@ export function TimelinePanel({ segments, selectedIndex, onSegmentClick }: Timel
 
   return (
     <div className="flex flex-col p-3">
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-        타임라인
-      </h3>
+      <h3 className="text-xs font-semibold text-muted-foreground mb-3">타임라인</h3>
       <div className="flex flex-col">
         {segments.map((seg, i) => {
           const isSelected = selectedIndex === i;
@@ -49,13 +47,14 @@ export function TimelinePanel({ segments, selectedIndex, onSegmentClick }: Timel
                 className={`flex items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50 ${
                   isSelected ? "bg-accent" : ""
                 }`}
+                aria-pressed={isSelected}
                 onClick={() => onSegmentClick(i)}
               >
-                <div className="flex flex-col items-center mt-0.5">
+                <div className="flex flex-col items-center mt-0.5" aria-hidden="true">
                   <div
                     className={`flex h-6 w-6 items-center justify-center rounded-full ${
                       sp.savedPlaceId
-                        ? "bg-amber-500/20 text-amber-600"
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
                         : "bg-primary/15 text-primary"
                     }`}
                   >
@@ -63,11 +62,12 @@ export function TimelinePanel({ segments, selectedIndex, onSegmentClick }: Timel
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
+                  <p className="text-sm font-medium truncate" title={sp.placeName || undefined}>
                     {sp.placeName || "알 수 없는 장소"}
+                    {sp.savedPlaceId && <span className="sr-only"> (저장된 장소)</span>}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatTime(sp.startTime)} - {formatTime(sp.endTime)}
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {formatTime(sp.startTime)}–{formatTime(sp.endTime)}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {formatDuration(sp.durationMinutes)}
@@ -89,16 +89,17 @@ export function TimelinePanel({ segments, selectedIndex, onSegmentClick }: Timel
               className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/50 ${
                 isSelected ? "bg-accent" : ""
               }`}
+              aria-pressed={isSelected}
               onClick={() => onSegmentClick(i)}
             >
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center" aria-hidden="true">
                 <div className="flex h-5 w-6 items-center justify-center">
                   <ArrowDown className="h-3 w-3 text-muted-foreground" />
                 </div>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-muted-foreground">
-                  이동 {formatTime(seg.startTime)} - {formatTime(seg.endTime)} (
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  이동 {formatTime(seg.startTime)}–{formatTime(seg.endTime)} (
                   {formatDuration(durationMin)})
                 </p>
               </div>
