@@ -3,16 +3,20 @@
 import { useTheme } from "next-themes";
 import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
+import { useSaveThemePreference } from "@/modules/settings/hooks";
 
 const subscribeNoop = () => () => {};
 
 /**
  * One-click light/dark switch (app bar). The icon is CSS-driven by the `.dark`
  * class so the server render matches; the label names the next theme once the
- * client knows the resolved theme.
+ * client knows the resolved theme. The choice is this device's explicit theme
+ * (it wins over the server copy) and is also saved to settings in the
+ * background so the settings page and other devices agree.
  */
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
+  const saveTheme = useSaveThemePreference();
   const isClient = useSyncExternalStore(
     subscribeNoop,
     () => true,
@@ -27,7 +31,11 @@ export function ThemeToggle() {
       size="icon"
       aria-label={label}
       title={label}
-      onClick={() => setTheme(isDark ? "light" : "dark")}
+      onClick={() => {
+        const next = isDark ? "light" : "dark";
+        setTheme(next);
+        saveTheme(next);
+      }}
     >
       <svg
         aria-hidden="true"

@@ -7,8 +7,8 @@ import { useEvidenceTrigger } from "./evidence";
 import { FactTrigger } from "./FactTrigger";
 
 /**
- * An annotation pinned to a chart point: a 1px --ink3 leader line and a serif
- * 12px label that is itself the fact trigger. Place it inside a
+ * An annotation pinned to a chart point: a 1px --ink3 leader line and a sans
+ * 12/16 --ink2 label (as in the mocks) that is itself the fact trigger. Place it inside a
  * `position: relative` chart box; `x` is the point's horizontal position, `top`
  * where the label sits and `leader` the line length below the label.
  * Use 1–3 per chart, chosen from computed candidates (peak, anomaly, window).
@@ -39,6 +39,7 @@ export function ChartAnnotation({
   const px = (v: number | string) => (typeof v === "number" ? `${v}px` : v);
   return (
     <span
+      data-chart-annotation=""
       className={cn("pointer-events-none absolute", className)}
       style={{ left: px(x), top: px(top) } as CSSProperties}
     >
@@ -49,7 +50,7 @@ export function ChartAnnotation({
       />
       <span
         className={cn(
-          "pointer-events-auto absolute top-0 font-serif text-xs leading-4 font-medium tracking-[-0.01em] whitespace-nowrap text-ink",
+          "pointer-events-auto absolute top-0 font-sans text-xs leading-4 font-medium tracking-normal whitespace-nowrap text-ink-2",
           side === "right" ? "left-[5px]" : "right-[5px]"
         )}
         {...handlers}

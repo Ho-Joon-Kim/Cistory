@@ -13,6 +13,7 @@ export interface SegmentedItem<V extends string> {
 /**
  * Segmented control with a sliding thumb (height 36, ≤ 5 items). Items are equal
  * width; on phones it fills the row (items never wrap), from sm it fits content.
+ * On phones and coarse pointers each item's hit area is 44px tall.
  * Each item is a toggle button with `aria-pressed`; the group is labelled.
  */
 export function Segmented<V extends string>({
@@ -70,7 +71,9 @@ export function Segmented<V extends string>({
             aria-label={item.ariaLabel}
             onClick={() => onChange(item.value)}
             className={cn(
-              "relative z-[1] h-[30px] cursor-pointer rounded-[7px] border-0 bg-transparent px-3 text-[13px] whitespace-nowrap transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand",
+              "relative z-[1] h-[30px] cursor-pointer rounded-[7px] border-0 bg-transparent px-3 text-[13px] whitespace-nowrap transition-colors duration-150 ease-out focus-ring focus-visible:outline-offset-1",
+              // 44px-tall hit area on phones and touch screens (thumb stays 30).
+              "max-sm:tap-target pointer-coarse:tap-target",
               on ? "font-semibold text-ink" : "font-medium text-ink-2 hover:text-ink"
             )}
           >

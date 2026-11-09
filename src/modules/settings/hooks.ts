@@ -1,50 +1,84 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
-
+import { readStoredTheme, themeToApplyFromServer } from "./theme-sync";
 import type { UserSettings } from "./types";
 
 // Shared with the API route (single response contract) — re-exported so
 // existing `import { UserSettings } from ".../hooks"` consumers keep working.
 export type { UserSettings } from "./types";
 
+export const SETTINGS_QUERY_KEY = ["settings"] as const;
+
+async function fetchSettingsPayload(): Promise<UserSettings> {
+  const response = await fetch("/api/settings");
+  if (!response.ok) throw new Error("Failed to fetch settings");
+  return (await response.json()) as UserSettings;
+}
+
+/**
+ * Persist a theme choice made outside the settings page (the app-bar toggle) so
+ * other devices pick it up, and keep any mounted useSettings in sync. Fire and
+ * forget: the local choice is already applied and wins on this device.
+ */
+export function useSaveThemePreference() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (theme: UserSettings["theme"]) => {
+      void fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme }),
+      })
+        .then(async (response) => {
+          if (!response.ok) return;
+          queryClient.setQueryData(SETTINGS_QUERY_KEY, (await response.json()) as UserSettings);
+        })
+        .catch(() => {});
+    },
+    [queryClient]
+  );
+}
+
+/**
+ * The user's settings. One shared query (every consumer on the page dedupes to a
+ * single GET). The server theme is applied only when this browser has no
+ * explicit choice yet — see themeToApplyFromServer.
+ */
 export function useSettings() {
-  const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { setTheme } = useTheme();
+  // next-themes hands out a new setTheme whenever the theme changes; reading it
+  // through a ref keeps that identity churn from re-running anything below.
+  const setThemeRef = useRef(setTheme);
+  setThemeRef.current = setTheme;
 
-  const fetchSettings = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const query = useQuery({
+    queryKey: SETTINGS_QUERY_KEY,
+    queryFn: fetchSettingsPayload,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
 
-    try {
-      const response = await fetch("/api/settings");
+  const serverTheme = query.data?.theme;
+  useEffect(() => {
+    const theme = themeToApplyFromServer(serverTheme, readStoredTheme());
+    if (theme) setThemeRef.current(theme);
+  }, [serverTheme]);
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch settings");
-      }
-
-      const data = (await response.json()) as UserSettings;
-      setSettings(data);
-
-      // 테마 적용
-      if (data.theme) {
-        setTheme(data.theme);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [setTheme]);
+  const { refetch } = query;
+  const refresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
   const updateSettings = useCallback(
     async (newSettings: Partial<UserSettings>) => {
       setIsSaving(true);
-      setError(null);
+      setSaveError(null);
 
       try {
         const response = await fetch("/api/settings", {
@@ -60,35 +94,37 @@ export function useSettings() {
         }
 
         const data = (await response.json()) as UserSettings;
-        setSettings(data);
+        queryClient.setQueryData(SETTINGS_QUERY_KEY, data);
 
-        // 테마 변경 시 적용
+        // 테마 변경 시 적용 (explicit choice on this device)
         if (newSettings.theme) {
-          setTheme(newSettings.theme);
+          setThemeRef.current(newSettings.theme);
         }
 
         return true;
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setSaveError(e instanceof Error ? e.message : "Unknown error");
         return false;
       } finally {
         setIsSaving(false);
       }
     },
-    [setTheme]
+    [queryClient]
   );
 
-  useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
+  const fetchError = query.error
+    ? query.error instanceof Error
+      ? query.error.message
+      : "Unknown error"
+    : null;
 
   return {
-    settings,
-    isLoading,
+    settings: query.data ?? null,
+    isLoading: query.isPending,
     isSaving,
-    error,
+    error: saveError ?? fetchError,
     updateSettings,
-    refresh: fetchSettings,
+    refresh,
   };
 }
 

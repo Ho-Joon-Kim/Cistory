@@ -59,7 +59,7 @@ export function UserMenu() {
         <DropdownMenuItem asChild>
           <Link href="/repositories" className="cursor-pointer">
             <User className="mr-2 h-4 w-4" />
-            레포지토리 관리
+            레포지토리
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>

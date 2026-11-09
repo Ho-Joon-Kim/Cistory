@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commitGraphBars, commitGraphLabel, commitLevel } from "./commit-graph";
+import { barIndexAt, commitGraphBars, commitGraphLabel, commitLevel } from "./commit-graph";
 
 const NOW = new Date("2026-11-09T13:00:00Z");
 
@@ -43,5 +43,20 @@ describe("commit graph", () => {
     );
     expect(bars[1].height).toBe("18%");
     expect(commitGraphLabel([], NOW)).toBe("최근 0일 커밋 0건");
+  });
+});
+
+describe("barIndexAt", () => {
+  it("maps a tap position to its bar, clamped to the strip", () => {
+    expect(barIndexAt(100, 100, 112, 28)).toBe(0);
+    expect(barIndexAt(105, 100, 112, 28)).toBe(1);
+    expect(barIndexAt(211.9, 100, 112, 28)).toBe(27);
+    expect(barIndexAt(90, 100, 112, 28)).toBe(0); // the padded hit area left of the strip
+    expect(barIndexAt(260, 100, 112, 28)).toBe(27);
+  });
+
+  it("is safe for an empty strip", () => {
+    expect(barIndexAt(10, 0, 0, 28)).toBe(0);
+    expect(barIndexAt(10, 0, 100, 0)).toBe(0);
   });
 });
