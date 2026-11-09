@@ -39,5 +39,12 @@ export function parseSearchInput(params: URLSearchParams, now = new Date()): Sea
     }
     result.hours = { from: fromHour, to: toHour };
   }
+  const repo = params.get("repo");
+  if (repo) {
+    if (repo.length > 300 || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+      throw new ApiError(400, "올바른 레포지토리를 선택해 주세요.");
+    }
+    result.repo = repo;
+  }
   return result;
 }

@@ -36,6 +36,7 @@ function source(id: SourceId, counts: number[], patch: Partial<SourceStatus> = {
     canRecover: id === "health" || id === "wakatime" || id === "withings",
     recoveryHelp: "",
     days: days(counts),
+    retained: null,
     ...patch,
   };
 }
@@ -61,6 +62,15 @@ describe("buildSourceView", () => {
     expect(view.cells.every((c) => c.kind === "fail")).toBe(true);
     expect(view.daysSinceSuccess).toBe(63);
     expect(rowSubline(view, NOW)).toEqual({ text: "미동기화 63일", tone: "gain" });
+  });
+
+  it("keeps a re-auth source in the amber state on its subline", () => {
+    const view = buildSourceView(
+      source("wakatime", [0, 0, 0], { needsReauth: true, lastSuccessAt: "2026-09-06T08:00:00Z" }),
+      NOW
+    );
+    expect(view.status).toBe("reauth");
+    expect(rowSubline(view, NOW)).toEqual({ text: "다시 연결 필요", tone: "warn" });
   });
 
   it("marks zero days of an expected-daily source as gaps, but never today", () => {

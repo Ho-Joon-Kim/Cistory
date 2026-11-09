@@ -26,6 +26,9 @@ describe("record search input", () => {
     "hours=25-3",
     "hours=7-7",
     "hours=evening",
+    "repo=no-slash",
+    "repo=a/b/c",
+    `repo=a/${"b".repeat(300)}`,
   ])("rejects invalid or unbounded input: %s", (query) => {
     expect(() => parseSearchInput(new URLSearchParams(query))).toThrow();
   });
@@ -41,5 +44,10 @@ describe("record search input", () => {
         new Date("2026-09-06T03:00:00Z")
       )
     ).toMatchObject({ category: "food", hours: { from: 21, to: 4 } });
+  });
+  it("accepts a repository filter", () => {
+    expect(
+      parseSearchInput(new URLSearchParams("repo=thezzle-dev/thezzle_core&source=commit"))
+    ).toMatchObject({ repo: "thezzle-dev/thezzle_core", source: "commit" });
   });
 });

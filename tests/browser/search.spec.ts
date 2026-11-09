@@ -182,7 +182,7 @@ test("search distinguishes failures, retries, empty results and invalid ranges",
   await page.keyboard.press("Escape");
   await page.goto("/search?from=2026-08-01&to=2026-08-31&page=101");
   await expect(page.getByRole("main").getByRole("alert")).toContainText(
-    "검색 주소의 조건이 올바르지 않습니다."
+    "검색 주소의 조건이 올바르지 않아요"
   );
   expect(calls).toBe(before);
   await page.getByLabel("검색어", { exact: true }).press("Enter");

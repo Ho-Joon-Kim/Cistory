@@ -8,13 +8,20 @@ import type { CellKind, StatusCell } from "../insights";
 /** Shared intensity ramp: --ink mixed into --track (14 · 30 · 50 · 70 · 88%). */
 const LEVEL_MIX = [0, 14, 30, 50, 70, 88] as const;
 
-export function cellStyle(kind: CellKind, level: number): CSSProperties {
+/**
+ * `failTone` colors the 수집 실패 hatch: --up for a failing source, --warn for one
+ * that only needs re-authorization, so the strip matches the row's badge.
+ */
+export function cellStyle(
+  kind: CellKind,
+  level: number,
+  failTone: "up" | "warn" = "up"
+): CSSProperties {
   switch (kind) {
     case "fail":
       return {
-        background:
-          "repeating-linear-gradient(135deg, color-mix(in oklab, var(--up) 22%, transparent) 0 2px, transparent 2px 6px)",
-        boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--up) 40%, transparent)",
+        background: `repeating-linear-gradient(135deg, color-mix(in oklab, var(--${failTone}) 22%, transparent) 0 2px, transparent 2px 6px)`,
+        boxShadow: `inset 0 0 0 1px color-mix(in oklab, var(--${failTone}) 40%, transparent)`,
       };
     case "gap":
       return { background: "transparent", boxShadow: "inset 0 0 0 1.5px var(--warn)" };
@@ -71,6 +78,7 @@ export function StatusStrip({
   hovered,
   evidence,
   onHover,
+  failTone,
   className,
 }: {
   cells: StatusCell[];
@@ -80,6 +88,7 @@ export function StatusStrip({
   /** Date keys lit by an AI line; others dim while set. */
   evidence?: ReadonlySet<string> | null;
   onHover?: (index: number | null) => void;
+  failTone?: "up" | "warn";
   className?: string;
 }) {
   return (
@@ -103,7 +112,7 @@ export function StatusStrip({
                 "after:absolute after:-bottom-2 after:left-1/2 after:-ml-0.5 after:size-1 after:rounded-full after:bg-brand"
             )}
             style={withRing(
-              cellStyle(cell.kind, cell.level),
+              cellStyle(cell.kind, cell.level, failTone),
               hovered === i ? "var(--ink2)" : ev === "on" ? "var(--brand)" : null
             )}
           >

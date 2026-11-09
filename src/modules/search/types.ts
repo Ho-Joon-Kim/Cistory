@@ -10,6 +10,8 @@ export interface SearchInput {
   category?: string;
   /** KST hour-of-day window, start inclusive / end exclusive (0..24). Excludes trips. */
   hours?: { from: number; to: number };
+  /** Only commits in this repository (`owner/name`, implies commit-only). */
+  repo?: string;
 }
 export interface SearchItem {
   id: string;
@@ -26,6 +28,11 @@ export interface SearchItem {
   category?: string | null;
   /** Commit repository `owner/name`. */
   repository?: string | null;
+  /**
+   * Mixed "전체" view only: commits that day in this repository. The page then
+   * carries just the newest few of them.
+   */
+  groupTotal?: number;
 }
 export type SearchCounts = Record<Exclude<SearchSource, "all">, number>;
 export interface SearchResponse {

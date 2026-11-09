@@ -99,6 +99,29 @@ describe("data collection status and recovery against PostgreSQL", () => {
     expect(waka).toMatchObject({ connected: true, needsReauth: true, canRecover: false });
   });
 
+  it("reports all-time retained records, owner-scoped, only for sources needing attention", async () => {
+    const legacy = await insertTestUser(db, { wakatimeApiKey: "fixture-key" });
+    const other = await user();
+    const session = (userId: string, at: string) => ({
+      userId,
+      project: "app",
+      startedAt: new Date(at),
+      durationSeconds: 1,
+      createdAt: now,
+    });
+    await db.insert(schema.codingSessions).values([
+      // Two sessions on KST 2026-01-01 (one before UTC midnight), one in March.
+      session(legacy, "2025-12-31T15:30:00Z"),
+      session(legacy, "2026-01-01T02:00:00Z"),
+      session(legacy, "2026-03-05T02:00:00Z"),
+      session(other, "2026-03-05T02:00:00Z"),
+    ]);
+    const status = await getDataStatus(db, legacy, "2026-09-01", "2026-09-03", now);
+    const waka = status.sources.find((s) => s.id === "wakatime")!;
+    expect(waka.retained).toEqual({ count: 3, days: 2 });
+    expect(status.sources.find((s) => s.id === "github")!.retained).toBeNull();
+  });
+
   it("serializes duplicate enqueue requests and claims a day only once", async () => {
     const id = await user();
     const results = await Promise.allSettled([enqueue(id), enqueue(id)]);

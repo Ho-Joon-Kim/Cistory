@@ -65,3 +65,16 @@ describe("groupByDay", () => {
     expect(commitGroupFact(small)).toBeNull();
   });
 });
+
+describe("groupByDay with collapsed commit groups", () => {
+  it("counts the whole group once and keeps a two-row group from a larger total", () => {
+    const days = groupByDay([
+      { ...commit("a", "fix: one"), groupTotal: 29 },
+      { ...commit("b", "fix: two"), groupTotal: 29 },
+      visit("v1", "집"),
+    ]);
+    expect(days[0].total).toBe(30);
+    expect(days[0].rows[0]).toMatchObject({ kind: "commits", total: 29 });
+    expect((days[0].rows[0] as { items: unknown[] }).items).toHaveLength(2);
+  });
+});

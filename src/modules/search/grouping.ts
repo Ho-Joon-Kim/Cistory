@@ -13,6 +13,8 @@ export interface CommitGroup {
   owner: string;
   name: string;
   items: SearchItem[];
+  /** Commits that day in this repository; more than `items` in the mixed view. */
+  total: number;
   /** Most frequent ticket id in the titles (e.g. RE-1008), if any. */
   ticket: string | null;
   typeCounts: [string, number][];
@@ -78,7 +80,8 @@ export function groupByDay(items: SearchItem[]): DayGroup[] {
       day = { date: item.date, rows: [], total: 0 };
       days.push(day);
     }
-    day.total += 1;
+    // A collapsed commit group counts every commit it stands for, once.
+    if (item.source !== "commit" || !item.groupTotal) day.total += 1;
   }
   for (const day of days) {
     const dayItems = items.filter((item) => item.date === day.date);
@@ -88,6 +91,7 @@ export function groupByDay(items: SearchItem[]): DayGroup[] {
       if (item.source === "commit") {
         const repo = item.repository ?? item.description ?? "";
         const list = repos.get(repo) ?? [];
+        if (list.length === 0 && item.groupTotal) day.total += item.groupTotal;
         list.push(item);
         repos.set(repo, list);
       }
@@ -97,7 +101,8 @@ export function groupByDay(items: SearchItem[]): DayGroup[] {
       if (item.source === "commit") {
         const repo = item.repository ?? item.description ?? "";
         const list = repos.get(repo) ?? [item];
-        if (list.length < 2) {
+        const total = Math.max(list.length, list[0]?.groupTotal ?? 0);
+        if (total < 2) {
           day.rows.push({ kind: "item", key: `${item.source}:${item.id}`, item, repeat: 1 });
           continue;
         }
@@ -114,6 +119,7 @@ export function groupByDay(items: SearchItem[]): DayGroup[] {
           owner: rest.length ? owner : "",
           name: rest.length ? rest.join("/") : repo,
           items: list,
+          total,
           ticket: topTicket(list),
           typeCounts: [...types.entries()].sort((a, b) => b[1] - a[1]),
         });

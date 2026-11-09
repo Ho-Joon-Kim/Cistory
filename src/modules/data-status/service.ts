@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, type SQL, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   bodyMeasurements,
@@ -44,6 +44,46 @@ const HELP: Record<SourceId, string> = {
   health:
     "Google Health (Fitbit)의 수치 지표를 날짜별로 다시 수집합니다. 수면·운동 기록과 휴대폰에만 있는 Health Connect 기록은 기존 건강 동기화나 휴대폰 재전송을 사용하세요.",
 };
+
+/** All-time stored rows and distinct KST days for one source. */
+function retainedQuery(id: SourceId, userId: string): SQL {
+  const of = (table: SQL, at: SQL, where: SQL = sql`true`) =>
+    sql`SELECT count(*)::int AS count, count(DISTINCT ${localDaySql(at)})::int AS days
+      FROM ${table} WHERE user_id = ${userId} AND ${where}`;
+  switch (id) {
+    case "github":
+      return of(sql`commits`, sql`committed_at`);
+    case "location":
+      return of(sql`location_points`, sql`timestamp`);
+    case "toss":
+      return of(sql`notification_logs`, sql`received_at`, sql`source = 'toss'`);
+    case "wakatime":
+      return of(sql`coding_sessions`, sql`started_at`);
+    case "withings":
+      return of(sql`body_measurements`, sql`measured_at`);
+    case "health":
+      return of(sql`health_samples`, sql`sample_at`);
+    case "kis":
+      return sql`SELECT count(*)::int AS count, count(DISTINCT s.as_of_date)::int AS days
+        FROM holding_snapshots s JOIN brokerage_accounts a ON a.id = s.account_id
+        WHERE a.user_id = ${userId}`;
+  }
+}
+
+export async function retainedCounts(
+  db: Database,
+  userId: string,
+  ids: SourceId[]
+): Promise<Partial<Record<SourceId, { count: number; days: number }>>> {
+  const entries = await Promise.all(
+    ids.map(async (id) => {
+      const result = await db.execute<{ count: number; days: number }>(retainedQuery(id, userId));
+      const row = result.rows[0];
+      return [id, { count: Number(row?.count ?? 0), days: Number(row?.days ?? 0) }] as const;
+    })
+  );
+  return Object.fromEntries(entries);
+}
 
 export function serializeRecoveryJob(row: typeof dataRecoveryJobs.$inferSelect): RecoveryJob {
   return {
@@ -202,19 +242,37 @@ export async function getDataStatus(
     withings: withings?.status === "active",
     health: health?.status === "active",
   };
+  const base = SOURCE_IDS.map((id) => {
+    const state = states.find((s) => s.source === id);
+    const lastSuccessAt = latestDate([
+      state?.lastSuccessAt ?? null,
+      success[id] ? new Date(success[id]!) : null,
+    ]);
+    const error =
+      state?.error ??
+      (existingErrors[id]
+        ? "최근 동기화에서 오류가 기록되었습니다. 설정에서 연결 상태를 확인해 주세요."
+        : null);
+    const stale =
+      !["location", "toss"].includes(id) && isSourceStale(connections[id], lastSuccessAt, now);
+    return { id, lastSuccessAt, error, stale, needsReauth: reauth[id] ?? false };
+  });
+  // Only sources that need attention get the all-time count (the focus panel's
+  // "보관된 기록"): it scans the source's whole table, so healthy ones skip it.
+  const retained = await retainedCounts(
+    db,
+    userId,
+    base
+      .filter((b) => connections[b.id] && (b.needsReauth || b.stale || !!b.error))
+      .map((b) => b.id)
+  );
   return {
     from,
     to,
     timeZone: "Asia/Seoul",
     jobs,
-    sources: SOURCE_IDS.map((id) => {
+    sources: base.map(({ id, lastSuccessAt, error, stale, needsReauth }) => {
       const rows = result.rows.filter((r) => r.source === id);
-      const state = states.find((s) => s.source === id);
-      const lastSuccessAt = latestDate([
-        state?.lastSuccessAt ?? null,
-        success[id] ? new Date(success[id]!) : null,
-      ]);
-      const needsReauth = reauth[id] ?? false;
       return {
         id,
         label: LABELS[id],
@@ -222,13 +280,8 @@ export async function getDataStatus(
         needsReauth,
         lastSuccessAt,
         lastRecordAt: rows.at(-1)?.lastRecordAt ?? null,
-        error:
-          state?.error ??
-          (existingErrors[id]
-            ? "최근 동기화에서 오류가 기록되었습니다. 설정에서 연결 상태를 확인해 주세요."
-            : null),
-        stale:
-          !["location", "toss"].includes(id) && isSourceStale(connections[id], lastSuccessAt, now),
+        error,
+        stale,
         canRecover: recoveryAvailability[id] ?? false,
         recoveryHelp: HELP[id],
         days: buildSourceDays(
@@ -238,6 +291,7 @@ export async function getDataStatus(
           new Map(rows.map((r) => [r.date, Number(r.count)])),
           jobs
         ),
+        retained: retained[id] ?? null,
       };
     }),
   };

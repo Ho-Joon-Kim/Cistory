@@ -38,6 +38,11 @@ export interface SourceStatus {
   canRecover: boolean;
   recoveryHelp: string;
   days: SourceDay[];
+  /**
+   * Everything stored for this source, all time. Only computed for a source
+   * that needs attention (failing, stale or needing re-auth) — otherwise null.
+   */
+  retained: { count: number; days: number } | null;
 }
 export interface DataStatusResponse {
   from: string;

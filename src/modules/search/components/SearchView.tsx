@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import {
   AiLine,
+  ArrowRight,
   Chevron,
   Disclosure,
   EmptyState,
@@ -43,6 +44,7 @@ interface Applied {
   only: RecordSource[];
   category: string;
   hours: string;
+  repo: string;
 }
 
 const RECORD_SOURCES: RecordSource[] = ["commit", "spending", "visit", "trip"];
@@ -61,6 +63,7 @@ function readApplied(params: URLSearchParams, today: string): Applied {
       .filter((s): s is RecordSource => RECORD_SOURCES.includes(s as RecordSource)),
     category: params.get("category") ?? "",
     hours: params.get("hours") ?? "",
+    repo: params.get("repo") ?? "",
   };
 }
 
@@ -77,7 +80,8 @@ function validApplied(a: Applied, pageText: string | null): boolean {
     a.q.length <= 200 &&
     SOURCES.has(a.source) &&
     (!a.category || isExpenseCategory(a.category)) &&
-    (!a.hours || /^\d{1,2}-\d{1,2}$/.test(a.hours))
+    (!a.hours || /^\d{1,2}-\d{1,2}$/.test(a.hours)) &&
+    (!a.repo || /^[\w.-]+\/[\w.-]+$/.test(a.repo))
   );
 }
 
@@ -91,6 +95,7 @@ function toUrl(a: Applied): string {
   if (a.only.length) p.set("only", a.only.join(","));
   if (a.category) p.set("category", a.category);
   if (a.hours) p.set("hours", a.hours);
+  if (a.repo) p.set("repo", a.repo);
   return `/search?${p}`;
 }
 
@@ -175,7 +180,7 @@ function XIcon() {
 }
 
 const CHIP =
-  "inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-sunken px-2.5 text-[13px] font-medium whitespace-nowrap text-ink shadow-[inset_0_0_0_1px_var(--line)] transition-[scale,box-shadow] duration-150 ease-out active:scale-[0.96] hover:shadow-[inset_0_0_0_1px_var(--ink3)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+  "inline-flex h-[30px] max-sm:h-11 max-sm:rounded-[10px] max-sm:px-3 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-sunken px-2.5 text-[13px] font-medium whitespace-nowrap text-ink shadow-[inset_0_0_0_1px_var(--line)] transition-[scale,box-shadow] duration-150 ease-out active:scale-[0.96] hover:shadow-[inset_0_0_0_1px_var(--ink3)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
 
 // ── View ────────────────────────────────────────────────────────────────────
 
@@ -198,6 +203,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
   });
   if (applied.category) api.set("category", applied.category);
   if (applied.hours) api.set("hours", applied.hours);
+  if (applied.repo) api.set("repo", applied.repo);
   const request = api.toString();
 
   const query = useInfiniteQuery<SearchResponse>({
@@ -236,6 +242,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
       only: parsed.sources.length > 1 ? parsed.sources : [],
       category: parsed.category ?? "",
       hours: parsed.hours ? `${parsed.hours.from}-${parsed.hours.to}` : "",
+      repo: applied.repo,
     });
   };
 
@@ -338,7 +345,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
             <Button
               type="submit"
               size="sm"
-              className={cn(!textChanged && "max-sm:sr-only")}
+              className={cn(!textChanged && "max-sm:hidden")}
               disabled={text.trim().length > 200}
             >
               검색
@@ -392,6 +399,18 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
               <XIcon />
             </button>
           ) : null}
+          {applied.repo ? (
+            <button
+              type="button"
+              className={CHIP}
+              aria-label={`레포지토리 ${applied.repo} 조건 지우기`}
+              onClick={() => go({ ...applied, text: "", repo: "" })}
+            >
+              <small className="text-[11px] font-medium text-ink-3">레포</small>
+              {applied.repo.split("/").slice(1).join("/") || applied.repo}
+              <XIcon />
+            </button>
+          ) : null}
           {applied.q && applied.text ? (
             <button
               type="button"
@@ -420,9 +439,16 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
       </div>
 
       {!valid ? (
-        <p role="alert" className="mt-6 text-sm text-gain">
-          검색 주소의 조건이 올바르지 않습니다. 기간을 다시 골라 검색해 주세요.
-        </p>
+        <ErrorState
+          className="mt-8"
+          title="검색 주소의 조건이 올바르지 않아요"
+          description="기간이나 조건이 잘못된 주소예요. 최근 30일 전체 검색으로 다시 시작할 수 있어요."
+          actions={
+            <Button variant="outline" onClick={() => router.push("/search")}>
+              조건 초기화
+            </Button>
+          }
+        />
       ) : (
         <section
           aria-label="검색 결과"
@@ -566,9 +592,7 @@ function RangeChip({
             </button>
           ))}
         </fieldset>
-        <span className="num text-[13px] text-ink-2">
-          {formatDateRange(applied.from, applied.to)}
-        </span>
+        <span className="text-[13px] text-ink-2">{formatDateRange(applied.from, applied.to)}</span>
         {custom ? (
           <form
             className="flex flex-col gap-2"
@@ -647,11 +671,11 @@ function SourceSegment({
   return (
     <fieldset
       aria-label="기록 종류"
-      className="relative m-0 mt-1 grid h-9 w-full min-w-0 grid-cols-5 rounded-[10px] border-0 bg-track p-[3px]"
+      className="relative m-0 mt-1 grid h-9 w-full min-w-0 grid-cols-5 rounded-[10px] border-0 bg-track p-[3px] max-sm:h-11"
     >
       <span
         aria-hidden="true"
-        className="ds-seg-thumb absolute top-[3px] left-[3px] h-[30px] rounded-[7px] bg-surface shadow-ring"
+        className="ds-seg-thumb absolute top-[3px] left-[3px] h-[30px] rounded-[7px] bg-surface shadow-ring max-sm:h-[38px]"
         style={{ width: "calc((100% - 6px) / 5)", translate: `${index * 100}% 0` } as CSSProperties}
       />
       {items.map((item) => {
@@ -668,7 +692,7 @@ function SourceSegment({
             aria-pressed={on}
             onClick={() => onChange(item.value)}
             className={cn(
-              "relative z-[1] inline-flex h-[30px] min-w-0 cursor-pointer items-center justify-center gap-1 rounded-[7px] border-0 bg-transparent px-1 text-[13px] whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-brand",
+              "relative z-[1] inline-flex h-[30px] min-w-0 cursor-pointer max-sm:h-[38px] items-center justify-center gap-1 rounded-[7px] border-0 bg-transparent px-1 text-[13px] whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-brand",
               on
                 ? "font-semibold text-ink"
                 : n === 0
@@ -678,7 +702,9 @@ function SourceSegment({
           >
             {item.label}
             {n !== null ? (
-              <span className="num text-[11px] font-normal text-ink-3">{n > 999 ? "999+" : n}</span>
+              <span className="num text-[11px] font-normal text-ink-3 max-[359px]:hidden">
+                {n > 999 ? "999+" : n}
+              </span>
             ) : null}
           </button>
         );
@@ -766,6 +792,18 @@ function ResultRow({ row }: { row: ItemRow }) {
   );
 }
 
+function repoSearchHref(group: CommitGroup): string {
+  const day = group.items[0]?.date ?? "";
+  const p = new URLSearchParams({
+    q: "",
+    from: day,
+    to: day,
+    source: "commit",
+    repo: group.repository,
+  });
+  return `/search?${p}`;
+}
+
 function CommitGroupRow({ group }: { group: CommitGroup }) {
   const [open, setOpen] = useState(false);
   const fact = commitGroupFact(group);
@@ -782,7 +820,7 @@ function CommitGroupRow({ group }: { group: CommitGroup }) {
         <SourceTile icon="github" dot={DOT_FOR.commit} />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h3 className="m-0 text-[15px] leading-[22px] font-semibold">
-            {group.name} 커밋 <span className="num">{group.items.length}</span>건
+            {group.name} 커밋 <span className="num">{formatCount(group.total)}</span>건
           </h3>
           <span className="truncate text-[13px] leading-[18px] text-ink-3">
             {[group.owner, group.ticket].filter(Boolean).join(" · ") || group.repository}
@@ -820,6 +858,17 @@ function CommitGroupRow({ group }: { group: CommitGroup }) {
               </li>
             );
           })}
+          {group.total > group.items.length ? (
+            <li className="border-t border-line">
+              <a
+                href={repoSearchHref(group)}
+                className="inline-flex min-h-11 items-center gap-1 py-2 text-sm font-semibold text-brand no-underline hover:underline hover:underline-offset-[3px]"
+              >
+                이날 커밋 <span className="num">{formatCount(group.total)}</span>건 모두 보기
+                <ArrowRight />
+              </a>
+            </li>
+          ) : null}
         </ul>
       </Disclosure>
     </li>
