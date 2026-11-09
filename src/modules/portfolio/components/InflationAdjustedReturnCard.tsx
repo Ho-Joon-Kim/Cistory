@@ -9,13 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { PortfolioSummary, SnapshotPoint } from "../hooks";
-import { useSnapshots } from "../hooks";
+import { useReturns } from "../hooks";
 import { computeInflationAdjusted, formatKRW, pnlColorClass } from "../utils";
-
-interface Props {
-  summary: PortfolioSummary;
-}
 
 const INFLATION_OPTIONS = [
   { value: "0.02", label: "2%" },
@@ -25,15 +20,6 @@ const INFLATION_OPTIONS = [
 ];
 
 const MIN_DAYS = 7;
-
-function pickEarliestPerAccount(snapshots: SnapshotPoint[]): SnapshotPoint[] {
-  const earliest = new Map<string, SnapshotPoint>();
-  for (const s of snapshots) {
-    const prev = earliest.get(s.accountId);
-    if (!prev || s.asOfDate < prev.asOfDate) earliest.set(s.accountId, s);
-  }
-  return Array.from(earliest.values());
-}
 
 function formatDuration(years: number): string {
   const totalMonths = Math.round(years * 12);
@@ -45,39 +31,30 @@ function formatDuration(years: number): string {
   return `${y}년 ${m}개월`;
 }
 
-export function InflationAdjustedReturnCard({ summary }: Props) {
+/**
+ * Real gain vs. inflation over the same tracked window as the returns card:
+ * the starting total asset (RETURNS_EPOCH-anchored) and each inferred
+ * deposit/withdrawal are inflated from their own dates, so later deposits are
+ * a contribution to beat rather than profit.
+ */
+export function InflationAdjustedReturnCard() {
   const [inflationRate, setInflationRate] = useState(0.03);
-  const { snapshots, isLoading } = useSnapshots({ from: "2020-01-01" });
-
-  const baseline = useMemo(() => {
-    if (snapshots.length === 0) return null;
-    const earliest = pickEarliestPerAccount(snapshots);
-    if (earliest.length === 0) return null;
-    const startPurchase = earliest.reduce((s, x) => s + x.totalPurchaseAmount, 0);
-    const startDate = earliest.reduce(
-      (min, x) => (x.asOfDate < min ? x.asOfDate : min),
-      earliest[0].asOfDate
-    );
-    return { startPurchase, startDate };
-  }, [snapshots]);
-
-  const currentTotal = summary.totals?.totalEvalAmount ?? 0;
-  const currentPurchase = summary.totals?.totalPurchaseAmount ?? 0;
+  const { data, isLoading } = useReturns({});
 
   const result = useMemo(() => {
-    if (!baseline || baseline.startPurchase <= 0) return null;
+    if (!data?.startDate || !data.endDate || data.startValue <= 0) return null;
     return computeInflationAdjusted({
-      startPurchase: baseline.startPurchase,
-      startDate: baseline.startDate,
-      currentTotal,
+      startValue: data.startValue,
+      startDate: data.startDate,
+      endValue: data.endValue,
+      endDate: data.endDate,
+      cashflows: data.cashflows,
       inflationRate,
     });
-  }, [baseline, currentTotal, inflationRate]);
+  }, [data, inflationRate]);
 
-  const tooNew = (() => {
-    if (!result) return false;
-    return result.years * 365.25 < MIN_DAYS;
-  })();
+  const tooNew = result !== null && result.years * 365.25 < MIN_DAYS;
+  const netCashflow = result && data ? result.contributed - data.startValue : 0;
 
   return (
     <Card>
@@ -99,15 +76,11 @@ export function InflationAdjustedReturnCard({ summary }: Props) {
         </Select>
       </CardHeader>
       <CardContent>
-        {isLoading && snapshots.length === 0 ? (
+        {isLoading && !data ? (
           <div className="text-sm text-muted-foreground py-8 text-center">불러오는 중…</div>
-        ) : !baseline ? (
+        ) : !data || !result ? (
           <div className="text-sm text-muted-foreground py-8 text-center">
             스냅샷 데이터가 아직 없습니다
-          </div>
-        ) : !result ? (
-          <div className="text-sm text-muted-foreground py-8 text-center">
-            매입금액 정보가 없어 계산할 수 없습니다
           </div>
         ) : tooNew ? (
           <div className="text-sm text-muted-foreground py-8 text-center">
@@ -116,16 +89,16 @@ export function InflationAdjustedReturnCard({ summary }: Props) {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <div className="text-xs text-muted-foreground">투입금액 (시작 매입액)</div>
-              <div className="text-lg font-bold mt-1">{formatKRW(baseline.startPurchase)}</div>
+              <div className="text-xs text-muted-foreground">투입금액 (시작 자산 + 순입금)</div>
+              <div className="text-lg font-bold mt-1">{formatKRW(result.contributed)}</div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {baseline.startDate} 이후 {formatDuration(result.years)} 보유
+                {data.startDate} 총자산 {formatKRW(data.startValue, { compact: true })}
+                {netCashflow !== 0 &&
+                  ` · 이후 순입금 ${formatKRW(netCashflow, { compact: true, sign: true })}`}
               </div>
-              {currentPurchase !== baseline.startPurchase && (
-                <div className="text-xs text-muted-foreground mt-1">
-                  현재 매입액 {formatKRW(currentPurchase, { compact: true })}
-                </div>
-              )}
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {formatDuration(result.years)} 동안
+              </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">
@@ -135,12 +108,12 @@ export function InflationAdjustedReturnCard({ summary }: Props) {
                 {formatKRW(result.inflated)}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                같은 돈을 그냥 묻어뒀으면 이만큼이 됐어야 함
+                넣은 돈이 각각 넣은 날부터 물가만큼만 올랐다면
               </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">현재 자산</div>
-              <div className="text-lg font-bold mt-1">{formatKRW(currentTotal)}</div>
+              <div className="text-lg font-bold mt-1">{formatKRW(data.endValue)}</div>
               <div className={`text-sm font-semibold mt-1 ${pnlColorClass(result.realGain)}`}>
                 실질 {result.realGain >= 0 ? "+" : ""}
                 {formatKRW(result.realGain, { compact: true })}

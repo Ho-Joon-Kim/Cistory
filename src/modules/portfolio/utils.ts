@@ -87,27 +87,52 @@ function todayKstYmd(): string {
 
 export interface InflationAdjustedResult {
   years: number;
+  /** Starting value plus every later net external cashflow, uninflated. */
+  contributed: number;
+  /** What each contribution would be worth today had it only kept pace with inflation. */
   inflated: number;
   realGain: number;
   realGainRate: number | null;
   outperformedInflation: boolean;
 }
 
+function yearsBetween(fromYmd: string, toYmd: string): number {
+  const ms = parseKstDate(toYmd).getTime() - parseKstDate(fromYmd).getTime();
+  return Math.max(0, ms / (365.25 * 86_400_000));
+}
+
+/**
+ * Inflation-adjusted real gain, cashflow-aware.
+ *
+ * The benchmark inflates the starting value from `startDate` and every later
+ * external cashflow (deposit > 0, withdrawal < 0) from its own date, so money
+ * added mid-period is a contribution to beat, never "gain". `startValue` and
+ * `endValue` must be on the same basis (total account value, tot_evlu_amt) —
+ * comparing a cost basis against a market value counts unrealized gains that
+ * predate the window as real gain.
+ */
 export function computeInflationAdjusted(params: {
-  startPurchase: number;
+  startValue: number;
   startDate: string;
-  currentTotal: number;
+  endValue: number;
   inflationRate: number;
   endDate?: string;
+  cashflows?: ReadonlyArray<{ date: string; amount: number }>;
 }): InflationAdjustedResult {
-  const startMs = parseKstDate(params.startDate).getTime();
-  const endMs = parseKstDate(params.endDate ?? todayKstYmd()).getTime();
-  const years = Math.max(0, (endMs - startMs) / (365.25 * 86_400_000));
-  const inflated = params.startPurchase * (1 + params.inflationRate) ** years;
-  const realGain = params.currentTotal - inflated;
+  const endDate = params.endDate ?? todayKstYmd();
+  const grow = (fromYmd: string) => (1 + params.inflationRate) ** yearsBetween(fromYmd, endDate);
+  const years = yearsBetween(params.startDate, endDate);
+  let contributed = params.startValue;
+  let inflated = params.startValue * grow(params.startDate);
+  for (const cf of params.cashflows ?? []) {
+    contributed += cf.amount;
+    inflated += cf.amount * grow(cf.date);
+  }
+  const realGain = params.endValue - inflated;
   const realGainRate = inflated > 0 ? (realGain / inflated) * 100 : null;
   return {
     years,
+    contributed,
     inflated,
     realGain,
     realGainRate,

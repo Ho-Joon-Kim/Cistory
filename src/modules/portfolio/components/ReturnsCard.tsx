@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { toLocalDateString } from "@/lib/utils";
 import type { SummaryAccount } from "../hooks";
 import { useReturns } from "../hooks";
+import { MIN_ANNUALIZE_DAYS } from "../returns";
 import { formatKRW, pnlColorClass } from "../utils";
 
 interface Props {
@@ -62,7 +63,7 @@ export function ReturnsCard({ accounts }: Props) {
   const { data, isLoading, error } = useReturns(params);
 
   const hasData = data && data.twr.totalReturn !== null;
-  const shortPeriod = data && data.twr.days < 30;
+  const belowAnnualizeMin = data !== null && data.twr.days < MIN_ANNUALIZE_DAYS;
 
   return (
     <Card>
@@ -161,9 +162,9 @@ export function ReturnsCard({ accounts }: Props) {
                   {fmtPct(data.twr.annualizedReturn)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {shortPeriod ? (
+                  {belowAnnualizeMin ? (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                      기간이 짧아 변동성 큼
+                      1년 미만은 연환산하지 않음
                     </Badge>
                   ) : (
                     "Time-Weighted Return"
@@ -175,7 +176,9 @@ export function ReturnsCard({ accounts }: Props) {
                 <div className={`text-2xl font-bold mt-1 ${pctColorClass(data.xirr)}`}>
                   {fmtPct(data.xirr)}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">Money-Weighted Return</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {belowAnnualizeMin ? "1년 미만은 연환산하지 않음" : "Money-Weighted Return"}
+                </div>
               </div>
             </div>
 

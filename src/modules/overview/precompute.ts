@@ -18,8 +18,10 @@ import type { PeriodAggregateInput, PeriodAggregatePayload } from "./types";
 // aggregate/location.ts's `visitedRegions` reads directly. v4 (2026-10):
 // fix/toss-transfer-parsing changed spending's `bucketSql` (pooled-account
 // deposits count only the user's own unmirrored ones; cancelled payments drop
-// out), which aggregate/spending.ts classifies with.
-export const OVERVIEW_COMPUTE_VERSION = 4;
+// out), which aggregate/spending.ts classifies with. v5 (2026-11): portfolio
+// `twr.annualizedReturn` is null for windows under MIN_ANNUALIZE_DAYS (365) —
+// a 30-day −2.7% had been stored as a "연환산" −28.1% the narrative could quote.
+export const OVERVIEW_COMPUTE_VERSION = 5;
 export const PRECOMPUTE_CLAIM_LIMIT = 5;
 export const PRECOMPUTE_MAX_ATTEMPTS = 3;
 export const PRECOMPUTE_USER_BATCH_LIMIT = 250;
