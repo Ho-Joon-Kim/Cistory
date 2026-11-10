@@ -129,10 +129,9 @@ export function AccountRolesCard() {
                         {isDirty && <span className="text-xs text-primary">변경됨</span>}
                       </div>
                     </div>
-                    <div
-                      role="group"
+                    <fieldset
                       aria-label={`${a.accountName} 분류 역할`}
-                      className="flex flex-wrap gap-1"
+                      className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0"
                     >
                       {ROLE_OPTIONS.map((opt) => (
                         <Button
@@ -148,7 +147,7 @@ export function AccountRolesCard() {
                           {opt.label}
                         </Button>
                       ))}
-                    </div>
+                    </fieldset>
                   </div>
                 );
               })}
