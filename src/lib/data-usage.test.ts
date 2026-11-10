@@ -50,4 +50,14 @@ describe("data-usage TABLE_DEFS", () => {
     expect(text).toContain('FROM "commits" t WHERE t."user_id" = $1');
     expect(params).toEqual(["user-1"]);
   });
+
+  it("counts photo_thumbnails through photos (it has no user_id column)", () => {
+    const def = TABLE_DEFS.find((d) => d.table === "photo_thumbnails");
+    expect(def).toBeDefined();
+    expect(def?.category).toBe("photos");
+    const { sql: text, params } = dialect.sqlToQuery(buildEstimateQuery(def!, "user-1"));
+    expect(text).toContain('JOIN "photos" p ON p."id" = t."photo_id"');
+    expect(text).toContain('p."user_id" = $1');
+    expect(params).toEqual(["user-1"]);
+  });
 });

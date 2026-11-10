@@ -20,6 +20,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   coding: "#3b82f6",
   spending: "#8b5cf6",
   health: "#ef4444",
+  photos: "#0ea5e9",
   system: "#6b7280",
 };
 

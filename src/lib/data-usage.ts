@@ -40,6 +40,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   coding: "코딩",
   spending: "소비",
   health: "건강",
+  photos: "사진",
   system: "시스템",
 };
 
@@ -79,6 +80,12 @@ export const TABLE_DEFS: TableDef[] = [
   { category: "health", table: "health_connections" },
   { category: "health", table: "health_sync_state" },
   { category: "health", table: "health_webhook_events" },
+  { category: "photos", table: "photos" },
+  {
+    category: "photos",
+    table: "photo_thumbnails",
+    ownedVia: { parent: "photos", fk: "photo_id" },
+  },
   { category: "system", table: "sync_jobs" },
 ];
 

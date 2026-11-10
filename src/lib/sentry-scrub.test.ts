@@ -198,3 +198,81 @@ describe("scrubHealthSpan (Sentry v11 streamed spans)", () => {
     });
   });
 });
+
+describe("Proton Drive Photos scrubbing", () => {
+  it("drops body, query, Authorization and x-pm-uid on a drive-api.proton.me request", () => {
+    const event: ScrubbableEvent = {
+      request: {
+        url: "https://drive-api.proton.me/auth/refresh?token=secret",
+        data: { RefreshToken: "secret" },
+        query_string: "token=secret",
+        headers: { authorization: "Bearer t", "x-pm-uid": "uid-1", accept: "application/json" },
+      },
+    };
+    scrubHealthData(event);
+    expect(event.request?.url).toBe("https://drive-api.proton.me/auth/refresh");
+    expect(event.request?.data).toBeUndefined();
+    expect(event.request?.query_string).toBeUndefined();
+    expect(event.request?.headers).toEqual({ accept: "application/json" });
+  });
+
+  it("drops x-pm-uid/authorization span header attributes on a Proton span", () => {
+    const result = scrubHealthSpan({
+      name: "POST https://drive-api.proton.me/auth/refresh",
+      attributes: {
+        "url.full": "https://drive-api.proton.me/auth/refresh?x=secret",
+        "http.request.header.x-pm-uid": ["uid-1"],
+        "http.request.header.authorization": ["Bearer t"],
+        "http.request.method": "POST",
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/uid-1|Bearer|secret/);
+    expect(result.attributes?.["http.request.method"]).toBe("POST");
+  });
+
+  it("redacts latitude/longitude/claimedMetadata/thumbnail/keyPassword keys in extra", () => {
+    const extra: Record<string, unknown> = {
+      latitude: 37.5,
+      longitude: 127,
+      claimedMetadata: {},
+      claimed_metadata: {},
+      thumbnailBytes: "x",
+      keyPassword: "p",
+      key_password: "p",
+      count: 3,
+    };
+    scrubHealthData({ extra });
+    expect(extra).toEqual({
+      latitude: "[scrubbed:health]",
+      longitude: "[scrubbed:health]",
+      claimedMetadata: "[scrubbed:health]",
+      claimed_metadata: "[scrubbed:health]",
+      thumbnailBytes: "[scrubbed:health]",
+      keyPassword: "[scrubbed:health]",
+      key_password: "[scrubbed:health]",
+      count: 3,
+    });
+  });
+
+  it("strips the response body of /api/photos/<id>/thumbnail breadcrumbs", () => {
+    const event: ScrubbableEvent = {
+      breadcrumbs: [
+        {
+          message: "http",
+          data: {
+            url: "/api/photos/2b1c/thumbnail",
+            method: "GET",
+            status_code: 200,
+            response_body: "binary",
+          },
+        },
+      ],
+    };
+    scrubHealthData(event);
+    expect(event.breadcrumbs?.[0].data).toEqual({
+      url: "/api/photos/2b1c/thumbnail",
+      method: "GET",
+      status_code: 200,
+    });
+  });
+});
