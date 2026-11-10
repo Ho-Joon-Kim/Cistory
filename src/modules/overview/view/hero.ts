@@ -7,6 +7,7 @@ import { concentration, type Fact, oneOff, pickOne, recordLowHigh } from "@/lib/
 import { formatCount, formatMonthDay } from "@/lib/format";
 import type { OverviewHistoryPeriod, OverviewHistoryResponse } from "../history";
 import type { CodingAggregate, HealthAggregate, SpendingAggregate } from "../types";
+import { tagFact } from "./evidence-tag";
 import { type PeriodContext, seriesBarLabel, seriesTitle } from "./labels";
 import { wonColumn } from "./sections";
 import {
@@ -281,7 +282,7 @@ function commitsHero(
   return {
     value: coding.totalCommits,
     delta,
-    fact: commitsFact(ctx, coding, history),
+    fact: tagFact(commitsFact(ctx, coding, history), "commits"),
     bars: history
       ? seriesBars(
           history.series,
@@ -389,6 +390,11 @@ function savingsFact(ctx: PeriodContext, spending: SpendingAggregate): Fact | nu
   return pickOne(candidates);
 }
 
+/** Cash facts light the flow chart's cash view and the matching bar of the pair. */
+function cashTagged(fact: Fact | null): Fact | null {
+  return fact ? tagFact(fact, `cash.${fact.metric}`) : null;
+}
+
 function netPhrase(ctx: PeriodContext, net: number, prevNet: number): string {
   const prev = `${ctx.previousLabel} ${won(prevNet, true)}`;
   if (prevNet < 0 && net > 0) return `${prev}에서 흑자 전환`;
@@ -472,7 +478,7 @@ function savingsHero(
         : ctx.periodType === "year"
           ? { text: `수입 ${won(spending.income)} · 지출 ${won(spending.spending)}`, dir: null }
           : null,
-    fact: savingsFact(ctx, spending),
+    fact: cashTagged(savingsFact(ctx, spending)),
     pairs,
     netBars,
     foot: {
@@ -631,7 +637,7 @@ function weightBlock(
   return {
     value: last.weight,
     delta,
-    fact: pickOne(candidates),
+    fact: tagFact(pickOne(candidates), "weight"),
     points: all,
     peak: peak && peak.weight - (low?.weight ?? peak.weight) >= 0.5 ? peak : null,
     axisFrom: all[0].date,
@@ -716,7 +722,7 @@ function stepsBlock(
   return {
     average,
     delta,
-    fact,
+    fact: tagFact(fact, "steps"),
     bars: seriesBars(series, ctx, avgOf, (v) => `하루 ${formatCount(v)}보`),
   };
 }

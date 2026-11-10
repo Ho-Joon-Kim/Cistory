@@ -13,6 +13,7 @@ import type {
   PortfolioAggregate,
   SpendingAggregate,
 } from "../types";
+import { tagFact } from "./evidence-tag";
 import { type PeriodContext, seriesTitle } from "./labels";
 import { metricByDay, pct, sentenceFact } from "./series";
 
@@ -34,6 +35,11 @@ export function formatKm(meters: number): string {
  * Amounts stacked in a mono column keep one fixed decimal of 만원 (`280.0만원`,
  * `8.0만원`, `108.3만원`) so the digits line up.
  */
+/** A row's share of the total: a non-zero share never reads "0%". */
+export function rowPct(ratio: number): string {
+  return ratio > 0 && ratio < 0.005 ? "<1%" : pct(ratio);
+}
+
 export function wonColumn(n: number): string {
   if (Math.round(Math.abs(n)) < 10_000) return formatWonCompact(n);
   const man = Math.round(Math.abs(n) / 1_000) / 10;
@@ -323,7 +329,7 @@ export function buildAsset(
       })
     );
   }
-  const fact = pickOne(candidates, 0.4);
+  const fact = tagFact(pickOne(candidates, 0.4), "evaluation");
   return {
     twr: portfolio.twr.totalReturn,
     days: portfolio.twr.days,
@@ -490,7 +496,7 @@ function repoTab(ctx: PeriodContext, coding: CodingAggregate | null): DetailTab 
       sub: it.sub,
       value: formatCount(it.commits),
       share: it.commits / items[0].commits,
-      pct: pct(it.commits / total),
+      pct: rowPct(it.commits / total),
       members:
         it.members?.map((m) => ({ name: split(m.name).repo, value: formatCount(m.commits) })) ??
         null,
@@ -518,11 +524,12 @@ function categoryTab(ctx: PeriodContext, spending: SpendingAggregate | null): De
           evidence: { kind: "keys", keys: [top.category] },
           template: `${label(top.category)}${iGa(label(top.category))} 지출의 {fact} — 이를 빼면 지출은 {rest}.`,
           trigger: pct(share),
-          detail: { rest: formatWonCompact(total - top.spending) },
+          // One decimal of 만원 everywhere on this tab ("26.0만원"), matching the rows.
+          detail: { rest: wonColumn(total - top.spending) },
           rows: [
-            { label: label(top.category), value: formatWonCompact(top.spending) },
-            { label: `${ctx.label} 지출`, value: formatWonCompact(total) },
-            { label: `그다음 ${label(second.category)}`, value: formatWonCompact(second.spending) },
+            { label: label(top.category), value: wonColumn(top.spending) },
+            { label: `${ctx.label} 지출`, value: wonColumn(total) },
+            { label: `그다음 ${label(second.category)}`, value: wonColumn(second.spending) },
           ],
         })
       : null;
@@ -537,7 +544,7 @@ function categoryTab(ctx: PeriodContext, spending: SpendingAggregate | null): De
       value: wonColumn(c.spending),
       amount: c.spending,
       share: c.spending / top.spending,
-      pct: pct(c.spending / total),
+      pct: rowPct(c.spending / total),
     })),
   };
 }
@@ -596,7 +603,7 @@ function modeTab(
       sub: `${m.segmentCount}구간${m.mode === "subway" && subway?.tripCount ? ` · ${subway.tripCount}회 탑승` : ""}`,
       value: `${formatKm(m.distanceMeters)}km`,
       share: m.distanceMeters / sorted[0].distanceMeters,
-      pct: pct(m.distanceMeters / total),
+      pct: rowPct(m.distanceMeters / total),
       flag: m.mode === suspect ? "오분류 의심" : null,
       flagTone: "warn",
     })),

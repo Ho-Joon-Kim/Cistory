@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useEvidence } from "@/components/ds";
 import { formatMonthDay } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CashPair, MiniBar, NetBar, WeightPoint } from "@/modules/overview/view/hero";
 import { wonColumn } from "@/modules/overview/view/sections";
 import { useMeasuredWidth } from "./useMeasuredWidth";
+import { useTaggedEvidence } from "./useTaggedEvidence";
 
 function Tip({ children }: { children: string }) {
   return (
@@ -26,19 +26,31 @@ export function MiniBars({
   showLabels = true,
   className,
   gap = 6,
+  tag,
 }: {
   bars: MiniBar[];
   label: string;
+  /** The series these bars draw ("commits", "steps"); evidence for another series leaves them dim. */
+  tag: string;
   showLabels?: boolean;
   className?: string;
   gap?: number;
 }) {
   const [hover, setHover] = useState<number | null>(null);
-  const { stateOf } = useEvidence();
+  const { stateOf } = useTaggedEvidence(tag);
+  const [ref, width] = useMeasuredWidth<HTMLUListElement>();
   if (bars.length === 0) return null;
+  // Labels never wrap ("8/3⏎1"): when a slot is narrower than the longest label,
+  // show every k-th one counting back from the newest bar.
+  const slot = width > 0 ? (width - gap * (bars.length - 1)) / bars.length + gap : Infinity;
+  const longest = Math.max(...bars.map((b) => b.label.length));
+  const every = Math.max(1, Math.ceil((longest * 6.6 + 6) / slot));
   return (
     <ul
+      ref={ref}
       aria-label={label}
+      // Span-built bars aren't svg: tell evidence popovers to stay off them.
+      data-evidence-avoid=""
       className={cn("m-0 flex h-full list-none items-end p-0", className)}
       style={{ gap }}
     >
@@ -79,8 +91,11 @@ export function MiniBars({
               )}
             </span>
             {showLabels ? (
-              <span aria-hidden="true" className="num text-[11px] leading-3 text-ink-3">
-                {bar.label}
+              <span
+                aria-hidden="true"
+                className="num text-[11px] leading-3 whitespace-nowrap text-ink-3"
+              >
+                {(bars.length - 1 - i) % every === 0 ? bar.label : "\u00a0"}
               </span>
             ) : null}
           </li>
@@ -92,8 +107,12 @@ export function MiniBars({
 
 /** Previous vs current income/spending as paired horizontal bars. */
 export function CashPairs({ pairs }: { pairs: CashPair[] }) {
+  const { activeTag, isActive } = useTaggedEvidence("cash");
+  // A cash fact (one day's 입금/지출) lights the viewed period's matching bar.
+  const litName =
+    activeTag === "cash.income" ? "수입" : activeTag === "cash.spending" ? "지출" : null;
   return (
-    <div className="flex flex-col gap-3.5">
+    <div data-evidence-avoid="" className="flex flex-col gap-3.5">
       {pairs.map((pair) => (
         <div
           key={pair.label}
@@ -109,7 +128,13 @@ export function CashPairs({ pairs }: { pairs: CashPair[] }) {
             <div key={name} className="flex min-w-0 items-center gap-2">
               <span
                 aria-hidden="true"
-                className={cn("ds-growx h-2.5 shrink-0 rounded-[2px]", color)}
+                data-evidence={
+                  isActive ? (pair.current && litName === name ? "on" : "dim") : undefined
+                }
+                className={cn(
+                  "ds-growx h-2.5 shrink-0 rounded-[2px]",
+                  pair.current && litName === name && isActive ? "bg-brand" : color
+                )}
                 style={{ width: `calc((100% - 104px) * ${Math.max(0.01, ratio)})` }}
               />
               <span className="text-xs whitespace-nowrap text-ink-2">
@@ -126,9 +151,13 @@ export function CashPairs({ pairs }: { pairs: CashPair[] }) {
 /** Monthly net savings around a zero line (year view). */
 export function NetBars({ bars, label }: { bars: NetBar[]; label: string }) {
   const [hover, setHover] = useState<number | null>(null);
-  const { stateOf } = useEvidence();
+  const { stateOf } = useTaggedEvidence("cash");
   return (
-    <ul aria-label={label} className="relative m-0 flex h-28 list-none gap-1.5 p-0">
+    <ul
+      aria-label={label}
+      data-evidence-avoid=""
+      className="relative m-0 flex h-28 list-none gap-1.5 p-0"
+    >
       <span aria-hidden="true" className="absolute inset-x-0 top-[50px] h-px bg-line" />
       {bars.map((bar, i) => {
         const h = Math.abs(bar.ratio) * 50;
@@ -186,7 +215,7 @@ export function WeightLine({
   now: Date;
 }) {
   const [ref, width] = useMeasuredWidth<HTMLDivElement>();
-  const { stateOf } = useEvidence();
+  const { stateOf } = useTaggedEvidence("weight");
   const H = 96;
   const W = Math.max(0, width);
   const t = (d: string) => Date.parse(`${d}T00:00:00Z`);

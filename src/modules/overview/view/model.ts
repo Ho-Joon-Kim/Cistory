@@ -1,5 +1,6 @@
 import type { HistoryPeriodType, OverviewHistoryResponse } from "../history";
 import type { OverviewSnapshotDomains } from "../service";
+import type { CodingAggregate, HealthAggregate, SpendingAggregate } from "../types";
 import { buildFlow, type FlowModel } from "./flow";
 import { buildHeadline } from "./headline";
 import { buildHero, type HeroModel } from "./hero";
@@ -12,6 +13,7 @@ import {
   type DetailTab,
   type MoveModel,
 } from "./sections";
+import { metricByDay } from "./series";
 
 export interface OverviewModel {
   ctx: PeriodContext;
@@ -23,6 +25,45 @@ export interface OverviewModel {
   move: MoveModel | null;
   asset: AssetModel | null;
   details: DetailTab[];
+}
+
+/**
+ * The history's entry for the viewed week/month is re-derived from day rows that
+ * may come from other (overlapping) snapshots, so its totals can drift from the
+ * period's own snapshot (e.g. a month step average of 3,279 vs 3,303). Every
+ * number shown for the viewed period — KPI, legend, sparkline bar and the facts
+ * comparing against it — must come from one computation, so the viewed period's
+ * entry is replaced with the snapshot's own totals.
+ */
+export function alignHistory(
+  history: OverviewHistoryResponse | null,
+  ctx: PeriodContext,
+  domains: {
+    coding: CodingAggregate | null;
+    spending: SpendingAggregate | null;
+    health: HealthAggregate | null;
+  }
+): OverviewHistoryResponse | null {
+  if (!history || ctx.periodType === "year") return history;
+  const { coding, spending, health } = domains;
+  const stepValues = [...metricByDay(health, "steps").values()];
+  return {
+    ...history,
+    series: history.series.map((p) => {
+      if (p.periodKey !== ctx.periodKey) return p;
+      return {
+        ...p,
+        commits: coding ? coding.totalCommits : p.commits,
+        activeDays: coding ? coding.activeDays : p.activeDays,
+        spending: spending ? spending.spending : p.spending,
+        income: spending ? spending.income : p.income,
+        steps:
+          stepValues.length > 0
+            ? { total: stepValues.reduce((s, v) => s + v, 0), days: stepValues.length }
+            : p.steps,
+      };
+    }),
+  };
 }
 
 function data<T>(envelope: { status: string; data: T | null } | null | undefined): T | null {
@@ -40,13 +81,16 @@ export function buildOverviewModel(input: {
 }): OverviewModel {
   const ctx = periodContext(input.periodType, input.periodKey, input.today, input.now);
   // A history for another period (still loading after a switch) must not leak in.
-  const history =
-    input.history?.periodType === input.periodType && input.history.periodKey === input.periodKey
-      ? input.history
-      : null;
   const coding = data(input.domains.coding);
   const spending = data(input.domains.spending);
   const health = data(input.domains.health);
+  const history = alignHistory(
+    input.history?.periodType === input.periodType && input.history.periodKey === input.periodKey
+      ? input.history
+      : null,
+    ctx,
+    { coding, spending, health }
+  );
   const location = data(input.domains.location);
   const portfolio = data(input.domains.portfolio);
   const hero = buildHero({ ctx, coding, spending, health, history });

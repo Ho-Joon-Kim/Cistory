@@ -5,6 +5,7 @@ import { renderTemplate } from "@/lib/facts";
 import type { OverviewHistoryPeriod, OverviewHistoryResponse } from "../history";
 import type { OverviewSnapshotDomains } from "../service";
 import type { LocationAggregate } from "../types";
+import { evidenceTag } from "./evidence-tag";
 import { buildHeadline } from "./headline";
 import { periodContext, periodMeta, periodTitle } from "./labels";
 import { buildOverviewModel } from "./model";
@@ -248,6 +249,39 @@ describe("buildOverviewModel", () => {
     );
     const repo = details.find((t) => t.id === "repo");
     expect(repo?.rows.map((r) => r.name)).toEqual(["main", "org · 저장소 3개"]);
+  });
+
+  it("shows the viewed period's own numbers in its history bar", () => {
+    // The history entry for October (from overlapping snapshots) disagrees with
+    // the month's own snapshot; every surface uses the snapshot.
+    const drifted: OverviewHistoryResponse = {
+      ...history,
+      series: history.series.map((p) =>
+        p.periodKey === "2026-10" ? { ...p, commits: 990, steps: { total: 76_000, days: 25 } } : p
+      ),
+    };
+    const m = buildOverviewModel({
+      periodType: "month",
+      periodKey: "2026-10",
+      computedAt: null,
+      domains,
+      history: drifted,
+      today: TODAY,
+      now: NOW,
+    });
+    expect(m.hero.body.steps?.average).toBe(3000);
+    expect(m.hero.body.steps?.bars.at(-1)?.tip).toContain("하루 3,000보");
+    expect(m.hero.commits?.bars.at(-1)?.tip).toContain("1,000");
+  });
+
+  it("tags each hero fact with the series its evidence belongs to", () => {
+    const { hero, asset } = model();
+    const tag = (f: { evidence?: unknown } | null | undefined) =>
+      evidenceTag(f?.evidence as Parameters<typeof evidenceTag>[0]);
+    expect(tag(hero.commits?.fact)).toBe("commits");
+    expect(tag(hero.savings?.fact)).toBe("cash.income");
+    expect(tag(hero.body.weight?.fact)).toBe("weight");
+    expect(tag(asset?.fact)).toBe("evaluation");
   });
 
   it("never puts heart rate in the hero", () => {
