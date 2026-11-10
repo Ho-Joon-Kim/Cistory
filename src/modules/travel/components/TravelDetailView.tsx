@@ -45,6 +45,7 @@ import type { TravelRoute, TravelTripDetail } from "../hooks";
 import { dayCount, destinationOf, isSpendingRecorded, stayLabel } from "../list-model";
 import { REFERENCE_CITIES } from "../reference-cities";
 import { isRoutinePlace } from "../routine-places";
+import { sketchFocus } from "../sketch-focus";
 import { Chevron, DotList, enter, Fig, InsightLine, Pill } from "./parts";
 import { TripMenu } from "./TripMenu";
 import { TripRouteSketch, WalkSketch } from "./TripRouteSketch";
@@ -1112,6 +1113,7 @@ export function TravelDetailView({
   const hero = pickHeroDay(detail, itinerary.runs);
   const routeDays = routeByDay(route.points, detail.trip.startDate, detail.trip.endDate);
   const labels = mapLabels(detail);
+  const focus = sketchFocus(routeDays, detail.visits, labels);
   const run = hero?.run;
   const highlight =
     run && hero
@@ -1152,6 +1154,7 @@ export function TravelDetailView({
               labels={labels}
               references={REFERENCE_CITIES}
               highlight={highlight}
+              focus={focus}
               ariaLabel={`여행 경로 지도: ${detail.trip.name}`}
             />
             <figcaption className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-2">
