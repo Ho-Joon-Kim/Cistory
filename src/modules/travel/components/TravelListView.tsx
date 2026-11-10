@@ -359,7 +359,8 @@ function GroupRow({
             </span>
           </span>
           <span className="truncate text-xs leading-4 text-ink-3">
-            <span className="lg:hidden">
+            {/* Narrow phones keep "올해 N회" whole and drop the span of months. */}
+            <span className="lg:hidden max-[359px]:hidden">
               {yearMonth(group.firstStart)}–{yearMonth(group.lastEnd)} ·{" "}
             </span>
             올해 {thisYear}회

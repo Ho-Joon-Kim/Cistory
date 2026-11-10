@@ -144,7 +144,8 @@ export function enter(step: number): { className: string; style: { animationDela
 /**
  * Inline facts separated by "·" that never strand a separator: each item
  * carries its "·" before it, and the item that starts a line has that "·"
- * pushed into a negative margin the wrapper clips. So a wrap reads
+ * pushed into a negative margin the wrapper clips. Items move to the next line
+ * whole (only one wider than the line wraps inside, at word gaps). So a wrap reads
  * "경유 14곳" / "11,251걸음의 날" with no dangling dot at either end.
  */
 export function DotList({
@@ -160,7 +161,7 @@ export function DotList({
         {items.map((item) => (
           <span
             key={item.key}
-            className="relative pl-3 whitespace-nowrap before:absolute before:left-[3px] before:content-['·']"
+            className="relative max-w-full pl-3 break-keep before:absolute before:left-[3px] before:content-['·']"
           >
             {item.node}
           </span>
