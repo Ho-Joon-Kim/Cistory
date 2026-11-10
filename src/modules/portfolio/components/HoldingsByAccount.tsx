@@ -131,7 +131,11 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
                       <span className="flex min-w-0 items-center gap-2 text-sm leading-5 font-medium">
                         <span
                           title={r.name}
-                          className="line-clamp-2 min-w-0 break-keep [overflow-wrap:anywhere]"
+                          className={cn(
+                            "min-w-0 break-keep [overflow-wrap:anywhere]",
+                            // Expanded rows show the full name (touch can't reach `title`).
+                            !isOpen && "line-clamp-2"
+                          )}
                         >
                           {r.name}
                         </span>

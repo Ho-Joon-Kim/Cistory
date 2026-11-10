@@ -137,3 +137,43 @@ export function axisTickIndices(n: number, maxLabels: number): number[] {
   for (let j = n - 1; j >= 0; j -= step) out.unshift(j);
   return out;
 }
+
+export interface AxisLabelPlacement {
+  /** Text x (start-anchored at the left edge, end-anchored at the right). */
+  x: number;
+  anchor: "start" | "end";
+  /** Text baseline, always just above the grid line it labels. */
+  baseline: number;
+  box: Box;
+}
+
+/**
+ * Places a y-axis label of width `w` on its grid line at `y`. The label always
+ * sits directly above its own line (never below — a label under its line reads
+ * as the value of the line beneath), at the left edge, else the right edge;
+ * when a data line crosses both spots the label is dropped rather than
+ * painted over the data.
+ */
+export function placeAxisLabel(opts: {
+  y: number;
+  w: number;
+  width: number;
+  lines: readonly (readonly Pt[])[];
+  /** Other boxes the label must not overlap (e.g. end labels). */
+  avoid?: readonly Box[];
+}): AxisLabelPlacement | null {
+  const { y, w, width, lines, avoid = [] } = opts;
+  const baseline = y - 4;
+  const y0 = y - 13;
+  const y1 = y - 1;
+  const spots: Array<Pick<AxisLabelPlacement, "x" | "anchor"> & { box: Box }> = [
+    { x: 0, anchor: "start", box: { x0: 0, x1: w, y0, y1 } },
+    { x: width, anchor: "end", box: { x0: width - w, x1: width, y0, y1 } },
+  ];
+  for (const s of spots) {
+    if (lines.some((l) => polylineHitsBox(l, s.box, 2))) continue;
+    if (avoid.some((b) => boxesOverlap(b, s.box, 1))) continue;
+    return { ...s, baseline };
+  }
+  return null;
+}

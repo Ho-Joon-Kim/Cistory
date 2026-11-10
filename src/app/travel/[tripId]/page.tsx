@@ -2,14 +2,20 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState, LoadingState, PageContainer } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/modules/auth/hooks";
 import { TravelDetailView } from "@/modules/travel/components/TravelDetailView";
-import { requestMarkNotTrip, requestRenameTrip, useTravelDetail } from "@/modules/travel/hooks";
+import {
+  requestMarkNotTrip,
+  requestRenameTrip,
+  useTravelDetail,
+  useTravelTrips,
+} from "@/modules/travel/hooks";
+import { groupRecurring, recurringPosition } from "@/modules/travel/list-model";
 
 export default function TravelDetailPage() {
   const params = useParams<{ tripId: string }>();
@@ -20,6 +26,14 @@ export default function TravelDetailPage() {
     tripId,
     isAuthenticated
   );
+  // The list's first page, grouped the same way /travel groups it, so the
+  // breadcrumb can say where this trip sits in a recurring destination.
+  const list = useTravelTrips(isAuthenticated);
+  const series = useMemo(() => {
+    if (list.trips.length === 0) return null;
+    const { groups } = groupRecurring(list.trips, list.summary?.spendingSince ?? null);
+    return recurringPosition(groups, tripId);
+  }, [list.trips, list.summary, tripId]);
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) router.replace("/login");
@@ -85,6 +99,7 @@ export default function TravelDetailPage() {
           <TravelDetailView
             detail={detail}
             route={route}
+            series={series}
             onRename={onRename}
             onNotTrip={() => void onNotTrip()}
           />
