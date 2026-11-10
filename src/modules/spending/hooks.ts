@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNdjsonStream } from "@/lib/hooks/useNdjsonStream";
 import type { ExpenseCategory } from "./categories";
+import type { IncomeFlow } from "./refund";
 
 export type Bucket = "spending" | "income" | "ignore";
 
@@ -22,6 +23,8 @@ export interface TransactionItem {
   category: ExpenseCategory | null;
   categorySource: "ai" | "manual" | null;
   categoryConfidence: number | null;
+  /** An income deposit from a merchant the user has paid (see refund.ts). */
+  isRefund: boolean;
 }
 
 export interface CategoryBreakdownItem {
@@ -42,6 +45,8 @@ export interface TransactionSummary {
   withdrawalCount: number;
   depositCount: number;
   categoryBreakdown: CategoryBreakdownItem[];
+  /** Income split into refunds and other money received. */
+  flow: IncomeFlow;
 }
 
 export interface SpendingFilters {
@@ -61,6 +66,7 @@ interface UseTransactionsReturn {
   transactions: TransactionItem[];
   summary: TransactionSummary;
   isLoading: boolean;
+  error: boolean;
   hasMore: boolean;
   loadMore: () => void;
   refresh: () => void;
@@ -78,6 +84,14 @@ const emptySummary: TransactionSummary = {
   withdrawalCount: 0,
   depositCount: 0,
   categoryBreakdown: [],
+  flow: {
+    refundTotal: 0,
+    refundCount: 0,
+    refundTopMerchant: null,
+    inflowTotal: 0,
+    inflowCount: 0,
+    inflowTopAccount: null,
+  },
 };
 
 export function useUpdateTransactionCategory() {
@@ -169,6 +183,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [summary, setSummary] = useState<TransactionSummary>(emptySummary);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [offset, setOffset] = useState(0);
 
@@ -186,6 +201,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
         if (filterType) params.set("type", filterType);
         if (filterBucket) params.set("bucket", filterBucket);
 
+        setError(false);
         const response = await fetch(`/api/spending?${params}`, { signal });
 
         if (!response.ok) {
@@ -198,13 +214,15 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
           hasMore: boolean;
         };
 
-        setTransactions((prev) => (append ? [...prev, ...data.transactions] : data.transactions));
-        setSummary(data.summary);
+        const page = data.transactions ?? [];
+        setTransactions((prev) => (append ? [...prev, ...page] : page));
+        setSummary({ ...emptySummary, ...data.summary });
         setHasMore(data.hasMore);
-        setOffset(currentOffset + data.transactions.length);
+        setOffset(currentOffset + page.length);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Failed to fetch transactions:", err);
+        setError(true);
       } finally {
         setIsLoading(false);
       }
@@ -237,6 +255,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
     transactions,
     summary,
     isLoading,
+    error,
     hasMore,
     loadMore,
     refresh,
@@ -245,15 +264,21 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
 
 // ============ Spending Trend ============
 
-export function useSpendingTrend() {
+export function useSpendingTrend(enabled = true) {
   const [data, setData] = useState<import("./types").SpendingTrendResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
+    // `version` re-runs this effect on refresh().
+    void version;
 
     async function fetchTrend() {
       setIsLoading(true);
+      setError(false);
       try {
         const response = await fetch("/api/spending/trend", { signal: controller.signal });
         if (!response.ok) throw new Error("Failed to fetch spending trend");
@@ -262,6 +287,7 @@ export function useSpendingTrend() {
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Failed to fetch spending trend:", err);
+        setError(true);
       } finally {
         setIsLoading(false);
       }
@@ -269,9 +295,11 @@ export function useSpendingTrend() {
 
     fetchTrend();
     return () => controller.abort();
-  }, []);
+  }, [enabled, version]);
 
-  return { data, isLoading };
+  const refresh = useCallback(() => setVersion((v) => v + 1), []);
+
+  return { data, isLoading, error, refresh };
 }
 
 // ============ Notification Logs ============
@@ -339,10 +367,11 @@ export function useNotificationLogs(
           hasMore: boolean;
         };
 
-        setLogs((prev) => (append ? [...prev, ...data.logs] : data.logs));
-        setTotal(data.total);
-        setHasMore(data.hasMore);
-        setOffset(currentOffset + data.logs.length);
+        const page = data.logs ?? [];
+        setLogs((prev) => (append ? [...prev, ...page] : page));
+        setTotal(data.total ?? 0);
+        setHasMore(Boolean(data.hasMore));
+        setOffset(currentOffset + page.length);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Failed to fetch notification logs:", err);

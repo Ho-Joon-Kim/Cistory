@@ -1,5 +1,6 @@
 import { ApiError } from "@/lib/api-handler";
 import { dateKeyToUtcMillis, shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
+import { isExpenseCategory } from "@/modules/spending/categories";
 import { SEARCH_SOURCES, type SearchInput, type SearchSource } from "./types";
 
 export function parseSearchInput(params: URLSearchParams, now = new Date()): SearchInput {
@@ -22,5 +23,28 @@ export function parseSearchInput(params: URLSearchParams, now = new Date()): Sea
   if (!/^\d+$/.test(pageText) || page < 1 || page > 100) {
     throw new ApiError(400, "페이지는 1부터 100까지 선택해 주세요.");
   }
-  return { q, from, to, source: source as SearchSource, page };
+  const result: SearchInput = { q, from, to, source: source as SearchSource, page };
+  const category = params.get("category");
+  if (category) {
+    if (!isExpenseCategory(category)) throw new ApiError(400, "올바른 소비 분류를 선택해 주세요.");
+    result.category = category;
+  }
+  const hours = params.get("hours");
+  if (hours) {
+    const match = /^(\d{1,2})-(\d{1,2})$/.exec(hours);
+    const fromHour = Number(match?.[1]);
+    const toHour = Number(match?.[2]);
+    if (!match || fromHour > 23 || toHour > 24 || fromHour === toHour) {
+      throw new ApiError(400, "시간대는 0시부터 24시 사이로 선택해 주세요.");
+    }
+    result.hours = { from: fromHour, to: toHour };
+  }
+  const repo = params.get("repo");
+  if (repo) {
+    if (repo.length > 300 || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+      throw new ApiError(400, "올바른 레포지토리를 선택해 주세요.");
+    }
+    result.repo = repo;
+  }
+  return result;
 }

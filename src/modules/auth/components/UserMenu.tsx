@@ -2,6 +2,7 @@
 
 import { LogOut, Settings, User } from "lucide-react";
 import Link from "next/link";
+import { menuItemTapClass } from "@/components/ds";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,10 +34,16 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" aria-label="계정 메뉴" className="relative h-9 w-9 rounded-full">
-          <Avatar className="h-9 w-9">
+        <Button
+          variant="ghost"
+          aria-label="계정 메뉴"
+          className="relative size-9 rounded-full p-0 hover:bg-transparent"
+        >
+          <Avatar className="size-8 shadow-[inset_0_0_0_1px_var(--line)]">
             <AvatarImage src={user.image ?? undefined} alt={user.name} />
-            <AvatarFallback>{initials}</AvatarFallback>
+            <AvatarFallback className="bg-sunken text-xs font-semibold text-ink-2">
+              {initials}
+            </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
@@ -51,19 +58,23 @@ export function UserMenu() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/repositories" className="cursor-pointer">
+          <Link href="/repositories" className={`cursor-pointer ${menuItemTapClass}`}>
             <User className="mr-2 h-4 w-4" />
-            레포지토리 관리
+            레포지토리
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/settings" className="cursor-pointer">
+          <Link href="/settings" className={`cursor-pointer ${menuItemTapClass}`}>
             <Settings className="mr-2 h-4 w-4" />
             설정
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={signOut} className="cursor-pointer">
+        <DropdownMenuItem
+          variant="destructive"
+          onClick={signOut}
+          className={`cursor-pointer ${menuItemTapClass}`}
+        >
           <LogOut className="mr-2 h-4 w-4" />
           로그아웃
         </DropdownMenuItem>

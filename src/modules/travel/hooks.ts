@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GENERIC_ERROR_MESSAGE, userErrorMessage } from "@/lib/user-error";
 
 export interface TravelTripListItem {
   id: string;
@@ -18,14 +19,28 @@ export interface TravelTripListItem {
   updatedAt: string;
   totalSpending: number;
   visitCount: number;
+  /** Dominant non-home saved place (e.g. "본가"); null when none. */
+  anchorPlaceName: string | null;
+}
+
+/** Every trip of the current year + Toss coverage, for the list hero. */
+export interface TravelListSummary {
+  year: number;
+  trips: TravelTripListItem[];
+  /** KST date of the first Toss transaction; trips ending before it have no record. */
+  spendingSince: string | null;
 }
 
 export interface TravelTripsPage {
   trips: TravelTripListItem[];
   nextCursor: string | null;
+  summary?: TravelListSummary;
 }
 
-export type TravelTrip = Omit<TravelTripListItem, "totalSpending" | "visitCount">;
+export type TravelTrip = Omit<
+  TravelTripListItem,
+  "totalSpending" | "visitCount" | "anchorPlaceName"
+>;
 
 export interface TravelTripVisit {
   id: string;
@@ -39,6 +54,8 @@ export interface TravelTripVisit {
   category: string | null;
   city: string | null;
   countryName: string | null;
+  savedPlaceName: string | null;
+  savedPlaceCategory: string | null;
 }
 
 export interface TravelTripTransaction {
@@ -87,6 +104,7 @@ export interface TravelTripDetail {
     valueSum: number | null;
     count: number | null;
   }[];
+  spendingSince: string | null;
 }
 
 export interface TravelRoutePoint {
@@ -105,6 +123,7 @@ export interface TravelRoute {
 
 interface UseTravelTripsReturn {
   trips: TravelTripListItem[];
+  summary: TravelListSummary | null;
   isLoading: boolean;
   error: string | null;
   hasMore: boolean;
@@ -112,7 +131,16 @@ interface UseTravelTripsReturn {
   refresh: () => void;
   markNotTrip: (tripId: string) => Promise<boolean>;
   markingTripIds: ReadonlySet<string>;
+  /** Hide now, call the API after {@link NOT_TRIP_UNDO_MS} unless undone. */
+  scheduleNotTrip: (trip: TravelTripListItem) => void;
+  undoNotTrip: (tripId: string) => void;
+  /** Trips hidden and waiting for their undo window to close. */
+  pendingNotTrips: TravelTripListItem[];
+  renameTrip: (tripId: string, name: string) => Promise<boolean>;
 }
+
+/** How long "여행 아님" can be undone before the request is sent. */
+export const NOT_TRIP_UNDO_MS = 6000;
 
 interface UseTravelDetailReturn {
   detail: TravelTripDetail | null;
@@ -176,7 +204,15 @@ function isTravelTrip(value: unknown): value is TravelTrip {
 function isTravelTripListItem(value: unknown): value is TravelTripListItem {
   if (!isTravelTrip(value)) return false;
   const record = value as unknown as Record<string, unknown>;
-  return isFiniteNumber(record.totalSpending) && isFiniteNumber(record.visitCount);
+  return (
+    isFiniteNumber(record.totalSpending) &&
+    isFiniteNumber(record.visitCount) &&
+    (record.anchorPlaceName === undefined || isNullableString(record.anchorPlaceName))
+  );
+}
+
+function withListDefaults(trip: TravelTripListItem): TravelTripListItem {
+  return { ...trip, anchorPlaceName: trip.anchorPlaceName ?? null };
 }
 
 function isTravelTripVisit(value: unknown): value is TravelTripVisit {
@@ -192,7 +228,9 @@ function isTravelTripVisit(value: unknown): value is TravelTripVisit {
     isNullableString(value.address) &&
     isNullableString(value.category) &&
     isNullableString(value.city) &&
-    isNullableString(value.countryName)
+    isNullableString(value.countryName) &&
+    (value.savedPlaceName === undefined || isNullableString(value.savedPlaceName)) &&
+    (value.savedPlaceCategory === undefined || isNullableString(value.savedPlaceCategory))
   );
 }
 
@@ -252,7 +290,7 @@ function isHealthSummary(value: unknown): boolean {
 
 export function parseTravelDetail(value: unknown): TravelTripDetail {
   if (!isRecord(value) || !isTravelTrip(value.trip)) {
-    throw new Error("여행 상세 응답 형식이 올바르지 않습니다");
+    throw new Error("여행 상세 응답 형식이 올바르지 않아요");
   }
   const { spending, transport, routine } = value;
   if (
@@ -274,11 +312,25 @@ export function parseTravelDetail(value: unknown): TravelTripDetail {
     !isFiniteNumber(routine.commitCount) ||
     !(routine.comparison === null || isRoutineComparison(routine.comparison)) ||
     !Array.isArray(value.health) ||
-    !value.health.every(isHealthSummary)
+    !value.health.every(isHealthSummary) ||
+    !(
+      value.spendingSince === undefined ||
+      value.spendingSince === null ||
+      isDateKey(value.spendingSince)
+    )
   ) {
-    throw new Error("여행 상세 응답 형식이 올바르지 않습니다");
+    throw new Error("여행 상세 응답 형식이 올바르지 않아요");
   }
-  return value as unknown as TravelTripDetail;
+  const detail = value as unknown as TravelTripDetail;
+  return {
+    ...detail,
+    visits: detail.visits.map((visit) => ({
+      ...visit,
+      savedPlaceName: visit.savedPlaceName ?? null,
+      savedPlaceCategory: visit.savedPlaceCategory ?? null,
+    })),
+    spendingSince: detail.spendingSince ?? null,
+  };
 }
 
 export function parseTravelRoute(value: unknown): TravelRoute {
@@ -297,7 +349,7 @@ export function parseTravelRoute(value: unknown): TravelRoute {
     !isFiniteNumber(value.rawSampledCount) ||
     !isFiniteNumber(value.maxPoints)
   ) {
-    throw new Error("여행 경로 응답 형식이 올바르지 않습니다");
+    throw new Error("여행 경로 응답 형식이 올바르지 않아요");
   }
   return value as unknown as TravelRoute;
 }
@@ -309,9 +361,30 @@ export function parseTravelTripsPage(value: unknown): TravelTripsPage {
     !value.trips.every(isTravelTripListItem) ||
     !(value.nextCursor === null || typeof value.nextCursor === "string")
   ) {
-    throw new Error("여행 목록 응답 형식이 올바르지 않습니다");
+    throw new Error("여행 목록 응답 형식이 올바르지 않아요");
   }
-  return { trips: value.trips, nextCursor: value.nextCursor };
+  const page: TravelTripsPage = {
+    trips: value.trips.map(withListDefaults),
+    nextCursor: value.nextCursor,
+  };
+  if (value.summary !== undefined) {
+    const summary = value.summary;
+    if (
+      !isRecord(summary) ||
+      !Number.isInteger(summary.year) ||
+      !Array.isArray(summary.trips) ||
+      !summary.trips.every(isTravelTripListItem) ||
+      !(summary.spendingSince === null || isDateKey(summary.spendingSince))
+    ) {
+      throw new Error("여행 목록 응답 형식이 올바르지 않아요");
+    }
+    page.summary = {
+      year: summary.year as number,
+      trips: summary.trips.map(withListDefaults),
+      spendingSince: summary.spendingSince,
+    };
+  }
+  return page;
 }
 
 export function mergeTravelTrips(
@@ -346,9 +419,13 @@ export function removePendingTripId(current: ReadonlySet<string>, tripId: string
   return next;
 }
 
-export async function requestMarkNotTrip(tripId: string): Promise<void> {
+export async function requestMarkNotTrip(
+  tripId: string,
+  options: { keepalive?: boolean } = {}
+): Promise<void> {
   const response = await fetch(`/api/trips/${encodeURIComponent(tripId)}/not-a-trip`, {
     method: "POST",
+    keepalive: options.keepalive,
   });
   if (response.ok) return;
 
@@ -356,12 +433,34 @@ export async function requestMarkNotTrip(tripId: string): Promise<void> {
   throw new Error(
     typeof body?.error === "string"
       ? body.error
-      : "여행에서 제외하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      : "여행에서 제외하지 못했어요. 잠시 후 다시 시도해 주세요."
   );
 }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+export async function requestRenameTrip(tripId: string, name: string): Promise<void> {
+  const response = await fetch(`/api/trips/${encodeURIComponent(tripId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (response.ok) return;
+  const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+  throw new Error(
+    typeof body?.error === "string" ? body.error : "이름을 바꾸지 못했어요. 다시 시도해 주세요."
+  );
+}
+
+/** Applies a rename to a list without reordering it. */
+export function renameTravelTrip(
+  current: TravelTripListItem[],
+  tripId: string,
+  name: string
+): TravelTripListItem[] {
+  return current.map((trip) => (trip.id === tripId ? { ...trip, name } : trip));
 }
 
 async function requestTravelTripsPage(
@@ -370,8 +469,9 @@ async function requestTravelTripsPage(
 ): Promise<TravelTripsPage> {
   const params = new URLSearchParams({ limit: "20" });
   if (cursor) params.set("cursor", cursor);
+  else params.set("summary", "1");
   const response = await fetch(`/api/trips?${params.toString()}`, { signal });
-  if (!response.ok) throw new Error("여행 목록을 불러오지 못했습니다");
+  if (!response.ok) throw new Error("여행 목록을 불러오지 못했어요");
   return parseTravelTripsPage(await response.json());
 }
 
@@ -424,7 +524,7 @@ export async function requestCurrentTravelTripsPage(
 }
 
 function fetchErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "여행 목록을 불러오지 못했습니다";
+  return userErrorMessage(error, "여행 목록을 불러오지 못했어요.");
 }
 
 class TravelDetailRequestError extends Error {
@@ -440,7 +540,7 @@ class TravelDetailRequestError extends Error {
 async function assertDetailResponse(response: Response, fallbackMessage: string): Promise<void> {
   if (response.ok) return;
   if (response.status === 404) {
-    throw new TravelDetailRequestError("여행을 찾을 수 없습니다", 404);
+    throw new TravelDetailRequestError("여행을 찾을 수 없어요", 404);
   }
   throw new TravelDetailRequestError(fallbackMessage, response.status);
 }
@@ -454,8 +554,9 @@ export async function requestTravelDetail(
     fetch(`/api/trips/${encodedTripId}`, { signal }),
     fetch(`/api/trips/${encodedTripId}/route-points`, { signal }),
   ]);
-  await assertDetailResponse(detailResponse, "여행 상세를 불러오지 못했습니다");
-  await assertDetailResponse(routeResponse, "여행 경로를 불러오지 못했습니다");
+  // The page's title already says the trip didn't load; the description is the next step.
+  await assertDetailResponse(detailResponse, GENERIC_ERROR_MESSAGE);
+  await assertDetailResponse(routeResponse, GENERIC_ERROR_MESSAGE);
   const [detailValue, routeValue] = await Promise.all([
     detailResponse.json(),
     routeResponse.json(),
@@ -468,13 +569,16 @@ export async function requestTravelDetail(
 
 export function useTravelTrips(enabled = true): UseTravelTripsReturn {
   const [trips, setTrips] = useState<TravelTripListItem[]>([]);
+  const [summary, setSummary] = useState<TravelListSummary | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [markingTripIds, setMarkingTripIds] = useState<Set<string>>(() => new Set());
+  const [pendingNotTrips, setPendingNotTrips] = useState<TravelTripListItem[]>([]);
   const markingTripIdsRef = useRef(new Set<string>());
   const requestCoordinatorRef = useRef(new TravelTripsRequestCoordinator());
   const inFlightCursorRef = useRef<string | null>(null);
+  const undoTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const fetchPage = useCallback(
     async (cursor: string | null, replace: boolean, generation: number) => {
@@ -490,6 +594,7 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
         if (!page) return;
 
         setTrips((current) => (replace ? page.trips : mergeTravelTrips(current, page.trips)));
+        if (page.summary) setSummary(page.summary);
         setNextCursor(page.nextCursor === cursor ? null : page.nextCursor);
       } catch (fetchError) {
         if (isAbortError(fetchError) || !requestCoordinatorRef.current.isCurrent(generation))
@@ -539,14 +644,15 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
         inFlightCursorRef.current = null;
         const generation = requestCoordinatorRef.current.invalidate();
         setTrips((current) => removeTravelTrip(current, tripId));
+        setSummary((current) =>
+          current ? { ...current, trips: removeTravelTrip(current.trips, tripId) } : current
+        );
         setNextCursor(null);
         void fetchPage(null, true, generation);
         return true;
       } catch (requestError) {
         setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "여행에서 제외하지 못했습니다. 잠시 후 다시 시도해 주세요."
+          userErrorMessage(requestError, "여행에서 제외하지 못했어요. 잠시 후 다시 시도해 주세요.")
         );
         return false;
       } finally {
@@ -557,8 +663,79 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
     [fetchPage]
   );
 
+  const commitNotTrip = useCallback(
+    (tripId: string) => {
+      undoTimersRef.current.delete(tripId);
+      void markNotTrip(tripId).finally(() => {
+        setPendingNotTrips((current) => current.filter((trip) => trip.id !== tripId));
+      });
+    },
+    [markNotTrip]
+  );
+
+  const scheduleNotTrip = useCallback(
+    (trip: TravelTripListItem) => {
+      if (undoTimersRef.current.has(trip.id)) return;
+      setPendingNotTrips((current) => [...current.filter((t) => t.id !== trip.id), trip]);
+      undoTimersRef.current.set(
+        trip.id,
+        setTimeout(() => commitNotTrip(trip.id), NOT_TRIP_UNDO_MS)
+      );
+    },
+    [commitNotTrip]
+  );
+
+  const undoNotTrip = useCallback((tripId: string) => {
+    const timer = undoTimersRef.current.get(tripId);
+    if (timer) clearTimeout(timer);
+    undoTimersRef.current.delete(tripId);
+    setPendingNotTrips((current) => current.filter((trip) => trip.id !== tripId));
+  }, []);
+
+  // Leaving the page (or closing the tab) inside the undo window still sends the
+  // correction — `keepalive` lets the request outlive the document.
+  useEffect(() => {
+    const timers = undoTimersRef.current;
+    const flush = () => {
+      for (const [tripId, timer] of timers) {
+        clearTimeout(timer);
+        void requestMarkNotTrip(tripId, { keepalive: true }).catch(() => undefined);
+      }
+      timers.clear();
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, []);
+
+  const renameTrip = useCallback(async (tripId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    try {
+      await requestRenameTrip(tripId, trimmed);
+      setTrips((current) => renameTravelTrip(current, tripId, trimmed));
+      setSummary((current) =>
+        current ? { ...current, trips: renameTravelTrip(current.trips, tripId, trimmed) } : current
+      );
+      return true;
+    } catch (renameError) {
+      setError(userErrorMessage(renameError, "이름을 바꾸지 못했어요."));
+      return false;
+    }
+  }, []);
+
+  const hidden = new Set(pendingNotTrips.map((trip) => trip.id));
+  const visibleTrips = hidden.size ? trips.filter((trip) => !hidden.has(trip.id)) : trips;
+  const visibleSummary =
+    summary && hidden.size
+      ? { ...summary, trips: summary.trips.filter((trip) => !hidden.has(trip.id)) }
+      : summary;
+
   return {
-    trips,
+    trips: visibleTrips,
+    summary: visibleSummary,
     isLoading,
     error,
     hasMore: nextCursor !== null,
@@ -566,6 +743,10 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
     refresh,
     markNotTrip,
     markingTripIds,
+    scheduleNotTrip,
+    undoNotTrip,
+    pendingNotTrips,
+    renameTrip,
   };
 }
 
@@ -610,9 +791,7 @@ export function useTravelDetail(tripId: string, enabled = true): UseTravelDetail
         }
         const missing = loadError instanceof TravelDetailRequestError && loadError.status === 404;
         setNotFound(missing);
-        setError(
-          loadError instanceof Error ? loadError.message : "여행 상세를 불러오지 못했습니다"
-        );
+        setError(userErrorMessage(loadError, "여행을 불러오지 못했어요."));
         setDetail(null);
         setRoute(null);
       })

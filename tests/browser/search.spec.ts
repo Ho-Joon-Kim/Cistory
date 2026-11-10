@@ -71,7 +71,7 @@ test.beforeEach(async ({ page }) => {
   await fixtures(page);
 });
 
-test("search submits dated filters, links records and restores pages through history", async ({
+test("search reads natural text into filters, links records and restores through history", async ({
   page,
 }, testInfo) => {
   const requests: Record<string, string>[] = [];
@@ -86,62 +86,68 @@ test("search submits dated filters, links records and restores pages through his
       json: {
         items:
           currentPage === 2
-            ? [{ ...firstPage[0], id: "second", title: "두 번째 페이지 기록" }]
+            ? [{ ...firstPage[0], id: "second", title: "두 번째 페이지 기록", date: "2026-08-13" }]
             : firstPage.filter((item) => source === "all" || item.source === source),
         page: currentPage,
-        hasMore: currentPage === 1,
+        hasMore: currentPage === 1 && source === "all",
+        counts: { commit: 2, spending: 1, visit: 1, trip: 1 },
       },
     });
   });
   await page.goto("/search");
-  await expect(page.getByRole("heading", { name: "기록 검색", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "기록 검색", exact: true })).toBeAttached();
   await expect(page.getByRole("heading", { name: "서울 여행" })).toBeVisible();
-  const requestCount = requests.length;
-  await page.getByLabel("검색어", { exact: true }).fill("서울");
-  await page.getByLabel("시작일", { exact: true }).fill("2026-08-01");
-  await page.getByLabel("종료일", { exact: true }).fill("2026-08-31");
-  await expect(
-    page.getByText("검색 버튼을 누르면 변경한 조건이 적용됩니다.", { exact: false })
-  ).toBeVisible();
-  expect(requests).toHaveLength(requestCount);
-  await expect(page.getByRole("button", { name: "다음", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await page.getByLabel("검색어", { exact: true }).fill("2026년 8월 서울");
+  await page.getByLabel("검색어", { exact: true }).press("Enter");
   await expect
     .poll(() => requests.at(-1))
-    .toEqual({
-      q: "서울",
-      from: "2026-08-01",
-      to: "2026-08-31",
-      source: "all",
-      page: "1",
-    });
+    .toEqual({ q: "서울", from: "2026-08-01", to: "2026-08-31", source: "all", page: "1" });
+  await expect(page.getByRole("button", { name: "기간 2026년 8월 바꾸기" })).toBeVisible();
   for (const item of firstPage) {
     await expect(
       page.getByRole("link").filter({ has: page.getByRole("heading", { name: item.title }) })
     ).toHaveAttribute("href", item.href);
   }
-  await page.getByRole("button", { name: "다음", exact: true }).click();
+  await page.getByRole("button", { name: "더 보기", exact: true }).click();
   await expect(page.getByRole("heading", { name: "두 번째 페이지 기록" })).toBeVisible();
-  await expect(page.getByText("2페이지", { exact: true })).toBeVisible();
-  await page.getByLabel("기록 종류", { exact: true }).selectOption("trip");
-  await page.getByRole("button", { name: "검색", exact: true }).click();
+  expect(requests.at(-1)?.page).toBe("2");
+  // Day groups keep loaded pages together.
   await expect(page.getByRole("heading", { name: "서울 여행" })).toBeVisible();
-  await expect(page.getByText("1페이지", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^여행/ }).click();
+  await expect(page.getByRole("button", { name: /^여행/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("heading", { name: "서울 카페" })).toHaveCount(0);
   expect(requests.at(-1)?.source).toBe("trip");
   await page.goBack();
-  await expect(page.getByLabel("기록 종류", { exact: true })).toHaveValue("all");
-  await expect(page.getByLabel("검색어", { exact: true })).toHaveValue("서울");
-  await expect(page.getByText("2페이지", { exact: true })).toBeVisible();
-  await page.goBack();
-  await expect(page.getByText("1페이지", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^전체/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("검색어", { exact: true })).toHaveValue("2026년 8월 서울");
   await page.reload();
-  await expect(page.getByLabel("시작일", { exact: true })).toHaveValue("2026-08-01");
+  await expect(page.getByRole("button", { name: "기간 2026년 8월 바꾸기" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "서울 여행" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
     page.viewportSize()!.width
   );
   await page.screenshot({ path: testInfo.outputPath("search.png"), fullPage: true });
   expect(errors).toEqual([]);
+});
+
+test("several sources in the text become removable chips", async ({ page }) => {
+  const requests: Record<string, string>[] = [];
+  await page.route("**/api/search?*", (route) => {
+    requests.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+    return route.fulfill({ json: { items: firstPage, page: 1, hasMore: false } });
+  });
+  await page.goto("/search");
+  await page.getByLabel("검색어", { exact: true }).fill("오늘 쓴 돈이랑 간 곳");
+  await page.getByLabel("검색어", { exact: true }).press("Enter");
+  await expect(page.getByRole("button", { name: "출처 소비 조건 지우기" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "출처 방문 조건 지우기" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "서울 카페" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "서울 공원" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "서울 여행" })).toHaveCount(0);
+  expect(requests.at(-1)?.source).toBe("all");
+  expect(requests.at(-1)?.q).toBe("");
+  await page.getByRole("button", { name: "출처 방문 조건 지우기" }).click();
+  await expect(page.getByRole("heading", { name: "서울 공원" })).toHaveCount(0);
 });
 
 test("search distinguishes failures, retries, empty results and invalid ranges", async ({
@@ -157,27 +163,28 @@ test("search distinguishes failures, retries, empty results and invalid ranges",
         : { json: { items: [], page: 1, hasMore: false } }
     );
   });
-  await page.goto("/search?from=2026-08-01&to=2026-08-31&source=all&page=1");
-  await expect(page.getByRole("main").getByRole("alert")).toContainText(
-    "기록을 검색하지 못했습니다."
-  );
-  await expect(page.getByText("조건에 맞는 기록이 없습니다.", { exact: false })).toHaveCount(0);
+  await page.goto("/search?from=2026-08-01&to=2026-08-31&source=all");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("기록을 검색하지 못했어요");
+  await expect(page.getByText("이 기간에는 기록이 없어요")).toHaveCount(0);
   fail = false;
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();
-  await expect(page.getByText("조건에 맞는 기록이 없습니다.", { exact: false })).toBeVisible();
+  await expect(page.getByText("이 기간에는 기록이 없어요")).toBeVisible();
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   const before = calls;
+  await page.getByRole("button", { name: /^기간 .* 바꾸기$/ }).click();
+  await page.getByRole("button", { name: "날짜 직접 고르기" }).click();
   await page.getByLabel("시작일", { exact: true }).fill("2024-01-01");
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("최대 366일");
-  await expect(page.getByRole("button", { name: "검색", exact: true })).toBeDisabled();
+  await expect(page.getByRole("alert").filter({ hasText: "최대 366일" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "이 기간으로 검색" })).toBeDisabled();
   expect(calls).toBe(before);
+  await page.keyboard.press("Escape");
   await page.goto("/search?from=2026-08-01&to=2026-08-31&page=101");
   await expect(page.getByRole("main").getByRole("alert")).toContainText(
-    "검색 주소의 조건이 올바르지 않습니다."
+    "검색 주소의 조건이 올바르지 않아요"
   );
   expect(calls).toBe(before);
-  await page.getByRole("button", { name: "검색", exact: true }).click();
-  await expect(page.getByText("1페이지", { exact: true })).toBeVisible();
+  await page.getByLabel("검색어", { exact: true }).press("Enter");
+  await expect(page.getByText("이 기간에는 기록이 없어요")).toBeVisible();
 });
 
 test("all primary navigation links remain named and reachable at 320 pixels", async ({ page }) => {
@@ -187,13 +194,17 @@ test("all primary navigation links remain named and reachable at 320 pixels", as
   );
   await page.goto("/search");
   const navigation = page.getByRole("navigation", { name: "주요 메뉴" });
-  for (const name of ["소비", "포트폴리오", "여행", "건강", "대시보드", "기록 검색"]) {
-    await expect(navigation.getByRole("link", { name, exact: true })).toBeVisible();
-    const bounds = await navigation.getByRole("link", { name, exact: true }).boundingBox();
+  // Phones get the app bar's second row: a horizontally scrolling pill strip.
+  for (const name of ["타임라인", "개요", "소비", "포트폴리오", "여행", "건강", "검색"]) {
+    const link = navigation.getByRole("link", { name, exact: true });
+    await link.scrollIntoViewIfNeeded();
+    await expect(link).toBeVisible();
+    const bounds = await link.boundingBox();
     expect(bounds!.width).toBeGreaterThanOrEqual(36);
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
   }
-  await expect(navigation.getByRole("link", { name: "기록 검색" })).toHaveAttribute(
+  await expect(navigation.getByRole("link", { name: "검색", exact: true })).toHaveAttribute(
     "aria-current",
     "page"
   );

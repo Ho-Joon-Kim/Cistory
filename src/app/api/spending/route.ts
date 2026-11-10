@@ -8,6 +8,10 @@
  * on per-transaction overrides + the user's account_roles configuration. Pass
  * `?bucket=spending|income|ignore` to filter, or `?type=withdrawal|deposit` for
  * the legacy raw-type filter.
+ *
+ * Rows also carry `isRefund` (an income deposit from a merchant the user has
+ * paid — see modules/spending/refund.ts) and `summary.flow` splits income into
+ * refunds and other money received, for the page's net-spending view.
  */
 
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
@@ -17,6 +21,7 @@ import { accountRoles, transactions, users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { accountRolesJoinOn, type Bucket, bucketSql } from "@/modules/spending/classify";
+import { refundSql, summarizeIncomeFlow } from "@/modules/spending/refund";
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,6 +44,7 @@ export async function GET(request: NextRequest) {
       .limit(1);
     const tossMyName = userRow?.tossMyName ?? null;
     const bucket = bucketSql(tossMyName);
+    const isRefund = refundSql(bucket);
 
     const conditions = [eq(transactions.userId, user.id)];
     if (from) {
@@ -53,13 +59,15 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(transactions.type, type));
     }
     const categoryConditions = [...conditions, sql`${bucket} = 'spending'`];
+    const incomeConditions = [...conditions, sql`${bucket} = 'income'`];
     if (bucketFilter === "spending" || bucketFilter === "income" || bucketFilter === "ignore") {
       conditions.push(sql`${bucket} = ${bucketFilter}`);
     }
 
     const where = and(...conditions);
 
-    const [rows, summaryRows, categoryRows] = await Promise.all([
+    const incomeMerchant = sql<string>`btrim(split_part(${transactions.merchant}, '_', 1))`;
+    const [rows, summaryRows, categoryRows, incomeRows] = await Promise.all([
       db
         .select({
           id: transactions.id,
@@ -76,6 +84,7 @@ export async function GET(request: NextRequest) {
           categorySource: transactions.categorySource,
           categoryConfidence: transactions.categoryConfidence,
           bucket: bucket.as("bucket"),
+          isRefund: isRefund.as("is_refund"),
         })
         .from(transactions)
         .leftJoin(accountRoles, accountRolesJoinOn)
@@ -104,6 +113,18 @@ export async function GET(request: NextRequest) {
         .where(and(...categoryConditions))
         .groupBy(transactions.category)
         .orderBy(sql`sum(${transactions.amount}) desc`),
+      db
+        .select({
+          isRefund: isRefund.as("is_refund"),
+          merchant: incomeMerchant.as("merchant_base"),
+          accountName: transactions.accountName,
+          total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
+          count: sql<number>`count(*)`.as("count"),
+        })
+        .from(transactions)
+        .leftJoin(accountRoles, accountRolesJoinOn)
+        .where(and(...incomeConditions))
+        .groupBy(sql`1, 2, 3`),
     ]);
 
     const hasMore = rows.length > limit;
@@ -127,6 +148,15 @@ export async function GET(request: NextRequest) {
         total: Number(row.total),
         count: Number(row.count),
       })),
+      flow: summarizeIncomeFlow(
+        incomeRows.map((row) => ({
+          isRefund: Boolean(row.isRefund),
+          merchant: row.merchant,
+          accountName: row.accountName,
+          total: Number(row.total),
+          count: Number(row.count),
+        }))
+      ),
     };
 
     for (const row of summaryRows) {
@@ -150,7 +180,7 @@ export async function GET(request: NextRequest) {
     summary.depositCount = summary.incomeCount;
 
     return NextResponse.json({
-      transactions: items,
+      transactions: items.map((row) => ({ ...row, isRefund: Boolean(row.isRefund) })),
       summary,
       hasMore,
       count: items.length,

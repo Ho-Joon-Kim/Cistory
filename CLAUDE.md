@@ -66,7 +66,7 @@ Tests are colocated `*.test.ts` files (e.g. `src/lib/cron.test.ts`, `src/modules
 
 Isolation is transaction-per-test (`src/db/testing/transactional-db.ts`): each test file opens one dedicated `pg.Client`, wraps every test in `BEGIN`/`ROLLBACK`, and never commits — so tests never leak state into each other regardless of execution order, without per-table cleanup code to keep in sync as tables are added. This suite is intentionally targeted — each file pins a Postgres-level property (timezone, tenant isolation, lease/claim races, cascade/rollback) that a mock can't — rather than a blanket integration layer over the ~50 files in `src/` that build raw SQL; extend it by adding another focused `*.integration.test.ts` file, not by broadening existing ones. Use only a disposable database for `TEST_DATABASE_URL`.
 
-**Browser tests** (`tests/browser/*.spec.ts`, `playwright.config.ts`) run against `scripts/browser-server.mjs`, which copies `src/` + config into a temp dir (never `.env*`), symlinks `node_modules`, swaps `output: "standalone"` off, injects `tests/browser/chart-page.tsx` as a `/browser-charts` gallery (only in the copy, never shipped), and starts with dummy auth, an unreachable loopback DB and `DISABLE_CRON=true`. Every API call is a fixture and external requests are blocked. They cover chart geometry for all seven live recharts components, mobile width, KST date links from a non-KST browser, search, data-status recovery flows, and SSR/hydration ordering. When adding files that the app needs at boot (like `instrumentation-client.ts`), add them to the browser-server copy list too. Artifacts land in gitignored `test-results/` and `playwright-report/`.
+**Browser tests** (`tests/browser/*.spec.ts`, `playwright.config.ts`) run against `scripts/browser-server.mjs`, which copies `src/` + config into a temp dir (never `.env*`), symlinks `node_modules`, swaps `output: "standalone"` off, injects `tests/browser/chart-page.tsx` as a `/browser-charts` gallery (only in the copy, never shipped), and starts with dummy auth, an unreachable loopback DB and `DISABLE_CRON=true`. Every API call is a fixture and external requests are blocked. They cover chart geometry (the hand-built `/spending` month bars and forecast curve, plus the four recharts components in the `/browser-charts` gallery), mobile width, KST date links from a non-KST browser, search, data-status recovery flows, and SSR/hydration ordering. When adding files that the app needs at boot (like `instrumentation-client.ts`), add them to the browser-server copy list too. Artifacts land in gitignored `test-results/` and `playwright-report/`.
 
 Package manager is **Yarn 4.5.0** (Berry, via Corepack, node-modules linker). Use `yarn` for all package operations. Node is pinned to **24.22.2** in `.node-version` (also `engines`, Docker); `yarn dev`/`yarn build` call `scripts/check-node-version.mjs` explicitly and exit if the running Node is older or a different major — Yarn 4 doesn't run implicit `predev`/`prebuild` hooks, so that guard must stay inline in the script.
 
@@ -86,7 +86,9 @@ Package manager is **Yarn 4.5.0** (Berry, via Corepack, node-modules linker). Us
 - **Mapbox GL** + **react-map-gl** - Map visualization for location tracking
 - **Sentry** (`@sentry/nextjs`) - Error tracking: `sentry.server.config.ts`, `sentry.edge.config.ts`, and `instrumentation-client.ts` for the browser (there is no `sentry.client.config.ts` — Turbopack needs the instrumentation-client form)
 - **Better Stack** (`@logtail/node`) - Structured logging via `src/lib/logger.ts`
-- **recharts** - Charts, pinned to `3.10.1`. The earlier 3.x rollout regressed charts; desktop/mobile production-build browser regression checks now cover all seven chart components. Keep measured containers, responsive radii and geometry assertions when changing charts
+- **recharts** - pinned to `3.10.1`, but **no app page renders it any more**: the redesign draws every chart as hand-built SVG/DOM (e.g. `spending/components/MonthlyChart.tsx`, `overview/components/view/FlowChart.tsx`). The four remaining recharts components (`portfolio/components/{AccountAllocationChart,AccountHoldingsPieChart,AssetTimelineChart}.tsx`, `settings/components/DataUsageCard.tsx`, all over `src/components/ui/chart.tsx`) are imported only by the browser-test gallery `tests/browser/chart-page.tsx`. The earlier 3.x rollout regressed charts; if recharts comes back into a page, keep measured containers, responsive radii and geometry assertions
+- **Design system** (`src/components/ds`, tokens in `src/app/globals.css`) - the redesign-v2 component set every page is built from; see **Design System & AI Lines** below
+- **Fonts** (`next/font` in `src/app/layout.tsx`) - Pretendard Variable for body text, self-hosted from the `pretendard` npm dependency (`localFont`, not preloaded — the variable file covers all of Hangul, ~2 MB); Noto Serif KR 500/600/700 for titles and AI lines; Geist Mono for numbers (the `num` utility)
 
 ### Project Structure
 
@@ -95,7 +97,7 @@ src/
 ├── app/                      # Next.js App Router
 │   ├── (auth)/              # Auth route group (login, callback)
 │   ├── (dashboard)/         # Dashboard route group (settings, repositories, spending)
-│   ├── api/                 # API routes (~83 endpoints)
+│   ├── api/                 # API routes (~87 endpoints)
 │   ├── dashboard/           # Main dashboard page
 │   ├── health/              # Health/fitness dashboard (Google Health + Withings)
 │   ├── overview/            # Unified period dashboard (recent/week/month/year)
@@ -105,7 +107,8 @@ src/
 │   ├── data-status/         # Per-source collection status + date-range recovery (linked from Settings)
 │   ├── insights/, report/   # Redirect-only shims → /overview (see legacy-routes.ts)
 │   └── privacy|terms/       # Static pages required by the Google/Withings OAuth reviews
-├── components/              # Shared components (Layout/, map/, ui/ shadcn components)
+├── components/              # Shared components: ds/ (design system), Layout/ (app bar +
+│                            #   CommitGraph beside the logo), map/, ui/ (shadcn, restyled)
 ├── db/
 │   ├── schema.ts            # Drizzle schema (43 app tables)
 │   ├── sql.ts               # KST-aware SQL helpers (localDaySql, numericToNumber)
@@ -135,6 +138,8 @@ src/
 │   ├── account-deletion.ts  # One-transaction delete of app rows + Better Auth session/account/user
 │   ├── data-usage.ts        # Per-user per-table row/byte estimates → dataUsageCache
 │   ├── date-key.ts          # "YYYY-MM-DD" key math + getKstDateWindow
+│   ├── facts/               # Template-first AI-line facts (builders, pick, template, chooser)
+│   ├── format.ts            # Display formatters (원, 만원, dates, %, signTone) — KST-fixed
 │   ├── hooks/               # Shared client hooks (useCountUp, useNdjsonStream, …)
 │   ├── logger.ts            # Structured logging (Better Stack / console fallback)
 │   ├── body-format.ts       # Shared Withings/body display formatting
@@ -149,7 +154,7 @@ src/
 │   ├── health/             # Google Health sync, Health Connect import, /health UI
 │   │                       #   compaction.ts (heart-rate minute buckets),
 │   │                       #   sessions.ts (multi-source sleep/exercise dedup)
-│   ├── insights/           # Year-scoped insight sections (/api/insights, /health, overview cards)
+│   ├── insights/           # Year-scoped insight sections behind /api/insights (/health reads `body`)
 │   ├── location/           # Location tracking + processing pipeline (services/)
 │   ├── overview/           # /overview: period snapshots, precompute, narratives, legacy redirects
 │   ├── portfolio/          # KIS brokerage portfolio (returns.ts for TWR)
@@ -161,7 +166,7 @@ src/
 │   ├── subway/             # Subway system seeding + OSM refresh
 │   ├── summary/            # AI commit summary service
 │   ├── sync/               # Commit sync service (SyncService class)
-│   ├── timeline/           # Timeline display
+│   ├── timeline/           # /dashboard map-first day view (day-model.ts, day-facts.ts, components/day/)
 │   ├── transaction/        # Toss notification parser
 │   ├── travel/             # /travel trip browser (not-a-trip exclusions, route points)
 │   ├── wakatime/           # WakaTime coding activity
@@ -226,7 +231,17 @@ const accessToken = await getGitHubToken(user.id);
 - `service.ts` - Server-side business logic and DB operations
 - `components/` - Feature-specific UI components
 
-Only `service.ts` is universal. `45b8799` deleted 56 unreachable UI files, so `report/` now has **no** `hooks.ts` and an empty `components/`, and `insights/` has no `hooks.ts` and only four surviving components (`BodyCard.tsx` plus `primitives/{InsightCard,Pill,Stat}.tsx`, all still imported by `/health` and `OverviewCards`). Don't assume a module has a client layer — grep for an importer before building on one.
+Only `service.ts` is universal. `45b8799` deleted 56 unreachable UI files, so `report/` now has **no** `hooks.ts` and an empty `components/`, and `insights/` has no `hooks.ts`; its four surviving components (`BodyCard.tsx` plus `primitives/{InsightCard,Pill,Stat}.tsx`) lost their last app importers in the redesign (only `health/observation.test.ts` still renders `BodyCard`). Don't assume a module has a client layer — grep for an importer before building on one.
+
+**Design System & AI Lines** (redesign v2 — every page was rebuilt on it; the approved mockups' rules are binding: change-first hierarchy, no emoji/glyph status markers, motion gated by `prefers-reduced-motion`, AI woven into components rather than a separate AI section):
+- **Tokens** live in `src/app/globals.css` (header comment maps mockup var → CSS var → utility). Use the design-system layer (`bg-page`/`bg-surface`/`bg-sunken`/`bg-track`, `border-line`, `text-ink`/`text-ink-2`/`text-ink-3`, `bg-brand`/`text-brand-ink`/`bg-brand-soft`, `text-warn`, `text-ok`, `bg-bar`, the 14-hue `cat-<id>`/`cat-<id>-tint` category palette, `shadow-ring`/`shadow-pop`) over the shadcn HSL triples, which remain only so `src/components/ui` keeps working. **Naming trap**: the mockups' `--accent`/`--gain`/`--loss`/`--ring` are `--brand`/`--up`/`--down`/`--elev-ring` here (renamed to avoid the shadcn variables of the same name), while the *utilities* are `text-gain`/`bg-gain-soft` (= `--up`, red) and `text-loss`/`bg-loss-soft` (= `--down`, blue) — Korean market convention, used only for market returns and investment deltas (`signTone()`); cash flow stays ink. Custom utilities: `num` (Geist Mono, tabular), `ai-voice` (serif 500 AI line), `text-label`, `px-page` (16/24/96 gutter), `surface`; opt-in motion classes `ds-enter`/`ds-grow`/`ds-growx`/`ds-pop`/`ds-reveal` collapse to a short fade under reduced motion. Element defaults (`*` border color, `body`) sit in `@layer base` so every utility wins — keep new global element rules layered
+- **Components** (`src/components/ds`, one barrel `@/components/ds`): `PageContainer`/`PageTitle`/`MetaLine`, `HeroNumber`/`SecondaryNumber`/`CountUp`, `Segmented`, `ShareRow`, `RowFlag`/`RowFlagReason`, `StatusBadge` (+ `deriveSourceStatus`), `EmptyState`/`ErrorState`/`LoadingState` (missing data is never drawn as 0), `Sheet`, `CategoryMark`/`LedgerMark` (custom line pictograms, `category-marks.ts`), `SourceTile`/`SourceGlyph`/`Chevron`/`Disclosure`/`ArrowRight`, and the AI pieces `AiLine`, `FactTrigger`/`FactPopover`, `ChartAnnotation`, `EvidenceScope`/`useEvidence`/`useEvidenceTrigger`. Grep the barrel before building a page-local variant — the cleanup pass already folded `FactLine` (overview) and `HealthAiLine` (health) back into `AiLine`
+- **Formatting** (`src/lib/format.ts`): one display vocabulary — `formatWon` (`2,083,890원`, never ₩), `formatWonCompact` (`541.7만원`), `formatShare`/`formatDeltaPercent`/`formatReturn`, `formatDay`/`formatMonthDay`/`formatDateRange`/`formatTime`/`formatDateTime`/`formatRelative`/`formatDurationMinutes`, U+2212 `MINUS`. Every date function treats `YYYY-MM-DD` as a KST day and a `Date` as an instant shown in Asia/Seoul, so output never depends on the runtime timezone
+- **AI lines are template-first facts computed in code — no model call** (`src/lib/facts`). Per-page modules (e.g. `overview/view/{hero,headline,sections,series}.ts`, `health/health-facts.ts`, `spending/view-model.ts`, `portfolio/facts.ts`, `timeline/day-facts.ts`, `data-status/insights.ts`, `search/grouping.ts`, `travel/{list,detail}-model.ts`) build `Fact` objects with the `helpers.ts` builders (`deltaVsPrevious`, `concentration`, `recordLowHigh`, `oneOff`, `streak`, `diagnosis`), each scored 0..1; `pickOne`/`pickNotable` keep only facts at or above `NOTABLE_THRESHOLD` (0.5) and **no notable fact means no line**, never filler. `renderTemplate()` formats every number from the fact (a template may only reference `{fact}`/named placeholders; `validateTemplate` rejects literal digits), and `AiLine` renders the sentence in the serif voice with exactly one dotted `FactTrigger` that opens the evidence popover — set in mono whenever it contains a digit. Hover/focus on a line lights its `evidence` (a date range or a set of row keys, matched by `evidenceMatches`) inside the nearest `EvidenceScope`
+- **Chooser extension point & cost discipline** (`facts/chooser.ts`, owner requirement): today `templateChooser` picks by score. A future LLM chooser receives only top-N candidates serialized by `toCandidate()` (~1–2k tokens, never raw snapshots), returns `FactChoice[]` (ids + optional templates, never numbers), and `applyChoices()` falls back to the default template for any template that fails validation. Its rules: one structured call per (user, period) covering every line on a page, cached by hash(candidates + prompt version), skipped when nothing passes the threshold, small model with JSON-only output, per-user budget that degrades to templates. The existing large-model overview narrative is still generated and stored, but `/overview` folds it into a collapsed context block under the fact-led hero
+- **Timeline (`/dashboard`) is map-first**: `timeline/components/day/DayView.tsx` puts the `location/components/DayMap` beside a compact list (PC) or leads with a full-bleed map carrying the date pill (phone), under one minimal meta line and the tiny `DateNav` (`‹ 11월 9일 (월) ›` + one-month calendar). `DayList` (places/rides at top level, commits/payments/sleep indented under the place) and the 24h `DayStrip` share one selection with the map; the pure `day-model.ts` keys all three by the same row ids
+- **The app bar** (`src/components/Layout/Header.tsx`) puts the 28-day `CommitGraph` immediately right of the logo on every page, PC and phone
+- **Removed in the redesign** (don't resurrect from history): `overview/components/cards/*` (`OverviewCards`, its model/format), `AsOfBadge`, `PeriodSwitcher`; the old timeline feed (`Timeline.tsx`, `CommitCard`, `CompactCommitCard`, `StayPointCard`, `TransactionCard`, `TimelineSkeleton`, `timeline/utils.ts`/`types.ts`); `location/components/{LocationMap,MapSidePanel,MapSkeleton,RouteReplayController,SegmentedRouteAnimator,TimelineSegmentBar,TrackCard}` and `panels/{Layers,Search,Timeline}Panel`; travel's `TripCard`, `TripRouteMap`, `TripTimeline`, `Trip{Health,Routine,Spending,Transport}Card`, `Travel{Trips,Detail}Content`; health's `HealthHero`, `HealthTrendCard`, `SleepCard`, `Hypnogram`, `CorrelationCard`, `WorkoutList`, `HoverLayer`; portfolio's `PortfolioOverviewCard`, `ReturnsCard`, `RebalanceCard`, `RecentExecutionsCard`, `AccountHoldingsTable`, `CategoryBreakdown`, `HoldingWeightList`, `InflationAdjustedReturnCard`; spending's `CategorySpendingChart`, `MonthlySpendingBar`, `SpendingTrendChart`; and `src/components/CommitHeatmap.tsx`
 
 **Database Access**: `getDb()` from `src/db/index.ts` returns a lazy-initialized Drizzle ORM singleton over a `pg.Pool`. Import schema tables and types alongside it:
 ```typescript
@@ -348,8 +363,8 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 
 **Overview** (`src/modules/overview/`) — the unified reporting surface, and the piece most likely to surprise you:
 - `/overview?periodType=&periodKey=` renders one of four period types (`recent`|`week`|`month`|`year`). `/insights`, `/report` and `/report/comparison` are **redirect-only shims**: `legacy-routes.ts` maps their old query params onto overview params. Don't add UI to those pages — they render nothing
-- Their **API** routes are not deprecated, though. `modules/insights` still backs `/api/insights`, the `/health` page and several overview cards; `modules/report` still backs `/api/reports/*` and `location/services/trip-naming`. Neither module is dead code — only the two pages are
-- Reads never aggregate on demand. `GET /api/overview` returns a stored `period_snapshots` row, or a `missing`/`pending`/`computing` status that the client polls on. `POST /api/overview/recompute` enqueues (202) and is same-origin-checked, capped at `OVERVIEW_OUTSTANDING_LIMIT` (5) outstanding requests per user
+- Their **API** routes are not deprecated, though. `modules/insights` still backs `/api/insights` (the `/health` page reads its `body` section); `modules/report` still backs `/api/reports/*` and `location/services/trip-naming`. Neither module is dead code — only the two pages are
+- Reads never aggregate on demand. `GET /api/overview/history?periodType=week|month|year&periodKey=` (`history.ts` + `history-store.ts`) feeds the hero's change-vs-previous and its 10-period bars from *stored* snapshots only: a period without its own snapshot is filled from the daily series of a stored larger snapshot covering it (a year carries every day), and one nothing covers stays `null`, never 0. The store selects only the jsonb paths it needs, never the heatmap payloads. `GET /api/overview` returns a stored `period_snapshots` row, or a `missing`/`pending`/`computing` status that the client polls on. `POST /api/overview/recompute` enqueues (202) and is same-origin-checked, capped at `OVERVIEW_OUTSTANDING_LIMIT` (5) outstanding requests per user
 - `precompute.ts` is a leased work queue, not a loop: `recoverExpiredLeases` → `seedActivePeriods` → `claimSnapshots` (10-min lease, 5 per run, 3 attempts, 250 users per page) → `publishSnapshot`. Every publish is conditional on still holding the lease, so a second worker can't clobber a first
 - **Active periods refresh freely; ended periods only finalize once `location_processing_days` covers their end date** (`deferredForLocation` in the run result). An ended month finalized before its last day's location pipeline landed would freeze a permanently wrong number
 - `aggregate/` computes the five domains (`coding`, `location`, `health`, `spending`, `portfolio`) into independent envelopes; a domain that throws is stored `failed` while the others publish
@@ -357,7 +372,7 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - `OVERVIEW_RETENTION_PERIODS` (45 recent, 104 week, 60 month, 10 year) bounds how far back a period may be requested or recomputed — a key older than the boundary, or newer than the current one, is rejected rather than queued
 
 **Travel** (`src/modules/travel/`):
-- `/travel` lists trips (cursor-paginated on `(endDate, startDate, id)`) and `/travel/[tripId]` shows one, joining visits, commits, coding, spending and health for the trip window
+- `/travel` lists trips (cursor-paginated on `(endDate, startDate, id)`) and `/travel/[tripId]` shows one, joining visits, commits, coding, spending and health for the trip window. `GET /api/trips?limit=&summary=1` adds a `summary` (`TravelService.getListSummary`) for the hero: every trip overlapping the current KST year plus `spendingSince`, the first Toss transaction date (the date spending coverage starts, for the hero)
 - `POST /api/trips/[id]/not-a-trip` is the correction path for a false positive: rather than just deleting the trip, `not-a-trip.ts` creates a `savedPlaces` exclusion around the trip's dominant visit (10 km radius, or 100 m when pinned to an existing saved place) so auto-detection stops re-detecting it on the next weekly run
 
 **Search** (`src/modules/search/`, `/search`, `GET /api/search`):
@@ -365,6 +380,7 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - Range bounds are bound as `toISOString()` and cast `::timestamp` explicitly so the connection's session timezone can't reinterpret them (the integration test runs under a non-UTC session). Visits match by interval **overlap** and link to their actual start day; trips compare KST date strings directly
 - `parseSearchInput()` (`input.ts`) defaults to the last 30 KST days, caps the range at 366 days and `q` at 200 chars, and throws `ApiError(400)` with Korean messages. The route rethrows DB errors as a generic error because Drizzle errors can embed the query parameters, i.e. the search term, and responds `Cache-Control: private, no-store`
 - Result links: commits → the GitHub commit, trips → `/travel/[id]`, everything else → `/dashboard?date=` (KST day)
+- Redesign additions: `?category=<expense category>` limits to spending rows of that category (400 on an unknown key); `?hours=H-H` is a KST hour-of-day window (start inclusive, end exclusive, wraps past midnight when start > end, e.g. `22-3`) that excludes trips. The response carries `counts` — per-source totals for the same filters ignoring `source` — and items now include `occurredAt`, `amount`, `category` and `repository`. `nl-parser.ts` (`parseNaturalQuery`) is a **rule-based, model-free** client-side reader of free text ("지난주 저녁 배달") into dates/sources/category/hours chips plus the literal remainder
 
 **ECG / irregular-rhythm notifications (optional scopes)** (`src/modules/health/rhythm.ts`, design §5):
 - **Scopes:** `googlehealth.ecg.readonly` / `googlehealth.irn.readonly` are `GOOGLE_HEALTH_OPTIONAL_SCOPES` and are **not** in the default connect set. The settings Google Health card's "ECG/불규칙 심박 연결" button runs `/api/fitbit/authorize?extra=ecg,irn` (default scopes + extras, `include_granted_scopes`), and the callback stores the granted `scope`.
@@ -423,6 +439,8 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - Deduplication: unique constraint on `(userId, notificationLogId)` plus a ±2 minute time-window duplicate check that **includes the notification body** — with the balance stripped from the merchant, back-to-back same-amount purchases would otherwise collapse into one
 - Daily 23:00 reparse picks up notifications that failed with older parser versions
 - **Spending buckets** (`src/modules/spending/classify.ts`): `classify()` (JS) and `bucketSql()` (SQL `CASE`, needs the `account_roles` LEFT JOIN in scope) must stay in lockstep — both resolve a row to `spending`|`income`|`ignore`. Order: `spendingOverride` → `cancel` rows ignored → a withdrawal voided by a later same-account/merchant/amount `cancel` within `CANCEL_WINDOW` (30 days, `cancelledSql()`) ignored → account role. A `spending`-role (pooled) account counts **only** the user's own deposits into it (`isSelfTransfer` or merchant = `tossMyName`) that are *not* mirrored by a same-amount withdrawal from another account (`mirrorWithdrawalExistsSql()`) — otherwise money moved in and then spent was counted twice. Changing these rules requires bumping `OVERVIEW_COMPUTE_VERSION` (now 4) so spending snapshots recompute
+- **Refunds inside income** (`src/modules/spending/refund.ts`): Toss reports a refund as an ordinary deposit from the merchant, so it stays in the `income` bucket (buckets are unchanged). `GET /api/spending` marks such rows `isRefund` (`refundSql()`: payer's `merchantBase()` matches a merchant the user paid for a categorized purchase, excluding `gift`/`finance` payees) and adds `summary.flow` (`summarizeIncomeFlow()`: refund vs. other money received, with the top merchant/account) for the page's 순지출 view
+- **One-off charges in the forecast** (`forecast.ts`): a single charge above `oneOffThreshold()` (0.2 × the median completed month, backtested) is added back once rather than extrapolated; `GET /api/spending/trend`'s `forecast` exposes `oneOffTotal`/`oneOffCount`/`oneOffThreshold`, and monthly bars gained a `key` (`YYYY-MM`, since `month` alone repeats across the 13-month window)
 - Categorization is a separate async pass: `src/modules/spending/category-classifier.ts` batches 25 transactions per Haiku call into the fixed `EXPENSE_CATEGORIES` list (`categories.ts`), records confidence/model/attempts, and never blocks ingestion
 
 **KIS Brokerage Portfolio** (`src/modules/portfolio/`):
@@ -435,13 +453,13 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 ### API Routes
 
 - `/api/auth/[...all]` - Better Auth catch-all; `/api/auth/disconnect` - DELETE account (`deleteAccount()` removes app rows, every session, OAuth credentials and the Better Auth user in one transaction)
-- `/api/search` - GET owner-scoped record search (`?q=&from=&to=&source=all|commit|spending|visit|trip&page=`)
+- `/api/search` - GET owner-scoped record search (`?q=&from=&to=&source=all|commit|spending|visit|trip&category=&hours=&page=`; response includes per-source `counts`)
 - `/api/data-status` - GET collection status (`?from=&to=`); `/api/data-status/recover` - POST enqueue recovery (202)
 - `/api/settings` - GET/PUT settings; `/api/settings/{owntracks-key,toss-key,health-import-key}` - POST/DELETE API keys; `/api/settings/wakatime-key` - deprecated (POST → 410, DELETE clears legacy key); `/api/settings/wakatime-sync` - manual sync; `/api/settings/data-usage`; `/api/settings/db-benchmark`; `/api/settings/location-backfill` - GET dry-run / POST re-run pipeline (SSE); `/api/settings/subway-match-backfill`; `/api/settings/transportation-reclassify`; `/api/settings/trip-regenerate`; `/api/settings/account-roles`
 - `/api/sync` - POST manual sync; `/api/sync/status`; `/api/sync/jobs`
 - `/api/timeline` - GET paginated commits; `/api/timeline/{repos,stats,current-activity}`; `/api/timeline/commits/[commitId]{,/stats,/summary}`; `/api/timeline/locations{,/stay-points,/distances,/tracks,/import}`; `/api/timeline/{coding-sessions,coding-stats}`
-- `/api/trips` - GET/POST; `/api/trips/[id]` - PUT/DELETE; `/api/trips/detect` - POST auto-detect; `/api/trips/[id]/not-a-trip` - POST false-positive correction (creates a saved-place exclusion); `/api/trips/[id]/route-points` - GET map route
-- `/api/overview` - GET stored period snapshot (`?periodType=&periodKey=`); `/api/overview/recompute` - POST enqueue (202, same-origin); `/api/overview/narrative` - GET narrative / POST enqueue generation
+- `/api/trips` - GET/POST (`GET ?limit=&cursor=&summary=1` adds the current-year hero summary); `/api/trips/[id]` - PUT/DELETE; `/api/trips/detect` - POST auto-detect; `/api/trips/[id]/not-a-trip` - POST false-positive correction (creates a saved-place exclusion); `/api/trips/[id]/route-points` - GET map route
+- `/api/overview` - GET stored period snapshot (`?periodType=&periodKey=`); `/api/overview/history` - GET stored-only previous period + 10-period series + weigh-ins (`?periodType=week|month|year&periodKey=`); `/api/overview/recompute` - POST enqueue (202, same-origin); `/api/overview/narrative` - GET narrative / POST enqueue generation
 - `/api/insights` - GET. No `section` param returns all 18 sections in one batched single-transaction response; `?section=` fetches one of streaks|patterns|routines|digests|commit-heatmap|subway|swimlane|ai-clock|commute-reliability|place-productivity|trips|transport-modes|visits-x-commits|net-spend|repo-split|data-usage|discoveries|body
 - `/api/reports/{monthly,yearly}` - GET report data (`?section=`); POST AI narrative. `/api/reports/{comparison,scratch-map,subway-usage}`
 - `/api/summaries/process` - POST batch summary generation
@@ -453,7 +471,7 @@ Most jobs have a module-level single-flight boolean guard, but **not all** — `
 - `/api/wakatime` - DELETE disconnect (revokes tokens, clears legacy key + watermark); `/api/wakatime/{authorize,callback}` - OAuth
 - `/api/map/subway` - GET lines/stations for map rendering (viewport bbox filtered)
 - `/api/saved-places` - GET/POST; `/api/saved-places/[id]` - PUT/DELETE; `/api/saved-places/search`
-- `/api/spending` - GET analytics; `/api/spending/trend`; `/api/spending/reparse`; `/api/spending/transactions/[transactionId]` - DELETE; `/api/spending/notifications{,/cleanup}`
+- `/api/spending` - GET analytics (rows carry `isRefund`, `summary.flow` splits income); `/api/spending/trend` (forecast carries one-off fields); `/api/spending/reparse`; `/api/spending/transactions/[transactionId]` - DELETE; `/api/spending/notifications{,/cleanup}`
 - `/api/portfolio/accounts{,/[accountId]{,/sync,/backfill,/targets}}`; `/api/portfolio/{snapshots,executions,summary,returns,sync}`
 - `/api/health` - GET liveness check (`{status:"ok"}`, used by the Jenkins health-check stage). **Not** the health/fitness API — that's `/api/fitbit/*`
 
@@ -543,7 +561,7 @@ CI/production uses `scripts/migrate.ts` (`npx tsx scripts/migrate.ts`) rather th
 - **Biome** for linting/formatting (`biome.json`); auto-organizes imports
 - Formatting: 2-space indent, double quotes, semicolons, trailing commas (ES5), 100 char line width
 - Lint: unused imports are errors, unused variables are warnings, `useImportType` enforced, `noNonNullAssertion` off, `noExplicitAny` warn, `noExcessiveCognitiveComplexity` warn, `useExhaustiveDependencies` warn
-- Naming: PascalCase React components (`LocationMap.tsx`), `useCamelCase` hooks, camelCase functions/variables, Next.js `page.tsx`/`route.ts`
+- Naming: PascalCase React components (`DayMap.tsx`), `useCamelCase` hooks, camelCase functions/variables, Next.js `page.tsx`/`route.ts`
 - Path alias: `@/*` maps to `./src/*`
 - Prefer Drizzle ORM query builder (avoid raw SQL); keep feature logic in its module and shared infrastructure in `src/lib`
 - Follow Next.js App Router conventions (Server Components by default)

@@ -80,7 +80,7 @@ export function DataUsageCard() {
         ) : !hasData ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <Database className="h-10 w-10 mb-3 opacity-50" />
-            <p className="text-sm">아직 계산된 용량이 없습니다</p>
+            <p className="text-sm">아직 계산된 용량이 없어요</p>
             <p className="text-xs mt-1">새로고침을 눌러 용량을 계산하세요.</p>
           </div>
         ) : (

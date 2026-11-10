@@ -12,6 +12,6 @@ describe("getTripConfirmationErrorMessage", () => {
       getTripConfirmationErrorMessage(
         new TripConfirmationError("여행 제외 설정이 바뀌었습니다", "STALE_DETECTION")
       )
-    ).toBe("여행 후보가 만료되었습니다. 취소한 뒤 여행을 다시 감지해 주세요.");
+    ).toBe("여행 후보가 만료됐어요. 취소한 뒤 여행을 다시 감지해 주세요.");
   });
 });

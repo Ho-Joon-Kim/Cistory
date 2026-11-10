@@ -3,8 +3,10 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/lib/auth-client";
+import { toKstCalendarDate } from "@/lib/date-key";
 import { toLocalDateString } from "@/lib/utils";
 import type { TransactionItem } from "@/modules/spending/hooks";
+import { dayErrorMessage } from "./error-copy";
 
 export interface Repository {
   fullName: string;
@@ -17,29 +19,47 @@ export interface Repository {
 interface UseRepositoriesReturn {
   repositories: Repository[];
   isLoading: boolean;
+  /** Why the last load failed; `null` after a successful load. Never an empty list. */
+  error: Error | null;
   refresh: () => void;
 }
 
+interface RepositoriesState {
+  repositories: Repository[];
+  isLoading: boolean;
+  error: Error | null;
+}
+
+/** Fixed Korean copy for a non-OK response; an `error` body that is Korean wins. */
+async function repositoriesResponseError(response: Response): Promise<Error> {
+  const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+  const message = typeof body?.error === "string" && body.error.trim() ? body.error : null;
+  return new Error(message ?? `HTTP ${response.status}`);
+}
+
 export function useRepositories(enabled = true): UseRepositoriesReturn {
-  const [state, setState] = useState<{ repositories: Repository[]; isLoading: boolean }>({
+  const [state, setState] = useState<RepositoriesState>({
     repositories: [],
     isLoading: true,
+    error: null,
   });
 
   const fetchRepos = useCallback(async (signal?: AbortSignal) => {
     setState((prev) => ({ ...prev, isLoading: true }));
     try {
       const response = await fetch("/api/timeline/repos", { signal });
-      if (response.ok) {
-        const data = (await response.json()) as { repositories: Repository[] };
-        setState({ repositories: data.repositories, isLoading: false });
-      } else {
-        setState((prev) => ({ ...prev, isLoading: false }));
-      }
+      if (!response.ok) throw await repositoriesResponseError(response);
+      const data = (await response.json()) as { repositories: Repository[] };
+      setState({ repositories: data.repositories, isLoading: false, error: null });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
+      if (signal?.aborted) return;
       console.error("Failed to fetch repositories:", err);
-      setState((prev) => ({ ...prev, isLoading: false }));
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: err instanceof Error ? err : new Error(String(err)),
+      }));
     }
   }, []);
 
@@ -255,7 +275,7 @@ export function transactionsForDateOptions(sessionId: string | undefined, date: 
     queryFn: async ({ signal }): Promise<TransactionItem[]> => {
       const params = new URLSearchParams({ from: date, to: date, limit: "100", offset: "0" });
       const response = await fetch(`/api/spending?${params}`, { signal });
-      if (!response.ok) throw new Error("거래 내역을 불러오지 못했습니다.");
+      if (!response.ok) throw new Error("거래 내역을 불러오지 못했어요.");
       const data = (await response.json()) as { transactions: TransactionItem[] };
       return data.transactions;
     },
@@ -271,7 +291,7 @@ export function useTransactionsForDate(date: string) {
   return {
     transactions: query.data ?? [],
     isLoading: query.isLoading,
-    error: query.error?.message ?? null,
+    error: query.error ? dayErrorMessage(query.error, "거래 내역을 불러오지 못했어요.") : null,
     refresh: () => {
       void query.refetch();
     },
@@ -280,5 +300,60 @@ export function useTransactionsForDate(date: string) {
 
 export async function startInitialSync() {
   const response = await fetch("/api/sync", { method: "POST" });
-  if (!response.ok) throw new Error("동기화를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  if (!response.ok) throw new Error("동기화를 시작하지 못했어요. 잠시 후 다시 시도해 주세요.");
+}
+
+// --- Commits for a single KST day (the /dashboard day view) ---
+
+/** Pages fetched per day at most (50 per page — the API cap): 1,000 commits. */
+const DAY_COMMIT_PAGE_LIMIT = 20;
+
+interface TimelinePage {
+  commits: TimelineCommit[];
+  pagination: { hasNext: boolean };
+}
+
+/**
+ * Every commit of one KST day, walking the paginated timeline API until it runs
+ * out. Polls every minute while the day is today (like the location hooks);
+ * `["timeline", "day"]` is invalidated when a sync completes.
+ */
+export function dayCommitsOptions(sessionId: string | undefined, date: string) {
+  return queryOptions({
+    queryKey: ["timeline", "day", sessionId, date],
+    enabled: !!sessionId && !!date,
+    queryFn: async ({ signal }): Promise<TimelineCommit[]> => {
+      const all: TimelineCommit[] = [];
+      for (let page = 1; page <= DAY_COMMIT_PAGE_LIMIT; page++) {
+        const params = new URLSearchParams({
+          page: String(page),
+          per_page: "50",
+          from: date,
+          to: date,
+        });
+        const response = await fetch(`/api/timeline?${params}`, { signal });
+        if (!response.ok) throw new Error("커밋을 불러오지 못했어요.");
+        const data = (await response.json()) as TimelinePage;
+        all.push(...(data.commits ?? []));
+        if (!data.pagination?.hasNext) break;
+      }
+      return all;
+    },
+    staleTime: 30_000,
+    refetchInterval: date === toKstCalendarDate(new Date()) ? 60_000 : false,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useDayCommits(date: string) {
+  const { data: session } = useSession();
+  const query = useQuery(dayCommitsOptions(session?.session.id, date));
+  return {
+    commits: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error ? dayErrorMessage(query.error, "커밋을 불러오지 못했어요.") : null,
+    refresh: () => {
+      void query.refetch();
+    },
+  };
 }

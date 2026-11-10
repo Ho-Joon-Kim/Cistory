@@ -134,6 +134,8 @@ describe("TravelService.getTripDetail", () => {
           category: null,
           city: "제주특별자치도",
           countryName: "대한민국",
+          savedPlaceName: null,
+          savedPlaceCategory: null,
         },
       ],
       [
@@ -159,6 +161,7 @@ describe("TravelService.getTripDetail", () => {
         { id: "commit-trip", committedAt: new Date("2026-07-15T03:00:00Z") },
       ],
       [],
+      [{ first: "2026-03-02 15:30:00" }],
     ]);
 
     const detail = await new TravelService(db).getTripDetail("user-1", "trip-1");
@@ -178,7 +181,9 @@ describe("TravelService.getTripDetail", () => {
       },
     });
     expect(detail?.health).toEqual([]);
-    expect(whereCalls).toHaveLength(8);
+    // 15:30 UTC wall time is already the next KST day.
+    expect(detail?.spendingSince).toBe("2026-03-03");
+    expect(whereCalls).toHaveLength(9);
   });
 
   it("returns null before subordinate queries when the trip is missing or belongs to another user", async () => {
@@ -217,7 +222,11 @@ describe("TravelService.listTrips", () => {
     const result = await new TravelService(db).listTrips("user-1", { limit: 2, cursor: null });
 
     expect(result.trips.map((trip) => trip.id)).toEqual(["trip-3", "trip-2"]);
-    expect(result.trips[0]).toMatchObject({ totalSpending: 100_000, visitCount: 3 });
+    expect(result.trips[0]).toMatchObject({
+      totalSpending: 100_000,
+      visitCount: 3,
+      anchorPlaceName: null,
+    });
     const listFields = selectedFields[1] as { totalSpending: SQL.Aliased<number> };
     const spendingSql = drizzle
       .mock()
@@ -232,5 +241,65 @@ describe("TravelService.listTrips", () => {
       startDate: "2026-06-10",
       id: "trip-2",
     });
+  });
+});
+
+describe("TravelService.getListSummary", () => {
+  it("returns every trip of the year with its anchor place and the first Toss date", async () => {
+    const row = {
+      id: "trip-1",
+      userId: "user-1",
+      name: "대전 여행",
+      startDate: "2025-12-30",
+      endDate: "2026-01-02",
+      totalDistanceMeters: 300_000,
+      visitedCities: '["대전"]',
+      visitedCountries: null,
+      isOverseas: false,
+      autoDetected: true,
+      notes: null,
+      createdAt: new Date("2026-01-03T00:00:00Z"),
+      updatedAt: new Date("2026-01-03T00:00:00Z"),
+      visitCount: "12",
+      totalSpending: "0",
+      anchorPlaceName: "본가",
+    };
+    const { db, selectedFields, whereCalls } = createQueuedDb([
+      [{ tossMyName: null }],
+      [row],
+      [{ first: new Date("2026-03-03T03:53:16Z") }],
+    ]);
+
+    const summary = await new TravelService(db).getListSummary("user-1", 2026);
+
+    expect(summary.year).toBe(2026);
+    expect(summary.spendingSince).toBe("2026-03-03");
+    expect(summary.trips).toEqual([
+      expect.objectContaining({
+        id: "trip-1",
+        visitCount: 12,
+        totalSpending: 0,
+        anchorPlaceName: "본가",
+        visitedCities: ["대전"],
+      }),
+    ]);
+    expect(whereCalls).toHaveLength(3);
+    const fields = selectedFields[1] as { anchorPlaceName: SQL.Aliased<string | null> };
+    const anchorSql = drizzle
+      .mock()
+      .select({ anchorPlaceName: fields.anchorPlaceName })
+      .from(trips)
+      .toSQL();
+    expect(anchorSql.sql).toContain("JOIN saved_places sp ON sp.id = v.saved_place_id");
+    // Every column inside the subquery is alias-qualified (no ambiguous "name").
+    expect(anchorSql.sql).not.toMatch(/[^.]"name"/);
+    expect(anchorSql.sql).toContain("NOT IN");
+    expect(anchorSql.params).toEqual(expect.arrayContaining(["집", "회사"]));
+  });
+
+  it("reports no spending coverage when the user has no transactions", async () => {
+    const { db } = createQueuedDb([[{ first: null }]]);
+
+    await expect(new TravelService(db).getSpendingSince("user-1")).resolves.toBeNull();
   });
 });

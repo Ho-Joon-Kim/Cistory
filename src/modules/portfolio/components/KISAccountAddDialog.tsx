@@ -77,12 +77,12 @@ export function KISAccountAddDialog({ open, onOpenChange, onAdded }: Props) {
     if (!result.ok) {
       setError(
         result.error ??
-          "계좌를 추가하지 못했습니다. 입력한 키와 계좌번호를 확인한 뒤 다시 시도해 주세요."
+          "계좌를 추가하지 못했어요. 입력한 키와 계좌번호를 확인한 뒤 다시 시도해 주세요."
       );
       return;
     }
 
-    toast.success("계좌가 추가되었습니다.");
+    toast.success("계좌가 추가됐어요.");
     onAdded();
     onOpenChange(false);
     reset();
@@ -101,7 +101,7 @@ export function KISAccountAddDialog({ open, onOpenChange, onAdded }: Props) {
           <DialogTitle>KIS 계좌 추가</DialogTitle>
           <DialogDescription>
             한국투자증권 OpenAPI 키와 계좌번호를 입력하세요. 검증을 위해 토큰 발급과 잔고 조회가 1회
-            실행됩니다.
+            실행돼요.
           </DialogDescription>
         </DialogHeader>
 

@@ -31,6 +31,11 @@ export interface SourceStatus {
   label: string;
   connected: boolean;
   needsReauth: boolean;
+  /**
+   * Why `needsReauth` is set: `legacy_key` = a retired WakaTime API key with no
+   * OAuth connection, `auth` = the provider confirmed an auth failure.
+   */
+  reauthReason?: "legacy_key" | "auth" | null;
   lastSuccessAt: string | null;
   lastRecordAt: string | null;
   error: string | null;
@@ -38,6 +43,11 @@ export interface SourceStatus {
   canRecover: boolean;
   recoveryHelp: string;
   days: SourceDay[];
+  /**
+   * Everything stored for this source, all time. Only computed for a source
+   * that needs attention (failing, stale or needing re-auth) — otherwise null.
+   */
+  retained: { count: number; days: number } | null;
 }
 export interface DataStatusResponse {
   from: string;

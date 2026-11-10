@@ -1,21 +1,10 @@
 "use client";
 
-import {
-  Activity,
-  AlertTriangle,
-  Check,
-  Clock,
-  HeartPulse,
-  Loader2,
-  Radio,
-  RotateCw,
-  Trash2,
-} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatRelative } from "@/lib/format";
 import { useHealth } from "../hooks";
+import { OAuthPanel, PanelNote } from "./panel";
 
 interface HealthSettingsProps {
   hasConnection: boolean;
@@ -42,122 +31,60 @@ export function HealthSettings({
   const handleDisconnect = async () => {
     if (
       !window.confirm(
-        "Google Health (Fitbit) 연결을 해제할까요? 저장된 인증 정보가 삭제되어 건강 데이터 자동 동기화가 멈춥니다. 이미 수집한 기록은 남습니다."
+        "Google Health (Fitbit) 연결을 해제할까요? 저장된 인증 정보가 삭제되어 건강 데이터 자동 동기화가 멈춰요. 이미 수집한 기록은 남아요."
       )
     )
       return;
     const success = await disconnect();
     if (success) {
-      toast.success("Google Health (Fitbit) 연결이 해제되었습니다.");
+      toast.success("Google Health (Fitbit) 연결이 해제됐어요.");
     } else {
-      toast.error("Google Health (Fitbit) 연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("Google Health (Fitbit) 연결을 해제하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
   const handleSync = async () => {
     const success = await syncNow();
     if (success) {
-      toast.success("건강 데이터가 동기화되었습니다.");
+      toast.success("건강 데이터가 동기화됐어요.");
     } else {
-      toast.error("건강 데이터를 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("건강 데이터를 동기화하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Activity className="h-5 w-5" />
-          건강 · Google Health (Fitbit)
-        </CardTitle>
-        <CardDescription>
-          Fitbit Air를 Google Health로 연결해 수면·활동·심박·산소포화도 등을 수집합니다
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!hasHealthConnection ? (
-          <Button asChild>
-            {/* Full-page redirect into the OAuth flow (authorize → Google consent → callback). */}
-            <a href="/api/fitbit/authorize">
-              <Check className="h-4 w-4 mr-2" />
-              Google Health (Fitbit) 연결
-            </a>
-          </Button>
-        ) : (
-          <div className="space-y-4">
-            {needsReauth && (
-              <div className="flex items-start gap-2 p-3 rounded-lg border border-warning/40 bg-warning/10">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
-                <div className="space-y-2">
-                  <p className="text-sm">
-                    Google Health (Fitbit) 인증이 만료되었습니다. 다시 연결하면 데이터 동기화가
-                    재개됩니다.
-                  </p>
-                  <Button size="sm" asChild>
-                    <a href="/api/fitbit/authorize">다시 연결</a>
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <code className="min-w-0 flex-1 break-all p-2 rounded bg-muted text-xs sm:text-sm font-mono text-muted-foreground">
-                연결됨
-              </code>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
-                  {isSyncing ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <RotateCw className="h-4 w-4 mr-2" />
-                  )}
-                  {isSyncing ? "동기화 중…" : "지금 동기화"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDisconnect}
-                  disabled={isDisconnecting}
-                  className="text-destructive hover:text-destructive"
-                >
-                  {isDisconnecting ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4 mr-2" />
-                  )}
-                  연결 해제
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" />
-              마지막 동기화: {lastSyncedAt ? formatRelativeTime(lastSyncedAt) : "없음"}
-            </div>
-            {lastWebhookAt ? (
-              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Radio className="h-3.5 w-3.5" />
-                실시간 동기화 마지막 수신: {formatRelativeTime(lastWebhookAt)}
-              </div>
-            ) : null}
-
-            <RhythmScopes
-              ecgGranted={ecgGranted}
-              irnGranted={irnGranted}
-              needsReauth={needsReauth}
-            />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <OAuthPanel
+      description="Fitbit 기기를 Google Health로 연결해 걸음·심박·수면·운동·산소포화도를 가져와요."
+      connected={hasHealthConnection}
+      needsReauth={needsReauth}
+      authorizeHref="/api/fitbit/authorize"
+      providerName="Google Health"
+      stats={[
+        {
+          label: "마지막 동기화",
+          value: lastSyncedAt ? formatRelative(lastSyncedAt) : "없음",
+        },
+        { label: "주기", value: "10분마다" },
+        ...(lastWebhookAt ? [{ label: "실시간 수신", value: formatRelative(lastWebhookAt) }] : []),
+      ]}
+      extraActions={
+        <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
+          {isSyncing ? "동기화 중…" : "지금 동기화"}
+        </Button>
+      }
+      isDisconnecting={isDisconnecting}
+      onDisconnect={handleDisconnect}
+    >
+      <RhythmScopes ecgGranted={ecgGranted} irnGranted={irnGranted} needsReauth={needsReauth} />
+    </OAuthPanel>
   );
 }
 
 function rhythmScopeStatus(ecg: boolean, irn: boolean): string {
-  if (ecg && irn) return "두 권한 모두 연결됨";
-  if (ecg) return "ECG만 연결됨";
-  if (irn) return "불규칙 심박 알림만 연결됨";
-  return "추가 권한이 필요합니다 (기본 연동은 유지됩니다)";
+  if (ecg && irn) return "심전도(ECG)와 불규칙 심박 알림을 모두 가져와요.";
+  if (ecg) return "심전도(ECG)만 연결돼 있어요. 불규칙 심박 알림은 아직이에요.";
+  if (irn) return "불규칙 심박 알림만 연결돼 있어요. 심전도(ECG)는 아직이에요.";
+  return "심전도(ECG)와 불규칙 심박 알림은 추가 권한이 필요해요. 기본 연동은 그대로예요.";
 }
 
 /**
@@ -174,20 +101,19 @@ function RhythmScopes({
   irnGranted: boolean;
   needsReauth: boolean;
 }) {
+  const complete = ecgGranted && irnGranted;
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
-      <div className="text-sm">
-        <p className="font-medium">심전도(ECG) · 불규칙 심박 알림</p>
-        <p className="text-muted-foreground">{rhythmScopeStatus(ecgGranted, irnGranted)}</p>
-      </div>
-      {!(ecgGranted && irnGranted) && !needsReauth ? (
-        <Button size="sm" variant="outline" asChild>
-          <a href="/api/fitbit/authorize?extra=ecg,irn">
-            <HeartPulse className="h-4 w-4 mr-2" />
-            ECG/불규칙 심박 연결
-          </a>
-        </Button>
-      ) : null}
-    </div>
+    <PanelNote
+      tone={complete ? "brand" : "ink"}
+      action={
+        !complete && !needsReauth ? (
+          <Button size="sm" variant="outline" asChild>
+            <a href="/api/fitbit/authorize?extra=ecg,irn">심전도 · 불규칙 심박 연결</a>
+          </Button>
+        ) : undefined
+      }
+    >
+      {rhythmScopeStatus(ecgGranted, irnGranted)}
+    </PanelNote>
   );
 }

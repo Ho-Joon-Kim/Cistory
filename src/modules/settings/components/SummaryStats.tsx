@@ -1,174 +1,109 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Clock, Loader2, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/ds";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { formatCount } from "@/lib/format";
+import { userErrorMessage } from "@/lib/user-error";
+import { completionText, useRetryFailedSummaries, useSummaryCounts } from "../summaries";
+import { PanelActions, PanelNote, PanelStats, PanelText } from "./panel";
 
-interface SummaryStatsData {
-  total: number;
-  pending: number;
-  processing: number;
-  completed: number;
-  failed: number;
-}
-
+/**
+ * AI 요약 panel: where the commit summaries stand, with the one action that
+ * matters for each state — run the queue (pending) or retry the failures
+ * (failed rows have used up their automatic retries and stay put otherwise).
+ */
 export function SummaryStats() {
-  const [stats, setStats] = useState<SummaryStatsData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const query = useSummaryCounts();
+  const retry = useRetryFailedSummaries();
+  const stats = query.data;
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const response = await fetch("/api/summaries/process");
-      if (response.ok) {
-        const data = await response.json();
-        setStats(data);
-      }
-    } catch (error) {
-      console.error("Failed to fetch summary stats:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  if (query.isPending) {
+    return <LoadingState variant="rows" rows={2} label="AI 요약 상태를 불러오는 중" />;
+  }
+  if (query.isError) {
+    return (
+      <PanelNote
+        tone="danger"
+        action={
+          <Button variant="outline" size="sm" onClick={() => query.refetch()}>
+            다시 불러오기
+          </Button>
+        }
+      >
+        {userErrorMessage(
+          query.error,
+          "요약 상태를 불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+        )}
+      </PanelNote>
+    );
+  }
+  if (!stats || stats.total === 0) {
+    return (
+      <PanelText>동기화된 커밋이 없어요. 커밋이 들어오면 요약이 자동으로 만들어져요.</PanelText>
+    );
+  }
 
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
-
-  const handleProcessSummaries = async () => {
-    setIsProcessing(true);
-    try {
-      const response = await fetch("/api/summaries/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 50 }),
-      });
-
-      if (response.ok) {
-        toast.success("요약 생성이 시작되었습니다.");
-        // Refresh stats after a delay
-        setTimeout(() => {
-          fetchStats();
-        }, 5000);
-      } else {
-        toast.error("요약 생성을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
-      }
-    } catch (_error) {
-      toast.error("요약 생성을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
-    } finally {
-      setIsProcessing(false);
+  const runQueue = async () => {
+    const response = await fetch("/api/summaries/process", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit: 50 }),
+    }).catch(() => null);
+    if (response?.ok) {
+      toast.success("대기 중인 요약을 만들기 시작했어요.");
+      setTimeout(() => void query.refetch(), 5000);
+    } else {
+      toast.error("요약 생성을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">AI 요약</CardTitle>
-        </CardHeader>
-        <CardContent role="status" className="flex justify-center py-4">
-          <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-muted-foreground" />
-          <span className="sr-only">AI 요약 상태를 불러오는 중…</span>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!stats || stats.total === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">AI 요약</CardTitle>
-          <CardDescription>
-            동기화된 커밋이 없습니다. 커밋이 동기화되면 AI 요약 상태가 여기에 표시됩니다.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
-  const completionRate = Math.round((stats.completed / stats.total) * 100);
-  const hasPending = stats.pending > 0 || stats.failed > 0;
-
+  const unsummarized =
+    stats.total - stats.completed - stats.pending - stats.processing - stats.failed;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">AI 요약</CardTitle>
-        <CardDescription>커밋에 대한 AI 요약 생성 상태를 관리합니다</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Progress bar */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span>완료율</span>
-            <span className="tabular-nums">
-              {completionRate}% ({stats.completed}/{stats.total})
-            </span>
-          </div>
-          <Progress value={completionRate} className="h-2" />
-        </div>
-
-        {/* Stats grid */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <Clock aria-hidden="true" className="h-4 w-4 text-warning" />
-            <div>
-              <p className="text-sm font-medium tabular-nums">{stats.pending}</p>
-              <p className="text-xs text-muted-foreground">대기 중</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <Loader2 aria-hidden="true" className="h-4 w-4 text-primary" />
-            <div>
-              <p className="text-sm font-medium tabular-nums">{stats.processing}</p>
-              <p className="text-xs text-muted-foreground">처리 중</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-success" />
-            <div>
-              <p className="text-sm font-medium tabular-nums">{stats.completed}</p>
-              <p className="text-xs text-muted-foreground">완료</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-            <AlertCircle aria-hidden="true" className="h-4 w-4 text-destructive" />
-            <div>
-              <p className="text-sm font-medium tabular-nums">{stats.failed}</p>
-              <p className="text-xs text-muted-foreground">실패</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Action button */}
-        {hasPending && (
-          <Button
-            onClick={handleProcessSummaries}
-            disabled={isProcessing}
-            className="w-full"
-            variant="outline"
-          >
-            {isProcessing ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                처리 중…
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4 mr-2" />
-                대기 중인 요약 생성 ({stats.pending + stats.failed}개)
-              </>
-            )}
+    <div className="flex flex-col gap-4">
+      <PanelText>
+        커밋 <span className="tabular-nums text-ink">{formatCount(stats.total)}</span>건 중{" "}
+        <span className="font-semibold tabular-nums text-ink">
+          {completionText(stats.completed, stats.total)}
+        </span>
+        의 요약이 만들어졌어요. 새 커밋은 10분마다 백그라운드에서 요약돼요.
+      </PanelText>
+      <PanelStats
+        items={[
+          { label: "완료", value: stats.completed },
+          { label: "대기", value: stats.pending, tone: stats.pending ? "ink" : "muted" },
+          { label: "처리 중", value: stats.processing, tone: stats.processing ? "ink" : "muted" },
+          { label: "실패", value: stats.failed, tone: stats.failed ? "danger" : "muted" },
+        ]}
+      />
+      {stats.failed > 0 ? (
+        <PanelNote
+          tone="danger"
+          action={
+            <Button size="sm" onClick={() => retry.mutate()} disabled={retry.isPending}>
+              {retry.isPending ? "요청 중…" : `${formatCount(stats.failed)}건 다시 시도`}
+            </Button>
+          }
+        >
+          실패한 <span className="tabular-nums">{formatCount(stats.failed)}</span>건은 자동 재시도를
+          모두 써서 더는 저절로 다시 만들지 않아요.
+        </PanelNote>
+      ) : null}
+      {stats.pending > 0 ? (
+        <PanelActions>
+          <Button variant="outline" size="sm" onClick={runQueue}>
+            대기 중인 {formatCount(stats.pending)}건 지금 만들기
           </Button>
-        )}
-
-        <p className="text-xs text-muted-foreground">
-          요약은 백그라운드에서 생성됩니다. 완료까지 시간이 걸릴 수 있습니다.
-        </p>
-      </CardContent>
-    </Card>
+        </PanelActions>
+      ) : null}
+      {unsummarized > 0 ? (
+        <PanelText className="text-ink-3">
+          요약 기록이 아직 없는 커밋{" "}
+          <span className="tabular-nums">{formatCount(unsummarized)}</span>건은 다음 동기화 때
+          대기열에 들어가요.
+        </PanelText>
+      ) : null}
+    </div>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 // Copied only into the disposable browser server, never shipped as an app route.
+import { useState } from "react";
+import { Sheet, SheetClose } from "@/components/ds/Sheet";
 import { AccountAllocationChart } from "@/modules/portfolio/components/AccountAllocationChart";
 import { AccountHoldingsPieChart } from "@/modules/portfolio/components/AccountHoldingsPieChart";
 import { AssetTimelineChart } from "@/modules/portfolio/components/AssetTimelineChart";
@@ -48,6 +50,24 @@ export default function ChartPage() {
       <section data-testid="usage">
         <DataUsageCard />
       </section>
+      <ControlledSheet />
     </main>
+  );
+}
+
+/** A Sheet opened without a `trigger` (like portfolio TargetDrift). */
+function ControlledSheet() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section data-testid="sheet">
+      <button type="button" onClick={() => setOpen(true)}>
+        목표 비중 편집
+      </button>
+      <Sheet open={open} onOpenChange={setOpen} title="목표 비중">
+        <SheetClose asChild>
+          <button type="button">취소</button>
+        </SheetClose>
+      </Sheet>
+    </section>
   );
 }

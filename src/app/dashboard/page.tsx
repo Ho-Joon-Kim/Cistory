@@ -1,53 +1,77 @@
 "use client";
 
-import { Loader2, RefreshCw } from "lucide-react";
-import dynamic from "next/dynamic";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { LoadingState, PageContainer } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
-import { Button } from "@/components/ui/button";
 import { toKstCalendarDate } from "@/lib/date-key";
 import { parseDateParam } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
-import { MapSkeleton } from "@/modules/location/components/MapSkeleton";
 import { useSettings } from "@/modules/settings/hooks";
 import { type RecentSyncJob, SyncStatusProvider } from "@/modules/sync/hooks";
-import { Timeline } from "@/modules/timeline/components/Timeline";
-import { startInitialSync, useRepositories, useTimeline } from "@/modules/timeline/hooks";
+import { DayView } from "@/modules/timeline/components/day/DayView";
+import { startInitialSync, useRepositories } from "@/modules/timeline/hooks";
 
-const LocationMap = dynamic(
-  () => import("@/modules/location/components/LocationMap").then((m) => m.LocationMap),
-  { ssr: false, loading: () => <MapSkeleton /> }
-);
+/** The page frame with a map-shaped skeleton, like every other page's loading state. */
+function DashboardLoading() {
+  return (
+    <div className="min-h-dvh bg-page">
+      <Header />
+      <PageContainer>
+        <LoadingState variant="block" label="하루 기록을 불러오는 중" />
+      </PageContainer>
+    </div>
+  );
+}
+
+function FirstSyncNotice() {
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface p-3 shadow-ring">
+      <p className="m-0 text-[13px] leading-5 text-ink-2">
+        아직 동기화된 커밋이 없어요. 생활 기록은 아래에서 확인하세요.
+      </p>
+      <button
+        type="button"
+        className="inline-flex h-8 items-center rounded-lg border-0 bg-brand px-3 text-[13px] font-semibold text-brand-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        onClick={async () => {
+          try {
+            await startInitialSync();
+            toast.success("동기화를 시작했어요.");
+          } catch {
+            toast.error("동기화를 시작하지 못했어요. 잠시 후 다시 시도해 주세요.");
+          }
+        }}
+      >
+        커밋 동기화
+      </button>
+    </div>
+  );
+}
 
 function DashboardContent() {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
   const { settings } = useSettings();
 
-  // Selected date for timeline + map (initialized from URL ?date= param)
   const today = useMemo(() => toKstCalendarDate(new Date()), []);
   const [selectedDate, setSelectedDateRaw] = useState<string>(() =>
     parseDateParam(searchParams.get("date"))
   );
 
-  // Wrap setSelectedDate to sync URL
+  // Keep ?date= in the URL (omitted for today) without a navigation.
   const setSelectedDate = useCallback(
     (date: string) => {
       setSelectedDateRaw(date);
       const url = new URL(window.location.href);
-      if (date === today) {
-        url.searchParams.delete("date");
-      } else {
-        url.searchParams.set("date", date);
-      }
+      if (date === today) url.searchParams.delete("date");
+      else url.searchParams.set("date", date);
       window.history.replaceState(null, "", url.toString());
     },
     [today]
   );
-
-  const { commits, isLoading, error, hasNext, loadMore, refresh } = useTimeline();
 
   const mapInitialCenter = useMemo(() => {
     if (settings?.lastLat != null && settings?.lastLon != null) {
@@ -59,114 +83,61 @@ function DashboardContent() {
   const {
     repositories,
     isLoading: isLoadingRepos,
+    error: reposError,
     refresh: refreshRepos,
   } = useRepositories(isAuthenticated);
 
-  // 동기화 작업 완료 시 — 신규 커밋 추가 + 전체 새로고침 fallback
+  const refreshCommits = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["timeline"] });
+  }, [queryClient]);
+
+  // 동기화 작업 완료 시 — 신규 커밋 반영
   const handleSyncCompleted = useCallback(
     (job: RecentSyncJob) => {
       if (job.totalCommits > 0) {
-        toast.success(`커밋 ${job.totalCommits}개가 동기화되었습니다.`);
-        refresh();
+        toast.success(`커밋 ${job.totalCommits.toLocaleString("ko-KR")}건을 동기화했어요.`);
+        refreshCommits();
         refreshRepos();
       } else {
-        toast.info("동기화되었습니다. 새 커밋은 없습니다.");
+        toast.info("동기화했어요. 새 커밋은 없어요.");
       }
     },
-    [refresh, refreshRepos]
+    [refreshCommits, refreshRepos]
   );
 
-  // 모든 활성 작업 완료 시 (동기화 + 요약 모두 완료) — 요약 반영을 위해 현재 데이터 갱신
+  // 모든 활성 작업 완료 시 (동기화 + 요약) — 요약 반영을 위해 갱신
   const handleAllSyncFinished = useCallback(() => {
-    toast.success("AI 요약이 생성되었습니다.");
-    refresh();
-  }, [refresh]);
+    toast.success("AI 요약을 만들었어요.");
+    refreshCommits();
+  }, [refreshCommits]);
 
   const handleSyncStarted = () => {
-    toast.success("동기화가 시작되었습니다.");
+    toast.success("동기화를 시작했어요.");
   };
 
   if (isAuthLoading) {
-    return (
-      <div role="status" className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
-        <span className="sr-only">로딩 중…</span>
-      </div>
-    );
+    return <DashboardLoading />;
   }
 
-  if (!isAuthenticated) {
-    return null;
-  }
+  if (!isAuthenticated) return null;
 
-  const showEmptyState =
-    !isLoading && !isLoadingRepos && commits.length === 0 && repositories.length === 0;
+  // A failed repository load is not an empty account — don't invite a first sync.
+  const showFirstSync = !isLoadingRepos && !reposError && repositories.length === 0;
 
   return (
     <SyncStatusProvider
       onSyncCompleted={handleSyncCompleted}
       onAllSyncFinished={handleAllSyncFinished}
     >
-      <div className="h-dvh flex flex-col overflow-hidden bg-background">
+      <div className="min-h-dvh bg-page">
         <Header onSyncStarted={handleSyncStarted} />
-
-        {/* Main content */}
-        <main
-          id="main"
-          className="flex-1 overflow-hidden flex flex-col container mx-auto px-4 py-4"
-        >
-          {error ? (
-            <div role="alert" className="mb-3 text-sm text-destructive">
-              커밋을 불러오지 못했습니다.{" "}
-              <button type="button" onClick={refresh} className="underline">
-                다시 시도
-              </button>
-            </div>
-          ) : null}
-          {showEmptyState && !error ? (
-            <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-              <p className="text-sm text-muted-foreground">
-                아직 동기화된 커밋이 없습니다. 생활 기록은 아래에서 확인하세요.
-              </p>
-              <Button
-                size="sm"
-                onClick={async () => {
-                  try {
-                    await startInitialSync();
-                    toast.success("동기화가 시작되었습니다.");
-                  } catch {
-                    toast.error("동기화를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
-                  }
-                }}
-              >
-                <RefreshCw className="h-4 w-4 mr-2" aria-hidden="true" />
-                커밋 동기화
-              </Button>
-            </div>
-          ) : null}
-          <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
-            {/* Map */}
-            <div className="flex-[2] min-h-0 lg:flex-1 rounded-lg overflow-hidden border">
-              <LocationMap
-                date={selectedDate}
-                className="h-full w-full"
-                initialCenter={mapInitialCenter}
-              />
-            </div>
-
-            {/* Timeline (only scrollable area) */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain lg:flex-1 pt-3 lg:pl-3 timeline-scroll-container">
-              <Timeline
-                commits={commits}
-                isLoading={isLoading}
-                hasNext={hasNext}
-                onLoadMore={loadMore}
-                selectedDate={selectedDate}
-                onSelectedDateChange={setSelectedDate}
-              />
-            </div>
-          </div>
-        </main>
+        <DayView
+          date={selectedDate}
+          today={today}
+          onDateChange={setSelectedDate}
+          initialCenter={mapInitialCenter}
+          notice={showFirstSync ? <FirstSyncNotice /> : null}
+        />
       </div>
     </SyncStatusProvider>
   );
@@ -174,14 +145,7 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <Suspense
-      fallback={
-        <div role="status" className="min-h-screen flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
-          <span className="sr-only">로딩 중…</span>
-        </div>
-      }
-    >
+    <Suspense fallback={<DashboardLoading />}>
       <DashboardContent />
     </Suspense>
   );

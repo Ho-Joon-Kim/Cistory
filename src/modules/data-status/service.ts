@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, type SQL, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import {
   bodyMeasurements,
@@ -21,6 +21,7 @@ import { localDaySql } from "@/db/sql";
 import { ApiError } from "@/lib/api-handler";
 import { getKstDateWindow } from "@/lib/date-key";
 import { buildSourceDays, isSourceStale, validateStatusRange } from "./model";
+import { currentSourceError } from "./telemetry";
 import { type DataStatusResponse, type RecoveryJob, SOURCE_IDS, type SourceId } from "./types";
 
 const LABELS: Record<SourceId, string> = {
@@ -33,16 +34,93 @@ const LABELS: Record<SourceId, string> = {
   health: "건강 · Google Health (Fitbit) / Health Connect",
 };
 const HELP: Record<SourceId, string> = {
-  github: "타임라인 화면 상단의 동기화 버튼으로 GitHub 기록을 다시 가져올 수 있습니다.",
+  github: "타임라인 화면 상단의 동기화 버튼으로 GitHub 기록을 다시 가져올 수 있어요.",
   location:
-    "휴대폰 OwnTracks의 전송 상태를 확인하거나 설정에서 GPX·GeoJSON·Google Takeout을 가져오세요. 서버는 휴대폰의 누락된 원본 위치를 조회할 수 없습니다.",
-  toss: "휴대폰 MacroDroid 알림 전송을 확인하세요. 이미 저장된 알림은 소비 화면의 '알림 다시 분석'으로 다시 분석할 수 있지만 수신하지 못한 알림은 서버에서 복원할 수 없습니다.",
+    "휴대폰 OwnTracks의 전송 상태를 확인하거나 설정에서 GPX·GeoJSON·Google Takeout을 가져오세요. 휴대폰에서 빠진 원본 위치는 서버가 조회할 수 없어요.",
+  toss: "휴대폰 MacroDroid 알림 전송을 확인하세요. 이미 저장된 알림은 소비 화면의 '알림 다시 분석'으로 다시 분석할 수 있지만 받지 못한 알림은 서버에서 복원할 수 없어요.",
   wakatime:
-    "선택한 날짜의 세션과 일별 합계를 다시 수집합니다. 제공자의 요금제·기록 보관 기간에 따라 과거 데이터 수집이 제한될 수 있습니다.",
-  kis: "과거 날짜의 보유자산 스냅샷은 재생성할 수 없습니다. 계좌 설정에서 현재 잔고 동기화와 과거 체결 가져오기를 실행하세요.",
-  withings: "선택한 날짜의 체성분 측정을 다시 수집합니다.",
+    "고른 날짜의 세션과 일별 합계를 다시 수집해요. 요금제·기록 보관 기간에 따라 오래된 기록은 가져오지 못할 수 있어요.",
+  kis: "지난 날짜의 보유자산 스냅샷은 다시 만들 수 없어요. 계좌 설정에서 현재 잔고 동기화와 과거 체결 가져오기를 실행하세요.",
+  withings: "고른 날짜의 체성분 측정을 다시 수집해요.",
   health:
-    "Google Health (Fitbit)의 수치 지표를 날짜별로 다시 수집합니다. 수면·운동 기록과 휴대폰에만 있는 Health Connect 기록은 기존 건강 동기화나 휴대폰 재전송을 사용하세요.",
+    "Google Health (Fitbit)의 수치 지표를 날짜별로 다시 수집해요. 수면·운동 기록과 휴대폰에만 있는 Health Connect 기록은 기존 건강 동기화나 휴대폰 재전송을 사용하세요.",
+};
+
+/**
+ * Health metrics stored as one point per civil day, pinned to a 12:00 KST anchor
+ * (`timeShape: "date"` in HEALTH_METRICS — kept in sync by service.test.ts). The
+ * anchor is not a measurement time, so today's row sits hours in the future.
+ */
+export const DAY_ANCHORED_HEALTH_METRICS = [
+  "resting_heart_rate",
+  "daily_hrv",
+  "daily_spo2",
+  "respiratory_rate",
+  "skin_temperature",
+  "daily_vo2_max",
+  "total_calories",
+  "floors",
+] as const;
+
+/**
+ * Health rows that are real observations: excludes server-side day rollups
+ * (`rollup:<family>` sources, which carry no dataSource) and day-anchored daily
+ * metrics. Counting them made "마지막 기록" read 12:00 KST at 10:20 and padded
+ * the day counts with one synthetic row per metric per day.
+ */
+export function healthObservationSql(source: SQL = sql`source`, metric: SQL = sql`metric`): SQL {
+  return sql`${source} NOT LIKE 'rollup:%' AND ${metric} NOT IN (${sql.join(
+    DAY_ANCHORED_HEALTH_METRICS.map((m) => sql`${m}`),
+    sql`, `
+  )})`;
+}
+
+/** All-time stored rows and distinct KST days for one source. */
+function retainedQuery(id: SourceId, userId: string): SQL {
+  const of = (table: SQL, at: SQL, where: SQL = sql`true`) =>
+    sql`SELECT count(*)::int AS count, count(DISTINCT ${localDaySql(at)})::int AS days
+      FROM ${table} WHERE user_id = ${userId} AND ${where}`;
+  switch (id) {
+    case "github":
+      return of(sql`commits`, sql`committed_at`);
+    case "location":
+      return of(sql`location_points`, sql`timestamp`);
+    case "toss":
+      return of(sql`notification_logs`, sql`received_at`, sql`source = 'toss'`);
+    case "wakatime":
+      return of(sql`coding_sessions`, sql`started_at`);
+    case "withings":
+      return of(sql`body_measurements`, sql`measured_at`);
+    case "health":
+      return of(sql`health_samples`, sql`sample_at`, healthObservationSql());
+    case "kis":
+      return sql`SELECT count(*)::int AS count, count(DISTINCT s.as_of_date)::int AS days
+        FROM holding_snapshots s JOIN brokerage_accounts a ON a.id = s.account_id
+        WHERE a.user_id = ${userId}`;
+  }
+}
+
+export async function retainedCounts(
+  db: Database,
+  userId: string,
+  ids: SourceId[]
+): Promise<Partial<Record<SourceId, { count: number; days: number }>>> {
+  const entries = await Promise.all(
+    ids.map(async (id) => {
+      const result = await db.execute<{ count: number; days: number }>(retainedQuery(id, userId));
+      const row = result.rows[0];
+      return [id, { count: Number(row?.count ?? 0), days: Number(row?.days ?? 0) }] as const;
+    })
+  );
+  return Object.fromEntries(entries);
+}
+
+/** Job errors stored before the copy moved to 해요체, in their current wording. */
+const LEGACY_JOB_ERRORS: Record<string, string> = {
+  "작업이 반복해서 중단되었습니다. 다시 요청해 주세요.":
+    "작업이 반복해서 중단됐어요. 다시 요청해 주세요.",
+  "해당 날짜를 다시 가져오지 못했습니다. 제공자의 보관 기간과 연결 상태를 확인한 뒤 다시 요청해 주세요.":
+    "해당 날짜를 다시 가져오지 못했어요. 서비스의 보관 기간과 연결 상태를 확인한 뒤 다시 요청해 주세요.",
 };
 
 export function serializeRecoveryJob(row: typeof dataRecoveryJobs.$inferSelect): RecoveryJob {
@@ -53,7 +131,7 @@ export function serializeRecoveryJob(row: typeof dataRecoveryJobs.$inferSelect):
     toDate: row.toDate,
     nextDate: row.nextDate,
     status: row.status as RecoveryJob["status"],
-    error: row.error,
+    error: LEGACY_JOB_ERRORS[row.error ?? ""] ?? row.error,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -131,7 +209,7 @@ export async function getDataStatus(
         .limit(1),
     ]);
   const user = userRows[0];
-  if (!user) throw new ApiError(404, "사용자를 찾을 수 없습니다.");
+  if (!user) throw new ApiError(404, "사용자를 찾을 수 없어요.");
   const { start, end } = getKstDateWindow(from, to);
   // Timestamp columns store UTC wall time. Do not bind Date to raw SQL; use
   // ISO UTC strings with explicit timestamp casts independently of session TZ.
@@ -153,7 +231,7 @@ export async function getDataStatus(
       UNION ALL SELECT 'toss', ${notificationLogs.receivedAt} FROM ${notificationLogs} WHERE ${notificationLogs.userId} = ${userId} AND ${notificationLogs.source} = 'toss' AND ${notificationLogs.receivedAt} >= ${startUtc}::timestamp AND ${notificationLogs.receivedAt} < ${endUtc}::timestamp
       UNION ALL SELECT 'wakatime', ${codingSessions.startedAt} FROM ${codingSessions} WHERE ${codingSessions.userId} = ${userId} AND ${codingSessions.startedAt} >= ${startUtc}::timestamp AND ${codingSessions.startedAt} < ${endUtc}::timestamp
       UNION ALL SELECT 'withings', ${bodyMeasurements.measuredAt} FROM ${bodyMeasurements} WHERE ${bodyMeasurements.userId} = ${userId} AND ${bodyMeasurements.measuredAt} >= ${startUtc}::timestamp AND ${bodyMeasurements.measuredAt} < ${endUtc}::timestamp
-      UNION ALL SELECT 'health', ${healthSamples.sampleAt} FROM ${healthSamples} WHERE ${healthSamples.userId} = ${userId} AND ${healthSamples.sampleAt} >= ${startUtc}::timestamp AND ${healthSamples.sampleAt} < ${endUtc}::timestamp
+      UNION ALL SELECT 'health', ${healthSamples.sampleAt} FROM ${healthSamples} WHERE ${healthSamples.userId} = ${userId} AND ${healthSamples.sampleAt} >= ${startUtc}::timestamp AND ${healthSamples.sampleAt} < ${endUtc}::timestamp AND ${healthObservationSql(sql`${healthSamples.source}`, sql`${healthSamples.metric}`)}
       UNION ALL SELECT 'kis', (${holdingSnapshots.asOfDate}::date::timestamp - interval '9 hours') FROM ${holdingSnapshots} INNER JOIN ${brokerageAccounts} ON ${holdingSnapshots.accountId} = ${brokerageAccounts.id} WHERE ${brokerageAccounts.userId} = ${userId} AND ${holdingSnapshots.asOfDate} >= ${from} AND ${holdingSnapshots.asOfDate} <= ${to}
     ) SELECT source, ${localDaySql(sql`occurred`)}::text AS date, count(*)::int AS count, to_char(max(occurred), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastRecordAt" FROM observations GROUP BY 1, 2 ORDER BY 2
   `),
@@ -202,33 +280,52 @@ export async function getDataStatus(
     withings: withings?.status === "active",
     health: health?.status === "active",
   };
+  const base = SOURCE_IDS.map((id) => {
+    const state = states.find((s) => s.source === id);
+    const lastSuccessAt = latestDate([
+      state?.lastSuccessAt ?? null,
+      success[id] ? new Date(success[id]!) : null,
+    ]);
+    const error =
+      currentSourceError(state?.error) ??
+      (existingErrors[id]
+        ? "최근 동기화에서 오류가 기록됐어요. 설정에서 연결 상태를 확인해 주세요."
+        : null);
+    const stale =
+      !["location", "toss"].includes(id) && isSourceStale(connections[id], lastSuccessAt, now);
+    return { id, lastSuccessAt, error, stale, needsReauth: reauth[id] ?? false };
+  });
+  // Only sources that need attention get the all-time count (the focus panel's
+  // "보관된 기록"): it scans the source's whole table, so healthy ones skip it.
+  const retained = await retainedCounts(
+    db,
+    userId,
+    base
+      .filter((b) => connections[b.id] && (b.needsReauth || b.stale || !!b.error))
+      .map((b) => b.id)
+  );
   return {
     from,
     to,
     timeZone: "Asia/Seoul",
     jobs,
-    sources: SOURCE_IDS.map((id) => {
+    sources: base.map(({ id, lastSuccessAt, error, stale, needsReauth }) => {
+      const reauthReason = !needsReauth
+        ? null
+        : id === "wakatime" && !waka
+          ? ("legacy_key" as const)
+          : ("auth" as const);
       const rows = result.rows.filter((r) => r.source === id);
-      const state = states.find((s) => s.source === id);
-      const lastSuccessAt = latestDate([
-        state?.lastSuccessAt ?? null,
-        success[id] ? new Date(success[id]!) : null,
-      ]);
-      const needsReauth = reauth[id] ?? false;
       return {
         id,
         label: LABELS[id],
         connected: connections[id],
         needsReauth,
+        reauthReason,
         lastSuccessAt,
         lastRecordAt: rows.at(-1)?.lastRecordAt ?? null,
-        error:
-          state?.error ??
-          (existingErrors[id]
-            ? "최근 동기화에서 오류가 기록되었습니다. 설정에서 연결 상태를 확인해 주세요."
-            : null),
-        stale:
-          !["location", "toss"].includes(id) && isSourceStale(connections[id], lastSuccessAt, now),
+        error,
+        stale,
         canRecover: recoveryAvailability[id] ?? false,
         recoveryHelp: HELP[id],
         days: buildSourceDays(
@@ -238,6 +335,7 @@ export async function getDataStatus(
           new Map(rows.map((r) => [r.date, Number(r.count)])),
           jobs
         ),
+        retained: retained[id] ?? null,
       };
     }),
   };

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { GENERIC_ERROR_MESSAGE } from "@/lib/user-error";
 import {
   addPendingTripId,
   mergeTravelTrips,
@@ -7,8 +8,10 @@ import {
   parseTravelTripsPage,
   removePendingTripId,
   removeTravelTrip,
+  renameTravelTrip,
   requestCurrentTravelTripsPage,
   requestMarkNotTrip,
+  requestTravelDetail,
   type TravelTripListItem,
   type TravelTripsPage,
   TravelTripsRequestCoordinator,
@@ -42,6 +45,7 @@ function trip(id: string, endDate: string): TravelTripListItem {
     updatedAt: "2026-07-22T00:00:00.000Z",
     totalSpending: 0,
     visitCount: 0,
+    anchorPlaceName: null,
   };
 }
 
@@ -72,12 +76,12 @@ describe("여행 아님", () => {
   it("실패 응답의 서버 메시지를 사용자 오류로 전달한다", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () =>
-      new Response(JSON.stringify({ error: "장소를 만들 수 없습니다" }), {
+      new Response(JSON.stringify({ error: "장소를 만들 수 없어요" }), {
         status: 500,
         headers: { "Content-Type": "application/json" },
       });
 
-    await expect(requestMarkNotTrip("trip-1")).rejects.toThrow("장소를 만들 수 없습니다");
+    await expect(requestMarkNotTrip("trip-1")).rejects.toThrow("장소를 만들 수 없어요");
     globalThis.fetch = originalFetch;
   });
 
@@ -146,7 +150,7 @@ describe("parseTravelTripsPage", () => {
         trips: [{ ...trip("trip-1", "2026-07-20"), visitCount: "1" }],
         nextCursor: null,
       })
-    ).toThrow("여행 목록 응답 형식이 올바르지 않습니다");
+    ).toThrow("여행 목록 응답 형식이 올바르지 않아요");
   });
 });
 
@@ -206,7 +210,7 @@ describe("parseTravelDetail", () => {
         ...detail,
         visits: [{ ...detail.visits[0], startTime: new Date() }],
       })
-    ).toThrow("여행 상세 응답 형식이 올바르지 않습니다");
+    ).toThrow("여행 상세 응답 형식이 올바르지 않아요");
   });
 });
 
@@ -227,5 +231,49 @@ describe("parseTravelRoute", () => {
     });
 
     expect(route.points[0]?.timestamp).toBe("2026-07-20T00:00:00.000Z");
+  });
+});
+
+describe("목록 요약과 이름 바꾸기", () => {
+  it("summary를 검증하고 anchorPlaceName이 없는 예전 응답은 null로 채운다", () => {
+    const { anchorPlaceName: _omit, ...legacy } = trip("trip-1", "2026-07-20");
+    const page = parseTravelTripsPage({
+      trips: [legacy],
+      nextCursor: null,
+      summary: { year: 2026, trips: [legacy], spendingSince: "2026-03-03" },
+    });
+    expect(page.trips[0].anchorPlaceName).toBeNull();
+    expect(page.summary).toEqual({
+      year: 2026,
+      trips: [{ ...legacy, anchorPlaceName: null }],
+      spendingSince: "2026-03-03",
+    });
+    expect(() =>
+      parseTravelTripsPage({ trips: [], nextCursor: null, summary: { year: "x", trips: [] } })
+    ).toThrow();
+  });
+
+  it("이름을 바꿔도 목록 순서를 유지한다", () => {
+    const list = [trip("a", "2026-07-20"), trip("b", "2026-07-10")];
+    expect(renameTravelTrip(list, "b", "새 이름").map((t) => [t.id, t.name])).toEqual([
+      ["a", "여행 a"],
+      ["b", "새 이름"],
+    ]);
+  });
+});
+
+describe("여행 상세 불러오기 실패", () => {
+  it("500이면 제목을 되풀이하지 않고 다음 행동을 알려 준다", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response("{}", { status: 500 })
+    );
+    await expect(requestTravelDetail("trip-1")).rejects.toThrow(GENERIC_ERROR_MESSAGE);
+  });
+
+  it("404면 찾을 수 없다고 알린다", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response("{}", { status: 404 })
+    );
+    await expect(requestTravelDetail("trip-1")).rejects.toThrow("여행을 찾을 수 없어요");
   });
 });

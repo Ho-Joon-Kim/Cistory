@@ -16,11 +16,18 @@ const trend = {
   monthlyBars: [
     {
       month: "07",
+      key: "2026-07",
       total: 1000000,
       isCurrent: false,
-      categories: { food: 600000, shopping: 400000 },
+      categories: { food: 300000, shopping: 300000, health: 400000 },
     },
-    { month: "08", total: 500000, isCurrent: true, categories: { food: 300000, shopping: 200000 } },
+    {
+      month: "08",
+      key: "2026-08",
+      total: 500000,
+      isCurrent: true,
+      categories: { food: 300000, shopping: 200000 },
+    },
   ],
   forecast: {
     predictedTotal: 1200000,
@@ -29,6 +36,9 @@ const trend = {
     todayDayNumber: 15,
     daysInMonth: 30,
     currentMonthActualTotal: 600000,
+    oneOffTotal: 0,
+    oneOffCount: 0,
+    oneOffThreshold: 200000,
   },
 };
 async function fixtures(page: Page) {
@@ -79,8 +89,19 @@ async function fixtures(page: Page) {
             withdrawalCount: 10,
             depositCount: 0,
             categoryBreakdown,
+            flow: {
+              refundTotal: 0,
+              refundCount: 0,
+              refundTopMerchant: null,
+              inflowTotal: 0,
+              inflowCount: 0,
+              inflowTopAccount: null,
+            },
           },
         };
+        break;
+      case "/api/spending/notifications":
+        body = { logs: [], total: 0, hasMore: false };
         break;
       case "/api/timeline":
         body = {
@@ -173,43 +194,37 @@ test.beforeEach(async ({ page }) => {
   await fixtures(page);
 });
 
-test("spending series and stacked amounts survive Recharts migration", async ({
-  page,
-}, testInfo) => {
+test("spending month bars and forecast keep real geometry", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/spending");
-  await expect(page.locator(".recharts-surface")).toHaveCount(3);
-  await expect.poll(() => page.locator(".recharts-line-curve").count()).toBeGreaterThanOrEqual(4);
+  const july = page.locator('[data-bar="2026-07"]');
+  const august = page.locator('[data-bar="2026-08"]');
+  await expect(july).toBeVisible();
+  const height = (el: typeof july) =>
+    el.evaluate((node) => (node as HTMLElement).getBoundingClientRect().height);
+  // Bars grow in on mount; wait for the animation to settle.
+  await expect.poll(() => height(july)).toBeGreaterThan(50);
+  // Totals 1,000,000 vs 500,000 → 2:1.
+  await expect.poll(async () => (await height(july)) / (await height(august))).toBeCloseTo(2, 1);
+  // Inside July the rest (600,000) and 의료·건강 (400,000) parts keep their 3:2 ratio.
   await expect
-    .poll(() =>
-      page
-        .locator(".recharts-bar-rectangle path")
-        .evaluateAll((els) =>
-          Math.max(...els.map((el) => (el as SVGGraphicsElement).getBBox().height))
-        )
-    )
-    .toBeGreaterThan(50);
-  // Ratio of equal-category bars reflects the fixture's exact 2:1 spending ratio.
-  await expect
-    .poll(() =>
-      page
-        .locator(".recharts-wrapper")
-        .filter({ hasText: "7월" })
-        .locator(".recharts-bar")
-        .first()
-        .locator(".recharts-bar-rectangle path")
-        .evaluateAll((els) =>
-          els.length === 2
-            ? (els[0] as SVGGraphicsElement).getBBox().height /
-              (els[1] as SVGGraphicsElement).getBBox().height
-            : 0
-        )
-    )
-    .toBeCloseTo(2, 1);
-  for (const curve of await page.locator(".recharts-line-curve").all())
+    .poll(async () => {
+      const rest = await height(july.locator('[data-part="rest"]'));
+      const split = await height(july.locator('[data-part="split"]'));
+      return split > 0 ? rest / split : 0;
+    })
+    .toBeCloseTo(1.5, 1);
+  // A bar is a toggle that selects its month for the category panel.
+  await page.getByRole("button", { name: /2026년 7월/ }).click();
+  await expect(page.getByRole("heading", { name: "7월 상위 카테고리" })).toBeVisible();
+
+  await page.getByRole("button", { name: "월말 예상" }).filter({ visible: true }).click();
+  const forecast = page.getByRole("img", { name: /누적 지출과 월말 예상/ });
+  await expect(forecast).toBeVisible();
+  for (const path of await forecast.locator("path").all())
     await expect
-      .poll(() => curve.evaluate((el) => (el as SVGGraphicsElement).getBBox().width))
+      .poll(() => path.evaluate((el) => (el as SVGGraphicsElement).getBBox().width))
       .toBeGreaterThan(30);
   await page.screenshot({ path: testInfo.outputPath("spending.png"), fullPage: true });
   expect(errors).toEqual([]);
@@ -249,10 +264,23 @@ test("portfolio donuts, asset areas and storage semicircle have real geometry", 
   await page.screenshot({ path: testInfo.outputPath("charts.png"), fullPage: true });
 });
 
+test("a sheet opened without a trigger returns focus to its opener", async ({ page }) => {
+  await page.goto("/browser-charts");
+  const opener = page.getByRole("button", { name: "목표 비중 편집" });
+  for (const close of ["Escape", "취소"]) {
+    await opener.click();
+    await expect(page.getByRole("dialog", { name: "목표 비중" })).toBeVisible();
+    if (close === "Escape") await page.keyboard.press("Escape");
+    else await page.getByRole("button", { name: "취소" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(opener).toBeFocused();
+  }
+});
+
 test("zero GitHub commits still shows the daily life timeline", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(
-    page.getByText("아직 동기화된 커밋이 없습니다. 생활 기록은 아래에서 확인하세요.")
+    page.getByText("아직 동기화된 커밋이 없어요. 생활 기록은 아래에서 확인하세요.")
   ).toBeVisible();
   await expect(page.locator(".timeline-scroll-container")).toBeVisible();
   await expect(page.locator(".timeline-scroll-container")).not.toBeEmpty();
@@ -264,12 +292,10 @@ test("health auxiliary failures can retry into an honest empty state", async ({ 
     route.fulfill(fail ? { status: 503, json: { error: "unavailable" } } : { json: { data: null } })
   );
   await page.goto("/health");
-  await expect(page.locator("main [role=alert]")).toContainText(
-    "건강 데이터를 불러오지 못했습니다."
-  );
+  await expect(page.locator("main [role=alert]")).toContainText("체성분 기록을 불러오지 못했어요");
   fail = false;
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();
-  await expect(page.getByText("체성분 측정 기록이 아직 없습니다.")).toBeVisible();
+  await expect(page.getByText("체성분 측정 기록이 아직 없어요")).toBeVisible();
   await expect(page.locator("main [role=alert]")).toHaveCount(0);
 });
 
@@ -326,10 +352,15 @@ test("health shows the total-calories card and the merged VO₂max series", asyn
     })
   );
   await page.goto("/health");
-  await expect(page.getByText("총 소모 칼로리")).toBeVisible();
-  // Latest-value headline of each card (the footer repeats it as "최대 …").
-  await expect(page.getByText("2,345", { exact: true })).toBeVisible();
-  await expect(page.getByText("45.1", { exact: true })).toBeVisible();
+  // Total calories is one of the 30-day activity tabs; its tab shows yesterday's value.
+  const caloriesTab = page.getByRole("tab", { name: /총 소모 칼로리/ });
+  await expect(caloriesTab).toBeVisible();
+  await expect(caloriesTab).toContainText("2,345");
+  // VO₂max lives in the details sheet; the merged series' latest value is 45.1.
+  await page.locator("button[aria-haspopup=dialog]").first().click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet).toContainText("VO₂max");
+  await expect(sheet).toContainText("45.1");
   await page.screenshot({ path: testInfo.outputPath("health-new-metrics.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
@@ -377,7 +408,7 @@ test("health shows ECG / irregular-rhythm results only when the summary carries 
     })
   );
   await page.goto("/health");
-  await expect(page.getByText("심혈관")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /최근 30일 활동/ })).toBeVisible();
   await expect(page.getByText("심전도 · 불규칙 심박")).toHaveCount(0);
 
   withRhythm = true;
@@ -386,7 +417,7 @@ test("health shows ECG / irregular-rhythm results only when the summary carries 
   await expect(page.getByText("정상 동리듬")).toBeVisible();
   await expect(page.getByText("72 bpm")).toBeVisible();
   await expect(page.getByText("감지 없음")).toBeVisible();
-  await expect(page.getByText("의료 진단이 아닙니다", { exact: false })).toBeVisible();
+  await expect(page.getByText("의료 진단이 아니에요", { exact: false })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -396,7 +427,9 @@ test("collection status retries errors and retains a queued recovery on reload",
   let statusFails = true;
   let recoveryFails = true;
   let queued: { source: string; from: string; to: string } | null = null;
+  const statusUrls: string[] = [];
   await page.route("**/api/data-status?*", (route) => {
+    statusUrls.push(route.request().url());
     if (statusFails) return route.fulfill({ status: 503, json: { error: "unavailable" } });
     const params = new URL(route.request().url()).searchParams;
     const from = params.get("from")!;
@@ -462,25 +495,32 @@ test("collection status retries errors and retains a queued recovery on reload",
     return route.fulfill({ status: 202, json: { job: { id: "job-fixture" } } });
   });
   await page.goto("/data-status");
-  await expect(page.locator("main [role=alert]")).toContainText("수집 상태를 불러오지 못했습니다.");
+  await expect(page.locator("main [role=alert]")).toContainText("수집 상태를 불러오지 못했어요");
   statusFails = false;
   await page.getByRole("button", { name: "새로고침", exact: true }).click();
   const calendar = page.getByRole("list", { name: "WakaTime 날짜별 기록" });
   await expect(calendar.getByRole("listitem")).toHaveCount(30);
-  await expect(page.getByRole("list")).toHaveCount(7);
-  await expect(calendar).toContainText("기록 없음 · 수집 여부 미확인");
+  await expect(page.getByRole("list", { name: /날짜별 기록$/ })).toHaveCount(7);
+  await expect(calendar).toContainText("기록 없음");
   await expect(calendar).toContainText("재수집 완료 · 기록 없음");
-  await page.getByRole("button", { name: "선택 기간 재수집", exact: true }).click();
+  // The stale source leads the hero and owns the primary recovery action.
+  await expect(page.getByRole("heading", { level: 2 }).first()).toContainText("WakaTime");
+  await page.getByRole("button", { name: "기간 재수집", exact: true }).click();
   await expect(page.locator("main [role=alert]")).toContainText("재수집 서버가 응답하지 않습니다.");
   recoveryFails = false;
-  const from = await page.getByLabel("시작일").inputValue();
-  const to = await page.getByLabel("종료일").inputValue();
-  await page.getByRole("button", { name: "선택 기간 재수집", exact: true }).click();
-  await expect(page.getByRole("button", { name: "재수집 진행 중", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "기간 재수집", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "재수집 진행 중", exact: true }).first()
+  ).toBeDisabled();
+  const lastStatus = new URL(statusUrls.at(-1)!).searchParams;
+  const from = lastStatus.get("from");
+  const to = lastStatus.get("to");
   expect(queued).toEqual({ source: "wakatime", from, to });
   await page.reload();
-  await expect(page.getByRole("button", { name: "재수집 진행 중", exact: true })).toBeDisabled();
-  await expect(page.getByText(`${from}부터 대기 중`)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "재수집 진행 중", exact: true }).first()
+  ).toBeDisabled();
+  await expect(page.getByText(/부터 대기 중/).first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
     page.viewportSize()!.width
   );
@@ -527,7 +567,7 @@ for (const authenticated of [false, true]) {
     });
     await page.goto("/data-status");
     if (authenticated) {
-      await expect(page.locator("main [role=alert]")).toContainText("불러오지 못했습니다");
+      await expect(page.locator("main [role=alert]")).toContainText("불러오지 못했어요");
       await expect(page).toHaveURL(/\/data-status$/);
     } else {
       await expect(page).toHaveURL(/\/login$/);

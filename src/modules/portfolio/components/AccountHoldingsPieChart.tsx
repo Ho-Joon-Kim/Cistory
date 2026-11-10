@@ -112,12 +112,10 @@ export function AccountHoldingsPieChart({ accounts, latestSnapshots, positions }
       <CardContent>
         {!snapshot ? (
           <div className="text-sm text-muted-foreground py-12 text-center">
-            동기화된 데이터가 없습니다
+            동기화된 데이터가 없어요
           </div>
         ) : data.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-12 text-center">
-            보유 종목이 없습니다
-          </div>
+          <div className="text-sm text-muted-foreground py-12 text-center">보유 종목이 없어요</div>
         ) : (
           <div className="flex flex-col md:flex-row items-center gap-6">
             <div className="relative flex-shrink-0">

@@ -1,8 +1,16 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, savedPlaces } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
+
+/**
+ * Korean when it has Hangul and no romanized words: a fallback geocoder can mix
+ * them ("목척7길 Jung-gu, Daejeon, South Korea"), which still reads as English.
+ */
+function isKoreanAddress(address: string | null): boolean {
+  return !!address && /[가-힣]/.test(address) && !/[A-Za-z]{3,}/.test(address);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,7 +24,37 @@ export async function GET(request: NextRequest) {
       .where(eq(savedPlaces.userId, user.id))
       .orderBy(desc(savedPlaces.updatedAt));
 
-    return NextResponse.json({ places });
+    // Romanized geocodes ("Nonhyeon-dong, 06112, Gangnam-gu, …") read badly in a
+    // Korean UI: offer the nearest Korean address already cached within ~200 m.
+    const romanized = places.filter((p) => !isKoreanAddress(p.address));
+    const korean = new Map<string, string>();
+    if (romanized.length > 0) {
+      const rows = await db.execute<{ id: string; address: string }>(sql`
+        SELECT sp.id, ko.address FROM saved_places sp
+        CROSS JOIN LATERAL (
+          SELECT pc.address FROM place_cache pc
+          WHERE pc.address ~ '[가-힣]' AND pc.address !~ '[A-Za-z]{3,}'
+            AND pc.lat_key BETWEEN sp.lat - 0.002 AND sp.lat + 0.002
+            AND pc.lon_key BETWEEN sp.lon - 0.002 AND sp.lon + 0.002
+          ORDER BY (pc.lat_key - sp.lat) ^ 2 + (pc.lon_key - sp.lon) ^ 2
+          LIMIT 1
+        ) ko
+        WHERE sp.user_id = ${user.id}
+          AND sp.id IN (${sql.join(
+            romanized.map((p) => sql`${p.id}::uuid`),
+            sql`, `
+          )})`);
+      for (const row of rows.rows) korean.set(row.id, row.address);
+    }
+
+    return NextResponse.json({
+      places: places.map((p) => ({
+        ...p,
+        displayAddress: isKoreanAddress(p.address)
+          ? p.address
+          : (korean.get(p.id) ?? p.address ?? null),
+      })),
+    });
   } catch (error) {
     logger.error("Saved places GET error", {
       error: error instanceof Error ? error.message : String(error),

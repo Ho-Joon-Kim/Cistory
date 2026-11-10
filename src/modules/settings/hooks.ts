@@ -1,50 +1,85 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
-
+import { userErrorMessage } from "@/lib/user-error";
+import { readStoredTheme, themeToApplyFromServer } from "./theme-sync";
 import type { UserSettings } from "./types";
 
 // Shared with the API route (single response contract) — re-exported so
 // existing `import { UserSettings } from ".../hooks"` consumers keep working.
 export type { UserSettings } from "./types";
 
+export const SETTINGS_QUERY_KEY = ["settings"] as const;
+
+async function fetchSettingsPayload(): Promise<UserSettings> {
+  const response = await fetch("/api/settings");
+  if (!response.ok) throw new Error("설정을 불러오지 못했어요.");
+  return (await response.json()) as UserSettings;
+}
+
+/**
+ * Persist a theme choice made outside the settings page (the app-bar toggle) so
+ * other devices pick it up, and keep any mounted useSettings in sync. Fire and
+ * forget: the local choice is already applied and wins on this device.
+ */
+export function useSaveThemePreference() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (theme: UserSettings["theme"]) => {
+      void fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme }),
+      })
+        .then(async (response) => {
+          if (!response.ok) return;
+          queryClient.setQueryData(SETTINGS_QUERY_KEY, (await response.json()) as UserSettings);
+        })
+        .catch(() => {});
+    },
+    [queryClient]
+  );
+}
+
+/**
+ * The user's settings. One shared query (every consumer on the page dedupes to a
+ * single GET). The server theme is applied only when this browser has no
+ * explicit choice yet — see themeToApplyFromServer.
+ */
 export function useSettings() {
-  const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { setTheme } = useTheme();
+  // next-themes hands out a new setTheme whenever the theme changes; reading it
+  // through a ref keeps that identity churn from re-running anything below.
+  const setThemeRef = useRef(setTheme);
+  setThemeRef.current = setTheme;
 
-  const fetchSettings = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const query = useQuery({
+    queryKey: SETTINGS_QUERY_KEY,
+    queryFn: fetchSettingsPayload,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
 
-    try {
-      const response = await fetch("/api/settings");
+  const serverTheme = query.data?.theme;
+  useEffect(() => {
+    const theme = themeToApplyFromServer(serverTheme, readStoredTheme());
+    if (theme) setThemeRef.current(theme);
+  }, [serverTheme]);
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch settings");
-      }
-
-      const data = (await response.json()) as UserSettings;
-      setSettings(data);
-
-      // 테마 적용
-      if (data.theme) {
-        setTheme(data.theme);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [setTheme]);
+  const { refetch } = query;
+  const refresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
   const updateSettings = useCallback(
     async (newSettings: Partial<UserSettings>) => {
       setIsSaving(true);
-      setError(null);
+      setSaveError(null);
 
       try {
         const response = await fetch("/api/settings", {
@@ -56,39 +91,39 @@ export function useSettings() {
         });
 
         if (!response.ok) {
-          throw new Error("Failed to update settings");
+          throw new Error("설정을 저장하지 못했어요.");
         }
 
         const data = (await response.json()) as UserSettings;
-        setSettings(data);
+        queryClient.setQueryData(SETTINGS_QUERY_KEY, data);
 
-        // 테마 변경 시 적용
+        // 테마 변경 시 적용 (explicit choice on this device)
         if (newSettings.theme) {
-          setTheme(newSettings.theme);
+          setThemeRef.current(newSettings.theme);
         }
 
         return true;
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setSaveError(userErrorMessage(e, "설정을 저장하지 못했어요."));
         return false;
       } finally {
         setIsSaving(false);
       }
     },
-    [setTheme]
+    [queryClient]
   );
 
-  useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
+  const fetchError = query.error
+    ? userErrorMessage(query.error, "설정을 불러오지 못했어요.")
+    : null;
 
   return {
-    settings,
-    isLoading,
+    settings: query.data ?? null,
+    isLoading: query.isPending,
     isSaving,
-    error,
+    error: saveError ?? fetchError,
     updateSettings,
-    refresh: fetchSettings,
+    refresh,
   };
 }
 
@@ -115,7 +150,7 @@ export function useDataUsage() {
   const fetchData = useCallback(async () => {
     try {
       const response = await fetch("/api/settings/data-usage");
-      if (!response.ok) throw new Error("Failed to fetch data usage");
+      if (!response.ok) throw new Error("저장 공간 정보를 불러오지 못했어요.");
       const result = (await response.json()) as DataUsageData;
       setData(result);
     } catch {
@@ -131,7 +166,7 @@ export function useDataUsage() {
       const response = await fetch("/api/settings/data-usage", {
         method: "POST",
       });
-      if (!response.ok) throw new Error("Failed to refresh data usage");
+      if (!response.ok) throw new Error("저장 공간 정보를 새로 계산하지 못했어요.");
       const result = (await response.json()) as DataUsageData;
       setData(result);
     } catch {
@@ -168,7 +203,7 @@ export function useOwnTracksKey(hasKey: boolean) {
       const response = await fetch("/api/settings/owntracks-key", {
         method: "POST",
       });
-      if (!response.ok) throw new Error("Failed to generate key");
+      if (!response.ok) throw new Error("API 키를 생성하지 못했어요.");
       const data = (await response.json()) as { apiKey: string };
       setNewKey(data.apiKey);
       setHasOwnTracksKey(true);
@@ -186,7 +221,7 @@ export function useOwnTracksKey(hasKey: boolean) {
       const response = await fetch("/api/settings/owntracks-key", {
         method: "DELETE",
       });
-      if (!response.ok) throw new Error("Failed to revoke key");
+      if (!response.ok) throw new Error("API 키를 삭제하지 못했어요.");
       setNewKey(null);
       setHasOwnTracksKey(false);
       return true;
@@ -226,7 +261,7 @@ export function useHealthImportKey(hasKey: boolean) {
     setIsGenerating(true);
     try {
       const response = await fetch("/api/settings/health-import-key", { method: "POST" });
-      if (!response.ok) throw new Error("Failed to generate key");
+      if (!response.ok) throw new Error("API 키를 생성하지 못했어요.");
       const data = (await response.json()) as { apiKey: string };
       setNewKey(data.apiKey);
       setHasHealthImportKey(true);
@@ -242,7 +277,7 @@ export function useHealthImportKey(hasKey: boolean) {
     setIsRevoking(true);
     try {
       const response = await fetch("/api/settings/health-import-key", { method: "DELETE" });
-      if (!response.ok) throw new Error("Failed to revoke key");
+      if (!response.ok) throw new Error("API 키를 삭제하지 못했어요.");
       setNewKey(null);
       setHasHealthImportKey(false);
       return true;
@@ -284,7 +319,7 @@ export function useTossKey(hasKey: boolean) {
       const response = await fetch("/api/settings/toss-key", {
         method: "POST",
       });
-      if (!response.ok) throw new Error("Failed to generate key");
+      if (!response.ok) throw new Error("API 키를 생성하지 못했어요.");
       const data = (await response.json()) as { apiKey: string };
       setNewKey(data.apiKey);
       setHasTossKey(true);
@@ -302,7 +337,7 @@ export function useTossKey(hasKey: boolean) {
       const response = await fetch("/api/settings/toss-key", {
         method: "DELETE",
       });
-      if (!response.ok) throw new Error("Failed to revoke key");
+      if (!response.ok) throw new Error("API 키를 삭제하지 못했어요.");
       setNewKey(null);
       setHasTossKey(false);
       return true;
@@ -340,7 +375,7 @@ export function useWithings(hasConnection: boolean) {
     setIsDisconnecting(true);
     try {
       const response = await fetch("/api/withings", { method: "DELETE" });
-      if (!response.ok) throw new Error("Failed to disconnect");
+      if (!response.ok) throw new Error("연결을 해제하지 못했어요.");
       setHasWithingsConnection(false);
       return true;
     } catch {
@@ -370,7 +405,7 @@ export function useHealth(hasConnection: boolean) {
     setIsDisconnecting(true);
     try {
       const response = await fetch("/api/fitbit", { method: "DELETE" });
-      if (!response.ok) throw new Error("Failed to disconnect");
+      if (!response.ok) throw new Error("연결을 해제하지 못했어요.");
       setHasHealthConnection(false);
       return true;
     } catch {
@@ -385,7 +420,7 @@ export function useHealth(hasConnection: boolean) {
     setIsSyncing(true);
     try {
       const response = await fetch("/api/fitbit/sync", { method: "POST" });
-      if (!response.ok) throw new Error("Failed to sync");
+      if (!response.ok) throw new Error("동기화하지 못했어요.");
       return true;
     } catch {
       return false;
@@ -464,9 +499,7 @@ export function useDbBenchmark() {
       const response = await fetch("/api/settings/db-benchmark", { method: "POST" });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
-        throw new Error(
-          data.error || "벤치마크를 실행하지 못했습니다. 잠시 후 다시 시도해 주세요."
-        );
+        throw new Error(data.error || "벤치마크를 실행하지 못했어요. 잠시 후 다시 시도해 주세요.");
       }
       const data = (await response.json()) as {
         dbHost: string;
@@ -485,11 +518,7 @@ export function useDbBenchmark() {
       setHistory(updated);
       return run;
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "벤치마크를 실행하지 못했습니다. 잠시 후 다시 시도해 주세요."
-      );
+      setError(userErrorMessage(e, "벤치마크를 실행하지 못했어요. 잠시 후 다시 시도해 주세요."));
       return null;
     } finally {
       setIsRunning(false);
@@ -561,7 +590,7 @@ export function useWakaTime(hasConnection: boolean) {
         if (!response.ok) {
           const data = (await response.json()) as { error?: string };
           throw new Error(
-            data.error || "WakaTime을 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요."
+            data.error || "WakaTime을 동기화하지 못했어요. 잠시 후 다시 시도해 주세요."
           );
         }
         await fetchSyncStats();
@@ -578,7 +607,7 @@ export function useWakaTime(hasConnection: boolean) {
     setIsDisconnecting(true);
     try {
       const response = await fetch("/api/wakatime", { method: "DELETE" });
-      if (!response.ok) throw new Error("Failed to disconnect");
+      if (!response.ok) throw new Error("연결을 해제하지 못했어요.");
       setHasWakaTimeConnection(false);
       setSyncStats(null);
       return true;

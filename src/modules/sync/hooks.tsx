@@ -221,6 +221,11 @@ export function useSyncStatus() {
   return context;
 }
 
+/** SyncStatusProvider 밖이면 null (앱 바가 자체 Provider를 붙일지 판단할 때 사용). */
+export function useOptionalSyncStatus() {
+  return useContext(SyncStatusContext);
+}
+
 /**
  * 수동 동기화 트리거 훅
  */

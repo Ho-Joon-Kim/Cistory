@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { userErrorMessage } from "@/lib/user-error";
 
 export interface AccountListItem {
   id: string;
@@ -88,7 +89,7 @@ export function useAccounts() {
       const data = await res.json();
       setAccounts(data.accounts ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userErrorMessage(e));
     } finally {
       setIsLoading(false);
     }
@@ -115,7 +116,7 @@ export function usePortfolioSummary() {
       const data = (await res.json()) as PortfolioSummary;
       setSummary(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userErrorMessage(e));
     } finally {
       setIsLoading(false);
     }
@@ -284,7 +285,7 @@ export function useTargetAllocations(accountId: string | null) {
       setTargets(data.targets ?? []);
       setUpdatedAt(data.updatedAt ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userErrorMessage(e));
     } finally {
       setIsLoading(false);
     }
@@ -351,7 +352,7 @@ export function useReturns(params: { accountId?: string; from?: string; to?: str
     setError(null);
     fetch(url.toString(), { signal: ctrl.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("수익률을 불러오지 못했습니다");
+        if (!response.ok) throw new Error("수익률을 불러오지 못했어요");
         return response.json();
       })
       .then((result) => {
@@ -359,7 +360,7 @@ export function useReturns(params: { accountId?: string; from?: string; to?: str
       })
       .catch(() => {
         if (!ctrl.signal.aborted)
-          setError("수익률을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+          setError("수익률을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
       })
       .finally(() => {
         if (!ctrl.signal.aborted) setIsLoading(false);
@@ -371,16 +372,75 @@ export function useReturns(params: { accountId?: string; from?: string; to?: str
   return { data, isLoading, error };
 }
 
+export const SAVE_TARGETS_ERROR = "목표 비중을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+
 export async function saveTargetAllocations(
   accountId: string,
   targets: TargetAllocation[]
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`/api/portfolio/accounts/${accountId}/targets`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ targets }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return { ok: false, error: data.error ?? "저장 실패" };
-  return { ok: true };
+  try {
+    const res = await fetch(`/api/portfolio/accounts/${accountId}/targets`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ targets }),
+    });
+    if (res.ok) return { ok: true };
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, error: userErrorMessage(data?.error, SAVE_TARGETS_ERROR) };
+  } catch (e) {
+    // A network failure maps to the generic network line; lead with what failed.
+    const cause = userErrorMessage(e, "잠시 후 다시 시도해 주세요.");
+    return { ok: false, error: `목표 비중을 저장하지 못했어요. ${cause}` };
+  }
+}
+
+export interface AccountTargets {
+  targets: TargetAllocation[];
+  updatedAt: string | null;
+}
+
+async function fetchTargets(ids: string[], signal?: AbortSignal) {
+  const entries = await Promise.all(
+    ids.map(async (id) => {
+      const res = await fetch(`/api/portfolio/accounts/${id}/targets`, { signal });
+      if (!res.ok) return [id, { targets: [], updatedAt: null }] as const;
+      const data = await res.json();
+      return [
+        id,
+        { targets: data.targets ?? [], updatedAt: data.updatedAt ?? null } as AccountTargets,
+      ] as const;
+    })
+  );
+  return Object.fromEntries(entries) as Record<string, AccountTargets>;
+}
+
+/** Target allocations for several accounts at once (keyed by account id). */
+export function useTargetsByAccount(accountIds: string[]) {
+  const key = accountIds.join(",");
+  const [byAccount, setByAccount] = useState<Record<string, AccountTargets>>({});
+
+  useEffect(() => {
+    const ids = key ? key.split(",") : [];
+    if (ids.length === 0) {
+      setByAccount({});
+      return;
+    }
+    const ctrl = new AbortController();
+    fetchTargets(ids, ctrl.signal)
+      .then((next) => {
+        if (!ctrl.signal.aborted) setByAccount(next);
+      })
+      .catch(() => undefined);
+    return () => ctrl.abort();
+  }, [key]);
+
+  const refresh = useCallback(() => {
+    const ids = key ? key.split(",") : [];
+    if (ids.length === 0) return;
+    fetchTargets(ids)
+      .then(setByAccount)
+      .catch(() => undefined);
+  }, [key]);
+
+  return { byAccount, refresh };
 }

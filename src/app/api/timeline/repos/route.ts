@@ -21,7 +21,12 @@ export async function GET(request: NextRequest) {
         repoId: commits.repoId,
         repoIsPrivate: commits.repoIsPrivate,
         commitCount: sql<number>`count(*)`.as("commit_count"),
-        lastCommitAt: sql<string>`max(${commits.committedAt})`.as("last_commit_at"),
+        // committed_at is UTC wall time; a raw max() would come back as a zone-less
+        // string that browsers parse as local time (9 h off in KST). Emit ISO UTC.
+        lastCommitAt:
+          sql<string>`to_char(max(${commits.committedAt}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`.as(
+            "last_commit_at"
+          ),
       })
       .from(commits)
       .where(eq(commits.userId, user.id))

@@ -1,20 +1,13 @@
 "use client";
 
 import { Loader2, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Sheet } from "@/components/ds";
+import { userErrorMessage } from "@/lib/user-error";
+import { cn } from "@/lib/utils";
 import type { SummaryAccount, SummaryPosition, TargetAllocation } from "../hooks";
-import { saveTargetAllocations } from "../hooks";
+import { SAVE_TARGETS_ERROR, saveTargetAllocations } from "../hooks";
 
 interface Props {
   open: boolean;
@@ -62,11 +55,21 @@ export function TargetAllocationEditor({
   }, [open, initialTargets]);
 
   const totalPct = useMemo(() => rows.reduce((s, r) => s + (Number(r.weightPct) || 0), 0), [rows]);
-  const valid = Math.abs(totalPct - 100) < 0.5 && rows.length > 0;
+  const balanced = Math.abs(totalPct - 100) < 0.5;
+  const valid = balanced && rows.length > 0;
+  const gap = Math.abs(100 - totalPct).toFixed(2);
+  const totalNote =
+    rows.length === 0
+      ? "종목을 추가하세요"
+      : balanced
+        ? "저장할 수 있어요"
+        : totalPct < 100
+          ? `${gap}%p 모자라요`
+          : `${gap}%p 넘쳐요`;
 
   const fillFromCurrent = () => {
     if (currentPositions.length === 0) {
-      toast.error("이 계좌에 보유 종목이 없습니다. 종목 추가로 직접 입력해 주세요.");
+      toast.error("이 계좌에 보유 종목이 없어요. 종목 추가로 직접 입력해 주세요.");
       return;
     }
     setRows(
@@ -82,8 +85,12 @@ export function TargetAllocationEditor({
     );
   };
 
+  // The row just added by 종목 추가: its 티커 field takes focus once it mounts.
+  const focusRowId = useRef<string | null>(null);
   const addRow = () => {
-    setRows((prev) => [...prev, { id: nextId(), ticker: "", name: "", weightPct: "0" }]);
+    const id = nextId();
+    focusRowId.current = id;
+    setRows((prev) => [...prev, { id, ticker: "", name: "", weightPct: "0" }]);
   };
 
   const updateRow = (id: string, patch: Partial<Omit<RowDraft, "id">>) => {
@@ -98,12 +105,12 @@ export function TargetAllocationEditor({
     if (!valid) return;
     const tickers = rows.map((r) => r.ticker.trim());
     if (tickers.some((t) => !t)) {
-      toast.error("비어 있는 티커가 있습니다. 모든 종목의 티커를 입력해 주세요.");
+      toast.error("비어 있는 티커가 있어요. 모든 종목의 티커를 입력해 주세요.");
       return;
     }
     const duplicate = tickers.find((t, i) => tickers.indexOf(t) !== i);
     if (duplicate) {
-      toast.error(`티커 ${duplicate}이(가) 두 번 입력되었습니다. 한 줄을 지워 주세요.`);
+      toast.error(`티커 ${duplicate}이(가) 두 번 입력됐어요. 한 줄을 지워 주세요.`);
       return;
     }
 
@@ -117,121 +124,152 @@ export function TargetAllocationEditor({
     try {
       const res = await saveTargetAllocations(account.id, targets);
       if (res.ok) {
-        toast.success("목표 비중이 저장되었습니다.");
+        toast.success("목표 비중이 저장됐어요.");
         onSaved();
         onOpenChange(false);
       } else {
-        toast.error(res.error ?? "목표 비중을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        toast.error(res.error ?? SAVE_TARGETS_ERROR);
       }
+    } catch (error) {
+      toast.error(userErrorMessage(error, SAVE_TARGETS_ERROR));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>목표 비중 설정 — {account.label}</DialogTitle>
-          <DialogDescription>
-            종목별 목표 비중을 입력하세요. 합계는 100%여야 저장됩니다.
-          </DialogDescription>
-        </DialogHeader>
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`${account.label} 목표 비중`}
+      description="종목별 목표 비중을 입력하세요. 합계가 100%가 되면 저장할 수 있어요."
+      className="sm:w-[600px]"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <button type="button" onClick={fillFromCurrent} className={buttonClass("secondary")}>
+          현재 비중으로 채우기
+        </button>
+        <p className="m-0 inline-flex items-center gap-2 text-[13px] text-ink-2" aria-live="polite">
+          <span
+            aria-hidden="true"
+            className={cn("size-1.5 flex-none rounded-full", valid ? "bg-brand" : "bg-warn")}
+          />
+          <span>
+            합계{" "}
+            <span className={cn("num font-semibold", valid ? "text-ink" : "text-warn")}>
+              {totalPct.toFixed(2)}%
+            </span>{" "}
+            · {totalNote}
+          </span>
+        </p>
+      </div>
 
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={fillFromCurrent}>
-              현재 비중으로 채우기
-            </Button>
-            <div className="text-sm tabular-nums">
-              합계{" "}
-              <span
-                className={
-                  Math.abs(totalPct - 100) < 0.5
-                    ? "text-success font-semibold"
-                    : "text-destructive font-semibold"
-                }
-              >
-                {Math.abs(totalPct - 100) < 0.5 ? "✓ " : "! "}
-                {totalPct.toFixed(2)}%
-              </span>
-            </div>
-          </div>
-
-          <div className="border rounded-md">
-            <div className="grid grid-cols-[110px_1fr_90px_36px] gap-2 px-3 py-2 text-xs text-muted-foreground border-b">
-              <div>티커</div>
-              <div>종목명</div>
-              <div className="text-right">비중 (%)</div>
-              <div />
-            </div>
-            <div className="divide-y">
-              {rows.length === 0 ? (
-                <div className="px-3 py-6 text-sm text-muted-foreground text-center">
-                  아직 종목이 없습니다. "현재 비중으로 채우기" 또는 "종목 추가"를 누르세요.
-                </div>
-              ) : (
-                rows.map((r, index) => (
-                  <div
-                    key={r.id}
-                    className="grid grid-cols-[110px_1fr_90px_36px] gap-2 px-3 py-2 items-center"
-                  >
-                    <Input
-                      value={r.ticker}
-                      onChange={(e) => updateRow(r.id, { ticker: e.target.value.toUpperCase() })}
-                      placeholder="예: 005930"
-                      aria-label={`${index + 1}번째 종목 티커`}
-                      className="h-8"
-                    />
-                    <Input
-                      value={r.name}
-                      onChange={(e) => updateRow(r.id, { name: e.target.value })}
-                      placeholder="종목명"
-                      aria-label={`${index + 1}번째 종목명`}
-                      className="h-8"
-                    />
-                    <Input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="100"
-                      value={r.weightPct}
-                      onChange={(e) => updateRow(r.id, { weightPct: e.target.value })}
-                      aria-label={`${index + 1}번째 종목 비중 (%)`}
-                      className="h-8 text-right tabular-nums"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => removeRow(r.id)}
-                      aria-label={`${index + 1}번째 종목 삭제`}
-                    >
-                      <Trash2 aria-hidden="true" className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <Button type="button" variant="outline" size="sm" onClick={addRow}>
-            <Plus aria-hidden="true" className="h-4 w-4 mr-1" />
-            종목 추가
-          </Button>
+      <div className="border-t border-line">
+        <div className="text-label hidden h-8 grid-cols-[104px_minmax(0,1fr)_96px_36px] items-center gap-3 border-b border-line sm:grid">
+          <span>티커</span>
+          <span>종목명</span>
+          <span className="text-right">비중 (%)</span>
+          <span />
         </div>
+        {rows.length === 0 ? (
+          <p className="m-0 border-b border-line py-6 text-center text-[13px] text-ink-3">
+            아직 종목이 없어요. 현재 비중으로 채우거나 종목을 추가하세요.
+          </p>
+        ) : (
+          rows.map((r, index) => (
+            <div
+              key={r.id}
+              className="grid grid-cols-[minmax(0,1fr)_104px_44px] items-center gap-x-2 gap-y-2 border-b border-line py-3 sm:grid-cols-[104px_minmax(0,1fr)_96px_36px] sm:gap-x-3 sm:py-2"
+            >
+              <input
+                ref={(el) => {
+                  if (el && focusRowId.current === r.id) {
+                    focusRowId.current = null;
+                    el.focus();
+                  }
+                }}
+                value={r.ticker}
+                onChange={(e) => updateRow(r.id, { ticker: e.target.value.toUpperCase() })}
+                placeholder="티커"
+                aria-label={`${index + 1}번째 종목 티커`}
+                className={cn(fieldClass, "num")}
+              />
+              <input
+                value={r.name}
+                onChange={(e) => updateRow(r.id, { name: e.target.value })}
+                placeholder="종목명"
+                aria-label={`${index + 1}번째 종목명`}
+                className={cn(fieldClass, "order-first col-span-3 sm:order-none sm:col-span-1")}
+              />
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value={r.weightPct}
+                onChange={(e) => {
+                  // A decimal field without the native number spinner: digits
+                  // and one decimal point only.
+                  const v = e.target.value.replace(/[^\d.]/g, "");
+                  if (/^\d*\.?\d*$/.test(v)) updateRow(r.id, { weightPct: v });
+                }}
+                placeholder="비중 %"
+                aria-label={`${index + 1}번째 종목 비중 (%)`}
+                className={cn(fieldClass, "num text-right")}
+              />
+              <button
+                type="button"
+                onClick={() => removeRow(r.id)}
+                aria-label={`${index + 1}번째 종목 삭제`}
+                className="inline-flex size-11 cursor-pointer items-center justify-center rounded-control border-0 bg-transparent text-ink-3 transition-[color,background-color,scale] duration-150 ease-out hover:bg-sunken hover:text-ink focus-ring active:scale-[0.96] sm:size-9"
+              >
+                <Trash2 aria-hidden="true" className="size-4" strokeWidth={1.75} />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            취소
-          </Button>
-          <Button onClick={handleSave} disabled={!valid || saving}>
-            {saving && <Loader2 aria-hidden="true" className="h-4 w-4 mr-2 animate-spin" />}
-            저장
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <button
+        type="button"
+        onClick={addRow}
+        className={cn(buttonClass("ghost"), "shrink-0 self-start")}
+      >
+        <Plus aria-hidden="true" className="size-4" strokeWidth={1.75} />
+        종목 추가
+      </button>
+
+      <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          disabled={saving}
+          className={buttonClass("secondary")}
+        >
+          취소
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!valid || saving}
+          className={buttonClass("primary")}
+        >
+          {saving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+          저장
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+const fieldClass =
+  "h-11 w-full min-w-0 rounded-control border-0 bg-surface px-3 text-base text-ink shadow-ring outline-none transition-shadow duration-150 ease-out placeholder:text-ink-3 hover:shadow-ring-hover focus-visible:shadow-[0_0_0_2px_var(--brand)] sm:h-9 sm:text-sm";
+
+function buttonClass(variant: "primary" | "secondary" | "ghost") {
+  return cn(
+    "inline-flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-control border-0 px-3.5 text-[13px] font-semibold whitespace-nowrap transition-[scale,box-shadow,background-color] duration-150 ease-out focus-ring active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 sm:h-9",
+    variant === "primary" &&
+      "bg-brand text-brand-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_1px_2px_rgb(0_0_0/0.14)]",
+    variant === "secondary" && "bg-surface text-ink shadow-ring hover:shadow-ring-hover",
+    variant === "ghost" && "bg-transparent px-2 text-ink-2 hover:bg-sunken hover:text-ink"
   );
 }

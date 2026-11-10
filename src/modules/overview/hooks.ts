@@ -1,8 +1,12 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
+import { userErrorMessage } from "@/lib/user-error";
 import { toLocalDateString } from "@/lib/utils";
+import type { SearchResponse } from "@/modules/search/types";
+import type { OverviewHistoryResponse } from "./history";
 import {
   getPeriodKey,
   getPeriodRange,
@@ -11,6 +15,7 @@ import {
   periodTypes,
 } from "./period";
 import type { OverviewSnapshotResponse } from "./service";
+import type { StayFocus } from "./view/flow";
 
 export const OVERVIEW_POLL_INTERVAL_MS = 3_000;
 export const OVERVIEW_MAX_POLLS = 200;
@@ -205,6 +210,14 @@ export async function recomputeResponseJson(
   return body;
 }
 
+/**
+ * Message safe to show under an overview error state — the shared
+ * {@link userErrorMessage} with an overview-specific fallback.
+ */
+export function overviewErrorMessage(reason: unknown, fallback: string): string {
+  return userErrorMessage(reason, fallback);
+}
+
 export function abortableDelay(signal: AbortSignal, intervalMs: number) {
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) {
@@ -302,7 +315,9 @@ export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, e
     }).catch((reason: unknown) => {
       if (reason instanceof DOMException && reason.name === "AbortError") return;
       if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "대시보드를 불러오지 못했습니다");
+        setError(
+          overviewErrorMessage(reason, "개요를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.")
+        );
         setIsLoading(false);
       }
     });
@@ -345,7 +360,9 @@ export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, e
       ) {
         return;
       }
-      setError(reason instanceof Error ? reason.message : "재계산을 요청하지 못했습니다");
+      setError(
+        overviewErrorMessage(reason, "재계산을 요청하지 못했어요. 잠시 후 다시 시도해 주세요.")
+      );
     } finally {
       if (recomputeController.current === controller) {
         recomputeController.current = null;
@@ -435,4 +452,104 @@ export function useOverviewNarrative(periodType: PeriodType, periodKey: string, 
   }, [enabled, periodKey, periodType, requestKey, visible]);
 
   return narrative;
+}
+
+/**
+ * Stored-only period history for the hero (previous period + recent bars). Never
+ * enqueues work; refetches when `refreshKey` changes (e.g. the snapshot's
+ * computedAt), so a recompute is reflected once it lands.
+ */
+export function useOverviewHistory(
+  periodType: PeriodType,
+  periodKey: string,
+  enabled: boolean,
+  refreshKey: string | null
+) {
+  const [history, setHistory] = useState<OverviewHistoryResponse | null>(null);
+  useEffect(() => {
+    void refreshKey;
+    if (!enabled || periodType === "recent") return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ periodType, periodKey });
+    fetch(`/api/overview/history?${params.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("history unavailable");
+        return (await response.json()) as OverviewHistoryResponse;
+      })
+      .then((body) => setHistory(body))
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === "AbortError") return;
+        // History only adds comparisons; the page renders without it.
+        setHistory(null);
+      });
+    return () => controller.abort();
+  }, [enabled, periodKey, periodType, refreshKey]);
+  return history;
+}
+
+/**
+ * KST days in the period with a visit to `focus.area` — the snapshot has no
+ * per-day place data, so the flow chart's stay span reads the owner-scoped
+ * record search (visits matching the area's city). A few pages at most.
+ */
+export function useStayDays(focus: StayFocus | null): string[] {
+  const { data } = useQuery({
+    queryKey: ["overview", "stay-days", focus?.area, focus?.from, focus?.to],
+    enabled: focus != null,
+    staleTime: 10 * 60_000,
+    queryFn: async ({ signal }) => {
+      if (!focus) return [];
+      const days = new Set<string>();
+      for (let page = 1; page <= 5; page++) {
+        const params = new URLSearchParams({
+          q: focus.area,
+          source: "visit",
+          from: focus.from,
+          to: focus.to,
+          page: String(page),
+        });
+        const response = await fetch(`/api/search?${params.toString()}`, { signal });
+        if (!response.ok) break;
+        const body = (await response.json()) as SearchResponse;
+        for (const item of body.items) if (item.source === "visit") days.add(item.date);
+        if (!body.hasMore) break;
+      }
+      return [...days];
+    },
+  });
+  return data ?? [];
+}
+
+/**
+ * Spending payment counts per category for a date range (the snapshot carries
+ * only totals), used to flag categories driven by one or two payments.
+ */
+export function useCategoryPaymentCounts(
+  range: { from: string; to: string } | null
+): Record<string, number> | null {
+  const { data } = useQuery({
+    queryKey: ["overview", "category-counts", range?.from, range?.to],
+    enabled: range != null,
+    staleTime: 10 * 60_000,
+    queryFn: async ({ signal }) => {
+      if (!range) return null;
+      const params = new URLSearchParams({
+        from: range.from,
+        to: range.to,
+        bucket: "spending",
+        limit: "1",
+      });
+      const response = await fetch(`/api/spending?${params.toString()}`, { signal });
+      if (!response.ok) return null;
+      const body = (await response.json()) as {
+        summary?: { categoryBreakdown?: { category: string | null; count: number }[] };
+      };
+      const counts: Record<string, number> = {};
+      for (const row of body.summary?.categoryBreakdown ?? []) {
+        counts[row.category ?? "uncategorized"] = row.count;
+      }
+      return counts;
+    },
+  });
+  return data ?? null;
 }

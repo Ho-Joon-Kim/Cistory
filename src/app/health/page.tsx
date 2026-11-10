@@ -1,250 +1,192 @@
 "use client";
 
-import { Activity, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo } from "react";
+import { EmptyState, ErrorState, LoadingState, PageContainer, PageTitle } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
-import { Button } from "@/components/ui/button";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatDateTime, formatDay, formatRelative } from "@/lib/format";
+import { GENERIC_ERROR_MESSAGE, sameErrorCopy } from "@/lib/user-error";
 import { useAuth } from "@/modules/auth/hooks";
-import { CorrelationCard } from "@/modules/health/components/CorrelationCard";
-import { HealthHero } from "@/modules/health/components/HealthHero";
-import { HealthTrendCard } from "@/modules/health/components/HealthTrendCard";
+import { ActivitySection } from "@/modules/health/components/ActivitySection";
+import { DetailsSheet } from "@/modules/health/components/DetailsSheet";
 import { HeartRhythmCard } from "@/modules/health/components/HeartRhythmCard";
-import { SleepCard } from "@/modules/health/components/SleepCard";
-import { WorkoutList } from "@/modules/health/components/WorkoutList";
+import { HeroRow } from "@/modules/health/components/HeroRow";
+import { WorkoutsSection } from "@/modules/health/components/WorkoutsSection";
 import {
-  type HealthMetricSeries,
   type HealthSummary,
   useActivityCorrelation,
   useBody,
   useHealthSummary,
 } from "@/modules/health/hooks";
-import { ALL_HEALTH_METRICS } from "@/modules/health/metrics-meta";
-import { BodyCard } from "@/modules/insights/components/BodyCard";
+import { activityWindow, detailRows, kstToday } from "@/modules/health/view-model";
 
-function CenteredSpinner() {
+/** Staged entrance: `ds-enter` (reduced motion → fade) with 100ms steps. */
+const delay = (step: number): CSSProperties => ({ animationDelay: `${step * 100}ms` });
+
+function Button({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <div role="status" className="min-h-screen flex items-center justify-center">
-      <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
-      <span className="sr-only">로딩 중…</span>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex h-9 cursor-pointer items-center rounded-[9px] border-0 bg-surface px-3.5 text-[0.8125rem] font-semibold text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[.96] focus-visible:outline-2 focus-visible:outline-brand"
+    >
+      {children}
+    </button>
   );
 }
 
-function NeverConnected({ onGoSettings }: { onGoSettings: () => void }) {
-  return (
-    <div className="border-2 border-dashed rounded-lg p-12 text-center">
-      <Activity aria-hidden="true" className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
-      <p className="text-muted-foreground mb-1">아직 건강 데이터가 연결되지 않았습니다</p>
-      <p className="text-xs text-muted-foreground mb-4">
-        Google Health (Fitbit)를 연결하면 걸음·심박·산소포화도 추이를 볼 수 있어요
-      </p>
-      <Button onClick={onGoSettings} variant="outline">
-        설정에서 연결하기
-      </Button>
-    </div>
-  );
-}
-
-function ReauthBanner({ onGoSettings }: { onGoSettings: () => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3">
-      <AlertTriangle aria-hidden="true" className="h-5 w-5 shrink-0 text-warning" />
-      <div className="min-w-0 flex-1 text-sm">
-        <p className="font-medium">Google Health (Fitbit) 연결이 만료되었습니다</p>
-        <p className="text-muted-foreground">다시 연결해야 새 데이터를 가져올 수 있어요.</p>
-      </div>
-      <Button size="sm" variant="outline" onClick={onGoSettings}>
-        다시 연결
-      </Button>
-    </div>
-  );
-}
-
-function DisconnectedHistoryBanner({ onGoSettings }: { onGoSettings: () => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 px-4 py-3">
-      <div className="min-w-0 flex-1 text-sm">
-        <p className="font-medium">연결 해제됨 · 과거 데이터 유지</p>
-        <p className="text-muted-foreground">
-          연결은 해제되었지만 이전에 수집한 데이터는 그대로 보관되어 있어요.
-        </p>
-      </div>
-      <Button size="sm" variant="outline" onClick={onGoSettings}>
-        다시 연결
-      </Button>
-    </div>
-  );
-}
-
-function BackfillingNotice() {
-  return (
-    <div role="status" className="border-2 border-dashed rounded-lg p-12 text-center">
-      <Loader2
-        aria-hidden="true"
-        className="mx-auto h-8 w-8 animate-spin text-muted-foreground mb-4"
-      />
-      <p className="text-muted-foreground mb-1">동기화 중 · 과거 데이터 처리 중</p>
-      <p className="text-xs text-muted-foreground">
-        처음 연결 후 과거 기록을 가져오고 있어요. 잠시 후 추이가 채워집니다.
-      </p>
-    </div>
-  );
-}
-
-const META_BY_KEY = new Map(ALL_HEALTH_METRICS.map((m) => [m.key, m]));
-const METRIC_GRID = "grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3";
-
-/** Section eyebrow used above the metric-grid groups. */
-function Section({
-  dot,
+function Notice({
+  tone = "neutral",
   title,
-  note,
-  children,
+  description,
+  action,
 }: {
-  dot: string;
+  tone?: "warn" | "neutral";
   title: string;
-  note?: string;
-  children: ReactNode;
+  description: string;
+  action?: ReactNode;
 }) {
   return (
-    <section className="mb-8">
-      <div className="mb-3.5 ml-0.5 flex items-center gap-2.5">
-        <span
-          aria-hidden="true"
-          className="h-[7px] w-[7px] rounded-full"
-          style={{ background: dot, boxShadow: `0 0 8px ${dot}` }}
-        />
-        <h2 className="text-sm font-semibold text-ink-dim">{title}</h2>
-        {note ? <span className="ml-auto text-xs text-ink-mute">{note}</span> : null}
+    <div
+      role={tone === "warn" ? "status" : undefined}
+      className={`mt-6 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 ${tone === "warn" ? "bg-warn-soft" : "bg-sunken"}`}
+    >
+      <div className="min-w-0 flex-1 text-sm leading-[1.375rem]">
+        <p className={`m-0 font-semibold ${tone === "warn" ? "text-warn" : "text-ink"}`}>{title}</p>
+        <p className="m-0 text-ink-2">{description}</p>
       </div>
-      {children}
-    </section>
+      {action}
+    </div>
   );
 }
 
-function HealthBody({ summary }: { summary: HealthSummary }) {
+type BodyQuery = ReturnType<typeof useBody>;
+
+function HealthBody({ summary, body }: { summary: HealthSummary; body: BodyQuery }) {
   const router = useRouter();
   const goSettings = () => router.push("/settings");
-  const body = useBody();
   const correlation = useActivityCorrelation();
+  const today = kstToday();
+  const win = useMemo(
+    () => activityWindow(today, summary.lastSyncedAt),
+    [today, summary.lastSyncedAt]
+  );
+  const rows = useMemo(() => detailRows(summary.metrics, win.days), [summary.metrics, win]);
 
   if (!summary.hasConnection && !summary.hasAnyHistory) {
-    return <NeverConnected onGoSettings={goSettings} />;
+    return (
+      <EmptyState
+        className="mt-8 border-t border-line pt-8"
+        title="아직 건강 데이터가 연결되지 않았어요"
+        description="Google Health (Fitbit)를 연결하면 수면·심박·걸음 추이를 볼 수 있어요."
+        action={<Button onClick={goSettings}>설정에서 연결하기</Button>}
+      />
+    );
   }
 
   const backfilling = summary.hasConnection && !summary.backfillCompletedAt;
-  const showBackfillingOnly = backfilling && !summary.hasAnyHistory;
-  const byMetric = new Map(summary.metrics.map((m) => [m.key, m]));
-
-  // Full card set always renders; a metric with no data falls back to a skeleton
-  // series so the section layout is visible before data arrives.
-  const seriesFor = (key: string): HealthMetricSeries => {
-    const existing = byMetric.get(key);
-    if (existing) return existing;
-    const meta = META_BY_KEY.get(key);
-    return {
-      key,
-      label: meta?.label ?? key,
-      unit: meta?.unit ?? "",
-      agg: meta?.agg ?? "avg",
-      scale: meta?.scale ?? null,
-      decimals: meta?.decimals ?? 0,
-      points: [],
-    };
-  };
+  const rhr = summary.metrics.find((m) => m.key === "resting_heart_rate");
 
   return (
-    <div>
-      {summary.status === "needs_reauth" ? <ReauthBanner onGoSettings={goSettings} /> : null}
+    <>
+      {summary.status === "needs_reauth" ? (
+        <Notice
+          tone="warn"
+          title="Google Health (Fitbit) 다시 연결 필요"
+          description="다시 연결해야 새 데이터를 가져올 수 있어요."
+          action={<Button onClick={goSettings}>다시 연결</Button>}
+        />
+      ) : null}
       {!summary.hasConnection && summary.hasAnyHistory ? (
-        <DisconnectedHistoryBanner onGoSettings={goSettings} />
+        <Notice
+          title="연결 해제됨 · 과거 데이터 유지"
+          description="연결은 해제되었지만 이전에 수집한 데이터는 그대로 보관되어 있어요."
+          action={<Button onClick={goSettings}>다시 연결</Button>}
+        />
+      ) : null}
+      {backfilling ? (
+        <Notice
+          title={
+            summary.hasAnyHistory
+              ? "과거 데이터를 아직 처리하고 있어요"
+              : "동기화 중 · 과거 데이터 처리 중"
+          }
+          description="처음 연결 후 과거 기록을 가져오고 있어요. 잠시 후 추이가 채워져요."
+        />
       ) : null}
 
-      {showBackfillingOnly ? (
-        <BackfillingNotice />
-      ) : (
-        <>
-          {backfilling ? (
-            <p className="mb-4 text-xs text-muted-foreground">
-              과거 데이터 처리가 아직 진행 중입니다.
-            </p>
-          ) : null}
-
-          <HealthHero summary={summary} body={body.data} />
-
-          <Section dot="hsl(153 70% 53%)" title="움직임" note="걸음 · 이동 · 운동 · 칼로리">
-            <div className={METRIC_GRID}>
-              <HealthTrendCard series={seriesFor("steps")} />
-              <HealthTrendCard series={seriesFor("distance")} />
-              <HealthTrendCard series={seriesFor("exercise")} />
-              <HealthTrendCard series={seriesFor("active_energy")} />
-              <HealthTrendCard series={seriesFor("total_calories")} />
-              <HealthTrendCard series={seriesFor("active_zone_minutes")} />
-            </div>
-            <div className="mt-3.5">
-              <WorkoutList workouts={summary.workouts} />
-            </div>
-          </Section>
-
-          <Section dot="hsl(0 72% 62%)" title="심혈관" note="심박 · 안정시 · HRV · VO₂max">
-            <div className={METRIC_GRID}>
-              <HealthTrendCard series={seriesFor("heart_rate")} />
-              <HealthTrendCard series={seriesFor("resting_heart_rate")} />
-              <HealthTrendCard series={seriesFor("hrv")} />
-              <HealthTrendCard series={seriesFor("vo2_max")} />
-            </div>
-            {summary.rhythm ? (
-              <div className="mt-3.5">
-                <HeartRhythmCard rhythm={summary.rhythm} />
-              </div>
-            ) : null}
-          </Section>
-
-          {/* Self-titled feature cards — no extra eyebrow (their card header is the title). */}
-          <div className="mb-8">
-            <SleepCard sessions={summary.sleepSessions} />
-          </div>
-          <div className="mb-8">
-            <BodyCard
-              data={body.data}
-              isLoading={body.isLoading}
-              error={body.error}
-              onRetry={body.refresh}
-            />
-          </div>
-          <div className="mb-8">
-            <CorrelationCard
-              days={correlation.days}
-              isLoading={correlation.isLoading}
-              error={correlation.error}
-              onRetry={correlation.refresh}
-            />
-          </div>
-
-          <Section
-            dot="hsl(263 72% 72%)"
-            title="회복 지표"
-            note="수면 중 측정 · 산소 · 호흡 · 체온"
-          >
-            <div className={METRIC_GRID}>
-              <HealthTrendCard series={seriesFor("spo2")} />
-              <HealthTrendCard series={seriesFor("respiratory_rate")} />
-              <HealthTrendCard series={seriesFor("skin_temperature")} />
-            </div>
-          </Section>
-        </>
-      )}
-    </div>
+      <HeroRow
+        className="ds-enter mt-6 lg:mt-8"
+        style={delay(1)}
+        sessions={summary.sleepSessions}
+        rhr={rhr}
+        days={win.days}
+        today={today}
+        body={body.data}
+        bodyLoading={body.isLoading}
+        bodyError={body.error}
+        onBodyRetry={body.refresh}
+      />
+      <ActivitySection
+        className="ds-enter mt-10 lg:mt-16"
+        style={delay(2)}
+        metrics={summary.metrics}
+        win={win}
+        correlation={correlation.days}
+        lastSyncedAt={summary.lastSyncedAt}
+      />
+      <WorkoutsSection
+        className="ds-enter mt-11 lg:mt-[72px]"
+        style={delay(3)}
+        workouts={summary.workouts}
+      />
+      {summary.rhythm ? (
+        <HeartRhythmCard
+          className="ds-enter mt-11 lg:mt-[72px]"
+          style={delay(4)}
+          rhythm={summary.rhythm}
+        />
+      ) : null}
+      <DetailsSheet
+        className="ds-enter mt-8 border-t border-line pt-1 lg:mt-14 lg:pt-2"
+        style={delay(4)}
+        rows={rows}
+        body={body.data}
+      />
+    </>
   );
 }
+
+function Meta({
+  summary,
+  measuredAt,
+}: {
+  summary: HealthSummary | null;
+  measuredAt: string | null;
+}) {
+  return (
+    <>
+      <span className="text-[0.8125rem] leading-5 sm:text-sm sm:leading-[1.375rem]">
+        {formatDay(kstToday())}
+        {summary?.lastSyncedAt ? ` · Fitbit ${formatRelative(summary.lastSyncedAt)} 동기화` : ""}
+      </span>
+      {measuredAt ? (
+        <span className="block text-[0.8125rem] leading-5 sm:inline sm:text-sm sm:leading-[1.375rem]">
+          <span className="hidden sm:inline"> · </span>
+          Withings {formatDateTime(new Date(measuredAt))} 측정
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+const LOAD_ERROR_TITLE = "건강 데이터를 불러오지 못했어요";
 
 export default function HealthPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { summary, isLoading, error, refresh } = useHealthSummary();
+  const body = useBody();
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) {
@@ -252,50 +194,40 @@ export default function HealthPage() {
     }
   }, [isAuthLoading, isAuthenticated, router]);
 
-  if (isAuthLoading) return <CenteredSpinner />;
-  if (!isAuthenticated) return null;
+  if (!isAuthLoading && !isAuthenticated) return null;
 
   return (
-    <div data-neon className="min-h-screen flex flex-col bg-background">
-      <Header showSync={false} />
-      <main id="main" className="flex-1 container mx-auto px-4 py-6">
-        <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">건강</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {summary?.lastSyncedAt
-                ? `최근 동기화 ${formatRelativeTime(summary.lastSyncedAt)}`
-                : "걸음·심박·산소포화도 등 일일 건강 추이"}
-            </p>
-          </div>
-          <Button onClick={refresh} disabled={isLoading} size="sm" variant="outline">
-            {isLoading ? (
-              <Loader2 aria-hidden="true" className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw aria-hidden="true" className="w-4 h-4 mr-2" />
-            )}
-            새로고침
-          </Button>
+    <div className="flex min-h-screen flex-col bg-page">
+      <Header />
+      <PageContainer>
+        <div className="ds-enter">
+          <PageTitle
+            title="건강"
+            meta={<Meta summary={summary} measuredAt={body.data?.latestMeasuredAt ?? null} />}
+          />
         </div>
-
-        {error ? (
-          <p role="alert" className="mb-4 text-sm text-destructive">
-            {error} 새로고침을 눌러 다시 시도해 주세요.
-          </p>
-        ) : null}
-        {isLoading && !summary ? (
-          <div role="status" className="flex items-center justify-center py-20">
-            <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-muted-foreground" />
-            <span className="sr-only">로딩 중…</span>
-          </div>
+        {isAuthLoading || (isLoading && !summary) ? (
+          <LoadingState className="mt-8" label="건강 데이터를 불러오는 중" />
         ) : summary ? (
-          <HealthBody summary={summary} />
+          <>
+            {error ? (
+              <p role="alert" className="mt-4 text-sm text-danger">
+                새 데이터를 불러오지 못했어요. 잠시 후 자동으로 다시 시도해요.
+              </p>
+            ) : null}
+            <HealthBody summary={summary} body={body} />
+          </>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            건강 데이터를 불러오지 못했습니다. 새로고침을 눌러 다시 시도해 주세요.
-          </p>
+          <ErrorState
+            className="mt-8"
+            title={LOAD_ERROR_TITLE}
+            description={
+              error && !sameErrorCopy(error, LOAD_ERROR_TITLE) ? error : GENERIC_ERROR_MESSAGE
+            }
+            actions={<Button onClick={refresh}>다시 시도</Button>}
+          />
         )}
-      </main>
+      </PageContainer>
     </div>
   );
 }

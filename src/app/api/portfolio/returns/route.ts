@@ -45,7 +45,7 @@ export const GET = withAuth(async ({ user, request }) => {
     .where(eq(brokerageAccounts.userId, user.id));
   const ids = userAccounts.map((a) => a.id);
   if (accountId && !ids.includes(accountId)) {
-    return NextResponse.json({ error: "계좌를 찾을 수 없습니다" }, { status: 404 });
+    return NextResponse.json({ error: "계좌를 찾을 수 없어요" }, { status: 404 });
   }
   if (ids.length === 0) {
     return NextResponse.json({

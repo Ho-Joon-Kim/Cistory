@@ -1,13 +1,31 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Noto_Serif_KR } from "next/font/google";
+import localFont from "next/font/local";
 import { QueryProvider } from "@/components/QueryProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Body: Pretendard (variable, self-hosted from the `pretendard` package). Not
+// preloaded — the variable file covers all of Hangul (~2 MB) and is cached
+// immutably after the first visit; text renders in the fallback until then.
+const pretendard = localFont({
+  src: "../../node_modules/pretendard/dist/web/variable/woff2/PretendardVariable.woff2",
+  variable: "--font-pretendard",
+  weight: "45 920",
+  display: "swap",
+  preload: false,
+  fallback: ["Noto Sans KR", "system-ui", "sans-serif"],
+});
+
+// Titles and AI lines. Google serves Korean as unicode-range slices, which
+// next/font self-hosts; only the slices a page uses are downloaded.
+const notoSerifKr = Noto_Serif_KR({
+  variable: "--font-noto-serif-kr",
+  weight: ["500", "600", "700"],
   subsets: ["latin"],
+  display: "swap",
+  preload: false,
 });
 
 const geistMono = Geist_Mono({
@@ -17,11 +35,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Cistory - GitHub Commit Timeline",
+    default: "Cistory · 나의 기록",
     template: "%s | Cistory",
   },
-  description:
-    "GitHub 커밋 히스토리를 AI 요약과 함께 타임라인으로 시각화합니다. 기술자와 비기술자 모두를 위한 커밋 이해.",
+  description: "커밋, 이동, 소비, 건강 기록을 한곳에 모아 하루와 기간을 돌아봐요.",
   keywords: ["GitHub", "커밋", "타임라인", "AI 요약", "개발자 도구", "버전 관리"],
   authors: [{ name: "Cistory Team" }],
   creator: "Cistory",
@@ -29,14 +46,14 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "ko_KR",
-    title: "Cistory - GitHub Commit Timeline",
-    description: "GitHub 커밋 히스토리를 AI 요약과 함께 타임라인으로 시각화",
+    title: "Cistory · 나의 기록",
+    description: "커밋, 이동, 소비, 건강 기록을 한곳에 모아 하루와 기간을 돌아봐요.",
     siteName: "Cistory",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Cistory - GitHub Commit Timeline",
-    description: "GitHub 커밋 히스토리를 AI 요약과 함께 타임라인으로 시각화",
+    title: "Cistory · 나의 기록",
+    description: "커밋, 이동, 소비, 건강 기록을 한곳에 모아 하루와 기간을 돌아봐요.",
   },
   robots: {
     index: true,
@@ -53,10 +70,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background`}
-      >
+    <html
+      lang="ko"
+      suppressHydrationWarning
+      className={`${pretendard.variable} ${notoSerifKr.variable} ${geistMono.variable}`}
+    >
+      <body className="antialiased min-h-screen bg-background">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

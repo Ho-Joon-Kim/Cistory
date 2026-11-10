@@ -22,6 +22,13 @@ describe("record search input", () => {
     "page=1e1",
     "source=other",
     `q=${"a".repeat(201)}`,
+    "category=pizza",
+    "hours=25-3",
+    "hours=7-7",
+    "hours=evening",
+    "repo=no-slash",
+    "repo=a/b/c",
+    `repo=a/${"b".repeat(300)}`,
   ])("rejects invalid or unbounded input: %s", (query) => {
     expect(() => parseSearchInput(new URLSearchParams(query))).toThrow();
   });
@@ -29,5 +36,18 @@ describe("record search input", () => {
     expect(
       parseSearchInput(new URLSearchParams("q=100%25_%5C&from=2025-01-01&to=2026-01-01"))
     ).toMatchObject({ q: "100%_\\", source: "all" });
+  });
+  it("accepts a category and an hour window, wrapping past midnight", () => {
+    expect(
+      parseSearchInput(
+        new URLSearchParams("category=food&hours=21-4"),
+        new Date("2026-09-06T03:00:00Z")
+      )
+    ).toMatchObject({ category: "food", hours: { from: 21, to: 4 } });
+  });
+  it("accepts a repository filter", () => {
+    expect(
+      parseSearchInput(new URLSearchParams("repo=thezzle-dev/thezzle_core&source=commit"))
+    ).toMatchObject({ repo: "thezzle-dev/thezzle_core", source: "commit" });
   });
 });

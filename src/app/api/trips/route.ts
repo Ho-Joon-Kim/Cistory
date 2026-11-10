@@ -3,6 +3,8 @@
  *
  * GET  /api/trips?year=YYYY  — Legacy ascending list for a year
  * GET  /api/trips?limit=N&cursor=... — Recent trips, cursor-paginated
+ *      &summary=1 adds `summary`: every trip of the current KST year plus the
+ *      first Toss transaction date (the /travel hero)
  * POST /api/trips            — Create a manual trip
  */
 
@@ -10,6 +12,7 @@ import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, trips } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { toKstCalendarDate } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
 import { withTripWriteLock } from "@/modules/location/services/trip-writer";
 import {
@@ -27,7 +30,7 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
     const yearParam = params.get("year");
     if (yearParam != null && !/^\d{4}$/.test(yearParam)) {
-      return NextResponse.json({ error: "year 파라미터가 필요합니다 (YYYY)" }, { status: 400 });
+      return NextResponse.json({ error: "year 파라미터가 필요해요 (YYYY)" }, { status: 400 });
     }
 
     const db = getDb();
@@ -42,10 +45,19 @@ export async function GET(request: NextRequest) {
       const cursorParam = params.get("cursor");
       const cursor = cursorParam ? decodeTripCursor(cursorParam) : null;
       if (cursorParam && !cursor) {
-        return NextResponse.json({ error: "잘못된 cursor입니다" }, { status: 400 });
+        return NextResponse.json({ error: "잘못된 cursor예요" }, { status: 400 });
       }
 
-      const result = await new TravelService(db).listTrips(user.id, { limit, cursor });
+      const service = new TravelService(db);
+      if (params.get("summary") === "1") {
+        const year = Number(toKstCalendarDate(new Date()).slice(0, 4));
+        const [result, summary] = await Promise.all([
+          service.listTrips(user.id, { limit, cursor }),
+          service.getListSummary(user.id, year),
+        ]);
+        return NextResponse.json({ ...result, summary });
+      }
+      const result = await service.listTrips(user.id, { limit, cursor });
       return NextResponse.json(result);
     }
 
@@ -73,7 +85,7 @@ export async function GET(request: NextRequest) {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { error: "여행 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { error: "여행 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
     );
   }
@@ -88,7 +100,7 @@ export async function POST(request: NextRequest) {
     const { name, startDate, endDate, notes } = body;
 
     if (!name || !startDate || !endDate) {
-      return NextResponse.json({ error: "name, startDate, endDate는 필수입니다" }, { status: 400 });
+      return NextResponse.json({ error: "name, startDate, endDate는 필수예요" }, { status: 400 });
     }
 
     const now = new Date();
@@ -116,7 +128,7 @@ export async function POST(request: NextRequest) {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { error: "여행을 만들지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { error: "여행을 만들지 못했어요. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
     );
   }

@@ -96,7 +96,76 @@ describe("data collection status and recovery against PostgreSQL", () => {
     await expect(enqueue(stale)).rejects.toMatchObject({ status: 409 });
     const status = await getDataStatus(db, legacy, "2026-09-01", "2026-09-03", now);
     const waka = status.sources.find((s) => s.id === "wakatime")!;
-    expect(waka).toMatchObject({ connected: true, needsReauth: true, canRecover: false });
+    expect(waka).toMatchObject({
+      connected: true,
+      needsReauth: true,
+      reauthReason: "legacy_key",
+      canRecover: false,
+    });
+    const staleStatus = await getDataStatus(db, stale, "2026-09-01", "2026-09-03", now);
+    expect(staleStatus.sources.find((s) => s.id === "wakatime")).toMatchObject({
+      needsReauth: true,
+      reauthReason: "auth",
+    });
+  });
+
+  it("reports all-time retained records, owner-scoped, only for sources needing attention", async () => {
+    const legacy = await insertTestUser(db, { wakatimeApiKey: "fixture-key" });
+    const other = await user();
+    const session = (userId: string, at: string) => ({
+      userId,
+      project: "app",
+      startedAt: new Date(at),
+      durationSeconds: 1,
+      createdAt: now,
+    });
+    await db.insert(schema.codingSessions).values([
+      // Two sessions on KST 2026-01-01 (one before UTC midnight), one in March.
+      session(legacy, "2025-12-31T15:30:00Z"),
+      session(legacy, "2026-01-01T02:00:00Z"),
+      session(legacy, "2026-03-05T02:00:00Z"),
+      session(other, "2026-03-05T02:00:00Z"),
+    ]);
+    const status = await getDataStatus(db, legacy, "2026-09-01", "2026-09-03", now);
+    const waka = status.sources.find((s) => s.id === "wakatime")!;
+    expect(waka.retained).toEqual({ count: 3, days: 2 });
+    expect(status.sources.find((s) => s.id === "github")!.retained).toBeNull();
+  });
+
+  it("ignores day-anchored health rollups for last record, day counts and retained totals", async () => {
+    const id = await insertTestUser(db);
+    // needs_reauth ⇒ the source needs attention, so the all-time retained count runs too.
+    await db.insert(schema.healthConnections).values({
+      userId: id,
+      accessTokenEnc: "fixture-enc",
+      refreshTokenEnc: "fixture-enc",
+      status: "needs_reauth",
+    });
+    const sample = (metric: string, source: string, at: string) => ({
+      userId: id,
+      metric,
+      source,
+      sampleAt: new Date(at),
+      value: 1,
+    });
+    await db.insert(schema.healthSamples).values([
+      // Real measurements: the latest is 2026-09-07 10:08 KST (01:08 UTC).
+      sample("heart_rate", "FITBIT", "2026-09-06T23:00:00Z"),
+      sample("heart_rate", "FITBIT", "2026-09-07T01:08:00Z"),
+      // Day anchors at 12:00 KST (03:00 UTC): synthetic, not measurement times.
+      sample("total_calories", "rollup:google-wearables", "2026-09-07T03:00:00Z"),
+      sample("total_calories", "rollup:google-wearables", "2026-09-05T03:00:00Z"),
+      sample("resting_heart_rate", "FITBIT", "2026-09-07T03:00:00Z"),
+    ]);
+    const status = await getDataStatus(db, id, "2026-09-05", "2026-09-07", now);
+    const health = status.sources.find((s) => s.id === "health")!;
+    expect(health.lastRecordAt).toBe("2026-09-07T01:08:00.000Z");
+    expect(health.days.map((d) => [d.date, d.count])).toEqual([
+      ["2026-09-05", 0],
+      ["2026-09-06", 0],
+      ["2026-09-07", 2],
+    ]);
+    expect(health.retained).toEqual({ count: 2, days: 1 });
   });
 
   it("serializes duplicate enqueue requests and claims a day only once", async () => {

@@ -38,7 +38,7 @@ describe("SavedPlacesSettings", () => {
     const markup = renderToStaticMarkup(createElement(SavedPlacesSettings));
 
     expect(markup).toContain("여행 감지에서 제외");
-    expect(markup).toContain("여행 제외 10km");
+    expect(markup).toContain("반경 10km");
     expect(markup).toContain('data-state="checked"');
   });
 });

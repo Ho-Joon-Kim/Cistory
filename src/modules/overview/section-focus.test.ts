@@ -12,6 +12,15 @@ describe("focusOverviewSection", () => {
     expect(section.focus).toHaveBeenCalledWith({ preventScroll: true });
   });
 
+  it("jumps instead of gliding when reduced motion is preferred", () => {
+    const section = { scrollIntoView: vi.fn(), focus: vi.fn() };
+    const root = { querySelector: vi.fn(() => section) };
+
+    expect(focusOverviewSection("health", root, true)).toBe(true);
+    expect(section.scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
+    expect(section.focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
   it("does nothing when the requested domain is absent", () => {
     const root = { querySelector: vi.fn(() => null) };
     expect(focusOverviewSection("health", root)).toBe(false);
