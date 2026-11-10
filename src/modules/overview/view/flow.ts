@@ -31,6 +31,8 @@ export interface FlowUnit {
   future: boolean;
   partial: boolean;
   weekend: boolean;
+  /** Year view: the month's snapshot is still being computed — unknown, not empty. */
+  pending?: boolean;
 }
 
 export interface FlowAnnotation {
@@ -98,6 +100,7 @@ export function buildFlow(input: {
       future: false,
       partial: p.inProgress,
       weekend: false,
+      pending: p.pending,
     }));
   } else {
     const commits = commitsByDay(coding);
@@ -127,6 +130,8 @@ export function buildFlow(input: {
   }
 
   const annotations: Record<FlowMetric, FlowAnnotation[]> = { commits: [], steps: [], cash: [] };
+  // A month still being computed could hold the peak: no "best month" claims until it lands.
+  const unsettled = units.some((u) => u.pending);
   const maxIndex = (pick: (u: FlowUnit) => number | null) => {
     let best = -1;
     let bestValue = 0;
@@ -141,7 +146,7 @@ export function buildFlow(input: {
   };
   const unitWord = ctx.periodType === "year" ? "월" : "하루";
 
-  const ci = maxIndex((u) => u.commits);
+  const ci = unsettled ? -1 : maxIndex((u) => u.commits);
   if (ci >= 0) {
     const u = units[ci];
     const prevUnit = units[ci - 1];
@@ -187,8 +192,9 @@ export function buildFlow(input: {
         from,
         to,
         lane: 1,
-        label: tripCommits > 0 ? `${name} 체류 · ${formatCount(tripCommits)}커밋` : `${name} 체류`,
-        shortLabel: tripCommits > 0 ? `${name} · ${formatCount(tripCommits)}커밋` : name,
+        label:
+          tripCommits > 0 ? `${name} 체류 · 커밋 ${formatCount(tripCommits)}건` : `${name} 체류`,
+        shortLabel: tripCommits > 0 ? `${name} · 커밋 ${formatCount(tripCommits)}건` : name,
         rows,
       });
       annotations.steps.push({
@@ -203,7 +209,7 @@ export function buildFlow(input: {
     }
   }
 
-  const si = maxIndex((u) => u.steps);
+  const si = unsettled ? -1 : maxIndex((u) => u.steps);
   if (si >= 0) {
     annotations.steps.unshift({
       id: "steps.peak",
@@ -220,8 +226,8 @@ export function buildFlow(input: {
     });
   }
 
-  const ii = maxIndex((u) => u.income);
-  const sp = maxIndex((u) => u.spending);
+  const ii = unsettled ? -1 : maxIndex((u) => u.income);
+  const sp = unsettled ? -1 : maxIndex((u) => u.spending);
   if (sp >= 0 && ctx.periodType !== "year") {
     annotations.cash.push({
       id: "cash.charge",
@@ -305,7 +311,7 @@ const STAY_GAP_DAYS = 2;
  * The longest run of period days with visits to the focus area (gaps up to
  * {@link STAY_GAP_DAYS} bridged, since one overnight visit only carries its
  * start day), as a lane-1 span annotation: `대전 체류 · 60계치킨 대전유성점에서
- * 531커밋`. Null when the area was visited on fewer than two days.
+ * 커밋 531건`. Null when the area was visited on fewer than two days.
  */
 export function stayAnnotation(
   units: FlowUnit[],
@@ -332,8 +338,8 @@ export function stayAnnotation(
     from: run.from,
     to: run.to,
     lane: 1,
-    label: `${focus.area} 체류 · ${focus.place}에서 ${commits}커밋`,
-    shortLabel: `${focus.area} · ${commits}커밋`,
+    label: `${focus.area} 체류 · ${focus.place}에서 커밋 ${commits}건`,
+    shortLabel: `${focus.area} · 커밋 ${commits}건`,
     rows: [
       { label: "지역", value: focus.area },
       {

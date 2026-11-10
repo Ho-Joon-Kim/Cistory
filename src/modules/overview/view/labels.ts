@@ -1,6 +1,6 @@
 import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { formatDateRange, formatMonthDay, formatTime } from "@/lib/format";
-import type { HistoryPeriodType, OverviewHistoryPeriod } from "../history";
+import type { HistoryPeriodType, OverviewHistoryPeriod, OverviewHistoryResponse } from "../history";
 import { periodDateRange, shiftPeriodKey } from "../history";
 
 /** Everything the page needs to talk about the viewed period in Korean. */
@@ -123,4 +123,37 @@ export function seriesTitle(period: OverviewHistoryPeriod, now: Date): string {
   }
   if (period.periodType === "week") return `${formatMonthDay(period.from, { now })} 주`;
   return `${period.periodKey}년`;
+}
+
+/** What the viewed period's changes are measured against, and how to name it. */
+export interface ComparisonBase {
+  period: OverviewHistoryPeriod;
+  /** "10월" for an ended period; "10월 같은 기간" while the viewed one is in progress. */
+  label: string;
+}
+
+/**
+ * An in-progress period is only ever compared with the same elapsed span of the
+ * previous one (11/1–11/10 vs 10/1–10/10) — comparing ten days with a whole month
+ * reports a drop that has not happened. No such span stored → no comparison.
+ */
+export function comparisonBase(
+  ctx: PeriodContext,
+  history: OverviewHistoryResponse | null
+): ComparisonBase | null {
+  if (!history) return null;
+  if (!ctx.inProgress) {
+    return history.previous ? { period: history.previous, label: ctx.previousLabel } : null;
+  }
+  const cut = history.previousToDate ?? null;
+  return cut ? { period: cut, label: `${ctx.previousLabel} 같은 기간` } : null;
+}
+
+/** Day span inside one period for a compact label: "1–10일", "10일", "10/27–11/2". */
+export function daySpanLabel(from: string, to: string): string {
+  const d = (key: string) => Number(key.slice(8, 10));
+  const md = (key: string) => `${Number(key.slice(5, 7))}/${d(key)}`;
+  if (from === to) return `${d(from)}일`;
+  if (from.slice(0, 7) === to.slice(0, 7)) return `${d(from)}–${d(to)}일`;
+  return `${md(from)}–${md(to)}`;
 }

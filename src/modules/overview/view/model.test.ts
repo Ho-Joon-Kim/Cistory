@@ -43,6 +43,7 @@ function period(
     steps: { total: 120_000, days: 30 },
     heartRate: 75,
     weight: null,
+    pending: false,
     ...overrides,
   };
 }
@@ -309,6 +310,98 @@ describe("buildOverviewModel", () => {
       "지출 254.4만원",
       "입금 873.8만원",
     ]);
+  });
+});
+
+describe("history months still being computed", () => {
+  it("reads them as 계산 중 and keeps record facts and peaks quiet", () => {
+    expect(model().hero.body.steps?.fact).not.toBeNull();
+    const pendingHistory: OverviewHistoryResponse = {
+      ...history,
+      series: history.series.map((p) =>
+        p.periodKey === "2026-03" ? { ...p, commits: null, steps: null, pending: true } : p
+      ),
+    };
+    const m = buildOverviewModel({
+      periodType: "month",
+      periodKey: "2026-10",
+      computedAt: null,
+      domains,
+      history: pendingHistory,
+      today: TODAY,
+      now: NOW,
+    });
+    const march = m.hero.commits?.bars.find((b) => b.key === "2026-03");
+    expect(march?.ratio).toBeNull();
+    expect(march?.tip).toContain("계산 중");
+    expect(march?.tip).not.toContain("기록 없음");
+    expect(m.hero.body.steps?.fact).toBeNull();
+  });
+});
+
+describe("a period in progress", () => {
+  const novDays = Array.from({ length: 10 }, (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`);
+  const coding = domains.coding?.data;
+  const spending = domains.spending?.data;
+  if (!coding || !spending) throw new Error("fixture");
+  const novDomains: OverviewSnapshotDomains = {
+    ...domains,
+    coding: envelope({
+      ...coding,
+      totalCommits: 255,
+      activeDays: 8,
+      dailyCommits: novDays.map((date) => ({ date, count: 25 })),
+    }),
+    spending: envelope({ ...spending, daily: [] }),
+  };
+  const novHistory: OverviewHistoryResponse = {
+    periodType: "month",
+    periodKey: "2026-11",
+    // The whole of October: never the base while November is ten days old.
+    previous: period("2026-10", { commits: 4678, activeDays: 26 }),
+    previousToDate: period("2026-10", {
+      to: "2026-10-10",
+      commits: 300,
+      activeDays: 9,
+      spending: 400_000,
+      income: 100_000,
+    }),
+    series: [period("2026-10"), period("2026-11", { inProgress: true, to: "2026-11-30" })],
+    weight: [],
+  };
+  const build = (h: OverviewHistoryResponse) =>
+    buildOverviewModel({
+      periodType: "month",
+      periodKey: "2026-11",
+      computedAt: null,
+      domains: novDomains,
+      history: h,
+      today: TODAY,
+      now: NOW,
+    });
+
+  it("compares with the same elapsed span of the previous period, and says so", () => {
+    const m = build(novHistory);
+    expect(m.headline).toMatch(/^커밋은 10월 같은 기간보다 15% 줄고,/);
+    expect(m.hero.commits?.delta).toEqual({
+      text: "10월 같은 기간 300보다 15% 적음",
+      dir: "down",
+    });
+    expect(m.hero.commits?.foot.delta?.text).toBe("10월 같은 기간 9일");
+    expect(m.hero.savings?.delta?.text).toMatch(/^10월 같은 기간 /);
+    expect(m.hero.savings?.pairs?.map((p) => [p.label, p.span, p.spending])).toEqual([
+      ["10월", "1–10일", 400_000],
+      ["11월", "1–10일", spending.spending],
+    ]);
+    expect(JSON.stringify(m.hero)).not.toContain("4,678");
+  });
+
+  it("drops the change rather than comparing with the whole previous period", () => {
+    const m = build({ ...novHistory, previousToDate: null });
+    expect(m.hero.commits?.delta).toBeNull();
+    expect(m.hero.commits?.foot.delta).toBeNull();
+    expect(m.hero.savings?.delta).toBeNull();
+    expect(m.headline ?? "").not.toContain("커밋");
   });
 });
 

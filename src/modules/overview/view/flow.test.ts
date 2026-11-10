@@ -35,7 +35,7 @@ describe("stayAnnotation", () => {
       "2026-10-25",
     ]);
     expect(a).toMatchObject({ from: 9, to: 15, lane: 1 });
-    expect(a?.label).toBe("대전 체류 · 60계치킨 대전유성점에서 531커밋");
+    expect(a?.label).toBe("대전 체류 · 60계치킨 대전유성점에서 커밋 531건");
     expect(a?.rows.at(-1)).toEqual({ label: "그동안 전체 커밋", value: "70" });
   });
 

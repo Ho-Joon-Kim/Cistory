@@ -142,7 +142,7 @@ export function buildMove(
   const productivity = new Map(d.placeProductivity.map((p) => [p.placeName, p.commitCount]));
   const workFlag = (name: string) => {
     const c = productivity.get(name) ?? 0;
-    return c > 0 && !HOME_NAMES.includes(name) ? `작업 ${formatCount(c)}커밋` : null;
+    return c > 0 && !HOME_NAMES.includes(name) ? `커밋 ${formatCount(c)}건` : null;
   };
   const groups = groupPlaces(d)
     .map((g) => ({

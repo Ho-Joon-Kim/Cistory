@@ -21,32 +21,37 @@ export interface HeadlineInput {
   previousNet: number | null;
   weight: number | null;
   previousWeight: number | null;
+  /**
+   * Names the base of `previousCommits`/`previousNet`: "10월 같은 기간" while the
+   * period is in progress (defaults to the previous period's label).
+   */
+  compareLabel?: string;
 }
 
-function commitsClause(ctx: PeriodContext, cur: number, prev: number): Clause {
+function commitsClause(label: string, cur: number, prev: number): Clause {
   const r = cur / prev - 1;
   const p = Math.round(Math.abs(r) * 100);
   if (p < 10) {
     return {
-      conn: `커밋 속도는 ${ctx.previousLabel} 그대로,`,
-      fin: `커밋 속도가 ${ctx.previousLabel}${hasBatchim(ctx.previousLabel) ? "과" : "와"} 비슷한`,
+      conn: `커밋 속도는 ${label} 그대로,`,
+      fin: `커밋 속도가 ${label}${hasBatchim(label) ? "과" : "와"} 비슷한`,
     };
   }
   if (r >= 1) {
     const times = Math.round((cur / prev) * 10) / 10;
     return {
-      conn: `커밋은 ${ctx.previousLabel}의 ${times}배로 늘고,`,
-      fin: `커밋이 ${ctx.previousLabel}의 ${times}배로 늘어난`,
+      conn: `커밋은 ${label}의 ${times}배로 늘고,`,
+      fin: `커밋이 ${label}의 ${times}배로 늘어난`,
     };
   }
   return r > 0
     ? {
-        conn: `커밋은 ${ctx.previousLabel}보다 ${p}% 늘고,`,
-        fin: `커밋이 ${ctx.previousLabel}보다 ${p}% 늘어난`,
+        conn: `커밋은 ${label}보다 ${p}% 늘고,`,
+        fin: `커밋이 ${label}보다 ${p}% 늘어난`,
       }
     : {
-        conn: `커밋은 ${ctx.previousLabel}보다 ${p}% 줄고,`,
-        fin: `커밋이 ${ctx.previousLabel}보다 ${p}% 줄어든`,
+        conn: `커밋은 ${label}보다 ${p}% 줄고,`,
+        fin: `커밋이 ${label}보다 ${p}% 줄어든`,
       };
 }
 
@@ -69,7 +74,9 @@ function weightClause(cur: number, prev: number): Clause {
 export function buildHeadline(ctx: PeriodContext, input: HeadlineInput): string | null {
   const clauses: Clause[] = [];
   if (input.commits !== null && input.previousCommits) {
-    clauses.push(commitsClause(ctx, input.commits, input.previousCommits));
+    clauses.push(
+      commitsClause(input.compareLabel ?? ctx.previousLabel, input.commits, input.previousCommits)
+    );
   }
   if (input.net !== null && input.previousNet !== null) {
     clauses.push(cashClause(input.net, input.previousNet));

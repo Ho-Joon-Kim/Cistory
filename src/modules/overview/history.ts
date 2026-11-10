@@ -21,6 +21,11 @@ export type HistoryPeriodType = Exclude<PeriodType, "recent">;
 export interface HistorySnapshotRow {
   periodType: PeriodType;
   periodKey: string;
+  /**
+   * Row status. A `pending`/`computing` row is being (re)computed: its range is
+   * unknown for now — never read as data and never reported as empty. Absent = ready.
+   */
+  status?: string;
   codingStatus: string | null;
   dailyCommits: { date: string; count: number }[] | null;
   spendingStatus: string | null;
@@ -48,6 +53,12 @@ export interface OverviewHistoryPeriod {
   heartRate: number | null;
   /** Last weigh-in inside the period. */
   weight: { date: string; weight: number } | null;
+  /**
+   * A domain is null only because its snapshot is still being computed — the
+   * period is unknown for now, not empty. Copy says "계산 중", and facts that
+   * rank or share across periods skip the window rather than drop it silently.
+   */
+  pending: boolean;
 }
 
 export interface OverviewHistoryResponse {
@@ -55,6 +66,13 @@ export interface OverviewHistoryResponse {
   periodKey: string;
   /** The period immediately before the viewed one (same type). */
   previous: OverviewHistoryPeriod | null;
+  /**
+   * While the viewed period is in progress: the previous period cut to the same
+   * elapsed span (11/1–11/10 → 10/1–10/10; `to` is the span's last day). A partial
+   * period is compared with this, never with the whole previous period. Null for
+   * an ended period or when nothing covers that span.
+   */
+  previousToDate?: OverviewHistoryPeriod | null;
   /**
    * Bars for the hero: the last {@link OVERVIEW_HISTORY_LENGTH} weeks/months
    * ending at the viewed one; for a year, its months up to the current one.
@@ -151,6 +169,8 @@ interface DaySources {
   heartRate: Map<string, number>;
   weight: Map<string, number>;
   covered: Record<Domain, DateRange[]>;
+  /** Ranges of snapshots still being computed. */
+  computing: DateRange[];
 }
 
 function ready(status: string | null): boolean {
@@ -169,12 +189,17 @@ function collectDays(rows: HistorySnapshotRow[]): DaySources {
     heartRate: new Map(),
     weight: new Map(),
     covered: { coding: [], spending: [], health: [] },
+    computing: [],
   };
   // Larger snapshots first so a period's own (fresher, smaller) snapshot wins on overlap.
   const order: Record<PeriodType, number> = { year: 0, month: 1, week: 2, recent: 3 };
   const sorted = [...rows].sort((a, b) => order[a.periodType] - order[b.periodType]);
   for (const row of sorted) {
     const range = periodDateRange(row.periodType, row.periodKey);
+    if (row.status === "pending" || row.status === "computing") {
+      sources.computing.push(range);
+      continue;
+    }
     if (ready(row.codingStatus) && row.dailyCommits) {
       sources.covered.coding.push(range);
       for (let d = range.from; d <= range.to; d = shiftDateKey(d, 1)) sources.commits.delete(d);
@@ -222,12 +247,15 @@ function summarize(
   sources: DaySources,
   periodType: HistoryPeriodType,
   periodKey: string,
-  today: string
+  today: string,
+  /** Cut the period at this day (inclusive): the same-span comparison base. */
+  spanTo?: string
 ): OverviewHistoryPeriod {
   const full = periodDateRange(periodType, periodKey);
   const inProgress = today >= full.from && today <= full.to;
   // An in-progress period only needs coverage up to today.
-  const range = { from: full.from, to: inProgress ? today : full.to };
+  const end = inProgress ? today : full.to;
+  const range = { from: full.from, to: spanTo && spanTo < end ? spanTo : end };
   const future = range.from > today;
   const days: string[] = [];
   if (!future) for (let d = range.from; d <= range.to; d = shiftDateKey(d, 1)) days.push(d);
@@ -235,6 +263,12 @@ function summarize(
   const codingOk = !future && isCovered(sources.covered.coding, range);
   const spendingOk = !future && isCovered(sources.covered.spending, range);
   const healthOk = !future && isCovered(sources.covered.health, range);
+  const awaiting = (domain: Domain) =>
+    !future && isCovered([...sources.covered[domain], ...sources.computing], range);
+  const pending =
+    (!codingOk && awaiting("coding")) ||
+    (!spendingOk && awaiting("spending")) ||
+    (!healthOk && awaiting("health"));
 
   let commits = 0;
   let activeDays = 0;
@@ -272,7 +306,7 @@ function summarize(
     periodType,
     periodKey,
     from: full.from,
-    to: full.to,
+    to: spanTo ? range.to : full.to,
     inProgress,
     commits: codingOk ? commits : null,
     activeDays: codingOk ? activeDays : null,
@@ -281,6 +315,7 @@ function summarize(
     steps: healthOk && stepDays > 0 ? { total: stepTotal, days: stepDays } : null,
     heartRate: healthOk && hrDays > 0 ? hrSum / hrDays : null,
     weight,
+    pending,
   };
 }
 
@@ -306,15 +341,30 @@ export function buildOverviewHistory(input: {
     .filter(([date]) => date >= windowFrom && date <= windowTo)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, w]) => ({ date, weight: w }));
-  const hasAny =
-    previous.commits !== null ||
-    previous.spending !== null ||
-    previous.steps !== null ||
-    previous.weight !== null;
+  const hasAny = (p: OverviewHistoryPeriod) =>
+    p.commits !== null || p.spending !== null || p.steps !== null || p.weight !== null;
+
+  const viewed = periodDateRange(input.periodType, input.periodKey);
+  let previousToDate: OverviewHistoryPeriod | null = null;
+  if (input.today >= viewed.from && input.today <= viewed.to) {
+    let elapsed = 0;
+    for (let d = viewed.from; d <= input.today; d = shiftDateKey(d, 1)) elapsed++;
+    const prevRange = periodDateRange(plan.previous.periodType, plan.previous.periodKey);
+    const spanTo = shiftDateKey(prevRange.from, elapsed - 1);
+    const cut = summarize(
+      sources,
+      plan.previous.periodType,
+      plan.previous.periodKey,
+      input.today,
+      spanTo < prevRange.to ? spanTo : prevRange.to
+    );
+    previousToDate = hasAny(cut) ? cut : null;
+  }
   return {
     periodType: input.periodType,
     periodKey: input.periodKey,
-    previous: hasAny ? previous : null,
+    previous: hasAny(previous) ? previous : null,
+    previousToDate,
     series,
     weight,
   };
