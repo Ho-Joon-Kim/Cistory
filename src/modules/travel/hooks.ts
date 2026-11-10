@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { userErrorMessage } from "@/lib/user-error";
+import { GENERIC_ERROR_MESSAGE, userErrorMessage } from "@/lib/user-error";
 
 export interface TravelTripListItem {
   id: string;
@@ -554,8 +554,9 @@ export async function requestTravelDetail(
     fetch(`/api/trips/${encodedTripId}`, { signal }),
     fetch(`/api/trips/${encodedTripId}/route-points`, { signal }),
   ]);
-  await assertDetailResponse(detailResponse, "여행 상세를 불러오지 못했어요");
-  await assertDetailResponse(routeResponse, "여행 경로를 불러오지 못했어요");
+  // The page's title already says the trip didn't load; the description is the next step.
+  await assertDetailResponse(detailResponse, GENERIC_ERROR_MESSAGE);
+  await assertDetailResponse(routeResponse, GENERIC_ERROR_MESSAGE);
   const [detailValue, routeValue] = await Promise.all([
     detailResponse.json(),
     routeResponse.json(),

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { GENERIC_ERROR_MESSAGE } from "@/lib/user-error";
 import {
   addPendingTripId,
   mergeTravelTrips,
@@ -10,6 +11,7 @@ import {
   renameTravelTrip,
   requestCurrentTravelTripsPage,
   requestMarkNotTrip,
+  requestTravelDetail,
   type TravelTripListItem,
   type TravelTripsPage,
   TravelTripsRequestCoordinator,
@@ -257,5 +259,21 @@ describe("목록 요약과 이름 바꾸기", () => {
       ["a", "여행 a"],
       ["b", "새 이름"],
     ]);
+  });
+});
+
+describe("여행 상세 불러오기 실패", () => {
+  it("500이면 제목을 되풀이하지 않고 다음 행동을 알려 준다", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response("{}", { status: 500 })
+    );
+    await expect(requestTravelDetail("trip-1")).rejects.toThrow(GENERIC_ERROR_MESSAGE);
+  });
+
+  it("404면 찾을 수 없다고 알린다", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response("{}", { status: 404 })
+    );
+    await expect(requestTravelDetail("trip-1")).rejects.toThrow("여행을 찾을 수 없어요");
   });
 });
