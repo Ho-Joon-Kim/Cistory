@@ -66,6 +66,7 @@ const ROW_LINKS: Partial<Record<SourceId, { href: string; label: string }>> = {
   location: { href: "/settings", label: "파일 가져오기" },
   toss: { href: "/spending", label: "소비 화면에서 재분석" },
   kis: { href: "/settings", label: "계좌 설정" },
+  proton: { href: "/settings", label: "설정에서 연결 관리" },
 };
 
 /** OAuth entry points for a confirmed auth failure (full-page redirect). */
@@ -384,7 +385,7 @@ function HeroSummary({
             </>
           ) : null}
         </h2>
-        <div className="grid max-w-[460px] grid-cols-7 gap-1">
+        <div className="grid max-w-[460px] grid-cols-8 gap-1 max-sm:gap-x-0.5">
           {ordered.map((view, i) => (
             <span
               key={view.id}
@@ -405,7 +406,7 @@ function HeroSummary({
                     : "text-ink-3"
               )}
             >
-              {/* Seven columns leave ~37px each on a phone: a shorter name there, the
+              {/* Eight columns leave ~34px each on a phone: a shorter name there, the
                   usual one from sm, never an ellipsis. */}
               <span className="sm:hidden" title={view.name}>
                 {SOURCE_NAMES[view.id].tiny}
@@ -969,6 +970,11 @@ function SourceRow({
                   }`
                 : " · 이 기간 기록 없음"}
             </span>
+            {view.source.notes?.length ? (
+              <span className="text-xs leading-4 text-ink-3 tabular-nums">
+                {view.source.notes.join(" · ")}
+              </span>
+            ) : null}
             {jobs.length > 0 ? (
               <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0 text-xs leading-[18px] text-ink-2">
                 {jobs.slice(0, 3).map((job) => (

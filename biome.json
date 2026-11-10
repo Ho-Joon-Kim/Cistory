@@ -50,7 +50,8 @@
       "!**/drizzle",
       "!**/.yarn",
       "!**/*.min.js",
-      "!src/app/globals.css"
+      "!src/app/globals.css",
+      "!src/lib/adapters/proton/account"
     ]
   }
 }

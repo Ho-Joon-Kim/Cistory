@@ -12,7 +12,7 @@ import { formatCount, formatDateRange, formatDateTime, formatMonthDay } from "@/
 import { reauthCopy } from "./reauth-copy";
 import type { SourceId, SourceStatus } from "./types";
 
-/** `tiny` fits the hero meter's ~37px columns on a 320px phone. */
+/** `tiny` fits the hero meter's ~34px columns (eight sources) on a 320px phone. */
 export const SOURCE_NAMES: Record<
   SourceId,
   { name: string; short: string; tiny: string; unit: string }
@@ -24,6 +24,7 @@ export const SOURCE_NAMES: Record<
   toss: { name: "토스 알림", short: "토스", tiny: "토스", unit: "알림" },
   kis: { name: "KIS 자산", short: "KIS", tiny: "KIS", unit: "스냅샷" },
   withings: { name: "Withings 체성분", short: "Withings", tiny: "체성분", unit: "측정" },
+  proton: { name: "Proton Drive 사진", short: "Proton", tiny: "사진", unit: "사진" },
 };
 
 /** Fixed display order of the hero meter (matches the source table's default). */
@@ -35,6 +36,7 @@ export const METER_ORDER: SourceId[] = [
   "toss",
   "kis",
   "withings",
+  "proton",
 ];
 
 /**
@@ -436,6 +438,8 @@ export function rowSubline(
       return { text: "한국투자증권", tone: "ink3" };
     case "health":
       return { text: "Google Health · Health Connect", tone: "ink3" };
+    case "proton":
+      return { text: "Proton Drive", tone: "ink3" };
     default:
       return { text: "코딩 세션", tone: "ink3" };
   }

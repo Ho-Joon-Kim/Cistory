@@ -11,7 +11,14 @@
  */
 
 // Any URL/message touching these is a health request whose body must be dropped.
-const HEALTH_URL_MARKERS = ["health.googleapis.com", "/api/fitbit"];
+const HEALTH_URL_MARKERS = [
+  "health.googleapis.com",
+  "/api/fitbit",
+  // Proton Drive Photos: session tokens, photo locations and thumbnails.
+  "proton.me",
+  "/api/proton",
+  "/api/photos",
+];
 
 // Breadcrumb data fields worth keeping on a health request (no health values).
 const BREADCRUMB_KEEP_KEYS = new Set(["url", "method", "status_code"]);
@@ -43,6 +50,14 @@ const HEALTH_EXTRA_KEY_DENYLIST = [
   "irregularrhythm",
   "alertwindows",
   "heartbeats",
+  // Proton Drive Photos: GPS, EXIF-claimed metadata, image bytes, key material.
+  "latitude",
+  "longitude",
+  "claimedmetadata",
+  "claimed_metadata",
+  "thumbnail",
+  "keypassword",
+  "key_password",
 ];
 
 /** Structural subset of a Sentry event — only the fields we scrub. */
@@ -89,6 +104,7 @@ function scrubRequest(request: NonNullable<ScrubbableEvent["request"]>): void {
   if (request.headers) {
     delete request.headers.authorization;
     delete request.headers.cookie;
+    delete request.headers["x-pm-uid"];
   }
 }
 
@@ -157,7 +173,7 @@ const HEALTH_SPAN_DROP_KEYS = new Set([
   "http.response.body.data",
 ]);
 const HEALTH_SPAN_DROP_HEADER =
-  /^http\.(?:request|response)\.header\.(?:authorization|cookie|set-cookie)$/;
+  /^http\.(?:request|response)\.header\.(?:authorization|cookie|set-cookie|x-pm-uid)$/;
 
 function stripHealthQuery(value: string): string {
   return isHealthUrl(value) ? value.replace(/\?[^\s]*/g, "") : value;

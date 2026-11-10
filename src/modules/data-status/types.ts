@@ -6,6 +6,7 @@ export const SOURCE_IDS = [
   "kis",
   "withings",
   "health",
+  "proton",
 ] as const;
 export type SourceId = (typeof SOURCE_IDS)[number];
 export const RECOVERABLE_SOURCES = ["wakatime", "withings", "health"] as const;
@@ -42,6 +43,8 @@ export interface SourceStatus {
   stale: boolean;
   canRecover: boolean;
   recoveryHelp: string;
+  /** Count-only caveats (never identify individual records). */
+  notes?: string[];
   days: SourceDay[];
   /**
    * Everything stored for this source, all time. Only computed for a source

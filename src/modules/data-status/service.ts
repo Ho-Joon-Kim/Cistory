@@ -11,6 +11,7 @@ import {
   holdingSnapshots,
   locationPoints,
   notificationLogs,
+  photos,
   sourceSyncStates,
   syncJobs,
   users,
@@ -20,6 +21,8 @@ import {
 import { localDaySql } from "@/db/sql";
 import { ApiError } from "@/lib/api-handler";
 import { getKstDateWindow } from "@/lib/date-key";
+import { photoIsExposed } from "@/modules/proton/repository";
+import { getProtonSummary } from "@/modules/proton/summary";
 import { buildSourceDays, isSourceStale, validateStatusRange } from "./model";
 import { currentSourceError } from "./telemetry";
 import { type DataStatusResponse, type RecoveryJob, SOURCE_IDS, type SourceId } from "./types";
@@ -32,6 +35,7 @@ const LABELS: Record<SourceId, string> = {
   kis: "KIS 자산",
   withings: "Withings 체성분",
   health: "건강 · Google Health (Fitbit) / Health Connect",
+  proton: "Proton Drive 사진",
 };
 const HELP: Record<SourceId, string> = {
   github: "타임라인 화면 상단의 동기화 버튼으로 GitHub 기록을 다시 가져올 수 있어요.",
@@ -44,6 +48,7 @@ const HELP: Record<SourceId, string> = {
   withings: "고른 날짜의 체성분 측정을 다시 수집해요.",
   health:
     "Google Health (Fitbit)의 수치 지표를 날짜별로 다시 수집해요. 수면·운동 기록과 휴대폰에만 있는 Health Connect 기록은 기존 건강 동기화나 휴대폰 재전송을 사용하세요.",
+  proton: "복구 대상이 아니에요. 이벤트 동기화가 Proton과 다시 대조해요.",
 };
 
 /**
@@ -97,6 +102,8 @@ function retainedQuery(id: SourceId, userId: string): SQL {
       return sql`SELECT count(*)::int AS count, count(DISTINCT s.as_of_date)::int AS days
         FROM holding_snapshots s JOIN brokerage_accounts a ON a.id = s.account_id
         WHERE a.user_id = ${userId}`;
+    case "proton":
+      return of(sql`photos`, sql`captured_at`, photoIsExposed());
   }
 }
 
@@ -178,69 +185,79 @@ export async function getDataStatus(
 ): Promise<DataStatusResponse> {
   if (!validateStatusRange(from, to, now))
     throw new ApiError(400, "오늘까지 최대 31일의 유효한 기간을 선택해 주세요.");
-  const [userRows, healthRows, withingsRows, wakaRows, accounts, states, jobRows, lastGithubJob] =
-    await Promise.all([
-      db
-        .select({
-          lastSyncedAt: users.lastSyncedAt,
-          wakaLastSyncedAt: users.wakatimeLastSyncedAt,
-          owntracks: sql<boolean>`${users.ownTracksApiKey} IS NOT NULL`,
-          toss: sql<boolean>`${users.tossNotificationApiKey} IS NOT NULL`,
-          // Deprecated API key: only used to flag "reconnect via OAuth" below.
-          wakaLegacyKey: sql<boolean>`${users.wakatimeApiKey} IS NOT NULL`,
-          healthImport: sql<boolean>`${users.healthImportApiKey} IS NOT NULL`,
-        })
-        .from(users)
-        .where(eq(users.id, userId)),
-      db
-        .select({
-          status: healthConnections.status,
-          lastSyncedAt: healthConnections.lastSyncedAt,
-          error: healthConnections.lastSyncError,
-        })
-        .from(healthConnections)
-        .where(eq(healthConnections.userId, userId)),
-      db
-        .select({
-          status: withingsConnections.status,
-          lastSyncedAt: withingsConnections.lastSyncedAt,
-          error: withingsConnections.lastSyncError,
-        })
-        .from(withingsConnections)
-        .where(eq(withingsConnections.userId, userId)),
-      db
-        .select({ status: wakatimeConnections.status })
-        .from(wakatimeConnections)
-        .where(eq(wakatimeConnections.userId, userId)),
-      db
-        .select({
-          id: brokerageAccounts.id,
-          isActive: brokerageAccounts.isActive,
-          lastSyncedAt: brokerageAccounts.lastSyncedAt,
-          error: brokerageAccounts.lastSyncError,
-        })
-        .from(brokerageAccounts)
-        .where(eq(brokerageAccounts.userId, userId)),
-      db.select().from(sourceSyncStates).where(eq(sourceSyncStates.userId, userId)),
-      db
-        .select()
-        .from(dataRecoveryJobs)
-        .where(
-          and(
-            eq(dataRecoveryJobs.userId, userId),
-            lte(dataRecoveryJobs.fromDate, to),
-            gte(dataRecoveryJobs.toDate, from)
-          )
+  const [
+    userRows,
+    healthRows,
+    withingsRows,
+    wakaRows,
+    accounts,
+    states,
+    jobRows,
+    lastGithubJob,
+    proton,
+  ] = await Promise.all([
+    db
+      .select({
+        lastSyncedAt: users.lastSyncedAt,
+        wakaLastSyncedAt: users.wakatimeLastSyncedAt,
+        owntracks: sql<boolean>`${users.ownTracksApiKey} IS NOT NULL`,
+        toss: sql<boolean>`${users.tossNotificationApiKey} IS NOT NULL`,
+        // Deprecated API key: only used to flag "reconnect via OAuth" below.
+        wakaLegacyKey: sql<boolean>`${users.wakatimeApiKey} IS NOT NULL`,
+        healthImport: sql<boolean>`${users.healthImportApiKey} IS NOT NULL`,
+      })
+      .from(users)
+      .where(eq(users.id, userId)),
+    db
+      .select({
+        status: healthConnections.status,
+        lastSyncedAt: healthConnections.lastSyncedAt,
+        error: healthConnections.lastSyncError,
+      })
+      .from(healthConnections)
+      .where(eq(healthConnections.userId, userId)),
+    db
+      .select({
+        status: withingsConnections.status,
+        lastSyncedAt: withingsConnections.lastSyncedAt,
+        error: withingsConnections.lastSyncError,
+      })
+      .from(withingsConnections)
+      .where(eq(withingsConnections.userId, userId)),
+    db
+      .select({ status: wakatimeConnections.status })
+      .from(wakatimeConnections)
+      .where(eq(wakatimeConnections.userId, userId)),
+    db
+      .select({
+        id: brokerageAccounts.id,
+        isActive: brokerageAccounts.isActive,
+        lastSyncedAt: brokerageAccounts.lastSyncedAt,
+        error: brokerageAccounts.lastSyncError,
+      })
+      .from(brokerageAccounts)
+      .where(eq(brokerageAccounts.userId, userId)),
+    db.select().from(sourceSyncStates).where(eq(sourceSyncStates.userId, userId)),
+    db
+      .select()
+      .from(dataRecoveryJobs)
+      .where(
+        and(
+          eq(dataRecoveryJobs.userId, userId),
+          lte(dataRecoveryJobs.fromDate, to),
+          gte(dataRecoveryJobs.toDate, from)
         )
-        .orderBy(desc(dataRecoveryJobs.createdAt))
-        .limit(100),
-      db
-        .select({ status: syncJobs.status })
-        .from(syncJobs)
-        .where(eq(syncJobs.userId, userId))
-        .orderBy(desc(syncJobs.createdAt))
-        .limit(1),
-    ]);
+      )
+      .orderBy(desc(dataRecoveryJobs.createdAt))
+      .limit(100),
+    db
+      .select({ status: syncJobs.status })
+      .from(syncJobs)
+      .where(eq(syncJobs.userId, userId))
+      .orderBy(desc(syncJobs.createdAt))
+      .limit(1),
+    getProtonSummary(db, userId),
+  ]);
   const user = userRows[0];
   if (!user) throw new ApiError(404, "사용자를 찾을 수 없어요.");
   const { start, end } = getKstDateWindow(from, to);
@@ -265,6 +282,7 @@ export async function getDataStatus(
       UNION ALL SELECT 'wakatime', ${codingSessions.startedAt} FROM ${codingSessions} WHERE ${codingSessions.userId} = ${userId} AND ${codingSessions.startedAt} >= ${startUtc}::timestamp AND ${codingSessions.startedAt} < ${endUtc}::timestamp
       UNION ALL SELECT 'withings', ${bodyMeasurements.measuredAt} FROM ${bodyMeasurements} WHERE ${bodyMeasurements.userId} = ${userId} AND ${bodyMeasurements.measuredAt} >= ${startUtc}::timestamp AND ${bodyMeasurements.measuredAt} < ${endUtc}::timestamp
       UNION ALL SELECT 'health', ${healthSamples.sampleAt} FROM ${healthSamples} WHERE ${healthSamples.userId} = ${userId} AND ${healthSamples.sampleAt} >= ${startUtc}::timestamp AND ${healthSamples.sampleAt} < ${endUtc}::timestamp AND ${healthObservationSql(sql`${healthSamples.source}`, sql`${healthSamples.metric}`)}
+      UNION ALL SELECT 'proton', ${photos.capturedAt} FROM ${photos} WHERE ${photos.userId} = ${userId} AND ${photoIsExposed()} AND ${photos.capturedAt} >= ${startUtc}::timestamp AND ${photos.capturedAt} < ${endUtc}::timestamp
       UNION ALL SELECT 'kis', (${holdingSnapshots.asOfDate}::date::timestamp - interval '9 hours') FROM ${holdingSnapshots} INNER JOIN ${brokerageAccounts} ON ${holdingSnapshots.accountId} = ${brokerageAccounts.id} WHERE ${brokerageAccounts.userId} = ${userId} AND ${holdingSnapshots.asOfDate} >= ${from} AND ${holdingSnapshots.asOfDate} <= ${to}
     ) SELECT source, ${localDaySql(sql`occurred`)}::text AS date, count(*)::int AS count, to_char(max(occurred), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastRecordAt" FROM observations GROUP BY 1, 2 ORDER BY 2
   `),
@@ -289,6 +307,7 @@ export async function getDataStatus(
     kis: accounts.some((a) => a.isActive),
     withings: !!withings,
     health: !!health || user.healthImport,
+    proton: proton.connected,
   };
   const success: Partial<Record<SourceId, string | null>> = {
     github: user.lastSyncedAt?.toISOString(),
@@ -296,18 +315,25 @@ export async function getDataStatus(
     withings: withings?.lastSyncedAt?.toISOString(),
     health: health?.lastSyncedAt?.toISOString(),
     kis: latestDate(accounts.map((a) => a.lastSyncedAt)),
+    proton: proton.lastSyncedAt,
   };
   const existingErrors: Partial<Record<SourceId, boolean>> = {
     github: lastGithubJob[0]?.status === "failed",
     withings: !!withings?.error,
     health: !!health?.error,
     kis: accounts.some((a) => !!a.error),
+    proton: !!proton.lastError,
   };
   const reauth: Partial<Record<SourceId, boolean>> = {
     health: health?.status === "needs_reauth",
     withings: withings?.status === "needs_reauth",
     wakatime: wakaNeedsReauth,
+    proton: proton.status === "needs_reauth",
   };
+  const protonNotes = [
+    proton.detailsFailedCount > 0 ? `세부 정보 수집 실패 ${proton.detailsFailedCount}장` : null,
+    proton.blockedCount > 0 ? `차단 ${proton.blockedCount}장` : null,
+  ].filter((note): note is string => note !== null);
   const recoveryAvailability: Partial<Record<SourceId, boolean>> = {
     wakatime: waka?.status === "active",
     withings: withings?.status === "active",
@@ -374,6 +400,7 @@ export async function getDataStatus(
         stale,
         canRecover: recoveryAvailability[id] ?? false,
         recoveryHelp: HELP[id],
+        ...(id === "proton" && protonNotes.length > 0 ? { notes: protonNotes } : {}),
         days: buildSourceDays(
           id,
           from,

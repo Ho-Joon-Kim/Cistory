@@ -45,6 +45,7 @@ import type { DataStatusResponse, SourceId } from "@/modules/data-status/types";
 import { LocationImport } from "@/modules/location/components/LocationImport";
 import { SavedPlacesSettings } from "@/modules/location/components/SavedPlacesSettings";
 import { KISAccountSettingsCard } from "@/modules/portfolio/components/KISAccountSettingsCard";
+import { ProtonSettings } from "@/modules/proton/components/ProtonSettings";
 import { useDataUsage, useOwnTracksKey, useSettings } from "../hooks";
 import { type SummaryCounts, useRetryFailedSummaries, useSummaryCounts } from "../summaries";
 import type { LocationSummary, UserSettings } from "../types";
@@ -793,6 +794,7 @@ function buildConnections(
   const wakaLegacy = settings.hasLegacyWakaTimeKey && !settings.hasWakaTimeConnection;
   const location = lastText(views.get("location"), now);
   const kis = views.get("kis");
+  const proton = views.get("proton");
   return [
     {
       id: "wakatime",
@@ -910,6 +912,18 @@ function buildConnections(
           needsReauth={settings.withingsNeedsReauth}
         />
       ),
+    },
+    {
+      id: "proton",
+      name: "Proton Drive 사진",
+      icon: "proton",
+      status: proton?.status ?? "disconnected",
+      meta: proton?.source.connected
+        ? proton.source.needsReauth
+          ? join("인증 만료", lastText(proton, now) && `마지막 성공 ${lastText(proton, now)}`)
+          : join("계정 연결됨", lastText(proton, now))
+        : "연결 안 됨",
+      body: () => <ProtonSettings />,
     },
     {
       id: "kis",

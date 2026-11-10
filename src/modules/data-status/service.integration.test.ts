@@ -513,4 +513,83 @@ describe("data collection status and recovery against PostgreSQL", () => {
     expect(success.error).toBeNull();
     expect(success.lastSuccessAt).toBeInstanceOf(Date);
   });
+
+  describe("proton", () => {
+    const protonUser = async (status: "pending" | "active" | "needs_reauth" = "active") => {
+      const id = await insertTestUser(db);
+      await db.insert(schema.protonConnections).values({ userId: id, status });
+      return id;
+    };
+    const photo = (userId: string, nodeUid: string, capturedAt: string, extra = {}) => ({
+      userId,
+      nodeUid,
+      capturedAt: new Date(capturedAt),
+      detailsSyncedAt: now,
+      ...extra,
+    });
+    const protonOf = async (userId: string) =>
+      (await getDataStatus(db, userId, "2026-09-01", "2026-09-03", now)).sources.find(
+        (s) => s.id === "proton"
+      )!;
+
+    it("counts exposed proton photos per KST day (16:30Z → next KST day), excluding hidden and deleted rows", async () => {
+      const id = await protonUser();
+      const other = await protonUser();
+      await db.insert(schema.photos).values([
+        photo(id, "a", "2026-09-01T16:30:00Z"), // 2026-09-02 01:30 KST
+        photo(id, "b", "2026-09-02T14:59:59Z"), // 2026-09-02 23:59 KST
+        photo(id, "c", "2026-09-01T14:59:59Z"), // 2026-09-01 23:59 KST
+        photo(id, "hidden", "2026-09-02T03:00:00Z", { detailsSyncedAt: null }),
+        photo(id, "deleted", "2026-09-02T03:00:00Z", { deletedAt: now }),
+        photo(other, "x", "2026-09-02T03:00:00Z"),
+      ]);
+      const proton = await protonOf(id);
+      expect(proton.days).toEqual([
+        { date: "2026-09-01", count: 1, state: "observed" },
+        { date: "2026-09-02", count: 2, state: "observed" },
+        { date: "2026-09-03", count: 0, state: "unknown" },
+      ]);
+      expect(proton.lastRecordAt).toBe("2026-09-02T14:59:59.000Z");
+    });
+
+    it("reports proton connected while backfilling, needs_reauth when flagged, never recoverable", async () => {
+      const active = await protonUser();
+      expect(await protonOf(active)).toMatchObject({
+        connected: true,
+        needsReauth: false,
+        canRecover: false,
+        label: "Proton Drive 사진",
+        recoveryHelp: "복구 대상이 아니에요. 이벤트 동기화가 Proton과 다시 대조해요.",
+      });
+      const reauth = await protonUser("needs_reauth");
+      expect(await protonOf(reauth)).toMatchObject({
+        connected: true,
+        needsReauth: true,
+        canRecover: false,
+      });
+      expect(await protonOf(await protonUser("pending"))).toMatchObject({ connected: false });
+      expect(await protonOf(await insertTestUser(db))).toMatchObject({ connected: false });
+      await expect(
+        enqueueRecovery(db, active, "proton" as never, "2026-09-01", "2026-09-02", now)
+      ).rejects.toBeTruthy();
+    });
+
+    it("adds count-only notes for failed details and blocked photos", async () => {
+      const id = await protonUser();
+      expect((await protonOf(id)).notes).toBeUndefined();
+      await db
+        .insert(schema.photos)
+        .values([
+          photo(id, "f1", "2026-09-02T03:00:00Z", { detailsSyncedAt: null, detailsAttempts: 3 }),
+          photo(id, "f2", "2026-09-02T03:00:00Z", { detailsSyncedAt: null, detailsAttempts: 3 }),
+          photo(id, "retry", "2026-09-02T03:00:00Z", { detailsSyncedAt: null, detailsAttempts: 1 }),
+        ]);
+      await db
+        .insert(schema.photoBlocks)
+        .values({ userId: id, nodeUid: "blocked-1", blockedAt: now, modelVersion: "v" });
+      const proton = await protonOf(id);
+      expect(proton.notes).toEqual(["세부 정보 수집 실패 2장", "차단 1장"]);
+      expect(JSON.stringify(proton)).not.toMatch(/blocked-1|f1|f2/);
+    });
+  });
 });
