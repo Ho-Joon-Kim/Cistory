@@ -1,5 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createGoogleHealthAdapter } from "@/lib/adapters/google-health/interface";
+import {
+  buildHealthScope,
+  createGoogleHealthAdapter,
+} from "@/lib/adapters/google-health/interface";
 import { enforceRateLimit } from "@/lib/api-auth";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { appBaseUrl, fitbitCallbackUrl } from "@/lib/google-health-urls";
@@ -34,9 +37,13 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // `?extra=ecg,irn` adds the optional ECG / irregular-rhythm scopes on top of the
+  // default set (incremental consent; include_granted_scopes keeps the rest).
+  const extra = (request.nextUrl.searchParams.get("extra") ?? "").split(",").filter(Boolean);
   const authorizeUrl = createGoogleHealthAdapter(clientId, clientSecret).buildAuthorizeUrl({
     redirectUri: fitbitCallbackUrl(request),
     state: createOAuthState(user.id),
+    scope: buildHealthScope(extra),
   });
 
   return NextResponse.redirect(authorizeUrl);

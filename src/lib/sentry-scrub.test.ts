@@ -79,6 +79,32 @@ describe("scrubHealthData", () => {
     expect(event.extra?.metric).toBe("x");
   });
 
+  it("redacts ECG and irregular-rhythm payload keys", () => {
+    const event: ScrubbableEvent = {
+      extra: {
+        electrocardiogram: {},
+        waveformSamples: [1, 2],
+        resultClassification: "ATRIAL_FIBRILLATION",
+        irregularRhythmNotification: {},
+        alertWindows: [],
+        heartBeats: [],
+        metric: "ecg",
+      },
+    };
+    scrubHealthData(event);
+    for (const key of [
+      "electrocardiogram",
+      "waveformSamples",
+      "resultClassification",
+      "irregularRhythmNotification",
+      "alertWindows",
+      "heartBeats",
+    ]) {
+      expect(event.extra?.[key], key).toBe("[scrubbed:health]");
+    }
+    expect(event.extra?.metric).toBe("ecg");
+  });
+
   it("redacts webhook user ids and interval payloads", () => {
     const event: ScrubbableEvent = {
       extra: { healthUserId: "123", intervals: [{}], dataType: "steps" },
@@ -145,6 +171,30 @@ describe("scrubHealthSpan (Sentry v11 streamed spans)", () => {
     expect(result.attributes).toEqual({
       "url.query": "periodType=week",
       "app.rawJson": "[scrubbed:health]",
+    });
+  });
+
+  it("replaces ECG and irregular-rhythm attribute keys on streamed spans", () => {
+    const result = scrubHealthSpan({
+      name: "health.sync",
+      attributes: {
+        "app.electrocardiogram": "{}",
+        "app.waveformSamples": "1,2",
+        "app.resultClassification": "ATRIAL_FIBRILLATION",
+        "app.irregularRhythmNotification": "{}",
+        "app.alertWindows": "[]",
+        "app.heartBeats": "[]",
+        "app.metric": "ecg",
+      },
+    });
+    expect(result.attributes).toEqual({
+      "app.electrocardiogram": "[scrubbed:health]",
+      "app.waveformSamples": "[scrubbed:health]",
+      "app.resultClassification": "[scrubbed:health]",
+      "app.irregularRhythmNotification": "[scrubbed:health]",
+      "app.alertWindows": "[scrubbed:health]",
+      "app.heartBeats": "[scrubbed:health]",
+      "app.metric": "ecg",
     });
   });
 });

@@ -568,6 +568,15 @@ INDEX (status, received_at)
 - 구독자 스크립트는 서비스 계정 대신 운영자의 gcloud 로그인 토큰을 쓰고, 프로젝트 **번호**와 `x-goog-user-project` 헤더를 사용한다. `list`로 읽기 전용 확인만 했다(현재 `{}`).
 - 큐 테이블 마이그레이션도 같은 이유로 main 위에서 `yarn db:generate`로 `0046_health_webhook_events`로 재생성했다(SQL은 원래 0044와 동일).
 
+**PR C — ECG / IRN**
+- 파형 테이블(`health_ecg_waveforms`, 0045)은 만들지 않았다(결정 9). 그래서 /health에서 파형을 그리지 않는다. 카드는 측정 시각, 분류(한국어), 평균 bpm과 IRN 알림 구간 수만 보인다.
+- ECG/IRN은 `SYNCED_METRICS`에 넣지 않고 별도 경로(`syncRhythmMetric`)로 처리한다. `>=`만 지원하는 필터 때문에 14일 청크 백필을 쓸 수 없고,
+  일별 요약과 `/data-status` 복구 대상도 아니기 때문이다. 페이지 상한은 기존 `MAX_PAGES_PER_WINDOW`(200)를 백스톱으로 쓴다(설계의 "첫 실행 N페이지 제한"은 두지 않았다).
+  newest-first로 다시 읽는 방식에서는 N페이지 제한이 오래된 이력에 영영 닿지 못하기 때문이다.
+- `irnProfile`(getIrnProfile)은 호출하지 않는다(표시할 곳이 없음).
+- `/privacy`에는 ECG/IRN 수집 항목을 추가했다. 원본 응답은 다른 건강 데이터처럼 `health_raw_pages`에 보관된다는 점을 사실대로 적었다.
+- 운영 메모: GCP 동의 화면에 두 스코프는 이미 등록되어 있다. 배포한 뒤 설정 카드의 버튼으로 재동의 → 다음 sync에서 ECG(빈 결과 예상)와 IRN의 실제 형태를 raw page로 확인한다.
+
 ## 범위 밖
 
 - `skin-temperature-sensors`(v4beta), nutrition/hydration, women's health, `pairedDevices`(추가 스코프), MANUAL 구독, `reconcile` 기반 저장으로의 전환.

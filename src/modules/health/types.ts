@@ -86,4 +86,31 @@ export interface HealthSummary {
   metrics: HealthMetricSeries[];
   workouts: HealthWorkout[];
   sleepSessions: HealthSleepSession[];
+  /**
+   * ECG / irregular-rhythm results — present ONLY when the connection holds at
+   * least one of the optional scopes (absent otherwise, so the card stays hidden).
+   * Optional so older fixtures/clients without it keep working.
+   */
+  rhythm?: HealthRhythm | null;
+}
+
+/** One ECG recording: the device's own classification + average bpm (no waveform). */
+export interface HealthEcgReading {
+  start: string;
+  classification: string | null;
+  bpm: number | null;
+}
+
+/** One irregular-rhythm check: how many alert windows were positive. */
+export interface HealthIrnAlert {
+  start: string;
+  end: string | null;
+  positiveWindows: number;
+  windows: number;
+}
+
+export interface HealthRhythm {
+  /** null = scope not granted; [] = granted, no readings yet */
+  ecg: HealthEcgReading[] | null;
+  irn: HealthIrnAlert[] | null;
 }

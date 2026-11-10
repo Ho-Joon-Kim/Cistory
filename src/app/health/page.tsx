@@ -11,6 +11,7 @@ import { useAuth } from "@/modules/auth/hooks";
 import { CorrelationCard } from "@/modules/health/components/CorrelationCard";
 import { HealthHero } from "@/modules/health/components/HealthHero";
 import { HealthTrendCard } from "@/modules/health/components/HealthTrendCard";
+import { HeartRhythmCard } from "@/modules/health/components/HeartRhythmCard";
 import { SleepCard } from "@/modules/health/components/SleepCard";
 import { WorkoutList } from "@/modules/health/components/WorkoutList";
 import {
@@ -195,6 +196,11 @@ function HealthBody({ summary }: { summary: HealthSummary }) {
               <HealthTrendCard series={seriesFor("hrv")} />
               <HealthTrendCard series={seriesFor("vo2_max")} />
             </div>
+            {summary.rhythm ? (
+              <div className="mt-3.5">
+                <HeartRhythmCard rhythm={summary.rhythm} />
+              </div>
+            ) : null}
           </Section>
 
           {/* Self-titled feature cards — no extra eyebrow (their card header is the title). */}

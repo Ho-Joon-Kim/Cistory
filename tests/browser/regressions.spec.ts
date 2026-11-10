@@ -334,6 +334,62 @@ test("health shows the total-calories card and the merged VO₂max series", asyn
   expect(errors).toEqual([]);
 });
 
+test("health shows ECG / irregular-rhythm results only when the summary carries them", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const base = {
+    hasConnection: true,
+    status: "active",
+    backfillCompletedAt: "2026-08-01",
+    lastSyncedAt: null,
+    hasAnyHistory: true,
+    metrics: [],
+    workouts: [],
+    sleepSessions: [],
+  };
+  let withRhythm = false;
+  await page.route("**/api/fitbit/summary", (route) =>
+    route.fulfill({
+      json: withRhythm
+        ? {
+            ...base,
+            rhythm: {
+              ecg: [
+                {
+                  start: "2026-11-09T01:00:00.000Z",
+                  classification: "NORMAL_SINUS_RHYTHM",
+                  bpm: 71.6,
+                },
+              ],
+              irn: [
+                {
+                  start: "2026-11-08T15:00:00.000Z",
+                  end: "2026-11-08T21:00:00.000Z",
+                  positiveWindows: 0,
+                  windows: 4,
+                },
+              ],
+            },
+          }
+        : { ...base, rhythm: null },
+    })
+  );
+  await page.goto("/health");
+  await expect(page.getByText("심혈관")).toBeVisible();
+  await expect(page.getByText("심전도 · 불규칙 심박")).toHaveCount(0);
+
+  withRhythm = true;
+  await page.reload();
+  await expect(page.getByText("심전도 · 불규칙 심박")).toBeVisible();
+  await expect(page.getByText("정상 동리듬")).toBeVisible();
+  await expect(page.getByText("72 bpm")).toBeVisible();
+  await expect(page.getByText("감지 없음")).toBeVisible();
+  await expect(page.getByText("의료 진단이 아닙니다", { exact: false })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("collection status retries errors and retains a queued recovery on reload", async ({
   page,
 }, testInfo) => {

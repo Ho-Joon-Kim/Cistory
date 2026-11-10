@@ -703,6 +703,88 @@ describe("getValidToken — Google refresh-token non-rotation", () => {
   });
 });
 
+describe("ECG / IRN — optional-scope sync", () => {
+  const ECG_SCOPE = "https://www.googleapis.com/auth/googlehealth.ecg.readonly";
+  const IRN_SCOPE = "https://www.googleapis.com/auth/googlehealth.irn.readonly";
+  const ecgPoint = {
+    dataSource: { platform: "FITBIT" },
+    electrocardiogram: {
+      interval: { startTime: "2026-11-10T01:00:00Z" },
+      resultClassification: "NORMAL_SINUS_RHYTHM",
+      beatsPerMinuteAvg: "70",
+      waveformSamples: [1, 2, 3],
+    },
+  };
+  const dataTypesCalled = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => (c[0] as { dataType: string }).dataType);
+
+  it("never requests ECG/IRN without the optional scopes (no 403 noise)", async () => {
+    const { db } = fakeDb({ connectionRows: [activeConn()], syncStateRows: [] });
+    const listDataPoints = vi.fn().mockResolvedValue({ dataPoints: [] });
+    const svc = withAdapter(new HealthSyncService(db), {
+      listDataPoints,
+      dailyRollUp: vi.fn().mockResolvedValue({ rollupDataPoints: [] }),
+      getIdentity: vi.fn().mockResolvedValue({ healthUserId: null }),
+    });
+    await svc.syncUser("u1");
+    expect(dataTypesCalled(listDataPoints)).not.toContain("electrocardiogram");
+    expect(dataTypesCalled(listDataPoints)).not.toContain("irregular-rhythm-notification");
+  });
+
+  it("syncs ECG from the backfill floor with a >=-only filter and stores no waveform", async () => {
+    const conn = activeConn({ scope: `openid ${ECG_SCOPE}`, healthUserId: "h" });
+    const { db, rec } = fakeDb({ connectionRows: [conn], syncStateRows: [] });
+    const listDataPoints = vi
+      .fn()
+      .mockImplementation((opts: { dataType: string }) =>
+        Promise.resolve({ dataPoints: opts.dataType === "electrocardiogram" ? [ecgPoint] : [] })
+      );
+    const svc = withAdapter(new HealthSyncService(db), {
+      listDataPoints,
+      dailyRollUp: vi.fn().mockResolvedValue({ rollupDataPoints: [] }),
+    });
+    await svc.syncUser("u1");
+    const ecgCall = listDataPoints.mock.calls.find((c) => c[0].dataType === "electrocardiogram");
+    expect(ecgCall?.[0].filter).toBe(
+      'electrocardiogram.interval.start_time >= "2026-01-01T00:00:00.000Z"'
+    );
+    expect(ecgCall?.[0].filter).not.toContain("<");
+    expect(dataTypesCalled(listDataPoints)).not.toContain("irregular-rhythm-notification");
+    const ecgRows = rec.inserts
+      .filter((i) => i.table === healthSamples)
+      .flatMap((i) => i.values as Array<Record<string, unknown>>)
+      .filter((r) => r.metric === "ecg");
+    expect(ecgRows).toHaveLength(1);
+    expect(ecgRows[0]).toMatchObject({ value: 70, source: "FITBIT" });
+    expect(JSON.stringify(ecgRows[0].valueJson)).not.toContain("waveform");
+  });
+
+  it("falls back to an unfiltered IRN read when its filter field is rejected", async () => {
+    const conn = activeConn({ scope: `openid ${IRN_SCOPE}`, healthUserId: "h" });
+    const { db } = fakeDb({ connectionRows: [conn], syncStateRows: [] });
+    const listDataPoints = vi
+      .fn()
+      .mockImplementation((opts: { dataType: string; filter: string }) => {
+        if (opts.dataType === "irregular-rhythm-notification" && opts.filter) {
+          return Promise.reject(new GoogleHealthApiError("bad filter", 400));
+        }
+        return Promise.resolve({ dataPoints: [] });
+      });
+    const svc = withAdapter(new HealthSyncService(db), {
+      listDataPoints,
+      dailyRollUp: vi.fn().mockResolvedValue({ rollupDataPoints: [] }),
+    });
+    await svc.syncUser("u1");
+    const irnFilters = listDataPoints.mock.calls
+      .filter((c) => c[0].dataType === "irregular-rhythm-notification")
+      .map((c) => c[0].filter);
+    expect(irnFilters).toEqual([
+      'irregular_rhythm_notification.interval.start_time >= "2026-01-01T00:00:00.000Z"',
+      "",
+    ]);
+  });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
 });

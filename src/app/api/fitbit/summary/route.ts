@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, healthConnections, healthDailySummaries, healthSamples } from "@/db";
+import { hasHealthScope } from "@/lib/adapters/google-health/interface";
 import { withAuth } from "@/lib/api-handler";
 import { bucketStats } from "@/modules/health/compaction";
 import {
@@ -9,10 +10,16 @@ import {
   mergeDailySeries,
   metricSourceKeys,
 } from "@/modules/health/metrics-meta";
+import { ECG_METRIC, IRN_METRIC } from "@/modules/health/rhythm";
 import { EXERCISE_METRIC, SLEEP_METRIC } from "@/modules/health/service";
 import { dedupeSessions } from "@/modules/health/sessions";
 import { isNap, stageBreakdown, stageSegments } from "@/modules/health/sleep";
-import type { HealthDayPoint, HealthSleepSession, HealthWorkout } from "@/modules/health/types";
+import type {
+  HealthDayPoint,
+  HealthRhythm,
+  HealthSleepSession,
+  HealthWorkout,
+} from "@/modules/health/types";
 
 const TREND_WINDOW_DAYS = 30;
 /** How many recent nights the sleep list shows. */
@@ -38,6 +45,65 @@ function kstDay(d: Date): string {
 /** 'YYYY-MM-DD' for `days` ago in KST. */
 function kstDayNDaysAgo(days: number): string {
   return kstDay(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+}
+
+const RHYTHM_LIST_LIMIT = 10;
+
+/**
+ * Recent ECG / IRN results, only for granted optional scopes (null otherwise, so
+ * the /health card stays hidden). Rows are deduped per measurement across
+ * sources the same way sessions are. Device classifications are relayed as-is.
+ */
+async function readRhythm(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  scope: string | null
+): Promise<HealthRhythm | null> {
+  const grants = { ecg: hasHealthScope(scope, "ecg"), irn: hasHealthScope(scope, "irn") };
+  if (!grants.ecg && !grants.irn) return null;
+  const rows = await db
+    .select({
+      metric: healthSamples.metric,
+      sampleAt: healthSamples.sampleAt,
+      source: healthSamples.source,
+      value: healthSamples.value,
+      valueJson: healthSamples.valueJson,
+    })
+    .from(healthSamples)
+    .where(
+      and(eq(healthSamples.userId, userId), inArray(healthSamples.metric, [ECG_METRIC, IRN_METRIC]))
+    )
+    .orderBy(desc(healthSamples.sampleAt))
+    .limit(RHYTHM_LIST_LIMIT * 8);
+  const recent = (metric: string) =>
+    dedupeSessions(
+      rows.filter((r) => r.metric === metric).map((r) => ({ ...r, minutes: 0 }))
+    ).slice(0, RHYTHM_LIST_LIMIT);
+  const json = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
+  return {
+    ecg: grants.ecg
+      ? recent(ECG_METRIC).map((r) => ({
+          start: r.sampleAt.toISOString(),
+          classification:
+            typeof json(r.valueJson).resultClassification === "string"
+              ? (json(r.valueJson).resultClassification as string)
+              : null,
+          bpm: r.value,
+        }))
+      : null,
+    irn: grants.irn
+      ? recent(IRN_METRIC).map((r) => {
+          const v = json(r.valueJson);
+          const windows = Array.isArray(v.alertWindows) ? v.alertWindows.length : 0;
+          return {
+            start: r.sampleAt.toISOString(),
+            end: typeof v.endTime === "string" ? v.endTime : null,
+            positiveWindows: r.value ?? 0,
+            windows,
+          };
+        })
+      : null,
+  };
 }
 
 /**
@@ -261,7 +327,10 @@ export const GET = withAuth(async ({ user }) => {
       nap: isNap(r.valueJson),
     }));
 
+  const rhythm = await readRhythm(db, user.id, conn?.scope ?? null);
+
   return NextResponse.json({
+    rhythm,
     hasConnection: !!conn,
     status: conn?.status ?? null,
     backfillCompletedAt: conn?.backfillCompletedAt?.toISOString() ?? null,

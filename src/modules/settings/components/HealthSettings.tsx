@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Check,
   Clock,
+  HeartPulse,
   Loader2,
   Radio,
   RotateCw,
@@ -22,6 +23,9 @@ interface HealthSettingsProps {
   /** Latest real-time (webhook) notification; null until the subscriber is live. */
   lastWebhookAt?: string | null;
   needsReauth: boolean;
+  /** Optional ECG / irregular-rhythm scopes the stored grant actually includes. */
+  ecgGranted?: boolean;
+  irnGranted?: boolean;
 }
 
 export function HealthSettings({
@@ -29,6 +33,8 @@ export function HealthSettings({
   lastSyncedAt,
   lastWebhookAt = null,
   needsReauth,
+  ecgGranted = false,
+  irnGranted = false,
 }: HealthSettingsProps) {
   const { hasHealthConnection, isDisconnecting, isSyncing, disconnect, syncNow } =
     useHealth(hasConnection);
@@ -134,9 +140,54 @@ export function HealthSettings({
                 실시간 동기화 마지막 수신: {formatRelativeTime(lastWebhookAt)}
               </div>
             ) : null}
+
+            <RhythmScopes
+              ecgGranted={ecgGranted}
+              irnGranted={irnGranted}
+              needsReauth={needsReauth}
+            />
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function rhythmScopeStatus(ecg: boolean, irn: boolean): string {
+  if (ecg && irn) return "두 권한 모두 연결됨";
+  if (ecg) return "ECG만 연결됨";
+  if (irn) return "불규칙 심박 알림만 연결됨";
+  return "추가 권한이 필요합니다 (기본 연동은 유지됩니다)";
+}
+
+/**
+ * Optional ECG / irregular-rhythm scopes: incremental consent that keeps the
+ * existing grant (include_granted_scopes). Google lets the user untick either
+ * scope, so the state shown comes from the stored grant, not from having asked.
+ */
+function RhythmScopes({
+  ecgGranted,
+  irnGranted,
+  needsReauth,
+}: {
+  ecgGranted: boolean;
+  irnGranted: boolean;
+  needsReauth: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+      <div className="text-sm">
+        <p className="font-medium">심전도(ECG) · 불규칙 심박 알림</p>
+        <p className="text-muted-foreground">{rhythmScopeStatus(ecgGranted, irnGranted)}</p>
+      </div>
+      {!(ecgGranted && irnGranted) && !needsReauth ? (
+        <Button size="sm" variant="outline" asChild>
+          <a href="/api/fitbit/authorize?extra=ecg,irn">
+            <HeartPulse className="h-4 w-4 mr-2" />
+            ECG/불규칙 심박 연결
+          </a>
+        </Button>
+      ) : null}
+    </div>
   );
 }
