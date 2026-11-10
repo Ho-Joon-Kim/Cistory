@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { classifyMode } from "./mode-classifier";
 
 // Expected values derived by hand from the Dawarich threshold table:
-// stationary ≤1 km/h, walking ≤7, running/cycling ≤20 (split on accel 0.25),
+// stationary ≤1 km/h, walking ≤9 (calibrated, was 7), cycling ≤20 (no accel split
+// any more — see scripts/calibrate-mode-vs-health.ts),
 // cycling/driving ≤45 (split on accel 0.4, cycling likely ≤35), bus/motorcycle/
 // driving 45-130 (accel bands 0.2-0.4 / >0.6), train 80-350 (accel <0.2, max/avg
 // <1.3), high-speed 130-200 (train if accel <0.2), flying avg ≥150, max ≥400,
@@ -18,22 +19,32 @@ describe("classifyMode", () => {
       expect(classifyMode(1.1, 3, 0, 300_000)).toEqual({ mode: "walking", confidence: "high" });
     });
 
-    it("classifies avg speed of exactly 7 km/h as walking (inclusive)", () => {
-      expect(classifyMode(7, 10, 0.1, 300_000)).toEqual({ mode: "walking", confidence: "high" });
+    it("classifies avg speed of exactly 9 km/h as walking (inclusive)", () => {
+      // Calibrated 7 → 9 km/h: GPS jitter inflates walking speeds, and on the
+      // session-labelled set 9 km/h separates walking from cycling best.
+      expect(classifyMode(9, 12, 0.1, 300_000)).toEqual({ mode: "walking", confidence: "high" });
+    });
+
+    it("classifies 8 km/h (formerly running/cycling) as walking", () => {
+      expect(classifyMode(8, 12, 0.6, 300_000)).toEqual({ mode: "walking", confidence: "high" });
     });
   });
 
-  describe("running vs cycling (7-20 km/h)", () => {
-    it("classifies jerky movement above 0.25 m/s² as running", () => {
-      expect(classifyMode(12, 16, 0.3, 300_000)).toEqual({ mode: "running", confidence: "medium" });
+  describe("cycling band (9-20 km/h) without health evidence", () => {
+    it("no longer calls jerky movement running — acceleration is GPS jitter, not gait", () => {
+      expect(classifyMode(12, 16, 0.3, 300_000)).toEqual({ mode: "cycling", confidence: "low" });
     });
 
-    it("classifies smooth movement at exactly 0.25 m/s² as cycling (not running)", () => {
-      expect(classifyMode(12, 16, 0.25, 300_000)).toEqual({ mode: "cycling", confidence: "low" });
+    it("labels the 2026-11-10 08:51 e-bike ride (13.6 km/h, 132 km/h spike) cycling", () => {
+      expect(classifyMode(13.6, 132, 0.41, 2_800)).toEqual({ mode: "cycling", confidence: "low" });
     });
 
-    it("classifies avg speed of exactly 20 km/h in the running/cycling band", () => {
-      expect(classifyMode(20, 25, 0.3, 300_000)).toEqual({ mode: "running", confidence: "medium" });
+    it("classifies just above 9 km/h as cycling", () => {
+      expect(classifyMode(9.1, 12, 0.1, 300_000)).toEqual({ mode: "cycling", confidence: "low" });
+    });
+
+    it("classifies avg speed of exactly 20 km/h in the cycling band", () => {
+      expect(classifyMode(20, 25, 0.3, 300_000)).toEqual({ mode: "cycling", confidence: "low" });
     });
   });
 

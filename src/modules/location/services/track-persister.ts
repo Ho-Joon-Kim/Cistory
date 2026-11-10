@@ -11,6 +11,7 @@ import { placeCacheCoordKey } from "@/lib/geo";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { buildTracks, type TrackPoint } from "./track-builder";
 import { detectTransportModes } from "./transportation/detector";
+import { loadHealthEvidence } from "./transportation/health-evidence-loader";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -184,10 +185,15 @@ export async function detectAndPersistTracks(
     return { trackCount: 0, segmentCount: 0 };
   }
 
+  // Exercise sessions + step counts for the day, fetched once (two queries) so the
+  // per-segment refinement below stays pure. A recorded bike ride or a near-zero
+  // step cadence overrides the speed/acceleration guess in the 7–20 km/h band.
+  const health = await loadHealthEvidence(userId, dayStart, dayEnd);
+
   // Detect transport modes per track (pure computation, no DB)
   const now = new Date();
   const analyzedTracks = builtTracks.map((track) => {
-    const segments = detectTransportModes(track.points);
+    const segments = detectTransportModes(track.points, health);
 
     // Determine dominant mode (mode with longest total duration)
     let dominantMode: string | null = null;

@@ -4,6 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getAuthenticatedUser: vi.fn(),
   reclassifyTransportationRange: vi.fn(),
+  invalidateRecoveredPeriods: vi.fn(),
+  db: { marker: "db" },
+}));
+
+vi.mock("@/db", () => ({ getDb: () => mocks.db }));
+
+vi.mock("@/modules/data-status/recovery", () => ({
+  invalidateRecoveredPeriods: mocks.invalidateRecoveredPeriods,
 }));
 
 vi.mock("@/lib/auth-helpers", () => ({
@@ -11,7 +19,7 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 
 vi.mock("@/lib/logger", () => ({
-  logger: { error: vi.fn() },
+  logger: { error: vi.fn(), warn: vi.fn() },
 }));
 
 vi.mock("@/modules/location/services/transportation/reclassify", async (importOriginal) => {
@@ -38,6 +46,7 @@ describe("POST /api/settings/transportation-reclassify", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getAuthenticatedUser.mockResolvedValue({ user: { id: "user-1" }, error: null });
+    mocks.invalidateRecoveredPeriods.mockResolvedValue(undefined);
   });
 
   it("requires authentication", async () => {
@@ -111,5 +120,62 @@ describe("POST /api/settings/transportation-reclassify", () => {
       trackCount: 2,
       segmentCount: 3,
     });
+  });
+
+  it("invalidates the overview snapshots covering the reclassified range", async () => {
+    mocks.reclassifyTransportationRange.mockResolvedValue({
+      from: "2026-07-01",
+      to: "2026-07-02",
+      daysProcessed: 2,
+      trackCount: 3,
+      segmentCount: 8,
+    });
+
+    await POST(request(JSON.stringify({ from: "2026-07-01", to: "2026-07-02" })));
+
+    expect(mocks.invalidateRecoveredPeriods).toHaveBeenCalledWith(
+      mocks.db,
+      "user-1",
+      "2026-07-01",
+      "2026-07-02",
+      expect.any(Date),
+      { narratives: false }
+    );
+  });
+
+  it("still invalidates the days already rewritten when a later day fails", async () => {
+    mocks.reclassifyTransportationRange.mockRejectedValue(
+      new TransportationReclassificationError(
+        "2026-07-02",
+        { daysProcessed: 1, trackCount: 2, segmentCount: 3 },
+        new Error("database unavailable")
+      )
+    );
+
+    await POST(request(JSON.stringify({ from: "2026-07-01", to: "2026-07-03" })));
+
+    expect(mocks.invalidateRecoveredPeriods).toHaveBeenCalledWith(
+      mocks.db,
+      "user-1",
+      "2026-07-01",
+      "2026-07-01",
+      expect.any(Date),
+      { narratives: false }
+    );
+  });
+
+  it("does not fail the reclassification when snapshot invalidation fails", async () => {
+    mocks.reclassifyTransportationRange.mockResolvedValue({
+      from: "2026-07-01",
+      to: "2026-07-01",
+      daysProcessed: 1,
+      trackCount: 1,
+      segmentCount: 1,
+    });
+    mocks.invalidateRecoveredPeriods.mockRejectedValue(new Error("db down"));
+
+    const response = await POST(request(JSON.stringify({ from: "2026-07-01", to: "2026-07-01" })));
+
+    expect(response.status).toBe(200);
   });
 });
