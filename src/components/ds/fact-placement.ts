@@ -16,51 +16,120 @@ const GAP = 6;
 /** Never push the popover further than this from its trigger. */
 const MAX_OFFSET = 96;
 
+function overlapArea(a: Rect, b: Rect): number {
+  const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/** Default popover footprint used when the caller has no better estimate. */
+const DEFAULT_POP_W = 320;
+const DEFAULT_POP_H = 160;
+/** Slack around the estimated footprint (wrapping rows, Radix shift). */
+const FOOTPRINT_SLACK = 16;
+/** How far beyond the popover's reach a rect still steers the side. */
+const NEAR_PX = 120;
+
 /**
  * Where an evidence popover opens relative to its trigger.
  *
- * - Side: away from the highlighted evidence — if the lit items sit mostly below
- *   the trigger, open above it, and vice versa. With nothing lit (or evidence
- *   level with the trigger), the caller's preferred side.
- * - Offset: clear the whole sentence on that side, so the popover doesn't cover
- *   the second line of a wrapped sentence (Radix still flips on collision).
+ * Side, in priority order — each tier only counts rects the popover could
+ * actually reach (its estimated footprint on that side), never things far away:
+ * 1. Lit evidence (`evidence`): a popover never covers its own highlighted data
+ *    when the other side is clear of it.
+ * 2. The host's charts / `data-evidence-avoid` regions (`regions`).
+ * 3. Other chart-annotation labels (`labels`) — least important.
+ * When both sides cost the same, the side away from nearby lit evidence (else
+ * nearby regions) wins, so "open away from the evidence" still holds when
+ * neither footprint touches it; with nothing near, the caller's preferred side.
+ *
+ * Offset: clear the whole sentence on that side, so the popover doesn't cover
+ * the second line of a wrapped sentence (Radix still flips on collision).
  */
 export function chooseFactPopoverPlacement({
   trigger,
   sentence,
   evidence,
   regions = [],
+  labels = [],
   preferred = "bottom",
+  popover = { width: DEFAULT_POP_W, height: DEFAULT_POP_H },
+  viewportWidth,
 }: {
   trigger: Rect;
   sentence: Rect;
+  /** Rects of the fact's own lit evidence. */
   evidence: Rect[];
-  /** Fallback when no lit evidence sits outside the sentence: the host's charts
-   * (a chart that lights its evidence without `data-evidence` attributes still
-   * shouldn't be covered by the popover explaining it). */
+  /** The host's charts (a chart that lights its evidence without
+   * `data-evidence` attributes still shouldn't be covered by the popover). */
   regions?: Rect[];
+  /** Other chart-annotation labels on the page. */
+  labels?: Rect[];
   preferred?: "top" | "bottom";
+  /** Estimated popover size. */
+  popover?: { width: number; height: number };
+  /** Clamp the footprint inside the page gutters when known. */
+  viewportWidth?: number;
 }): { side: "top" | "bottom"; sideOffset: number } {
-  let side = preferred;
   const outside = (list: Rect[]) =>
     list.filter((r) => !(r.top >= sentence.top - 1 && r.bottom <= sentence.bottom + 1));
-  const litOutside = outside(evidence);
-  const others = litOutside.length > 0 ? litOutside : outside(regions);
-  if (others.length > 0) {
+  const lit = outside(evidence);
+  const charts = outside(regions);
+  const marks = outside(labels);
+
+  const offsetFor = (side: "top" | "bottom") => {
+    const clearance =
+      side === "bottom" ? sentence.bottom - trigger.bottom : trigger.top - sentence.top;
+    return GAP + Math.min(MAX_OFFSET, Math.max(0, Math.round(clearance)));
+  };
+
+  let left = trigger.left;
+  if (viewportWidth) {
+    const gutter = pageGutter(viewportWidth);
+    left = Math.max(gutter, Math.min(left, viewportWidth - gutter - popover.width));
+  }
+  const footprint = (side: "top" | "bottom"): Rect => {
+    const h = popover.height + FOOTPRINT_SLACK;
+    const edge =
+      side === "bottom" ? trigger.bottom + offsetFor("bottom") : trigger.top - offsetFor("top");
+    return {
+      left: left - FOOTPRINT_SLACK,
+      right: left + popover.width + FOOTPRINT_SLACK,
+      top: side === "bottom" ? edge : edge - h,
+      bottom: side === "bottom" ? edge + h : edge,
+    };
+  };
+  const cost = (side: "top" | "bottom") => {
+    const f = footprint(side);
+    const sum = (list: Rect[]) => list.reduce((acc, r) => acc + overlapArea(f, r), 0);
+    // Tiers can't trade off: any lit overlap outweighs every chart and label.
+    return [sum(lit), sum(charts), sum(marks)];
+  };
+  const below = cost("bottom");
+  const above = cost("top");
+  let side = preferred;
+  const tier = below.findIndex((v, i) => v !== above[i]);
+  if (tier >= 0) {
+    side = below[tier] < above[tier] ? "bottom" : "top";
+  } else {
+    // Neither footprint decides: steer away from what is near the sentence.
+    const reach = popover.height + NEAR_PX;
+    const near = (list: Rect[]) =>
+      list.filter((r) => r.top < sentence.bottom + reach && r.bottom > sentence.top - reach);
+    const nearLit = near(lit);
+    const others = nearLit.length > 0 ? nearLit : near(charts);
     const triggerMid = (trigger.top + trigger.bottom) / 2;
-    let below = 0;
-    let above = 0;
+    let down = 0;
+    let up = 0;
     for (const r of others) {
       const area = Math.max(1, (r.right - r.left) * (r.bottom - r.top));
-      if ((r.top + r.bottom) / 2 > triggerMid) below += area;
-      else above += area;
+      if ((r.top + r.bottom) / 2 > triggerMid) down += area;
+      else up += area;
     }
-    if (below > above) side = "top";
-    else if (above > below) side = "bottom";
+    if (down > up) side = "top";
+    else if (up > down) side = "bottom";
   }
-  const clearance =
-    side === "bottom" ? sentence.bottom - trigger.bottom : trigger.top - sentence.top;
-  return { side, sideOffset: GAP + Math.min(MAX_OFFSET, Math.max(0, Math.round(clearance))) };
+  return { side, sideOffset: offsetFor(side) };
 }
 
 /** Narrowest column the popover is squeezed into before it may overflow it. */

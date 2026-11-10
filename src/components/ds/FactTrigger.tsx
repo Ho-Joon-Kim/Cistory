@@ -9,6 +9,7 @@ import {
   chooseFactPopoverPlacement,
   estimateFactPopoverHeight,
   factPopoverBounds,
+  pageGutter,
   type Rect,
   scrollToFitPopover,
 } from "./fact-placement";
@@ -177,25 +178,35 @@ export function FactTrigger({
       const trigger = triggerRef.current;
       if (next && trigger) {
         const sentence = trigger.closest(".ai-voice, p, li") ?? trigger.parentElement ?? trigger;
-        // Avoid the lit evidence and any other chart annotation labels nearby.
+        // Lit evidence first, then the host's charts, then other annotation
+        // labels — each only where the popover could actually land.
         const own = trigger.closest("[data-chart-annotation]");
-        const avoid = [
-          ...Array.from(document.querySelectorAll('[data-evidence="on"]')),
-          ...Array.from(document.querySelectorAll("[data-chart-annotation] .ds-fact")).filter(
+        const visible = (els: Element[]) =>
+          els.map(rectOf).filter((r) => r.bottom > r.top && r.right > r.left);
+        const lit = visible(Array.from(document.querySelectorAll('[data-evidence="on"]')));
+        const labels = visible(
+          Array.from(document.querySelectorAll("[data-chart-annotation] .ds-fact")).filter(
             (el) => !own?.contains(el)
-          ),
-        ];
-        const lit = avoid.map(rectOf).filter((r) => r.bottom > r.top && r.right > r.left);
+          )
+        );
         // Hosts that light evidence without data-evidence attributes (health's
-        // hypnogram, HR and weight plots): stay off the host's charts instead.
-        // Annotations live inside their chart, so they rely on lit evidence only.
+        // hypnogram, HR and weight plots) or mark charts `data-evidence-avoid`:
+        // stay off the host's charts. Annotations live inside their chart, so
+        // they rely on lit evidence and labels only.
         const { host, charts } = own ? { host: null, charts: [] } : chartHost(trigger, sentence);
+        const viewportWidth = document.documentElement.clientWidth;
         const chosen = chooseFactPopoverPlacement({
           trigger: rectOf(trigger),
           sentence: rectOf(sentence),
           evidence: lit,
           regions: charts,
+          labels,
           preferred: side,
+          popover: {
+            width: Math.min(320, viewportWidth - 2 * pageGutter(viewportWidth)),
+            height: estimateFactPopoverHeight(rows.length, note != null),
+          },
+          viewportWidth,
         });
         // A fact at the viewport edge: scroll so the popover fits on the chosen
         // side rather than letting Radix flip it over the evidence.
@@ -209,7 +220,7 @@ export function FactTrigger({
         setPlacement({
           ...chosen,
           ...factPopoverBounds({
-            viewportWidth: document.documentElement.clientWidth,
+            viewportWidth,
             column: host ? rectOf(host) : null,
           }),
         });

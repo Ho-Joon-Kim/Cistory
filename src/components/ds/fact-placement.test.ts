@@ -140,3 +140,54 @@ describe("scrollToFitPopover", () => {
     ).toBe(0);
   });
 });
+
+describe("chooseFactPopoverPlacement · tiers and reach", () => {
+  // Overview month: the 57% fact sits under its step sparkline; the flow
+  // chart's annotation labels are far below.
+  const trigger = rect(400, 420, 100, 140);
+  const sentence = rect(400, 444, 96, 600);
+  const sparkline = rect(300, 380, 96, 400);
+  const litBars = [rect(330, 380, 120, 130), rect(340, 380, 300, 310)];
+  const farLabels = [rect(900, 1400, 96, 1344), rect(1500, 1600, 96, 1344)];
+
+  it("ignores annotation labels far outside the popover's reach (QA 57%)", () => {
+    expect(
+      chooseFactPopoverPlacement({
+        trigger,
+        sentence,
+        evidence: litBars,
+        regions: [sparkline],
+        labels: farLabels,
+        preferred: "top",
+      }).side
+    ).toBe("bottom");
+  });
+
+  it("never covers lit evidence to spare a chart region or label", () => {
+    const chartBelow = rect(460, 700, 96, 600);
+    const labelBelow = rect(470, 490, 100, 300);
+    expect(
+      chooseFactPopoverPlacement({
+        trigger,
+        sentence,
+        evidence: litBars,
+        regions: [chartBelow],
+        labels: [labelBelow],
+      }).side
+    ).toBe("bottom");
+  });
+
+  it("uses a nearby label only when nothing more important decides", () => {
+    const labelBelow = rect(470, 490, 100, 300);
+    expect(
+      chooseFactPopoverPlacement({ trigger, sentence, evidence: [], labels: [labelBelow] }).side
+    ).toBe("top");
+  });
+
+  it("still opens away from nearby lit evidence that neither footprint touches", () => {
+    const litRight = [rect(250, 300, 900, 1000)];
+    expect(
+      chooseFactPopoverPlacement({ trigger, sentence, evidence: litRight, preferred: "top" }).side
+    ).toBe("bottom");
+  });
+});
