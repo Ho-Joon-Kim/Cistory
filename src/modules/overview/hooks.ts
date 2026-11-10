@@ -209,6 +209,19 @@ export async function recomputeResponseJson(
   return body;
 }
 
+const HANGUL = /[\uAC00-\uD7A3]/;
+
+/**
+ * Message safe to show under an overview error state. Our own throws and the API's `error`
+ * bodies are Korean; anything else (a TypeError "Failed to fetch (host)", a JSON SyntaxError,
+ * an English provider string) is raw platform text and is replaced by Korean copy.
+ */
+export function overviewErrorMessage(reason: unknown, fallback: string): string {
+  if (reason instanceof Error && HANGUL.test(reason.message)) return reason.message;
+  if (reason instanceof TypeError) return "네트워크 연결을 확인한 뒤 다시 시도해 주세요.";
+  return fallback;
+}
+
 export function abortableDelay(signal: AbortSignal, intervalMs: number) {
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) {
@@ -306,7 +319,9 @@ export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, e
     }).catch((reason: unknown) => {
       if (reason instanceof DOMException && reason.name === "AbortError") return;
       if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "대시보드를 불러오지 못했습니다");
+        setError(
+          overviewErrorMessage(reason, "개요를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.")
+        );
         setIsLoading(false);
       }
     });
@@ -349,7 +364,9 @@ export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, e
       ) {
         return;
       }
-      setError(reason instanceof Error ? reason.message : "재계산을 요청하지 못했습니다");
+      setError(
+        overviewErrorMessage(reason, "재계산을 요청하지 못했어요. 잠시 후 다시 시도해 주세요.")
+      );
     } finally {
       if (recomputeController.current === controller) {
         recomputeController.current = null;

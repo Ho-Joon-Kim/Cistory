@@ -7,6 +7,7 @@ import {
   isCurrentOverviewRequest,
   loadNarrativeUntilSettled,
   loadOverviewUntilSettled,
+  overviewErrorMessage,
   recomputeResponseJson,
   resolveOverviewPeriod,
 } from "./hooks";
@@ -341,5 +342,29 @@ describe("narrative polling controller", () => {
       "generating",
       "ready",
     ]);
+  });
+});
+
+describe("overviewErrorMessage", () => {
+  it("keeps our own Korean messages", () => {
+    expect(overviewErrorMessage(new Error("재계산 요청이 너무 많아요"), "fallback")).toBe(
+      "재계산 요청이 너무 많아요"
+    );
+  });
+
+  it("never surfaces a raw network TypeError", () => {
+    const message = overviewErrorMessage(
+      new TypeError("Failed to fetch (127.0.0.1:3500)"),
+      "fallback"
+    );
+    expect(message).toBe("네트워크 연결을 확인한 뒤 다시 시도해 주세요.");
+  });
+
+  it("replaces other English or non-Error reasons with the fallback", () => {
+    expect(overviewErrorMessage(new SyntaxError("Unexpected token <"), "다시 시도")).toBe(
+      "다시 시도"
+    );
+    expect(overviewErrorMessage(new Error("rate limited"), "다시 시도")).toBe("다시 시도");
+    expect(overviewErrorMessage("boom", "다시 시도")).toBe("다시 시도");
   });
 });

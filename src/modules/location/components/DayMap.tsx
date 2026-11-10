@@ -15,12 +15,22 @@ import { cn } from "@/lib/utils";
 import { cameraDuration } from "../camera";
 import type { LocationData, StayPointData } from "../hooks";
 import { useRouteReplay } from "../hooks/useRouteReplay";
+import { markerA11yRef } from "./marker-a11y";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 const LIGHT_STYLE = "mapbox://styles/mapbox/light-v11";
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11";
 const MAP_LOCALE = { "Map.Title": "지도" };
+/** The ring button below names itself; the Mapbox wrapper stays out of the a11y tree. */
+const unlabelledMarker = markerA11yRef(null);
+
+/** "09:05" from minutes in the day (the clamped day end reads "24:00"). */
+function clockOf(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
 const SEOUL = { longitude: 126.978, latitude: 37.5665 };
 
 export interface MapStay {
@@ -239,13 +249,18 @@ export function DayMap({
 
   // One marker per distinct place (the same 집 twice is one ring).
   const markers = useMemo(() => {
-    const byName = new Map<string, { stay: MapStay; ids: string[]; minutes: number }>();
+    const byName = new Map<
+      string,
+      { stay: MapStay; ids: string[]; minutes: number; times: string[] }
+    >();
     for (const s of stays) {
+      const span = `${clockOf(s.start)}~${clockOf(s.end)}`;
       const cur = byName.get(s.name);
       if (cur) {
         cur.ids.push(s.id);
         cur.minutes += s.end - s.start;
-      } else byName.set(s.name, { stay: s, ids: [s.id], minutes: s.end - s.start });
+        cur.times.push(span);
+      } else byName.set(s.name, { stay: s, ids: [s.id], minutes: s.end - s.start, times: [span] });
     }
     const list = [...byName.values()];
     // Label the longest stays first and skip a label whose ring sits too close
@@ -617,6 +632,7 @@ export function DayMap({
               const dim = !on && m.ids.every((id) => stateOfId(id) === "dim");
               return (
                 <Marker
+                  ref={unlabelledMarker}
                   key={m.stay.id}
                   longitude={m.stay.lon}
                   latitude={m.stay.lat}
@@ -625,7 +641,7 @@ export function DayMap({
                 >
                   <button
                     type="button"
-                    aria-label={`${m.stay.name} 선택`}
+                    aria-label={`${m.stay.name} ${m.times.join(", ")} 선택`}
                     aria-pressed={on}
                     onClick={(e) => {
                       e.stopPropagation();
