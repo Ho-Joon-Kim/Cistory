@@ -74,7 +74,6 @@
   --bar: #878E89;
   --bar2: #6B736E;
   --bar-dim: #E1E5E2;
-  --bar2: #8D948F; /* the comparison / previous-period mark, a step darker than --bar */
   --scrim: rgb(20 23 20 / 0.32);
   --elev-ring: 0 0 0 1px rgb(20 23 20 / 0.06), 0 1px 2px -1px rgb(20 23 20 / 0.06),
     0 2px 4px 0 rgb(20 23 20 / 0.04);
@@ -188,7 +187,6 @@
   --bar: #68716B;
   --bar2: #8A938D;
   --bar-dim: #252B28;
-  --bar2: #5F6862;
   --scrim: rgb(0 0 0 / 0.55);
   --elev-ring: 0 0 0 1px rgb(255 255 255 / 0.08);
   --elev-ring-hover: 0 0 0 1px rgb(255 255 255 / 0.13);
