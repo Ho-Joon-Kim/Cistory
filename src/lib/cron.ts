@@ -810,8 +810,9 @@ export async function stopCron() {
     healthCompactionTask = null;
   }
   if (isInitialized) {
-    await logger.flush();
+    // Log before flushing — anything logged after the flush never reaches Better Stack.
     logger.info("[Cron] Service stopped.");
+    await logger.flush();
     isInitialized = false;
   }
 }
