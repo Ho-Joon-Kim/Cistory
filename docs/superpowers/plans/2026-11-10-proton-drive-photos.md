@@ -49,7 +49,7 @@
   - Fail closed: no unclassified image is ever stored.
 - **Exposure:** only rows with `details_synced_at IS NOT NULL AND deleted_at IS NULL` are counted or served by any API.
 - **Thumbnail response headers:** `Cache-Control: private, max-age=86400`, `Content-Type: image/jpeg`, `X-Content-Type-Options: nosniff`.
-- **Migrations:** generate with `yarn db:generate --name proton_photos` (expected `drizzle/0047_proton_photos.sql`; never hand-number) and review the SQL.
+- **Migrations:** generate with `yarn db:generate --name proton_photos` (expected `drizzle/0048_proton_photos.sql`; never hand-number) and review the SQL.
 - **Commits:** Conventional Commit subjects. Each commit ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Review Focus
@@ -318,7 +318,7 @@ it("revoke returns false (never throws) when both attempts fail", …);
 **Files:**
 
 - Modify: `src/db/schema.ts` (add a `bytea` customType and four tables after `wakatimeConnections`)
-- Create: `drizzle/0047_proton_photos.sql` + `drizzle/meta/*` (generated)
+- Create: `drizzle/0048_proton_photos.sql` + `drizzle/meta/*` (generated)
 
 **Interfaces:**
 
@@ -348,7 +348,7 @@ it("revoke returns false (never throws) when both attempts fail", …);
 
 - [ ] **Step 2: Generate the migration.**
 
-  Run `yarn db:generate --name proton_photos`. Expected: `drizzle/0047_proton_photos.sql`. Review it: four `CREATE TABLE`, FKs `ON DELETE cascade`, `bytea`, `integer[]`, no unrelated diffs.
+  Run `yarn db:generate --name proton_photos`. Expected: `drizzle/0048_proton_photos.sql`. Review it: four `CREATE TABLE`, FKs `ON DELETE cascade`, `bytea`, `integer[]`, no unrelated diffs.
 
 - [ ] **Step 3: Apply and verify.**
 
@@ -1419,7 +1419,7 @@ it("--apply blocks via the same delete-row + photo_blocks path and never logs by
   - Project Overview: add Proton Drive Photos.
   - Architecture: adapter entry `proton/` (vendored account module, patched crypto, runtime load order, `transpilePackages`).
   - Schema: the four tables, the exposure rule, `photo_blocks` semantics.
-  - Migration list: `0047`.
+  - Migration list: `0048`.
   - Cron table row: `*/10 * * * *` | `proton-photos`.
   - API list: `/api/proton`, `/api/proton/connect`, `/api/proton/connect/status`, `/api/photos/[photoId]/thumbnail`.
   - Data-status: 8 sources, `proton` not recoverable.

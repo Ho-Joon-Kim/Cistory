@@ -337,6 +337,13 @@
       "when": 1794287088684,
       "tag": "0047_location_points_anomaly_index",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794290617808,
+      "tag": "0048_proton_photos",
+      "breakpoints": true
     }
   ]
 }
