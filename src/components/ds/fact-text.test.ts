@@ -53,6 +53,35 @@ describe("isMonoFactValue", () => {
   });
 });
 
+describe("isMonoFactValue — number phrases (qa6)", () => {
+  it("treats a number glued to a relational word as a phrase, not a quantity", () => {
+    for (const phrase of [
+      "10분마다",
+      "3일째",
+      "8시간째",
+      "5시부터",
+      "7일까지",
+      "2시간전",
+      "1시간후",
+      "2건씩",
+      "3일 동안",
+      "10분 만에",
+      "30분쯤",
+      "5건 이상",
+      "1시간 미만",
+      "10분 넘게",
+    ]) {
+      expect(isMonoFactValue(phrase), phrase).toBe(false);
+    }
+  });
+
+  it("keeps plain quantities whose unit merely ends in a similar syllable", () => {
+    expect(isMonoFactValue("4시간")).toBe(true);
+    expect(isMonoFactValue("3,000원")).toBe(true);
+    expect(isMonoFactValue("12건 · 4시간 59분")).toBe(true);
+  });
+});
+
 describe("factValueParts", () => {
   it("keeps each short list entry whole, separator at the end of the line", () => {
     expect(factValueParts("11월 9일 08:45, 11월 6일 16:51, 11월 5일 08:58")).toEqual([

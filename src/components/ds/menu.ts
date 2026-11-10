@@ -10,7 +10,14 @@
 export const menuItemFocusClass =
   "outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-brand";
 
-const MENU_ITEM_BASE = `flex w-full cursor-pointer items-center gap-2.5 rounded-[7px] border-0 bg-transparent px-2.5 py-2 text-left text-[13px] leading-5 transition-colors duration-150 max-sm:min-h-11 [@media(pointer:coarse)]:min-h-11 hover:bg-track focus-visible:bg-track data-[highlighted]:bg-track ${menuItemFocusClass}`;
+/**
+ * 44px minimum row height on phones and touch screens — shared by the in-page
+ * menus below and by the Radix account dropdown (UserMenu), so every menu row is
+ * a full-size tap target.
+ */
+export const menuItemTapClass = "max-sm:min-h-11 [@media(pointer:coarse)]:min-h-11";
+
+const MENU_ITEM_BASE = `flex w-full cursor-pointer items-center gap-2.5 rounded-[7px] border-0 bg-transparent px-2.5 py-2 text-left text-[13px] leading-5 transition-colors duration-150 ${menuItemTapClass} hover:bg-track focus-visible:bg-track data-[highlighted]:bg-track ${menuItemFocusClass}`;
 
 export const menuItemClass = `${MENU_ITEM_BASE} text-ink`;
 

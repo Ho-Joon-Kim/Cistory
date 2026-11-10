@@ -2,6 +2,7 @@
 
 import { LogOut, Settings, User } from "lucide-react";
 import Link from "next/link";
+import { menuItemTapClass } from "@/components/ds";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,19 +58,23 @@ export function UserMenu() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/repositories" className="cursor-pointer">
+          <Link href="/repositories" className={`cursor-pointer ${menuItemTapClass}`}>
             <User className="mr-2 h-4 w-4" />
             레포지토리
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/settings" className="cursor-pointer">
+          <Link href="/settings" className={`cursor-pointer ${menuItemTapClass}`}>
             <Settings className="mr-2 h-4 w-4" />
             설정
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={signOut} className="cursor-pointer">
+        <DropdownMenuItem
+          variant="destructive"
+          onClick={signOut}
+          className={`cursor-pointer ${menuItemTapClass}`}
+        >
           <LogOut className="mr-2 h-4 w-4" />
           로그아웃
         </DropdownMenuItem>

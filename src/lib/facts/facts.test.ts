@@ -301,6 +301,8 @@ describe("templates", () => {
       ["9월\u00A06일 이후", false],
       ["17:00", false],
       ["평소보다 짧게", false],
+      ["10분마다", false],
+      ["3일째", false],
     ] as const) {
       const fact = diagnosis({ ...base, id: trigger, detail: { trigger } });
       expect(renderTemplate(fact).numeric, trigger).toBe(numeric);

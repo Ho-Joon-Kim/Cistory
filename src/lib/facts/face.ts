@@ -17,6 +17,9 @@
  *
  * A bare "N일" with no month is a count of days ("· 10일" = ten days in), so it
  * stays a quantity; "N월" (but not "N개월") marks a date.
+ *
+ * A postposition glued to the unit turns the number into a phrase — "10분마다",
+ * "3일째", "9월부터", "2시간 전", "1시간후", "2건씩" — so it is set as words.
  */
 
 /**
@@ -31,9 +34,19 @@ const DATE_LIKE = /\d\s?월|\d{1,2}:\d{2}|\([월화수목금토일]\)/;
 
 const LETTER = /\p{L}/u;
 
+/**
+ * A number (with or without a unit) followed by a word that relates it to
+ * something else rather than measuring it: "10분마다", "3일째", "5시부터",
+ * "7일까지", "2시간전", "1시간후", "2건씩", "3일 동안", "10분 만에". Matched
+ * only at a word end, so "4시간" (ends in 간) or "3,000원" never trip it.
+ */
+const PHRASE_SUFFIX =
+  /\d[\d,.]*[가-힣A-Za-z]*\s?(?:마다|부터|까지|째|전|후|씩|동안|만에|쯤|이상|이하|미만|넘게|가량)(?![가-힣])/;
+
 /** Whether fact text is a pure number+unit quantity (set in mono). */
 export function isQuantityText(text: string): boolean {
   if (!/\d/.test(text)) return false;
   if (DATE_LIKE.test(text)) return false;
+  if (PHRASE_SUFFIX.test(text)) return false;
   return !LETTER.test(text.replace(QUANTITY_TOKEN, ""));
 }
