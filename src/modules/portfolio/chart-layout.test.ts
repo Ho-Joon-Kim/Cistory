@@ -3,6 +3,7 @@ import {
   axisTickIndices,
   placeAxisLabel,
   placeCallout,
+  placeLineLabel,
   polylineHitsBox,
   segmentHitsBox,
 } from "./chart-layout";
@@ -102,5 +103,38 @@ describe("placeAxisLabel", () => {
   });
   it("drops the label rather than drawing it over the data", () => {
     expect(placeAxisLabel({ y: 100, w: 60, width: 400, lines: [flat(94)] })).toBeNull();
+  });
+});
+
+describe("placeLineLabel", () => {
+  const flat = (y: number) => [
+    { x: 0, y },
+    { x: 400, y },
+  ];
+  const base = { w: 48, width: 400, bottom: 200, avoid: [] };
+
+  it("sits just below its own line at the right end when that is clear", () => {
+    expect(placeLineLabel({ ...base, own: flat(100), other: flat(40) })).toEqual({
+      x: 400,
+      y: 116,
+    });
+  });
+
+  it("never lands on or nearer the other series", () => {
+    // The other line runs 14px under the own line: below is too close to it,
+    // above is the only side that reads as the own line's label.
+    const spot = placeLineLabel({ ...base, own: flat(100), other: flat(114) });
+    expect(spot).toEqual({ x: 400, y: 94 });
+  });
+
+  it("slides left past an obstacle at the right end", () => {
+    const avoid = [{ x0: 340, x1: 400, y0: 60, y1: 140 }];
+    const spot = placeLineLabel({ ...base, avoid, own: flat(100), other: flat(20) });
+    expect(spot?.x).toBeLessThanOrEqual(339);
+    expect(spot?.x).toBeGreaterThanOrEqual(248);
+  });
+
+  it("drops the label when the lines are too tight to name one", () => {
+    expect(placeLineLabel({ ...base, own: flat(100), other: flat(106) })).toBeNull();
   });
 });

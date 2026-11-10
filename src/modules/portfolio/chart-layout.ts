@@ -177,3 +177,56 @@ export function placeAxisLabel(opts: {
   }
   return null;
 }
+
+/** The polyline's y at `x` (linear between vertices; clamped to the ends). */
+export function yOnPolyline(line: readonly Pt[], x: number): number {
+  if (x <= line[0].x) return line[0].y;
+  for (let j = 1; j < line.length; j++) {
+    if (line[j].x >= x) {
+      const a = line[j - 1];
+      const b = line[j];
+      return a.y + ((b.y - a.y) * (x - a.x)) / Math.max(1e-6, b.x - a.x);
+    }
+  }
+  return line[line.length - 1].y;
+}
+
+/** Nearest vertical distance from `mid` to the polyline across [x0, x1]. */
+function verticalGap(line: readonly Pt[], x0: number, x1: number, mid: number): number {
+  let d = Number.POSITIVE_INFINITY;
+  for (let x = x0; x <= x1; x += 2) d = Math.min(d, Math.abs(mid - yOnPolyline(line, x)));
+  return Math.min(d, Math.abs(mid - yOnPolyline(line, x1)));
+}
+
+/**
+ * An end label (12px text, right-anchored at `x`, baseline `y`) that names the
+ * `own` line: just below or above it at the right end, else slid left along it
+ * (never past mid-chart). It touches neither line, clears `avoid`, and sits at
+ * least 10px nearer its own line than the `other` one across its whole width,
+ * so it can't read as naming the other series. Null → drop it.
+ */
+export function placeLineLabel(opts: {
+  w: number;
+  width: number;
+  bottom: number;
+  own: readonly Pt[];
+  other: readonly Pt[];
+  avoid: readonly Box[];
+}): { x: number; y: number } | null {
+  const { w, width, bottom, own, other, avoid } = opts;
+  for (let x1 = width; x1 - w >= width * 0.5; x1 -= 12) {
+    const x0 = x1 - w;
+    const box = (ly: number): Box => ({ x0, x1, y0: ly - 12, y1: ly + 2 });
+    const ownY = yOnPolyline(own, x0 + w / 2);
+    for (const d of [16, -6, 30, -20]) {
+      const ly = ownY + d;
+      const b = box(ly);
+      if (b.y0 < 0 || b.y1 >= bottom) continue;
+      if (verticalGap(own, x0, x1, ly - 5) + 10 > verticalGap(other, x0, x1, ly - 5)) continue;
+      if (avoid.some((o) => boxesOverlap(o, b, 1))) continue;
+      if (polylineHitsBox(own, b, 1) || polylineHitsBox(other, b, 1)) continue;
+      return { x: x1, y: ly };
+    }
+  }
+  return null;
+}

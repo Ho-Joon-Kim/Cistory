@@ -91,7 +91,8 @@ export function TargetDrift({
   base: number;
   setAt: string | null;
   fact: Fact | null;
-  onEdit: () => void;
+  /** Gets the button that opened the editor, so focus can return to it on close. */
+  onEdit: (opener: HTMLElement) => void;
 }) {
   const { stateOf } = useEvidence();
   const scale = driftScale(rows);
@@ -167,7 +168,7 @@ export function TargetDrift({
         </div>
         <button
           type="button"
-          onClick={onEdit}
+          onClick={(e) => onEdit(e.currentTarget)}
           className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-control border-0 bg-surface text-base font-normal text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           목표 비중 수정
@@ -220,7 +221,7 @@ export function TargetDrift({
           <Legend />
           <button
             type="button"
-            onClick={onEdit}
+            onClick={(e) => onEdit(e.currentTarget)}
             className="mt-2 inline-flex h-9 w-fit cursor-pointer items-center rounded-control border-0 bg-surface px-3.5 text-[13px] font-normal text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             목표 비중 수정
