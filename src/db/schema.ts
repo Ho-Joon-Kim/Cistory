@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   doublePrecision,
   index,
   integer,
@@ -13,6 +14,10 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
 
 export type PeriodType = "recent" | "week" | "month" | "year";
 export type PeriodSnapshotStatus = "pending" | "computing" | "ready" | "failed";
@@ -315,6 +320,111 @@ export const wakatimeConnections = pgTable(
 );
 
 export type WakaTimeConnection = typeof wakatimeConnections.$inferSelect;
+
+// ============ Proton Drive Photos ============
+export const protonConnections = pgTable(
+  "proton_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Encrypted (AES-256-GCM); nullable while the connection is still pending.
+    uidEnc: text("uid_enc"),
+    accessTokenEnc: text("access_token_enc"),
+    refreshTokenEnc: text("refresh_token_enc"),
+    keyPasswordEnc: text("key_password_enc"),
+    status: text("status").notNull().$type<"pending" | "active" | "needs_reauth">(),
+    pendingForkSelector: text("pending_fork_selector"),
+    pendingForkKeyEnc: text("pending_fork_key_enc"),
+    pendingForkExpiresAt: timestamp("pending_fork_expires_at"),
+    volumeId: text("volume_id"),
+    eventCursor: text("event_cursor"),
+    timelineListedAt: timestamp("timeline_listed_at"),
+    backfillCompletedAt: timestamp("backfill_completed_at"),
+    lastSyncedAt: timestamp("last_synced_at"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at")
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("idx_proton_conn_user").on(t.userId)]
+);
+
+export type ProtonConnection = typeof protonConnections.$inferSelect;
+
+export const photos = pgTable(
+  "photos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    nodeUid: text("node_uid").notNull(),
+    mainPhotoNodeUid: text("main_photo_node_uid"),
+    contentHash: text("content_hash"),
+    // True UTC from Proton, stored UTC wall time.
+    capturedAt: timestamp("captured_at").notNull(),
+    mediaType: text("media_type"),
+    width: integer("width"),
+    height: integer("height"),
+    durationSec: doublePrecision("duration_sec"),
+    lat: doublePrecision("lat"),
+    lon: doublePrecision("lon"),
+    locationSource: text("location_source").$type<"exif" | "owntracks">(),
+    locationGapSec: integer("location_gap_sec"),
+    device: text("device"),
+    tags: integer("tags").array(),
+    claimedMetadata: jsonb("claimed_metadata"),
+    trashedAt: timestamp("trashed_at"),
+    deletedAt: timestamp("deleted_at"),
+    detailsSyncedAt: timestamp("details_synced_at"),
+    locationCheckedAt: timestamp("location_checked_at"),
+    detailsAttempts: integer("details_attempts").notNull().default(0),
+    detailsError: text("details_error"),
+    thumbnailAttempts: integer("thumbnail_attempts").notNull().default(0),
+    createdAt: timestamp("created_at")
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("idx_photos_user_node").on(t.userId, t.nodeUid),
+    index("idx_photos_user_captured").on(t.userId, t.capturedAt),
+    index("idx_photos_user_main").on(t.userId, t.mainPhotoNodeUid),
+  ]
+);
+
+export type Photo = typeof photos.$inferSelect;
+
+export const photoBlocks = pgTable(
+  "photo_blocks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    nodeUid: text("node_uid").notNull(),
+    blockedAt: timestamp("blocked_at").notNull(),
+    modelVersion: text("model_version").notNull(),
+  },
+  (t) => [uniqueIndex("idx_photo_blocks_user_node").on(t.userId, t.nodeUid)]
+);
+
+export type PhotoBlock = typeof photoBlocks.$inferSelect;
+
+export const photoThumbnails = pgTable("photo_thumbnails", {
+  photoId: uuid("photo_id")
+    .primaryKey()
+    .references(() => photos.id, { onDelete: "cascade" }),
+  bytes: bytea("bytes").notNull(),
+  fetchedAt: timestamp("fetched_at").notNull(),
+});
 
 // ============ Coding Daily Stats (WakaTime) ============
 export const codingDailyStats = pgTable(
