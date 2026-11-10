@@ -308,6 +308,64 @@ test("zero GitHub commits still shows the daily life timeline", async ({ page })
   await expect(page.locator(".timeline-scroll-container")).not.toBeEmpty();
 });
 
+test("returning to a cached day renders it at once, without a skeleton or refetch", async ({
+  page,
+}) => {
+  // Regression: the location hooks kept their cache in component refs, so every
+  // return to the timeline started empty — list skeleton, then rows, and the
+  // map framed twice as each source landed.
+  const locationRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/timeline/locations")) locationRequests.push(url.pathname);
+  });
+  await page.route("**/api/timeline/locations/stay-points?*", (route) =>
+    route.fulfill({
+      json: {
+        stayPoints: [
+          {
+            lat: 37.5,
+            lon: 127.03,
+            placeName: "브라우저 카페",
+            address: null,
+            category: null,
+            startTime: "2026-08-15T01:00:00.000Z",
+            endTime: "2026-08-15T03:00:00.000Z",
+            durationMinutes: 120,
+          },
+        ],
+      },
+    })
+  );
+  await page.goto("/dashboard?date=2026-08-15");
+  const list = page.locator(".timeline-scroll-container");
+  await expect(list.getByText("브라우저 카페").first()).toBeVisible();
+  await expect(list.locator('[aria-busy="true"]')).toHaveCount(0);
+
+  await page.locator('a[href="/spending"]:visible').first().click();
+  await expect(page).toHaveURL(/\/spending$/);
+  await page.evaluate(() => {
+    // Record whether the list ever shows its skeleton after the return.
+    const w = window as unknown as { __sawSkeleton: boolean };
+    w.__sawSkeleton = false;
+    new MutationObserver(() => {
+      if (document.querySelector('.timeline-scroll-container [aria-busy="true"]')) {
+        w.__sawSkeleton = true;
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  locationRequests.length = 0;
+  await page.goBack();
+  await expect(page).toHaveURL(/\/dashboard\?date=2026-08-15$/);
+  await expect(list.getByText("브라우저 카페").first()).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(
+    await page.evaluate(() => (window as unknown as { __sawSkeleton: boolean }).__sawSkeleton)
+  ).toBe(false);
+  // A past day is still fresh: no location request at all on the way back.
+  expect(locationRequests).toEqual([]);
+});
+
 test("health auxiliary failures can retry into an honest empty state", async ({ page }) => {
   let fail = true;
   await page.route("**/api/insights?*", (route) =>
