@@ -20,9 +20,15 @@ export const PROTON_ERRORS = {
   detailsUndecryptable: "세부 정보를 복호화하지 못했습니다",
   thumbnailMissing: "썸네일을 받지 못했습니다",
   thumbnailUnclassifiable: "썸네일 형식을 분류할 수 없습니다",
+  originalUnavailable: "원본 파일을 받지 못했습니다",
+  originalTooLarge: "원본 파일이 너무 커서 읽지 않았습니다",
+  originalUndecodable: "원본 이미지로 썸네일을 만들 수 없습니다",
 } as const;
 
 /** A photo whose details failed this many times stays hidden until rescreened. */
 export const PROTON_MAX_DETAILS_ATTEMPTS = 3;
+
+/** An original that failed this many reads is not read again until it is re-ingested. */
+export const PROTON_MAX_ORIGINAL_ATTEMPTS = 3;
 
 export type ProtonErrorMessage = (typeof PROTON_ERRORS)[keyof typeof PROTON_ERRORS];

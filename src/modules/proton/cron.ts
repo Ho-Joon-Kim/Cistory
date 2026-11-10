@@ -13,9 +13,10 @@ function errorName(error: unknown): string {
 }
 
 /**
- * Loads the Proton crypto runtime and the NSFW model once at cron boot, so a
- * missing wasm binary or an OOM shows up in the boot log rather than on the
- * first tick, and logs the tensor backend (a `cpu` fallback is ~10x slower).
+ * Loads the Proton crypto runtime, the NSFW model and the HEIF (libheif wasm)
+ * decoder once at cron boot, so a missing wasm binary or an OOM shows up in
+ * the boot log rather than on the first tick, and logs the tensor backend (a
+ * `cpu` fallback is ~10x slower).
  * Never throws: a failed warm-up is retried lazily by the first sync tick.
  *
  * Everything is imported lazily so registering the task keeps the Proton SDK
@@ -30,6 +31,13 @@ export async function warmUpProtonRuntime(): Promise<void> {
     logger.info("[Proton] runtime ready", { backend });
   } catch (error) {
     logger.error("[Proton] runtime warm-up failed", { error: errorName(error) });
+  }
+  // Separate: thumbnail recovery for HEIC originals needs it, nothing else does.
+  try {
+    const { loadHeicDecoder } = await import("./original-thumbnail");
+    await loadHeicDecoder();
+  } catch (error) {
+    logger.error("[Proton] HEIF decoder warm-up failed", { error: errorName(error) });
   }
 }
 

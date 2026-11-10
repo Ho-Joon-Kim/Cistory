@@ -378,19 +378,32 @@ describe("proton repository (real Postgres)", () => {
     await seed(db, user, "hidden", {
       detailsAttempts: 3,
       detailsError: PROTON_ERRORS.thumbnailMissing,
+      originalAttempts: 3,
+      originalError: PROTON_ERRORS.originalUndecodable,
     });
-    await seed(db, user, "verified", { detailsSyncedAt: EARLIER, detailsAttempts: 2 });
+    await seed(db, user, "verified", {
+      detailsSyncedAt: EARLIER,
+      detailsAttempts: 2,
+      originalAttempts: 1,
+      originalCheckedAt: EARLIER,
+    });
 
     await resetForReingest(db, user, ["hidden", "verified", "absent"], NOW);
 
+    // A new revision gets a fresh budget for its original too.
     expect(await rowOf(db, user, "hidden")).toMatchObject({
       detailsAttempts: 0,
       detailsError: null,
+      originalAttempts: 0,
+      originalError: null,
+      originalCheckedAt: null,
       updatedAt: NOW,
     });
     expect(await rowOf(db, user, "verified")).toMatchObject({
       detailsSyncedAt: EARLIER,
       detailsAttempts: 2,
+      originalAttempts: 1,
+      originalCheckedAt: EARLIER,
     });
     expect(await rowOf(db, user, "absent")).toBeUndefined();
   });

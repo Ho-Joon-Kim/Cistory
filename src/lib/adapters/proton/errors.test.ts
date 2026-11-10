@@ -1,6 +1,11 @@
-import { RateLimitedError, ServerError, ValidationError } from "@protontech/drive-sdk";
+import {
+  ConnectionError,
+  RateLimitedError,
+  ServerError,
+  ValidationError,
+} from "@protontech/drive-sdk";
 import { describe, expect, it } from "vitest";
-import { isAuthFailure, isCursorRejection, isRateLimited } from "./errors";
+import { isAuthFailure, isCursorRejection, isRateLimited, isTransientOutage } from "./errors";
 
 function serverError(statusCode: number) {
   const e = new ServerError("boom");
@@ -48,5 +53,16 @@ describe("proton error classifiers", () => {
       expect(isRateLimited(e)).toBe(false);
       expect(isCursorRejection(e)).toBe(false);
     }
+  });
+
+  it("treats offline and 5xx as a transient outage, but not 4xx, 429 or other errors", () => {
+    expect(isTransientOutage(new ConnectionError("offline"))).toBe(true);
+    expect(isTransientOutage(serverError(502))).toBe(true);
+    expect(isTransientOutage(serverError(500))).toBe(true);
+    expect(isTransientOutage(serverError(404))).toBe(false);
+    expect(isTransientOutage(serverError(401))).toBe(false);
+    expect(isTransientOutage(new RateLimitedError("slow"))).toBe(false);
+    expect(isTransientOutage(new ServerError("no status"))).toBe(false);
+    expect(isTransientOutage(new Error("x"))).toBe(false);
   });
 });

@@ -129,6 +129,8 @@ describe("Proton routes", () => {
       backfilling: true,
       detailsFailedCount: 0,
       blockedCount: 1,
+      originalCheckedCount: 0,
+      originalEligibleCount: 0,
       lastError: null,
       forkPending: false,
     };

@@ -28,11 +28,18 @@ import {
   type NsfwScores,
   type PhotoClassifier,
 } from "./nsfw/classifier";
+import type { OriginalExif } from "./original-exif";
 import { markNodesDeleted, type ProtonDbExecutor } from "./repository";
 import { PROTON_ERRORS, type ProtonErrorMessage } from "./types";
 
 export type IngestOutcome =
-  | { kind: "pass"; photo: MappedPhoto; thumbnail: Uint8Array }
+  | {
+      kind: "pass";
+      photo: MappedPhoto;
+      thumbnail: Uint8Array;
+      /** Set when the thumbnail was generated from the original, whose EXIF was read with it. */
+      original?: OriginalExif;
+    }
   | { kind: "block"; nodeUid: string; relatedUids: string[] }
   | { kind: "missing"; nodeUid: string }
   | { kind: "skip"; nodeUid: string } // not a photo
@@ -96,7 +103,7 @@ function unmappedOutcome(
 }
 
 /** Reads one chunk of nodes: verdict-free outcomes plus the photos still to screen. */
-async function readNodes(
+export async function readNodes(
   api: ProtonPhotosApi,
   chunk: string[]
 ): Promise<{ outcomes: IngestOutcome[]; candidates: MappedPhoto[] }> {
@@ -141,7 +148,7 @@ async function fetchThumbnails(
 }
 
 /** The verdict for one fetched thumbnail; records newly blocked uids in `known`. */
-async function screen(
+export async function screen(
   classifier: PhotoClassifier,
   photo: MappedPhoto,
   image: Uint8Array,
@@ -252,7 +259,26 @@ async function applyPass(
   now: Date
 ): Promise<void> {
   const p = outcome.photo;
+  const o = outcome.original;
+  const originalGps = o !== undefined && o.lat !== null && o.lon !== null;
   const hasGps = p.lat !== null && p.lon !== null;
+  // Precedence: the original's own EXIF GPS, then Proton's attribute GPS,
+  // then (later, in location.ts) an OwnTracks estimate.
+  const location = originalGps
+    ? { lat: o.lat, lon: o.lon, locationSource: "exif_original" as const }
+    : hasGps
+      ? { lat: p.lat, lon: p.lon, locationSource: "exif" as const }
+      : { lat: null, lon: null, locationSource: null };
+  // A pass without original data is a (re-)ingest of the node: whatever was
+  // read from the previous revision's original is forgotten and read again.
+  const original = {
+    originalCheckedAt: o ? now : null,
+    originalAttempts: 0,
+    originalError: null,
+    imageDirection: o?.direction ?? null,
+    imageDirectionRef: o?.directionRef ?? null,
+    captureUtcOffsetMin: o?.utcOffsetMin ?? null,
+  };
   const fields = {
     mainPhotoNodeUid: p.mainPhotoNodeUid,
     contentHash: p.contentHash,
@@ -265,13 +291,12 @@ async function applyPass(
     tags: p.tags,
     claimedMetadata: p.claimedMetadata,
     trashedAt: p.trashedAt,
-    // EXIF wins and is final; without it every location field clears so the
+    // GPS wins and is final; without it every location field clears so the
     // OwnTracks fill recomputes rather than keeping a stale estimate (C5).
-    lat: hasGps ? p.lat : null,
-    lon: hasGps ? p.lon : null,
-    locationSource: hasGps ? ("exif" as const) : null,
+    ...location,
     locationGapSec: null,
-    locationCheckedAt: hasGps ? now : null,
+    locationCheckedAt: location.locationSource ? now : null,
+    ...original,
     deletedAt: null,
     detailsSyncedAt: now,
     detailsError: null,

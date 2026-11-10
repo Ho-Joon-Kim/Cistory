@@ -254,6 +254,26 @@ describe("Proton Drive Photos scrubbing", () => {
     });
   });
 
+  it("redacts original-EXIF heading and UTC offset keys in extra", () => {
+    const extra: Record<string, unknown> = {
+      imageDirection: 87.2,
+      image_direction_ref: "T",
+      captureUtcOffsetMin: 540,
+      capture_utc_offset_min: 540,
+      originalExif: {},
+      attempts: 1,
+    };
+    scrubHealthData({ extra });
+    expect(extra).toEqual({
+      imageDirection: "[scrubbed:health]",
+      image_direction_ref: "[scrubbed:health]",
+      captureUtcOffsetMin: "[scrubbed:health]",
+      capture_utc_offset_min: "[scrubbed:health]",
+      originalExif: "[scrubbed:health]",
+      attempts: 1,
+    });
+  });
+
   it("strips the response body of /api/photos/<id>/thumbnail breadcrumbs", () => {
     const event: ScrubbableEvent = {
       breadcrumbs: [

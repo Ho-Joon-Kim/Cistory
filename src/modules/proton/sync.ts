@@ -6,7 +6,8 @@
  * the SDK allows one event subscriber per session. It covers the whole tick.
  *
  * Tick order: events → the backfill step (while backfilling) → the details
- * stage for rows events reset → location fill → `last_synced_at`.
+ * stage for rows events reset → the originals stage (thumbnail recovery and
+ * original EXIF, deadline-bounded) → location fill → `last_synced_at`.
  *
  * Every write is fenced (`assertConnectionUnchanged`) against the connection
  * the tick started with; a reconnect or disconnect mid-tick
@@ -34,6 +35,7 @@ import { processEvents } from "./events";
 import { fillPhotoLocations } from "./location";
 import { ClassifierUnavailableError, type PhotoClassifier } from "./nsfw/classifier";
 import { createNsfwjsClassifier } from "./nsfw/nsfwjs";
+import { ORIGINAL_STAGE_DEADLINE_MS, runOriginalsStage } from "./originals";
 import {
   assertConnectionUnchanged,
   connectionFence,
@@ -48,6 +50,8 @@ export interface ProtonSyncDeps {
   open: (db: Database, c: ProtonConnection, guard: ProtonSessionGuard) => Promise<ProtonPhotosApi>;
   classifier: PhotoClassifier;
   now: () => Date;
+  /** Monotonic milliseconds, for the originals stage's tick deadline. */
+  clock?: () => number;
 }
 
 /**
@@ -102,6 +106,8 @@ interface TickContext {
   userId: string;
   fence: ProtonTickFence;
   now: Date;
+  /** True once the tick has run past `ORIGINAL_STAGE_DEADLINE_MS`. */
+  pastDeadline: () => boolean;
 }
 
 /** Runs the details stage; false when the classifier is unavailable (C6). */
@@ -151,6 +157,16 @@ async function runTick(ctx: TickContext, conn: ProtonConnection): Promise<boolea
   // even after the backfill completed.
   if (step !== "details" && classifierUp) classifierUp = await runDetails(ctx);
 
+  // After events and details, so it only ever uses the time they leave.
+  const originals = await runOriginalsStage(db, api, classifier, userId, fence, now, {
+    recovery: classifierUp,
+    pastDeadline: ctx.pastDeadline,
+  });
+  if (originals.stopped || originals.failed > 0) {
+    logger.info("[Proton] originals stage", { userId, ...originals });
+  }
+
+  // After the originals stage, so a photo whose original has GPS is never estimated.
   await fillPhotoLocations(db, userId, now);
 
   await writeConnectionState(
@@ -288,8 +304,18 @@ async function syncLocked(
 
   try {
     await trackSourceSync(db, userId, "proton", async () => {
+      const clock = deps.clock ?? (() => performance.now());
+      const startedAt = clock();
       const api = await deps.open(db, conn, guard);
-      const ctx = { db, api, classifier: deps.classifier, userId, fence, now: deps.now() };
+      const ctx: TickContext = {
+        db,
+        api,
+        classifier: deps.classifier,
+        userId,
+        fence,
+        now: deps.now(),
+        pastDeadline: () => clock() - startedAt >= ORIGINAL_STAGE_DEADLINE_MS,
+      };
       const classifierUp = await runTick(ctx, conn);
       if (!classifierUp) {
         logger.warn("[Proton] classifier unavailable; details deferred", { userId });

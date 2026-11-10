@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { formatRelative } from "@/lib/format";
+import { formatCount, formatRelative } from "@/lib/format";
 import { userErrorMessage } from "@/lib/user-error";
 import { reauthCopy } from "@/modules/data-status/reauth-copy";
 import {
@@ -135,6 +135,12 @@ export function ProtonSettings() {
               { label: "차단", value: summary.blockedCount, unit: "장", tone: "muted" },
             ]}
           />
+          {summary.originalEligibleCount > 0 ? (
+            <PanelNote>
+              원본 메타데이터 확인 {formatCount(summary.originalCheckedCount)}/
+              {formatCount(summary.originalEligibleCount)}
+            </PanelNote>
+          ) : null}
           <PanelActions>
             <Button
               variant="ghost"
