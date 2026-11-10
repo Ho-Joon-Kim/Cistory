@@ -473,11 +473,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
           ) : query.isPending ? (
             <LoadingState variant="rows" rows={6} className="mt-6" label="기록을 검색하는 중" />
           ) : days.length === 0 ? (
-            <EmptyState
-              className="mt-8"
-              title="이 조건에 맞는 기록이 없어요"
-              description="검색어를 줄이거나 기간을 넓혀 보세요."
-            />
+            <EmptyState className="mt-8" {...emptyCopy(applied)} />
           ) : (
             <>
               {days.map((day, i) => (
@@ -719,6 +715,31 @@ function SourceSegment({
   );
 }
 
+/** Empty-state copy that only suggests loosening what was actually applied. */
+function emptyCopy(applied: Applied): { title: string; description: string } {
+  const filtered =
+    applied.only.length > 0 || !!applied.category || !!applied.hours || !!applied.repo;
+  if (applied.q) {
+    return {
+      title: "이 조건에 맞는 기록이 없어요",
+      description: "검색어를 줄이거나 기간을 넓혀 보세요.",
+    };
+  }
+  if (filtered) {
+    return {
+      title: "이 조건에 맞는 기록이 없어요",
+      description: "조건을 지우거나 기간을 넓혀 보세요.",
+    };
+  }
+  return {
+    title:
+      applied.source === "all"
+        ? "이 기간에는 기록이 없어요"
+        : `이 기간에는 ${SOURCE_LABELS[applied.source]} 기록이 없어요`,
+    description: "기간을 넓혀 보세요.",
+  };
+}
+
 function QueryAiLine({
   items,
   label,
@@ -870,8 +891,11 @@ function CommitGroupRow({ group }: { group: CommitGroup }) {
                 href={repoSearchHref(group)}
                 className="inline-flex min-h-11 items-center gap-1 py-2 text-sm font-semibold text-brand no-underline hover:underline hover:underline-offset-[3px]"
               >
-                이날 커밋 <span className="tabular-nums">{formatCount(group.total)}</span>건 모두
-                보기
+                {/* One flex item, so the gap doesn't split "38" from "건". */}
+                <span>
+                  이날 커밋 <span className="tabular-nums">{formatCount(group.total)}</span>건 모두
+                  보기
+                </span>
                 <ArrowRight />
               </a>
             </li>

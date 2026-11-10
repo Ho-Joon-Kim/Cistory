@@ -146,19 +146,36 @@ export function groupByDay(items: SearchItem[]): DayGroup[] {
   return days;
 }
 
+/** Leading conventional type and the line it earns, or null for no line. */
+function groupLead(
+  typeCounts: [string, number][],
+  n: number
+): { type: string; count: number; template: string } | null {
+  const typed = typeCounts.filter(([t]) => t !== "other" && t !== "merge" && !/\d/.test(t));
+  const [type, count] = typed[0] ?? ["", 0];
+  const majority = count / n >= 0.5;
+  if (!type || (!majority && (count < 3 || count === (typed[1]?.[1] ?? 0)))) return null;
+  const label = TYPE_LABELS[type] ?? type;
+  if (!majority)
+    return { type, count, template: `{total}건 중 ${label} 작업이 가장 많아요({fact}).` };
+  const lead =
+    count === n ? "{total}건 모두" : `{total}건 중 ${count / n >= 0.75 ? "대부분" : "절반 넘게"}`;
+  return { type, count, template: `${lead} ${label} 작업({fact})이에요.` };
+}
+
 /**
- * "대부분 perf 작업" line for a large commit group: only when one conventional
- * type holds at least half of five or more commits. Counted over the whole
- * day's group (server type counts), so the quantifier matches the real share.
+ * The AI line for a commit group of five or more. Counted over the whole day's
+ * group (server type counts), so the quantifier matches the real share.
+ * - One conventional type holds at least half → "N건 중 대부분/절반 넘게 X 작업".
+ * - Otherwise the leading conventional type (other/merge never lead) with at
+ *   least 3 commits and a strict lead over the runner-up → "N건 중 X 작업이 가장 많아요".
+ * - Groups under five, untyped groups, or a tie at the top get no line.
  */
 export function commitGroupFact(group: CommitGroup): Fact | null {
   const n = group.typeCounts.reduce((sum, [, c]) => sum + c, 0);
-  const [type, count] = group.typeCounts[0] ?? ["", 0];
-  if (n < 5 || count / n < 0.5 || type === "other" || type === "merge" || /\d/.test(type)) {
-    return null;
-  }
-  const lead =
-    count === n ? "{total}건 모두" : `{total}건 중 ${count / n >= 0.75 ? "대부분" : "절반 넘게"}`;
+  const lead = n < 5 ? null : groupLead(group.typeCounts, n);
+  if (!lead) return null;
+  const { type, count, template } = lead;
   return diagnosis({
     id: `search.commits.${group.key}`,
     metric: "commits",
@@ -167,7 +184,7 @@ export function commitGroupFact(group: CommitGroup): Fact | null {
     value: count,
     unit: "count",
     unitLabel: "건",
-    template: `${lead} ${TYPE_LABELS[type] ?? type} 작업({fact})이에요.`,
+    template,
     detail: { total: n, trigger: `${type} ${count}건` },
     rows: [
       { label: "유형", value: group.typeCounts.map(([t, c]) => `${t} ${c}`).join(" · ") },

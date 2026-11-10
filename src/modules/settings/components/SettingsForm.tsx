@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AiLine,
@@ -34,14 +34,7 @@ import { authClient, useSession } from "@/lib/auth-client";
 import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { diagnosis } from "@/lib/facts/helpers";
 import type { Fact } from "@/lib/facts/types";
-import {
-  formatCount,
-  formatDateTime,
-  formatMonthDay,
-  formatRelative,
-  formatShare,
-  formatTime,
-} from "@/lib/format";
+import { formatCount, formatMonthDay, formatRelative, formatShare, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
 import { buildSourceView, focusFact, type SourceView } from "@/modules/data-status/insights";
@@ -334,8 +327,9 @@ export function SettingsForm() {
       {/* Phones read top to bottom in the mock's order (확인할 것 → 연결 → 저장 공간 →
           관리 → 위험 구역); from lg the storage and danger sections sit in a sticky
           side column. The columns are `display: contents` below lg so `order`
-          interleaves their sections. */}
-      <div className="mt-10 flex flex-col gap-10 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
+          interleaves their sections. Below sm every button and date input on the
+          page gets a 44px touch target (the compact `sm` sizes stay on desktop). */}
+      <div className="mt-10 flex flex-col gap-10 max-sm:[&_[data-slot=button]]:min-h-11 max-sm:[&_input[type=date]]:h-11 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-10">
           <TodoSection
             views={views}
@@ -789,7 +783,8 @@ function buildConnections(
           ? join("인증 만료", lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`)
           : join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "계정 연결됨")
         : wakaLegacy
-          ? join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "다시 연결 필요")
+          ? // Action first: on narrow rows the tail truncates, and the action matters more.
+            join("다시 연결 필요", lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`)
           : "연결 안 됨",
       body: () => (
         <WakaTimeSettings
@@ -981,36 +976,13 @@ function ThemeRow({
 
 // ── 저장 공간 ───────────────────────────────────────────────────────────────
 
-function storageMismatch(
-  summaries: SummaryCounts | null,
-  summaryRows: number | null,
-  calculatedAt: string | null,
-  now: Date
-): Fact | null {
-  if (!summaries || summaries.completed === 0 || summaryRows !== 0) return null;
-  return diagnosis({
-    id: "settings.storage.summaries",
-    metric: "storage",
-    metricLabel: "저장 공간",
-    period: { from: "", to: "", label: "용량 표" },
-    value: 0,
-    unit: "count",
-    unitLabel: "행",
-    template:
-      "요약 {done}건이 완료됐는데 용량 표에는 요약 테이블이 {fact}으로 잡혀 있어요 — 계산에서 빠진 것 같아요.",
-    detail: { done: summaries.completed, trigger: "0행" },
-    rows: [
-      {
-        label: "요약 처리 현황",
-        value: `완료 ${formatCount(summaries.completed)} · 실패 ${formatCount(summaries.failed)} · 대기 ${formatCount(summaries.pending)}`,
-      },
-      { label: "용량 표", value: "커밋 요약 테이블 0행" },
-      {
-        label: "계산 시각",
-        value: calculatedAt ? formatDateTime(new Date(calculatedAt), { now }) : "—",
-      },
-    ],
-  });
+/**
+ * A cache written before commit summaries were counted through `commits`
+ * ownership (bb64bb8) reads 0 summary rows while summaries exist. That is a
+ * stale cache, not something to explain to the user: recompute it once.
+ */
+function isStaleSummaryCount(summaries: SummaryCounts | null, summaryRows: number | null) {
+  return !!summaries && summaries.completed > 0 && summaryRows === 0;
 }
 
 function StorageSection({
@@ -1032,7 +1004,14 @@ function StorageSection({
     cats
       .find((c) => c.category === "commits")
       ?.tables.find((t) => t.tableName === "commit_summaries")?.rowCount ?? null;
-  const mismatch = storageMismatch(summaries, summaryRows, data?.calculatedAt ?? null, now);
+  const stale = isStaleSummaryCount(summaries, summaryRows);
+  const healed = useRef(false);
+  const { refresh, isRefreshing } = usage;
+  useEffect(() => {
+    if (!stale || healed.current || isRefreshing) return;
+    healed.current = true;
+    void refresh();
+  }, [stale, refresh, isRefreshing]);
   const restBytes = cats.slice(2).reduce((s, c) => s + c.totalBytes, 0);
 
   return (
@@ -1111,7 +1090,6 @@ function StorageSection({
               </span>
             ) : null}
           </div>
-          {mismatch ? <AiLine fact={mismatch} className="mt-3.5" /> : null}
           <button
             type="button"
             aria-expanded={open}

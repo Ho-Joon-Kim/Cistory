@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toKstCalendarDate } from "@/lib/date-key";
 import { TripDetectDialog } from "@/modules/location/components/TripDetectDialog";
 import { TripConfirmationError, useTripDetection } from "@/modules/location/hooks";
 
@@ -108,9 +109,11 @@ export function TripDetectionCard() {
   const [showDialog, setShowDialog] = useState(false);
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
 
-  const currentYear = new Date().getFullYear();
-  const [reclassifyFrom, setReclassifyFrom] = useState(`${currentYear}-01-01`);
-  const [reclassifyTo, setReclassifyTo] = useState(`${currentYear}-12-31`);
+  // KST "today": a future end date would only re-judge days that have no data yet.
+  const today = toKstCalendarDate(new Date());
+  const currentYear = Number(today.slice(0, 4));
+  const [reclassifyFrom, setReclassifyFrom] = useState(`${today.slice(0, 4)}-01-01`);
+  const [reclassifyTo, setReclassifyTo] = useState(today);
   const [isReclassifying, setIsReclassifying] = useState(false);
   const [reclassificationStatus, setReclassificationStatus] = useState<{
     kind: "success" | "error";
@@ -244,6 +247,7 @@ export function TripDetectionCard() {
               id="transport-reclassify-from"
               type="date"
               value={reclassifyFrom}
+              max={today}
               disabled={isReclassifying}
               onChange={(event) => setReclassifyFrom(event.target.value)}
             />
@@ -257,6 +261,7 @@ export function TripDetectionCard() {
               id="transport-reclassify-to"
               type="date"
               value={reclassifyTo}
+              max={today}
               disabled={isReclassifying}
               onChange={(event) => setReclassifyTo(event.target.value)}
             />

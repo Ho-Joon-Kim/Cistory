@@ -96,7 +96,17 @@ describe("data collection status and recovery against PostgreSQL", () => {
     await expect(enqueue(stale)).rejects.toMatchObject({ status: 409 });
     const status = await getDataStatus(db, legacy, "2026-09-01", "2026-09-03", now);
     const waka = status.sources.find((s) => s.id === "wakatime")!;
-    expect(waka).toMatchObject({ connected: true, needsReauth: true, canRecover: false });
+    expect(waka).toMatchObject({
+      connected: true,
+      needsReauth: true,
+      reauthReason: "legacy_key",
+      canRecover: false,
+    });
+    const staleStatus = await getDataStatus(db, stale, "2026-09-01", "2026-09-03", now);
+    expect(staleStatus.sources.find((s) => s.id === "wakatime")).toMatchObject({
+      needsReauth: true,
+      reauthReason: "auth",
+    });
   });
 
   it("reports all-time retained records, owner-scoped, only for sources needing attention", async () => {

@@ -105,6 +105,29 @@ describe("commit group line over the whole day's group", () => {
   });
 });
 
+describe("commit group line without a majority type", () => {
+  const group = (types: Record<string, number>, total: number) => {
+    const [g] = groupByDay([
+      { ...commit("a", "fix: a"), groupTotal: total, groupTypes: types },
+      { ...commit("b", "fix: b"), groupTotal: total, groupTypes: types },
+    ])[0].rows;
+    if (g.kind !== "commits") throw new Error("expected group");
+    return g;
+  };
+
+  it("names the leading conventional type, never other/merge", () => {
+    const g = group({ other: 17, fix: 11, feat: 5, docs: 3, test: 2 }, 38);
+    expect(renderTemplate(commitGroupFact(g)!).text).toBe(
+      "38건 중 수정 작업이 가장 많아요(fix 11건)."
+    );
+  });
+
+  it("stays silent on a tie at the top or a lead under three", () => {
+    expect(commitGroupFact(group({ other: 6, fix: 3, feat: 3 }, 12))).toBeNull();
+    expect(commitGroupFact(group({ other: 6, fix: 2, feat: 1 }, 9))).toBeNull();
+  });
+});
+
 describe("compactCount", () => {
   it("keeps small counts exact and shortens large ones without a fake cap", () => {
     expect(compactCount(999)).toBe("999");
