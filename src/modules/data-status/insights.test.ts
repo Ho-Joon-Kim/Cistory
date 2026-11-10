@@ -3,6 +3,7 @@ import { renderTemplate } from "@/lib/facts/template";
 import {
   buildHero,
   buildSourceView,
+  focusFact,
   formatDateRuns,
   intensityLevel,
   recoveryRange,
@@ -71,6 +72,26 @@ describe("buildSourceView", () => {
     );
     expect(view.status).toBe("reauth");
     expect(rowSubline(view, NOW)).toEqual({ text: "다시 연결 필요", tone: "warn" });
+  });
+
+  it("names the retired API-key path, not an expired token, for a legacy WakaTime key", () => {
+    const patch = { needsReauth: true, lastSuccessAt: "2026-09-06T08:00:00Z" };
+    const legacy = buildSourceView(
+      source("wakatime", [0, 0, 0], { ...patch, reauthReason: "legacy_key" }),
+      NOW
+    );
+    const fact = focusFact(legacy, [legacy], NOW);
+    expect(fact.rows?.find((r) => r.label === "오류")?.value).toBe(
+      "API 키 읽기 중단됨 · OAuth로 다시 연결 필요"
+    );
+    expect(renderTemplate(fact).text).toContain("API 키로는 기록을 읽을 수 없게 바꿨어요");
+    const expired = buildSourceView(
+      source("wakatime", [0, 0, 0], { ...patch, reauthReason: "auth" }),
+      NOW
+    );
+    expect(renderTemplate(focusFact(expired, [expired], NOW)).text).toContain(
+      "제공자가 인증을 거부했어요"
+    );
   });
 
   it("marks zero days of an expected-daily source as gaps, but never today", () => {

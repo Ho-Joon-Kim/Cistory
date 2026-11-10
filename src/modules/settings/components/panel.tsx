@@ -120,7 +120,8 @@ export function PanelStats({ items }: { items: PanelStat[] }) {
 
 /**
  * A labelled on/off row: 36×22 track (brand when on) inside a ≥44px tall
- * label, so the whole line is the hit area.
+ * label, so the whole line is the hit area. On phones the track itself also
+ * carries a 44px-tall hit area of its own.
  */
 export function PanelSwitch({
   id,
@@ -148,7 +149,7 @@ export function PanelSwitch({
         checked={checked}
         disabled={disabled}
         onCheckedChange={onCheckedChange}
-        className="inline-flex h-[22px] w-9 flex-none cursor-[inherit] items-center rounded-full border-0 bg-[color-mix(in_oklab,var(--ink)_24%,var(--track))] p-0.5 transition-colors duration-150 ease-out focus-ring data-[state=checked]:bg-brand"
+        className="relative inline-flex h-[22px] w-9 flex-none cursor-[inherit] items-center rounded-full after:absolute after:-inset-x-1 after:-inset-y-[11px] after:content-[''] sm:after:hidden border-0 bg-[color-mix(in_oklab,var(--ink)_24%,var(--track))] p-0.5 transition-colors duration-150 ease-out focus-ring data-[state=checked]:bg-brand"
       >
         <SwitchPrimitive.Thumb className="pointer-events-none block size-[18px] rounded-full bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.06)] transition-transform duration-150 ease-out data-[state=checked]:translate-x-3.5" />
       </SwitchPrimitive.Root>

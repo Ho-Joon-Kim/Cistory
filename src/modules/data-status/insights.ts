@@ -9,6 +9,7 @@ import { diagnosis } from "@/lib/facts/helpers";
 import { hasBatchim } from "@/lib/facts/template";
 import type { Fact, FactRow } from "@/lib/facts/types";
 import { formatCount, formatDateRange, formatDateTime, formatMonthDay } from "@/lib/format";
+import { reauthCopy } from "./reauth-copy";
 import type { SourceId, SourceStatus } from "./types";
 
 /** `tiny` fits the hero meter's ~37px columns on a 320px phone. */
@@ -291,13 +292,16 @@ export function focusFact(view: SourceView, all: SourceView[], now: Date = new D
   // A confirmed auth refusal is the precise cause; the generic sync-failure text
   // stored with it would contradict the sentence and badge.
   if (view.status === "reauth")
-    rows.push({ label: "오류", value: "제공자가 인증을 거부함 · 다시 연결 필요" });
+    rows.push({
+      label: "오류",
+      value: reauthCopy(view.name, view.source.reauthReason).error,
+    });
   else if (view.source.error) rows.push({ label: "오류", value: view.source.error });
 
   if (view.status === "failed" || view.status === "reauth" || view.status === "delayed") {
     const cause =
       view.status === "reauth"
-        ? "제공자가 인증을 거부했어요 — 다시 연결하면 동기화가 이어져요."
+        ? reauthCopy(view.name, view.source.reauthReason).cause
         : view.source.canRecover
           ? "서버보다는 연결 권한이 만료됐거나 바뀌었을 가능성이 커요 — 연결을 확인한 뒤 재수집하면 이 기간을 다시 가져와요."
           : "연결 상태를 확인해 주세요.";

@@ -272,12 +272,18 @@ export async function getDataStatus(
     timeZone: "Asia/Seoul",
     jobs,
     sources: base.map(({ id, lastSuccessAt, error, stale, needsReauth }) => {
+      const reauthReason = !needsReauth
+        ? null
+        : id === "wakatime" && !waka
+          ? ("legacy_key" as const)
+          : ("auth" as const);
       const rows = result.rows.filter((r) => r.source === id);
       return {
         id,
         label: LABELS[id],
         connected: connections[id],
         needsReauth,
+        reauthReason,
         lastSuccessAt,
         lastRecordAt: rows.at(-1)?.lastRecordAt ?? null,
         error,

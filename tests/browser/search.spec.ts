@@ -167,10 +167,10 @@ test("search distinguishes failures, retries, empty results and invalid ranges",
   await expect(page.getByRole("main").getByRole("alert")).toContainText(
     "기록을 검색하지 못했습니다."
   );
-  await expect(page.getByText("이 조건에 맞는 기록이 없어요")).toHaveCount(0);
+  await expect(page.getByText("이 기간에는 기록이 없어요")).toHaveCount(0);
   fail = false;
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();
-  await expect(page.getByText("이 조건에 맞는 기록이 없어요")).toBeVisible();
+  await expect(page.getByText("이 기간에는 기록이 없어요")).toBeVisible();
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   const before = calls;
   await page.getByRole("button", { name: /^기간 .* 바꾸기$/ }).click();
@@ -186,7 +186,7 @@ test("search distinguishes failures, retries, empty results and invalid ranges",
   );
   expect(calls).toBe(before);
   await page.getByLabel("검색어", { exact: true }).press("Enter");
-  await expect(page.getByText("이 조건에 맞는 기록이 없어요")).toBeVisible();
+  await expect(page.getByText("이 기간에는 기록이 없어요")).toBeVisible();
 });
 
 test("all primary navigation links remain named and reachable at 320 pixels", async ({ page }) => {

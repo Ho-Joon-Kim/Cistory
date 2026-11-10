@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatCount, formatRelative } from "@/lib/format";
+import { reauthCopy } from "@/modules/data-status/reauth-copy";
 import { useWakaTime } from "../hooks";
 import { PanelActions, PanelNote, PanelStats, PanelText } from "./panel";
 
@@ -73,7 +74,7 @@ export function WakaTimeSettings({
       <PanelText>WakaTime 코딩 세션을 10분마다 가져와 타임라인과 개요에 보여 줘요.</PanelText>
       {!hasWakaTimeConnection ? (
         hasLegacyKey ? (
-          <ReconnectNotice message="WakaTime이 API 키로 읽는 방식을 끝내서 동기화가 멈췄어요. 이미 가져온 기록은 그대로예요 — OAuth로 다시 연결하면 이어서 가져와요." />
+          <ReconnectNotice message={reauthCopy("WakaTime", "legacy_key").panel} />
         ) : (
           <PanelActions>
             <Button size="sm" asChild>
@@ -83,9 +84,7 @@ export function WakaTimeSettings({
         )
       ) : (
         <>
-          {needsReauth ? (
-            <ReconnectNotice message="WakaTime 인증이 만료됐어요. 다시 연결하면 동기화가 이어져요." />
-          ) : null}
+          {needsReauth ? <ReconnectNotice message={reauthCopy("WakaTime", "auth").panel} /> : null}
           {syncStats ? (
             <PanelStats
               items={[

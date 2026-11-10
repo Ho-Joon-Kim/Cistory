@@ -46,6 +46,7 @@ import {
   type SourceView,
   sortBySeverity,
 } from "../insights";
+import { reauthCopy } from "../reauth-copy";
 import type { DataStatusResponse, RecoveryJob, SourceId } from "../types";
 import { CELL_LABELS, cellStyle, cellText, StatusStrip } from "./StatusStrip";
 
@@ -481,7 +482,7 @@ function FocusPanel({
   // message underneath it would only blur it.
   const description =
     view.status === "reauth"
-      ? "연결 인증이 끊겼어요. 지금까지 가져온 기록은 그대로 보관돼요."
+      ? reauthCopy(view.name, view.source.reauthReason).summary
       : view.source.error
         ? view.source.error
         : view.status === "delayed"
@@ -593,7 +594,13 @@ function FocusPanel({
             </a>
           </Button>
         ) : null}
-        <Button variant="ghost" asChild>
+        {/* Below 360px this link wraps under the primary button; drop its inset
+            there so its text lines up with the button's left edge. */}
+        <Button
+          variant="ghost"
+          asChild
+          className="max-[359px]:px-0 max-[359px]:has-[>svg]:px-0 max-[359px]:hover:bg-transparent max-[359px]:hover:underline"
+        >
           <Link href="/settings">
             설정에서 연결 확인
             <ArrowRight />
@@ -890,7 +897,7 @@ function SourceRow({
           <div className="flex flex-col gap-2">
             <p className="m-0 text-sm leading-[22px] text-ink-2">
               {reauth
-                ? `${view.name} 인증이 만료돼 제공자가 요청을 거부하고 있어요. 다시 연결하면 동기화가 이어지고, 이미 가져온 기록은 그대로예요.`
+                ? reauthCopy(view.name, view.source.reauthReason).panel
                 : view.source.recoveryHelp}
             </p>
             <span className="text-xs leading-4 text-ink-3">
