@@ -111,7 +111,7 @@ export function TossNotificationSettings({
               value={myName}
               onChange={(e) => setMyName(e.target.value)}
               placeholder="예: 홍길동"
-              className="h-9 w-full text-base sm:max-w-[240px] sm:text-sm"
+              className="h-9 w-full text-base max-sm:h-11 sm:max-w-[240px] sm:text-sm"
             />
             <Button
               type="submit"

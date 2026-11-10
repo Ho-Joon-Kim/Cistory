@@ -2,7 +2,7 @@
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   AiLine,
   ArrowRight,
@@ -12,6 +12,7 @@ import {
   ErrorState,
   LoadingState,
   PageTitle,
+  Segmented,
   SourceTile,
 } from "@/components/ds";
 import { Button } from "@/components/ui/button";
@@ -107,6 +108,23 @@ const PRESETS = [
   { days: 90, label: "90일" },
   { days: 366, label: "1년" },
 ];
+// Below 360px the full placeholder clips mid-word inside the field.
+const NARROW_QUERY = "(max-width: 359px)";
+function subscribeNarrow(onChange: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+  const mql = window.matchMedia(NARROW_QUERY);
+  mql.addEventListener("change", onChange);
+  return () => mql.removeEventListener("change", onChange);
+}
+function useNarrowViewport(): boolean {
+  return useSyncExternalStore(
+    subscribeNarrow,
+    () => typeof window.matchMedia === "function" && window.matchMedia(NARROW_QUERY).matches,
+    () => false
+  );
+}
+
+const PRESET_ITEMS = PRESETS.map((p) => ({ value: String(p.days), label: p.label }));
 
 function rangeLabel(a: Applied, today: string, parsedLabel: string | null): string {
   if (parsedLabel) return parsedLabel;
@@ -193,6 +211,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
   const valid = validApplied(applied, params.get("page"));
   const parsedFromText = applied.text ? parseNaturalQuery(applied.text, today) : null;
   const [text, setText] = useState(applied.text || applied.q);
+  const narrow = useNarrowViewport();
   const [recent, setRecent] = useState<string[]>([]);
   useEffect(() => setRecent(loadRecent()), []);
 
@@ -297,7 +316,9 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
               aria-label="검색어"
               aria-describedby="search-hint"
               maxLength={200}
-              placeholder="무엇을 찾을까요 — 예: 지난주 저녁 배달"
+              placeholder={
+                narrow ? "예: 지난주 저녁 배달" : "무엇을 찾을까요 — 예: 지난주 저녁 배달"
+              }
               value={text}
               onChange={(e) => setText(e.target.value)}
               className="h-10 min-w-0 flex-1 border-0 bg-transparent text-base text-ink outline-none placeholder:text-ink-3"
@@ -560,35 +581,18 @@ function RangeChip({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="flex w-[300px] flex-col gap-2.5 p-3.5">
-        <fieldset
-          aria-label="기간 고르기"
-          className="relative m-0 grid h-9 grid-cols-5 rounded-lg border-0 bg-track p-[3px]"
-        >
-          {presetIndex >= 0 ? (
-            <span
-              aria-hidden="true"
-              className="ds-seg-thumb absolute top-[3px] left-[3px] h-[30px] rounded-[7px] bg-surface shadow-ring"
-              style={{ width: "calc((100% - 6px) / 5)", translate: `${presetIndex * 100}% 0` }}
-            />
-          ) : null}
-          {PRESETS.map((p, i) => (
-            <button
-              key={p.label}
-              type="button"
-              aria-pressed={i === presetIndex}
-              onClick={() => {
-                setOpen(false);
-                onApply(shiftDateKey(today, -(p.days - 1)), today);
-              }}
-              className={cn(
-                "relative z-[1] h-[30px] cursor-pointer rounded-[7px] border-0 bg-transparent text-[13px]",
-                i === presetIndex ? "font-semibold text-ink" : "font-medium text-ink-2"
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </fieldset>
+        <Segmented
+          ariaLabel="기간 고르기"
+          fullWidth="always"
+          items={PRESET_ITEMS}
+          value={presetIndex >= 0 ? String(PRESETS[presetIndex].days) : ""}
+          onChange={(days) => {
+            setOpen(false);
+            onApply(shiftDateKey(today, -(Number(days) - 1)), today);
+          }}
+          // A custom range matches no preset: hide the thumb rather than park it on 오늘.
+          className={cn(presetIndex < 0 && "[&>.ds-seg-thumb]:hidden")}
+        />
         <span className="text-[13px] text-ink-2">{formatDateRange(applied.from, applied.to)}</span>
         {custom ? (
           <form
@@ -608,7 +612,7 @@ function RangeChip({
                   required
                   value={from}
                   onChange={(e) => setFrom(e.target.value)}
-                  className="h-9 rounded-md border border-line bg-surface px-2 text-sm text-ink"
+                  className="h-9 rounded-md border border-line bg-surface px-2 text-sm text-ink max-sm:h-11 pointer-coarse:h-11"
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs text-ink-3">
@@ -618,7 +622,7 @@ function RangeChip({
                   required
                   value={to}
                   onChange={(e) => setTo(e.target.value)}
-                  className="h-9 rounded-md border border-line bg-surface px-2 text-sm text-ink"
+                  className="h-9 rounded-md border border-line bg-surface px-2 text-sm text-ink max-sm:h-11 pointer-coarse:h-11"
                 />
               </label>
             </div>
@@ -627,7 +631,12 @@ function RangeChip({
                 최대 366일의 유효한 기간을 골라 주세요.
               </p>
             ) : null}
-            <Button type="submit" size="sm" disabled={invalid} className="self-start">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={invalid}
+              className="self-start max-sm:h-11 pointer-coarse:h-11"
+            >
               이 기간으로 검색
             </Button>
           </form>
@@ -635,7 +644,7 @@ function RangeChip({
           <Button
             variant="outline"
             size="sm"
-            className="self-start"
+            className="self-start max-sm:h-11 pointer-coarse:h-11"
             onClick={() => setCustom(true)}
           >
             날짜 직접 고르기

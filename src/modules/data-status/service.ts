@@ -45,6 +45,33 @@ const HELP: Record<SourceId, string> = {
     "Google Health (Fitbit)의 수치 지표를 날짜별로 다시 수집해요. 수면·운동 기록과 휴대폰에만 있는 Health Connect 기록은 기존 건강 동기화나 휴대폰 재전송을 사용하세요.",
 };
 
+/**
+ * Health metrics stored as one point per civil day, pinned to a 12:00 KST anchor
+ * (`timeShape: "date"` in HEALTH_METRICS — kept in sync by service.test.ts). The
+ * anchor is not a measurement time, so today's row sits hours in the future.
+ */
+export const DAY_ANCHORED_HEALTH_METRICS = [
+  "resting_heart_rate",
+  "daily_hrv",
+  "daily_spo2",
+  "respiratory_rate",
+  "skin_temperature",
+  "total_calories",
+] as const;
+
+/**
+ * Health rows that are real observations: excludes server-side day rollups
+ * (`rollup:<family>` sources, which carry no dataSource) and day-anchored daily
+ * metrics. Counting them made "마지막 기록" read 12:00 KST at 10:20 and padded
+ * the day counts with one synthetic row per metric per day.
+ */
+export function healthObservationSql(source: SQL = sql`source`, metric: SQL = sql`metric`): SQL {
+  return sql`${source} NOT LIKE 'rollup:%' AND ${metric} NOT IN (${sql.join(
+    DAY_ANCHORED_HEALTH_METRICS.map((m) => sql`${m}`),
+    sql`, `
+  )})`;
+}
+
 /** All-time stored rows and distinct KST days for one source. */
 function retainedQuery(id: SourceId, userId: string): SQL {
   const of = (table: SQL, at: SQL, where: SQL = sql`true`) =>
@@ -62,7 +89,7 @@ function retainedQuery(id: SourceId, userId: string): SQL {
     case "withings":
       return of(sql`body_measurements`, sql`measured_at`);
     case "health":
-      return of(sql`health_samples`, sql`sample_at`);
+      return of(sql`health_samples`, sql`sample_at`, healthObservationSql());
     case "kis":
       return sql`SELECT count(*)::int AS count, count(DISTINCT s.as_of_date)::int AS days
         FROM holding_snapshots s JOIN brokerage_accounts a ON a.id = s.account_id
@@ -193,7 +220,7 @@ export async function getDataStatus(
       UNION ALL SELECT 'toss', ${notificationLogs.receivedAt} FROM ${notificationLogs} WHERE ${notificationLogs.userId} = ${userId} AND ${notificationLogs.source} = 'toss' AND ${notificationLogs.receivedAt} >= ${startUtc}::timestamp AND ${notificationLogs.receivedAt} < ${endUtc}::timestamp
       UNION ALL SELECT 'wakatime', ${codingSessions.startedAt} FROM ${codingSessions} WHERE ${codingSessions.userId} = ${userId} AND ${codingSessions.startedAt} >= ${startUtc}::timestamp AND ${codingSessions.startedAt} < ${endUtc}::timestamp
       UNION ALL SELECT 'withings', ${bodyMeasurements.measuredAt} FROM ${bodyMeasurements} WHERE ${bodyMeasurements.userId} = ${userId} AND ${bodyMeasurements.measuredAt} >= ${startUtc}::timestamp AND ${bodyMeasurements.measuredAt} < ${endUtc}::timestamp
-      UNION ALL SELECT 'health', ${healthSamples.sampleAt} FROM ${healthSamples} WHERE ${healthSamples.userId} = ${userId} AND ${healthSamples.sampleAt} >= ${startUtc}::timestamp AND ${healthSamples.sampleAt} < ${endUtc}::timestamp
+      UNION ALL SELECT 'health', ${healthSamples.sampleAt} FROM ${healthSamples} WHERE ${healthSamples.userId} = ${userId} AND ${healthSamples.sampleAt} >= ${startUtc}::timestamp AND ${healthSamples.sampleAt} < ${endUtc}::timestamp AND ${healthObservationSql(sql`${healthSamples.source}`, sql`${healthSamples.metric}`)}
       UNION ALL SELECT 'kis', (${holdingSnapshots.asOfDate}::date::timestamp - interval '9 hours') FROM ${holdingSnapshots} INNER JOIN ${brokerageAccounts} ON ${holdingSnapshots.accountId} = ${brokerageAccounts.id} WHERE ${brokerageAccounts.userId} = ${userId} AND ${holdingSnapshots.asOfDate} >= ${from} AND ${holdingSnapshots.asOfDate} <= ${to}
     ) SELECT source, ${localDaySql(sql`occurred`)}::text AS date, count(*)::int AS count, to_char(max(occurred), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastRecordAt" FROM observations GROUP BY 1, 2 ORDER BY 2
   `),

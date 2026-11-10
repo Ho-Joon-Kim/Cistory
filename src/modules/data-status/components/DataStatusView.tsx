@@ -826,7 +826,7 @@ function SourceRow({
               <span className="text-sm leading-5 font-semibold">{view.name}</span>
               <span
                 className={cn(
-                  "text-xs leading-4 lg:truncate",
+                  "text-xs leading-4 text-pretty",
                   sub.tone === "gain"
                     ? "text-gain"
                     : sub.tone === "warn"

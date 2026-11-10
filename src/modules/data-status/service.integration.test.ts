@@ -132,6 +132,42 @@ describe("data collection status and recovery against PostgreSQL", () => {
     expect(status.sources.find((s) => s.id === "github")!.retained).toBeNull();
   });
 
+  it("ignores day-anchored health rollups for last record, day counts and retained totals", async () => {
+    const id = await insertTestUser(db);
+    // needs_reauth ⇒ the source needs attention, so the all-time retained count runs too.
+    await db.insert(schema.healthConnections).values({
+      userId: id,
+      accessTokenEnc: "fixture-enc",
+      refreshTokenEnc: "fixture-enc",
+      status: "needs_reauth",
+    });
+    const sample = (metric: string, source: string, at: string) => ({
+      userId: id,
+      metric,
+      source,
+      sampleAt: new Date(at),
+      value: 1,
+    });
+    await db.insert(schema.healthSamples).values([
+      // Real measurements: the latest is 2026-09-07 10:08 KST (01:08 UTC).
+      sample("heart_rate", "FITBIT", "2026-09-06T23:00:00Z"),
+      sample("heart_rate", "FITBIT", "2026-09-07T01:08:00Z"),
+      // Day anchors at 12:00 KST (03:00 UTC): synthetic, not measurement times.
+      sample("total_calories", "rollup:google-wearables", "2026-09-07T03:00:00Z"),
+      sample("total_calories", "rollup:google-wearables", "2026-09-05T03:00:00Z"),
+      sample("resting_heart_rate", "FITBIT", "2026-09-07T03:00:00Z"),
+    ]);
+    const status = await getDataStatus(db, id, "2026-09-05", "2026-09-07", now);
+    const health = status.sources.find((s) => s.id === "health")!;
+    expect(health.lastRecordAt).toBe("2026-09-07T01:08:00.000Z");
+    expect(health.days.map((d) => [d.date, d.count])).toEqual([
+      ["2026-09-05", 0],
+      ["2026-09-06", 0],
+      ["2026-09-07", 2],
+    ]);
+    expect(health.retained).toEqual({ count: 2, days: 1 });
+  });
+
   it("serializes duplicate enqueue requests and claims a day only once", async () => {
     const id = await user();
     const results = await Promise.allSettled([enqueue(id), enqueue(id)]);
