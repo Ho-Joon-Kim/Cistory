@@ -99,7 +99,7 @@ describe("buildSourceView", () => {
     const view = buildSourceView(source("health", counts), NOW);
     expect(view.gaps).toEqual(["2026-11-03", "2026-11-04", "2026-11-07"]);
     expect(view.cells.at(-1)?.kind).toBe("none");
-    expect(rowSubline(view, NOW).text).toBe("공백 3일 · 11월 3일–4일, 7일");
+    expect(rowSubline(view, NOW).text).toBe("공백 3일 · 11월\u00A03일–4일, 7일");
     expect(recoveryRange(view)).toEqual({ from: "2026-11-03", to: "2026-11-07" });
   });
 
@@ -157,7 +157,7 @@ describe("facts", () => {
 
   it("formats gap runs compactly", () => {
     expect(formatDateRuns(["2026-10-17", "2026-10-18", "2026-10-19", "2026-10-22"], NOW)).toBe(
-      "10월 17일–19일, 22일"
+      "10월\u00A017일–19일, 22일"
     );
   });
 });

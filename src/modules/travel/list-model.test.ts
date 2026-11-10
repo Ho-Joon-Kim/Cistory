@@ -52,7 +52,7 @@ describe("formatting helpers", () => {
   it("labels stays, ranges and destinations", () => {
     expect(stayLabel("2026-09-23", "2026-09-25")).toBe("2박 3일");
     expect(stayLabel("2026-09-23", "2026-09-23")).toBe("당일");
-    expect(rangeLabel("2025-11-12", "2025-11-15")).toBe("11월 12일–15일");
+    expect(rangeLabel("2025-11-12", "2025-11-15")).toBe("11월\u00A012일–15일");
     expect(rangeWithWeekdays("2026-03-26", "2026-03-30")).toBe("3월 26일 (목)–30일 (월)");
     expect(destinationOf({ name: "대전 여행" })).toBe("대전");
     expect(destinationOf({ name: "여름 휴가" })).toBe("여름 휴가");

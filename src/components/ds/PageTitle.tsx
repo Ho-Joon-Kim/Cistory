@@ -45,10 +45,10 @@ export function PageTitle({
   return (
     <div className={cn("flex flex-wrap items-end justify-between gap-x-6 gap-y-4", className)}>
       <div className="flex min-w-0 flex-col gap-1">
-        <h1 className="m-0 font-serif text-[26px] leading-[34px] font-bold tracking-[-0.02em] text-ink sm:text-[32px] sm:leading-10">
+        <h1 className="m-0 font-serif text-[1.625rem] leading-[2.125rem] font-bold tracking-[-0.02em] text-ink sm:text-[2rem] sm:leading-10">
           {title}
         </h1>
-        {meta ? <div className="text-sm leading-[22px] text-ink-2">{meta}</div> : null}
+        {meta ? <div className="text-sm leading-[1.375rem] text-ink-2">{meta}</div> : null}
       </div>
       {actions ? <div className="flex w-full items-center gap-2 sm:w-auto">{actions}</div> : null}
     </div>
@@ -74,7 +74,7 @@ export function MetaLine({
     <p
       className={cn(
         "m-0",
-        size === "md" ? "text-sm leading-[22px] text-ink-2" : "text-xs leading-4 text-ink-3",
+        size === "md" ? "text-sm leading-[1.375rem] text-ink-2" : "text-xs leading-4 text-ink-3",
         className
       )}
     >

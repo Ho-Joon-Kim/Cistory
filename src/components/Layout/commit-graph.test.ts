@@ -13,7 +13,7 @@ describe("commit graph", () => {
       date: `2026-10-${String(i + 11).padStart(2, "0")}`.replace("2026-10-32", "2026-11-01"),
       count: 0,
     }));
-    stats[10].count = 605; // 10월 21일
+    stats[10].count = 605; // 10월\u00A021일
     stats[2].count = 196;
     stats[29] = { date: "2026-11-09", count: 22 };
     const bars = commitGraphBars(stats, "2026-11-09", NOW);
@@ -26,9 +26,9 @@ describe("commit graph", () => {
     const today = bars[bars.length - 1];
     expect(today.isToday).toBe(true);
     expect(today.height).toBe("19%");
-    expect(today.tip).toBe("11월 9일 · 커밋 22");
+    expect(today.tip).toBe("11월\u00A09일 · 커밋 22");
     expect(commitGraphLabel(bars, NOW)).toBe(
-      "최근 28일 커밋 823건 · 하루 최고 10월 21일 605건 · 오늘 22건"
+      "최근 28일 커밋 823건 · 하루 최고 10월\u00A021일 605건 · 오늘 22건"
     );
   });
 

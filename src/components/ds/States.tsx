@@ -31,8 +31,12 @@ export function EmptyState({
           {icon}
         </span>
       ) : null}
-      <span className="text-[15px] leading-[22px] font-semibold text-ink">{titleText(title)}</span>
-      {description ? <span className="text-[13px] leading-5 text-ink-2">{description}</span> : null}
+      <span className="text-[0.9375rem] leading-[1.375rem] font-semibold text-ink">
+        {titleText(title)}
+      </span>
+      {description ? (
+        <span className="text-[0.8125rem] leading-5 text-ink-2">{description}</span>
+      ) : null}
       {action ? <div className="mt-1 flex gap-2">{action}</div> : null}
     </div>
   );
@@ -77,7 +81,7 @@ export function ErrorState({
   }
   return (
     <div role="alert" className={cn("flex flex-col items-start gap-2.5", className)}>
-      <span className="flex items-center gap-2 text-[15px] leading-[22px] font-semibold text-danger">
+      <span className="flex items-center gap-2 text-[0.9375rem] leading-[1.375rem] font-semibold text-danger">
         <svg
           aria-hidden="true"
           width="16"
@@ -95,7 +99,7 @@ export function ErrorState({
         {shownTitle}
       </span>
       {shownDescription ? (
-        <span className="text-[13px] leading-5 text-ink-2">{shownDescription}</span>
+        <span className="text-[0.8125rem] leading-5 text-ink-2">{shownDescription}</span>
       ) : null}
       {actions ? <div className="mt-1 flex flex-wrap gap-2">{actions}</div> : null}
     </div>

@@ -175,11 +175,13 @@ describe("labels", () => {
   it("titles and meta for an ended month and a running year", () => {
     const month = periodContext("month", "2026-10", TODAY, NOW);
     expect(periodTitle(month)).toBe("2026년 10월");
-    expect(periodMeta(month, "2026-10-31T15:00:00Z")).toBe("10월 1일–31일 · 11월 1일 00:00 집계");
+    expect(periodMeta(month, "2026-10-31T15:00:00Z")).toBe(
+      "10월\u00A01일–31일 · 11월\u00A01일 00:00 집계"
+    );
     expect(month.previousLabel).toBe("9월");
     const year = periodContext("year", "2026", TODAY, NOW);
     expect(year.inProgress).toBe(true);
-    expect(periodMeta(year, null)).toBe("1월 1일–11월 10일 · 진행 중");
+    expect(periodMeta(year, null)).toBe("1월\u00A01일–11월\u00A010일 · 진행 중");
     expect(periodContext("week", "2026-W46", TODAY, NOW).label).toBe("이번 주");
     expect(periodContext("month", "2026-01", TODAY, NOW).previousLabel).toBe("2025년 12월");
   });
@@ -232,16 +234,16 @@ describe("buildOverviewModel", () => {
   it("renders template-first AI lines with exactly one fact", () => {
     const { hero, asset, details } = model();
     expect(renderTemplate(hero.commits?.fact ?? fail()).text).toBe(
-      "커밋의 59%가 10월 18일–22일 닷새에 몰렸어요."
+      "커밋의 59%가 10월\u00A018일–22일 닷새에 몰렸어요."
     );
     expect(renderTemplate(hero.savings?.fact ?? fail()).text).toBe(
-      "수입의 70%는 10월 2일 하루 입금이에요 — 이를 빼면 −168.8만원."
+      "수입의 70%는 10월\u00A02일 하루 입금이에요 — 이를 빼면 −168.8만원."
     );
     expect(renderTemplate(hero.body.weight?.fact ?? fail()).text).toBe(
-      "9월 6일 정점 90.5kg 이후 내림세 — 정점보다 4.2kg 낮아요."
+      "9월\u00A06일 정점 90.5kg 이후 내림세 — 정점보다 4.2kg 낮아요."
     );
     expect(renderTemplate(asset?.fact ?? fail()).text).toBe(
-      "10월 23일 저점 5,088만원에서 월말까지 2.9% 회복했어요."
+      "10월\u00A023일 저점 5,088만원에서 월말까지 2.9% 회복했어요."
     );
     const category = details.find((t) => t.id === "category");
     expect(renderTemplate(category?.fact ?? fail()).text).toBe(

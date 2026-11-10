@@ -33,7 +33,7 @@ export function FactPopover({
   return (
     <div
       className={cn(
-        "w-80 max-w-[min(calc(100vw-32px),var(--fact-pop-max,100vw))] rounded-xl bg-surface px-4 py-3.5 font-sans text-xs leading-[18px] font-normal tracking-normal text-ink shadow-pop",
+        "w-80 max-w-[min(calc(100vw-32px),var(--fact-pop-max,100vw))] rounded-xl bg-surface px-4 py-3.5 font-sans text-xs leading-[1.125rem] font-normal tracking-normal text-ink shadow-pop",
         className
       )}
     >

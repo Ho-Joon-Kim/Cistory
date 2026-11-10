@@ -57,7 +57,7 @@ export function Sheet({
             target.focus({ preventScroll: true });
           }}
           className={cn(
-            "fixed inset-x-0 bottom-0 z-50 flex max-h-[calc(100dvh-48px)] flex-col gap-3.5 overflow-y-auto overscroll-contain rounded-t-sheet bg-surface px-4 pt-2 pb-[max(20px,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgb(0_0_0/0.12)] outline-none",
+            "fixed inset-x-0 bottom-0 z-50 flex max-h-[calc(100dvh-48px)] flex-col gap-3.5 overflow-y-auto overscroll-contain rounded-t-sheet bg-surface px-4 pt-2 pb-[max(20px,env(safe-area-inset-bottom))] shadow-sheet outline-none",
             "data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom-2 data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-2 data-[state=open]:fade-in-0",
             "sm:inset-x-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-[420px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-sheet sm:pt-5 sm:shadow-pop",
             className
@@ -65,11 +65,11 @@ export function Sheet({
         >
           <span aria-hidden="true" className="h-1 w-9 self-center rounded-full bg-line sm:hidden" />
           <div className="flex flex-col gap-1">
-            <DialogPrimitive.Title className="m-0 text-[17px] leading-6 font-semibold text-ink">
+            <DialogPrimitive.Title className="m-0 text-[1.0625rem] leading-6 font-semibold text-ink">
               {title}
             </DialogPrimitive.Title>
             {description ? (
-              <DialogPrimitive.Description className="m-0 text-[13px] leading-5 text-ink-2">
+              <DialogPrimitive.Description className="m-0 text-[0.8125rem] leading-5 text-ink-2">
                 {description}
               </DialogPrimitive.Description>
             ) : null}

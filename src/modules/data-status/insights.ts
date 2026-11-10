@@ -194,7 +194,7 @@ export function formatDateRuns(dates: string[], now: Date = new Date()): string 
       previousMonth = to.slice(0, 7);
       const text = from === to ? formatMonthDay(from, { now }) : formatDateRange(from, to, { now });
       // Drop the repeated month: "10월 17–19일, 22일".
-      return sameMonthAsPrev ? text.replace(/^(\d+년 )?\d+월 /, "") : text;
+      return sameMonthAsPrev ? text.replace(/^(\d+년\s)?\d+월\s/, "") : text;
     })
     .join(", ");
 }

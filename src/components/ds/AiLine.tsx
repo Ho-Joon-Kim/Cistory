@@ -1,11 +1,58 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Children, isValidElement, type ReactNode } from "react";
 import { factRows, renderTemplate } from "@/lib/facts/template";
 import type { Fact, FactEvidence, FactRow } from "@/lib/facts/types";
 import { cn } from "@/lib/utils";
 import { useEvidence, useEvidenceTrigger } from "./evidence";
 import { FactTrigger } from "./FactTrigger";
+
+/** The particle or punctuation glued to the end of a fact ("은", ")이에요."). */
+const GLUE_AFTER = /^[^\s]+/;
+/** An opening bracket or quote glued to the start of a fact ("(" in "작업(chore 13건"). */
+const GLUE_BEFORE = /[([{“‘"'「『]+$/;
+
+/** Cuts the glued run off `nodes[at]` (a string) and returns it. */
+function takeGlue(nodes: ReactNode[], at: number, re: RegExp, side: "start" | "end"): string {
+  const text = nodes[at];
+  if (typeof text !== "string") return "";
+  const glue = text.match(re)?.[0] ?? "";
+  if (glue) nodes[at] = side === "end" ? text.slice(0, -glue.length) : text.slice(glue.length);
+  return glue;
+}
+
+/**
+ * Wraps each fact trigger with the text glued to it in a no-wrap span. The
+ * trigger is a `<button>` (atomic inline), so the line could otherwise break
+ * right after it and strand "은" or ")이에요." at the start of the next line.
+ */
+export function glueFacts(nodes: ReactNode[], isFact: (node: ReactNode) => boolean): ReactNode[] {
+  const rest = [...nodes];
+  const out: ReactNode[] = [];
+  rest.forEach((node, i) => {
+    if (!isFact(node)) {
+      out.push(node);
+      return;
+    }
+    const before = takeGlue(out, out.length - 1, GLUE_BEFORE, "end");
+    const after = takeGlue(rest, i + 1, GLUE_AFTER, "start");
+    out.push(
+      before || after ? (
+        // biome-ignore lint/suspicious/noArrayIndexKey: positional, like the segments
+        <span key={`fact-${i}`} className="whitespace-nowrap">
+          {before}
+          {node}
+          {after}
+        </span>
+      ) : (
+        node
+      )
+    );
+  });
+  return out;
+}
+
+const isFactTrigger = (node: ReactNode) => isValidElement(node) && node.type === FactTrigger;
 
 /**
  * One line of interpretation attached to its host (6px under it): serif 500,
@@ -60,29 +107,31 @@ export function AiLine({
   const lit = scoped && active !== null && active === ownEvidence;
   if (!fact && !children) return null;
 
-  let content: ReactNode = children;
+  let content: ReactNode = glueFacts(Children.toArray(children), isFactTrigger);
   if (fact) {
     const rendered = renderTemplate(fact);
     const popRows = rows ?? factRows(fact);
-    content = rendered.segments.map((segment, i) =>
-      segment.type === "fact" ? (
-        <FactTrigger
-          // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
-          key={i}
-          rows={popRows}
-          title={title}
-          note={note}
-          numeric={rendered.numeric}
-          align={align}
-          side={side}
-          evidence={fact.evidence}
-        >
-          {segment.text}
-        </FactTrigger>
-      ) : (
-        // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
-        <span key={i}>{segment.text}</span>
-      )
+    content = glueFacts(
+      rendered.segments.map((segment, i) =>
+        segment.type === "fact" ? (
+          <FactTrigger
+            // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+            key={i}
+            rows={popRows}
+            title={title}
+            note={note}
+            numeric={rendered.numeric}
+            align={align}
+            side={side}
+            evidence={fact.evidence}
+          >
+            {segment.text}
+          </FactTrigger>
+        ) : (
+          segment.text
+        )
+      ),
+      isFactTrigger
     );
   }
 

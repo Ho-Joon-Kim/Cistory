@@ -140,6 +140,9 @@ function currentYear(now: Date): number {
   return dayParts(now).year;
 }
 
+/** Joins the parts of one date (`11월 9일`) so `word-break: keep-all` never splits it. */
+const NBSP = "\u00A0";
+
 export interface DateFormatOptions {
   /** Reference "now" for omitting the current year. Defaults to `new Date()`. */
   now?: Date;
@@ -151,7 +154,7 @@ export interface DateFormatOptions {
 export function formatDay(input: DateInput, options: DateFormatOptions = {}): string {
   const { year, month, day, weekday } = dayParts(input);
   const showYear = year !== currentYear(options.now ?? new Date());
-  const base = `${showYear ? `${year}년 ` : ""}${month}월 ${day}일`;
+  const base = `${showYear ? `${year}년${NBSP}` : ""}${month}월${NBSP}${day}일`;
   return options.weekday === false ? base : `${base} (${weekday})`;
 }
 
@@ -177,11 +180,11 @@ export function formatDateRange(
     return formatMonthDay(from, options);
   }
   if (a.year !== b.year) {
-    return `${a.year}년 ${a.month}월 ${a.day}일–${b.year}년 ${b.month}월 ${b.day}일`;
+    return `${a.year}년${NBSP}${a.month}월${NBSP}${a.day}일–${b.year}년${NBSP}${b.month}월${NBSP}${b.day}일`;
   }
-  const yearPrefix = a.year !== thisYear ? `${a.year}년 ` : "";
-  if (a.month === b.month) return `${yearPrefix}${a.month}월 ${a.day}일–${b.day}일`;
-  return `${yearPrefix}${a.month}월 ${a.day}일–${b.month}월 ${b.day}일`;
+  const yearPrefix = a.year !== thisYear ? `${a.year}년${NBSP}` : "";
+  if (a.month === b.month) return `${yearPrefix}${a.month}월${NBSP}${a.day}일–${b.day}일`;
+  return `${yearPrefix}${a.month}월${NBSP}${a.day}일–${b.month}월${NBSP}${b.day}일`;
 }
 
 const timeFormatter = new Intl.DateTimeFormat("en-GB", {

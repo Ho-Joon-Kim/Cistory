@@ -148,7 +148,16 @@ describe("navLeftFadeFor", () => {
     expect(navLeftFadeFor({ items, scrollLeft: 89 })).toEqual({ clear: 0, fade: 31 });
   });
   it("clears a label sliced at the end of the scroll range (390 /search: '라인')", () => {
-    // 타임라인 at −36…36 on screen: its label ends at 24 → clear 24, ramp to 36.
-    expect(navLeftFadeFor({ items, scrollLeft: 52 })).toEqual({ clear: 24, fade: 36 });
+    // 타임라인 at −36…36 on screen: its label ends at 24 → clear 24; 개요's label
+    // starts at 50, so the ramp runs 18px into it (68) and the cue stays visible.
+    expect(navLeftFadeFor({ items, scrollLeft: 52 })).toEqual({ clear: 24, fade: 68 });
+  });
+  it("fades into the next label after a thin cleared sliver (320 /search)", () => {
+    // 15px of the cut label shows (cleared); the next label starts at 31 → ramp to 49.
+    const strip = [
+      { left: 100, width: 50 },
+      { left: 142, width: 40 },
+    ];
+    expect(navLeftFadeFor({ items: strip, scrollLeft: 123 })).toEqual({ clear: 15, fade: 49 });
   });
 });

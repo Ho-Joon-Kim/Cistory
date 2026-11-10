@@ -35,11 +35,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Cistory - GitHub Commit Timeline",
+    default: "Cistory · 나의 기록",
     template: "%s | Cistory",
   },
-  description:
-    "GitHub 커밋 히스토리를 AI 요약과 함께 타임라인으로 시각화합니다. 기술자와 비기술자 모두를 위한 커밋 이해.",
+  description: "커밋, 이동, 소비, 건강 기록을 한곳에 모아 하루와 기간을 돌아봐요.",
   keywords: ["GitHub", "커밋", "타임라인", "AI 요약", "개발자 도구", "버전 관리"],
   authors: [{ name: "Cistory Team" }],
   creator: "Cistory",
@@ -47,14 +46,14 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "ko_KR",
-    title: "Cistory - GitHub Commit Timeline",
-    description: "GitHub 커밋 히스토리를 AI 요약과 함께 타임라인으로 시각화",
+    title: "Cistory · 나의 기록",
+    description: "커밋, 이동, 소비, 건강 기록을 한곳에 모아 하루와 기간을 돌아봐요.",
     siteName: "Cistory",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Cistory - GitHub Commit Timeline",
-    description: "GitHub 커밋 히스토리를 AI 요약과 함께 타임라인으로 시각화",
+    title: "Cistory · 나의 기록",
+    description: "커밋, 이동, 소비, 건강 기록을 한곳에 모아 하루와 기간을 돌아봐요.",
   },
   robots: {
     index: true,

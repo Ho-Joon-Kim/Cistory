@@ -139,7 +139,7 @@ describe("resting heart rate", () => {
   it("phrases the run", () => {
     const fact = rhrFact(view);
     expect(renderTemplate(fact!).text).toBe(
-      "10월 29일 65부터 한 번도 오르지 않고 11일 동안 −6bpm 내려왔어요."
+      "10월\u00A029일 65부터 한 번도 오르지 않고 11일 동안 −6bpm 내려왔어요."
     );
     expect(fact?.evidence).toEqual({
       kind: "keys",

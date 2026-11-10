@@ -84,7 +84,7 @@ export function HeroNumber(props: NumberProps) {
   return (
     <span
       className={cn(
-        "num text-[36px] leading-10 font-medium text-ink sm:text-[48px] sm:leading-[52px]",
+        "num text-[2.25rem] leading-10 font-medium text-ink sm:text-[3rem] sm:leading-[3.25rem]",
         props.className
       )}
     >
@@ -97,7 +97,7 @@ export function HeroNumber(props: NumberProps) {
 /** Secondary figures: Geist Mono 500 22/28, unit at 0.6em in --ink3. */
 export function SecondaryNumber(props: NumberProps) {
   return (
-    <span className={cn("num text-[22px] leading-7 font-medium text-ink", props.className)}>
+    <span className={cn("num text-[1.375rem] leading-7 font-medium text-ink", props.className)}>
       {renderValue(props)}
       <Unit unit={props.unit} size={props.unitSize} className="ml-0.5 text-[0.6em] text-ink-3" />
     </span>

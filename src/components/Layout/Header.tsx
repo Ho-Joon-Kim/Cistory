@@ -2,8 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type FocusEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { prefersReducedMotion } from "@/lib/hooks/usePrefersReducedMotion";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "@/modules/auth/components/UserMenu";
 import { CommitGraph } from "./CommitGraph";
@@ -58,6 +66,34 @@ export function Header({ onSyncStarted }: HeaderProps) {
     nav.style.setProperty("--nav-clear-left", `${left.clear}px`);
   }, []);
 
+  /** Where the strip must scroll so `pill` clears both edge fades (or stays put). */
+  const scrollLeftToShow = useCallback((nav: HTMLElement, pill: HTMLElement) => {
+    return navScrollLeftFor({
+      itemLeft:
+        pill.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft,
+      itemWidth: pill.offsetWidth,
+      viewportWidth: nav.clientWidth,
+      scrollWidth: nav.scrollWidth,
+      scrollLeft: nav.scrollLeft,
+      items: navPills(nav),
+    });
+  }, []);
+
+  // Keyboard focus on a pill hidden under an edge fade (or past the edge) brings
+  // it into view — the browser's own focus scroll leaves a partly visible pill
+  // under the mask. Instant under reduced motion.
+  const onNavFocus = useCallback(
+    (event: FocusEvent<HTMLElement>) => {
+      const nav = navRef.current;
+      const pill = event.target;
+      if (!nav || !(pill instanceof HTMLElement) || nav.scrollWidth <= nav.clientWidth) return;
+      const left = scrollLeftToShow(nav, pill);
+      if (Math.abs(left - nav.scrollLeft) < 1) return;
+      nav.scrollTo({ left, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    },
+    [scrollLeftToShow]
+  );
+
   // Mobile: the pill strip scrolls horizontally; bring the current page's pill
   // into view with the least movement (no-op on PC, where the strip doesn't
   // overflow, and for pills that already show — the strip starts at the first tab).
@@ -66,15 +102,7 @@ export function Header({ onSyncStarted }: HeaderProps) {
     const nav = navRef.current;
     const active = nav?.querySelector<HTMLElement>('a[aria-current="page"]');
     if (nav && active && nav.scrollWidth > nav.clientWidth) {
-      nav.scrollLeft = navScrollLeftFor({
-        itemLeft:
-          active.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft,
-        itemWidth: active.offsetWidth,
-        viewportWidth: nav.clientWidth,
-        scrollWidth: nav.scrollWidth,
-        scrollLeft: nav.scrollLeft,
-        items: navPills(nav),
-      });
+      nav.scrollLeft = scrollLeftToShow(nav, active);
     }
     syncEdges();
   }, [pathname]);
@@ -95,55 +123,60 @@ export function Header({ onSyncStarted }: HeaderProps) {
       >
         본문으로 건너뛰기
       </a>
-      <header className="relative z-50 shrink-0 border-b border-line bg-page">
-        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center lg:h-16 lg:flex-nowrap lg:gap-6 lg:px-page">
-          <span className="flex h-[52px] shrink-0 items-center gap-2.5 pl-4 lg:h-auto lg:gap-3.5 lg:pl-0">
-            <Link
-              href="/dashboard"
-              className="rounded-sm font-serif text-lg font-bold tracking-[-0.02em] text-ink lg:text-xl"
-            >
-              Cistory
-            </Link>
-            <CommitGraph />
-          </span>
-
-          <nav
-            ref={navRef}
-            aria-label="주요 메뉴"
-            onScroll={syncEdges}
-            data-fade-left={edges.left ? "" : undefined}
-            data-fade-right={edges.right ? "" : undefined}
-            style={{ "--nav-fade": `${NAV_FADE_PX}px` } as CSSProperties}
-            className="ds-nav-strip order-last flex h-11 w-full items-center gap-0.5 overflow-x-auto px-4 [scrollbar-width:none] lg:order-none lg:h-auto lg:w-auto lg:gap-0.5 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden"
-          >
-            {HEADER_NAV_ITEMS.map((item) => {
-              const active = isNavItemActive(pathname, item.href);
-              return (
-                <Link
-                  key={item.id}
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "relative inline-flex h-8 flex-none items-center whitespace-nowrap rounded-lg px-3 text-sm transition-[background-color,color] duration-150 ease-out focus-ring focus-visible:outline-offset-0",
-                    // 44px tall hit area on the mobile strip (the strip itself is 44).
-                    "after:absolute after:inset-x-0 after:-inset-y-1.5 lg:after:hidden",
-                    active
-                      ? "bg-brand-soft font-semibold text-ink"
-                      : "font-medium text-ink-2 hover:bg-track hover:text-ink"
-                  )}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="ds-appbar-actions ml-auto flex items-center gap-2 pr-3 lg:gap-1 lg:pr-0">
-            <HeaderSync onSyncStarted={onSyncStarted} />
-            <ThemeToggle />
-            <span className="inline-flex size-9 items-center justify-center lg:ml-1.5">
-              <UserMenu />
+      {/* The bottom hairline runs full-bleed on phones and inside the content
+          container from lg (96–1344 at 1440), as in the mocks. */}
+      <header className="relative z-50 shrink-0 border-b border-line bg-page lg:border-b-0">
+        <div className="mx-auto max-w-[1440px] lg:px-page">
+          <div className="flex flex-wrap items-center lg:h-16 lg:flex-nowrap lg:gap-6 lg:border-b lg:border-line lg:box-content">
+            <span className="flex h-[52px] shrink-0 items-center gap-2.5 pl-4 lg:h-auto lg:gap-3.5 lg:pl-0">
+              <Link
+                href="/dashboard"
+                className="rounded-sm font-serif text-lg font-bold tracking-[-0.02em] text-ink lg:text-xl"
+              >
+                Cistory
+              </Link>
+              <CommitGraph />
             </span>
+
+            <nav
+              ref={navRef}
+              aria-label="주요 메뉴"
+              onScroll={syncEdges}
+              onFocus={onNavFocus}
+              data-fade-left={edges.left ? "" : undefined}
+              data-fade-right={edges.right ? "" : undefined}
+              style={{ "--nav-fade": `${NAV_FADE_PX}px` } as CSSProperties}
+              className="ds-nav-strip order-last flex h-11 w-full items-center gap-0.5 overflow-x-auto px-4 [scrollbar-width:none] lg:order-none lg:h-auto lg:w-auto lg:gap-0.5 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden"
+            >
+              {HEADER_NAV_ITEMS.map((item) => {
+                const active = isNavItemActive(pathname, item.href);
+                return (
+                  <Link
+                    key={item.id}
+                    href={item.href}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "relative inline-flex h-8 flex-none items-center whitespace-nowrap rounded-lg px-3 text-sm transition-[background-color,color] duration-150 ease-out focus-ring focus-visible:outline-offset-0",
+                      // 44px tall hit area on the mobile strip (the strip itself is 44).
+                      "after:absolute after:inset-x-0 after:-inset-y-1.5 lg:after:hidden",
+                      active
+                        ? "bg-brand-soft font-semibold text-ink"
+                        : "font-medium text-ink-2 hover:bg-track hover:text-ink"
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <div className="ds-appbar-actions ml-auto flex items-center gap-2 pr-3 lg:gap-1 lg:pr-0">
+              <HeaderSync onSyncStarted={onSyncStarted} />
+              <ThemeToggle />
+              <span className="inline-flex size-9 items-center justify-center lg:ml-1.5">
+                <UserMenu />
+              </span>
+            </div>
           </div>
         </div>
       </header>

@@ -97,10 +97,10 @@ describe("concentration", () => {
     expect(fact.detail!.windowTo).toBe("2026-10-22");
     expect(fact.value).toBeCloseTo(1961 / 4673, 4);
     expect(fact.score).toBeGreaterThan(0.6);
-    expect(text(fact)).toBe("그중 42%(1,961건)가 10월 18일–22일에 몰렸어요.");
+    expect(text(fact)).toBe("그중 42%(1,961건)가 10월\u00A018일–22일에 몰렸어요.");
     expect(fact.evidence).toEqual({ kind: "range", from: "2026-10-18", to: "2026-10-22" });
     expect(factRows(fact)).toEqual([
-      { label: "10월 18일–22일 합", value: "1,961건" },
+      { label: "10월\u00A018일–22일 합", value: "1,961건" },
       { label: "10월 합", value: "4,673건" },
       { label: "비중", value: "42%" },
     ]);
@@ -297,8 +297,8 @@ describe("templates", () => {
       ["65bpm", true],
       ["12,363,000원", true],
       ["3,330건", true],
-      ["3월 2일", false],
-      ["9월 6일 이후", false],
+      ["3월\u00A02일", false],
+      ["9월\u00A06일 이후", false],
       ["17:00", false],
       ["평소보다 짧게", false],
     ] as const) {

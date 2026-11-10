@@ -132,5 +132,18 @@ export function navLeftFadeFor({
     return { clear: 0, fade: Math.max(NAV_FADE_PX, fade) };
   }
   const clear = Math.min(NAV_FADE_MAX_PX - pad, labelEnd);
-  return { clear, fade: Math.max(NAV_FADE_PX, clear + pad) };
+  // The cleared sliver hides the cut word, but its trailing padding is empty, so
+  // the ramp also reaches into the next label — otherwise nothing visibly fades
+  // and the hidden pills to the left have no cue (390/320 /search).
+  const next = items[items.indexOf(cut as (typeof items)[number]) + 1];
+  const intoNext = next
+    ? Math.min(
+        NAV_FADE_INTO_MAX_PX,
+        Math.round(next.left + pad - scrollLeft + NAV_FADE_INTO_LABEL_PX)
+      )
+    : 0;
+  return { clear, fade: Math.max(NAV_FADE_PX, clear + pad, intoNext) };
 }
+
+/** Widest the left ramp grows when it starts after a cleared sliver. */
+export const NAV_FADE_INTO_MAX_PX = 72;

@@ -24,7 +24,7 @@ function SyncText({ short = false }: { short?: boolean }) {
   if (status.hasActiveSync) {
     const progress = status.activeJobs[0]?.progress ?? 0;
     return (
-      <span className="mr-1.5 text-[13px] text-ink-3" aria-live={short ? undefined : "polite"}>
+      <span className="mr-1.5 text-[0.8125rem] text-ink-3" aria-live={short ? undefined : "polite"}>
         동기화 중{progress > 0 ? <span className="num"> {progress}%</span> : null}
       </span>
     );
@@ -33,7 +33,7 @@ function SyncText({ short = false }: { short?: boolean }) {
   const last = new Date(status.lastSyncTime);
   return (
     <span
-      className="mr-1.5 inline-flex items-center gap-1.5 text-[13px] text-ink-3"
+      className="mr-1.5 inline-flex items-center gap-1.5 text-[0.8125rem] text-ink-3"
       title={formatDateTime(last, { now })}
     >
       {/* The phone bar shows just the time, as in the mobile mocks. */}

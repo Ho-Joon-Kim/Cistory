@@ -82,23 +82,27 @@ describe("sign colors", () => {
 
 describe("dates", () => {
   it("formats a KST day with weekday and omits the current year", () => {
-    expect(formatDay("2026-11-09", { now: NOW })).toBe("11월 9일 (월)");
-    expect(formatDay("2025-03-09", { now: NOW })).toBe("2025년 3월 9일 (일)");
-    expect(formatMonthDay("2026-10-21", { now: NOW })).toBe("10월 21일");
+    expect(formatDay("2026-11-09", { now: NOW })).toBe("11월\u00A09일 (월)");
+    expect(formatDay("2025-03-09", { now: NOW })).toBe("2025년\u00A03월\u00A09일 (일)");
+    expect(formatMonthDay("2026-10-21", { now: NOW })).toBe("10월\u00A021일");
   });
 
   it("reads a Date as its KST calendar day", () => {
-    // 2026-11-08 16:30 UTC is already 11월 9일 in Seoul.
-    expect(formatDay(new Date("2026-11-08T16:30:00Z"), { now: NOW })).toBe("11월 9일 (월)");
+    // 2026-11-08 16:30 UTC is already 11월\u00A09일 in Seoul.
+    expect(formatDay(new Date("2026-11-08T16:30:00Z"), { now: NOW })).toBe("11월\u00A09일 (월)");
   });
 
   it("formats ranges", () => {
-    expect(formatDateRange("2026-10-11", "2026-11-09", { now: NOW })).toBe("10월 11일–11월 9일");
-    expect(formatDateRange("2026-10-01", "2026-10-31", { now: NOW })).toBe("10월 1일–31일");
-    expect(formatDateRange("2026-10-21", "2026-10-21", { now: NOW })).toBe("10월 21일");
-    expect(formatDateRange("2025-03-01", "2025-03-09", { now: NOW })).toBe("2025년 3월 1일–9일");
+    expect(formatDateRange("2026-10-11", "2026-11-09", { now: NOW })).toBe(
+      "10월\u00A011일–11월\u00A09일"
+    );
+    expect(formatDateRange("2026-10-01", "2026-10-31", { now: NOW })).toBe("10월\u00A01일–31일");
+    expect(formatDateRange("2026-10-21", "2026-10-21", { now: NOW })).toBe("10월\u00A021일");
+    expect(formatDateRange("2025-03-01", "2025-03-09", { now: NOW })).toBe(
+      "2025년\u00A03월\u00A01일–9일"
+    );
     expect(formatDateRange("2025-12-30", "2026-01-02", { now: NOW })).toBe(
-      "2025년 12월 30일–2026년 1월 2일"
+      "2025년\u00A012월\u00A030일–2026년\u00A01월\u00A02일"
     );
   });
 
@@ -106,7 +110,7 @@ describe("dates", () => {
     expect(formatTime(new Date("2026-11-09T12:28:11Z"))).toBe("21:28");
     expect(formatTime(new Date("2026-11-08T15:05:00Z"))).toBe("00:05");
     expect(formatDateTime(new Date("2026-09-06T08:00:00Z"), { now: NOW })).toBe(
-      "9월 6일 (일) 17:00"
+      "9월\u00A06일 (일) 17:00"
     );
   });
 

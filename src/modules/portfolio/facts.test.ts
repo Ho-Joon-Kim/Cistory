@@ -3,7 +3,7 @@ import { renderTemplate } from "@/lib/facts/template";
 import { chartFact, driftFact, euro, heroFact, holdingsFact, pp } from "./facts";
 import { computeDrift } from "./view-model";
 
-const asOf = { from: "2026-11-09", to: "2026-11-09", label: "11월 9일" };
+const asOf = { from: "2026-11-09", to: "2026-11-09", label: "11월\u00A09일" };
 const text = (f: ReturnType<typeof heroFact>) => (f ? renderTemplate(f).text : null);
 
 describe("particles", () => {
@@ -197,7 +197,7 @@ describe("driftFact", () => {
       accountLabel: "ISA",
       rows,
       base: 37_879_370,
-      targetsSetAt: "5월 11일",
+      targetsSetAt: "5월\u00A011일",
       asOf,
       recentBuys: [
         { date: "2026-10-27", ticker: "490090", amount: 573_800 },
@@ -205,7 +205,7 @@ describe("driftFact", () => {
       ],
     });
     expect(fact && renderTemplate(fact).text).toBe(
-      "10월 27일 매수 1,020,140원이 이미 목표를 넘은 미국AI빅테크10·미국S&P500에 들어갔어요. 가장 모자란 건 KRX금현물로, 48주(1,185,624원)를 사면 목표에 닿아요."
+      "10월\u00A027일 매수 1,020,140원이 이미 목표를 넘은 미국AI빅테크10·미국S&P500에 들어갔어요. 가장 모자란 건 KRX금현물로, 48주(1,185,624원)를 사면 목표에 닿아요."
     );
     expect(fact?.evidence).toEqual({
       kind: "keys",

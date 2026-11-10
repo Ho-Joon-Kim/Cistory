@@ -2,7 +2,7 @@
  * Design-system components (redesign v2). Tokens live in src/app/globals.css,
  * formatters in src/lib/format.ts, the fact framework in src/lib/facts.
  */
-export { AiLine } from "./AiLine";
+export { AiLine, glueFacts } from "./AiLine";
 export { CategoryMark, LedgerMark } from "./CategoryMark";
 export { ChartAnnotation } from "./ChartAnnotation";
 export {

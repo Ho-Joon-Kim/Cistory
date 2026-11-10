@@ -48,7 +48,7 @@ export function ShareRow({
       {...rest}
       data-evidence={evidence}
       className={cn(
-        "relative flex h-9 items-center justify-between gap-3 rounded-lg px-2.5 text-[13px]",
+        "relative flex h-9 items-center justify-between gap-3 rounded-lg px-2.5 text-[0.8125rem]",
         selected && "bg-sunken",
         className
       )}

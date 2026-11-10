@@ -75,7 +75,7 @@ export function Segmented<V extends string>({
             aria-label={item.ariaLabel}
             onClick={() => onChange(item.value)}
             className={cn(
-              "relative z-[1] h-[30px] cursor-pointer rounded-[7px] border-0 bg-transparent px-3 text-[13px] whitespace-nowrap transition-colors duration-150 ease-out focus-ring focus-visible:outline-offset-1",
+              "relative z-[1] h-[30px] cursor-pointer rounded-[7px] border-0 bg-transparent px-3 text-[0.8125rem] whitespace-nowrap transition-colors duration-150 ease-out focus-ring focus-visible:outline-offset-1",
               // 44px-tall hit area on phones and touch screens (thumb stays 30).
               "max-sm:tap-target pointer-coarse:tap-target",
               on ? "font-semibold text-ink" : "font-medium text-ink-2 hover:text-ink"
