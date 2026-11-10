@@ -25,5 +25,8 @@ export default defineConfig({
     url: "http://127.0.0.1:3210/login",
     timeout: 300_000,
     reuseExistingServer: false,
+    // Without this Playwright SIGKILLs the server tree, so browser-server.mjs never
+    // reaches its cleanup and leaves a ~700 MB temp copy behind on every run.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
   },
 });
