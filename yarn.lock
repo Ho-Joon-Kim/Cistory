@@ -3938,6 +3938,7 @@ __metadata:
     "@tanstack/react-query": "npm:^5.107.1"
     "@tensorflow/tfjs": "npm:4.22.0"
     "@tensorflow/tfjs-backend-wasm": "npm:4.22.0"
+    "@tensorflow/tfjs-core": "npm:4.22.0"
     "@types/busboy": "npm:^1.5.5"
     "@types/geojson": "npm:^7946.0.16"
     "@types/node": "npm:^24.19.2"

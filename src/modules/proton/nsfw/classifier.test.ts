@@ -35,6 +35,16 @@ describe("isBlocked", () => {
     expect(isBlocked(s({ sexy: 0.79, neutral: 0.21 }))).toBe(false);
   });
 
+  it.each([
+    ["porn", Number.NaN],
+    ["hentai", Number.NaN],
+    ["sexy", Number.NaN],
+    ["neutral", Number.NaN],
+    ["drawing", Number.POSITIVE_INFINITY],
+  ] as const)("fails closed when %s is %s", (key, value) => {
+    expect(isBlocked(s({ neutral: 1, [key]: value }))).toBe(true);
+  });
+
   it("passes neutral/drawing-dominant scores", () => {
     expect(isBlocked(s({ neutral: 0.9, sexy: 0.05, porn: 0.05 }))).toBe(false);
     expect(isBlocked(s({ drawing: 0.85, hentai: 0.1, neutral: 0.05 }))).toBe(false);

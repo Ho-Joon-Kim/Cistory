@@ -46,6 +46,11 @@ export const NSFW_MODEL_VERSION = "nsfwjs@4.4.0/MobileNetV2";
 export const NSFW_BLOCK_PORN_PLUS_HENTAI = 0.5;
 export const NSFW_BLOCK_SEXY = 0.8;
 
+/**
+ * Fail closed: a non-finite score (NaN compares false against any threshold)
+ * blocks rather than passing an image without a real verdict.
+ */
 export function isBlocked(s: NsfwScores): boolean {
+  if (!Object.values(s).every(Number.isFinite)) return true;
   return s.porn + s.hentai >= NSFW_BLOCK_PORN_PLUS_HENTAI || s.sexy >= NSFW_BLOCK_SEXY;
 }

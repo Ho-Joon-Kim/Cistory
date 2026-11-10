@@ -23,9 +23,25 @@ import {
 } from "./classifier";
 import { decodeJpegToRgb, type RgbImage } from "./decode";
 
-/** What the classifier needs from a loaded model: one image in, five scores out. */
+/** One raw model output row, exactly as nsfwjs reports it. */
+export interface NsfwPrediction {
+  className: string;
+  probability: number;
+}
+
+/** What the classifier needs from a loaded model: one image in, raw class rows out. */
 export interface LoadedNsfwModel {
-  predict(image: RgbImage): Promise<NsfwScores>;
+  /** Active tensor backend (`wasm`, or `cpu` after a fallback). */
+  readonly backend: string;
+  predict(image: RgbImage): Promise<NsfwPrediction[]>;
+  /** Releases the model's tensors; best effort. */
+  dispose?(): void;
+}
+
+/** A `PhotoClassifier` that also reports the backend it loaded on. */
+export interface NsfwjsClassifier extends PhotoClassifier {
+  /** `null` until the model has loaded. Cron logs a `cpu` fallback from this. */
+  readonly backend: string | null;
 }
 
 export type NsfwModelLoader = () => Promise<LoadedNsfwModel>;
@@ -39,6 +55,31 @@ const CLASS_KEYS: Record<string, keyof NsfwScores> = {
 };
 /** Ask for every class so absent keys never silently read as 0. */
 const CLASS_COUNT = Object.keys(CLASS_KEYS).length;
+/** Softmax outputs sum to 1; anything further off is a broken runtime. */
+const SUM_TOLERANCE = 0.02;
+
+/** A fixed 8×8 mid-gray image: any working runtime classifies it. */
+const CANARY: RgbImage = { width: 8, height: 8, data: new Uint8Array(8 * 8 * 3).fill(128) };
+
+/**
+ * Maps raw rows to scores, or returns null when the output is malformed: a
+ * missing, duplicate or unknown class, or a probability that is non-finite,
+ * outside [0, 1], or a total off 1. Malformed output must never read as "pass".
+ */
+function toScores(predictions: NsfwPrediction[]): NsfwScores | null {
+  if (!Array.isArray(predictions) || predictions.length !== CLASS_COUNT) return null;
+  const scores: Partial<NsfwScores> = {};
+  let sum = 0;
+  for (const { className, probability } of predictions) {
+    const key = Object.hasOwn(CLASS_KEYS, className) ? CLASS_KEYS[className] : undefined;
+    if (!key || key in scores) return null;
+    if (!Number.isFinite(probability) || probability < 0 || probability > 1) return null;
+    scores[key] = probability;
+    sum += probability;
+  }
+  if (Math.abs(sum - 1) > SUM_TOLERANCE) return null;
+  return scores as NsfwScores;
+}
 
 /**
  * Directory holding the `.wasm` binaries. Resolved through Node's module
@@ -84,19 +125,17 @@ async function loadNsfwjsModel(): Promise<LoadedNsfwModel> {
   logger.info("[ProtonNsfw] classifier loaded", { backend, modelVersion: NSFW_MODEL_VERSION });
 
   return {
+    backend,
     async predict({ width, height, data }) {
       const tensor = tf.tensor3d(data, [height, width, 3], "int32");
       try {
-        const predictions = await model.classify(tensor, CLASS_COUNT);
-        const scores: NsfwScores = { drawing: 0, hentai: 0, neutral: 0, porn: 0, sexy: 0 };
-        for (const { className, probability } of predictions) {
-          const key = CLASS_KEYS[className];
-          if (key) scores[key] = probability;
-        }
-        return scores;
+        return await model.classify(tensor, CLASS_COUNT);
       } finally {
         tensor.dispose();
       }
+    },
+    dispose() {
+      model.dispose();
     },
   };
 }
@@ -105,43 +144,107 @@ async function loadNsfwjsModel(): Promise<LoadedNsfwModel> {
  * Builds a classifier over `load`, loading lazily on first use. A failed load
  * is not cached: it throws `ClassifierUnavailableError` and the next call tries
  * again. Exported for tests; production code uses `createNsfwjsClassifier`.
+ *
+ * Failure split (Review Focus 1 — an infrastructure fault must never burn
+ * per-photo attempts across the library):
+ * - undecodable bytes → `ClassifyInputError`, without touching the model;
+ * - load failure or malformed model output → `ClassifierUnavailableError`;
+ * - `predict` throwing on an already-validated image → drop the model, reload,
+ *   and classify a fixed canary. If the canary fails too the runtime is broken
+ *   (wasm OOM, emscripten abort, lost backend): `ClassifierUnavailableError`.
+ *   If the canary passes, the image itself is at fault: `ClassifyInputError`.
  */
-export function buildNsfwjsClassifier(load: NsfwModelLoader): PhotoClassifier {
+export function buildNsfwjsClassifier(load: NsfwModelLoader): NsfwjsClassifier {
   let model: Promise<LoadedNsfwModel> | null = null;
+  // The resolved model behind `model`, so a stale caller can't drop a newer one.
+  let current: LoadedNsfwModel | null = null;
 
   function getModel(): Promise<LoadedNsfwModel> {
     if (!model) {
-      model = load().catch((cause: unknown) => {
-        model = null;
-        logger.error("[ProtonNsfw] classifier failed to load", {
-          error: cause instanceof Error ? cause.message : String(cause),
-        });
-        throw new ClassifierUnavailableError("NSFW classifier failed to load", { cause });
-      });
+      // Promise.resolve().then: a loader that throws synchronously still lands
+      // in the rejection branch below.
+      const loading = Promise.resolve()
+        .then(load)
+        .then(
+          (loaded) => {
+            if (model === loading) current = loaded;
+            return loaded;
+          },
+          (cause: unknown) => {
+            if (model === loading) model = null;
+            logger.error("[ProtonNsfw] classifier failed to load", { error: errorMessage(cause) });
+            throw new ClassifierUnavailableError("NSFW classifier failed to load", { cause });
+          }
+        );
+      model = loading;
     }
     return model;
   }
 
+  function dropModel(loaded: LoadedNsfwModel): void {
+    if (current !== loaded) return;
+    current = null;
+    model = null;
+    try {
+      loaded.dispose?.();
+    } catch {
+      // The runtime is already suspect; a failed dispose changes nothing.
+    }
+  }
+
+  function scoresOrUnavailable(loaded: LoadedNsfwModel, rows: NsfwPrediction[]): NsfwScores {
+    const scores = toScores(rows);
+    if (scores) return scores;
+    dropModel(loaded);
+    logger.error("[ProtonNsfw] classifier returned malformed scores");
+    throw new ClassifierUnavailableError("NSFW classifier returned malformed scores");
+  }
+
+  /** Throws `ClassifierUnavailableError` unless a freshly loaded model classifies the canary. */
+  async function assertRuntimeHealthy(): Promise<void> {
+    const fresh = await getModel();
+    let rows: NsfwPrediction[];
+    try {
+      rows = await fresh.predict(CANARY);
+    } catch (cause) {
+      dropModel(fresh);
+      logger.error("[ProtonNsfw] canary classification failed", { error: errorMessage(cause) });
+      throw new ClassifierUnavailableError("NSFW classifier runtime failed", { cause });
+    }
+    scoresOrUnavailable(fresh, rows);
+  }
+
   return {
     modelVersion: NSFW_MODEL_VERSION,
+    get backend() {
+      return current?.backend ?? null;
+    },
     async classify(jpeg) {
       // Decode first: a bad image is a per-photo failure even when the model
       // is down, and it never needs the model to be loaded.
       const image = decodeJpegToRgb(jpeg);
       const loaded = await getModel();
+      let rows: NsfwPrediction[];
       try {
-        return await loaded.predict(image);
+        rows = await loaded.predict(image);
       } catch (cause) {
+        dropModel(loaded);
+        await assertRuntimeHealthy();
         throw new ClassifyInputError("Image could not be classified", { cause });
       }
+      return scoresOrUnavailable(loaded, rows);
     },
   };
 }
 
-let shared: PhotoClassifier | null = null;
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+let shared: NsfwjsClassifier | null = null;
 
 /** One classifier (one model) per process; warm-up and sync share it. */
-export function createNsfwjsClassifier(): PhotoClassifier {
+export function createNsfwjsClassifier(): NsfwjsClassifier {
   shared ??= buildNsfwjsClassifier(loadNsfwjsModel);
   return shared;
 }
