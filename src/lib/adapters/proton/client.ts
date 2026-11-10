@@ -1,5 +1,6 @@
 import {
   type DriveEvent,
+  type FileDownloader,
   type MaybeMissingPhotoNode,
   MemoryCache,
   NullFeatureFlagProvider,
@@ -37,6 +38,12 @@ export interface ProtonPhotosApi {
   /** ThumbnailType.Type1 */
   iterateThumbnails(uids: string[], signal?: AbortSignal): AsyncIterable<ThumbnailResult>;
   iterateEvents(scopeId: string, cursor?: string, signal?: AbortSignal): AsyncIterable<DriveEvent>;
+  /**
+   * The original file of a photo node. Its bytes are only ever held in memory
+   * (EXIF reading and thumbnail recovery); nothing downloaded is persisted.
+   * `signal` also bounds every block request the downloader makes.
+   */
+  getFileDownloader(uid: string, signal?: AbortSignal): Promise<FileDownloader>;
 }
 
 /** Only warnings and errors are worth shipping; the SDK is chatty at debug/info. */
@@ -142,5 +149,6 @@ export async function createProtonPhotosClient(opts: {
     iterateThumbnails: (uids, signal) =>
       photos.iterateThumbnails(uids, ThumbnailType.Type1, signal),
     iterateEvents: (scopeId, cursor, signal) => photos.iterateEvents(scopeId, cursor, signal),
+    getFileDownloader: (uid, signal) => photos.getFileDownloader(uid, signal),
   };
 }

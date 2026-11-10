@@ -57,7 +57,10 @@ export default function PrivacyPolicyPage() {
             <li>코딩 활동(WakaTime 세션·언어·프로젝트 통계)</li>
             <li>체성분(Withings 체중·체지방 등)</li>
             <li>증권 포트폴리오(한국투자증권 API 보유종목·체결·손익)</li>
-            <li>Proton Drive 사진 메타데이터(촬영 시각·위치·기기)와 썸네일(선택 연동)</li>
+            <li>
+              Proton Drive 사진 메타데이터(촬영 시각·위치·기기, 원본 파일 EXIF의 GPS 위치·카메라
+              방향·촬영 시간대)와 썸네일(선택 연동)
+            </li>
             <li>
               건강·피트니스 데이터(Fitbit, Google Health API): 수면, 활동량, 심박수, 산소포화도,
               호흡수, 심박변이도, 체온 관련 등 사용자가 승인한 범위의 데이터
@@ -71,7 +74,9 @@ export default function PrivacyPolicyPage() {
           </ul>
           <p>
             민감한 이미지는 서버 안의 로컬 모델로 자동 판별하여 저장하지 않으며, 사진을 외부 분석
-            서비스로 보내지 않습니다.
+            서비스로 보내지 않습니다. 원본 사진 파일은 EXIF를 읽거나, Proton에 썸네일이 없을 때
+            썸네일을 만들기 위해 서버 메모리에서만 잠시 읽고 저장하지 않습니다. 이렇게 만든 썸네일도
+            같은 판별을 거친 뒤에만 저장합니다.
           </p>
         </Section>
 

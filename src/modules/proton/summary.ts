@@ -1,7 +1,7 @@
 import { and, count, eq, gte, isNull, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { photoBlocks, photos, protonConnections } from "@/db/schema";
-import { photoIsExposed } from "./repository";
+import { originalExifEligible, photoIsExposed } from "./repository";
 import { PROTON_MAX_DETAILS_ATTEMPTS } from "./types";
 
 export interface ProtonSummary {
@@ -12,6 +12,9 @@ export interface ProtonSummary {
   backfilling: boolean;
   detailsFailedCount: number;
   blockedCount: number;
+  /** Exposed image photos whose original EXIF has been read, out of `originalEligibleCount`. */
+  originalCheckedCount: number;
+  originalEligibleCount: number;
   lastError: string | null;
   /**
    * A sign-in fork is still open. A reconnect from `active`/`needs_reauth`
@@ -46,6 +49,8 @@ export async function getProtonSummary(
     .select({
       exposed: sql<number>`count(*) filter (where ${photoIsExposed()})::int`,
       detailsFailed: sql<number>`count(*) filter (where ${detailsFailed})::int`,
+      originalEligible: sql<number>`count(*) filter (where ${originalExifEligible()})::int`,
+      originalChecked: sql<number>`count(*) filter (where ${originalExifEligible()} and ${photos.originalCheckedAt} is not null)::int`,
     })
     .from(photos)
     .where(eq(photos.userId, userId));
@@ -63,6 +68,8 @@ export async function getProtonSummary(
     backfilling: connected && connection.backfillCompletedAt === null,
     detailsFailedCount: Number(photoCounts?.detailsFailed ?? 0),
     blockedCount: Number(blocks?.value ?? 0),
+    originalCheckedCount: Number(photoCounts?.originalChecked ?? 0),
+    originalEligibleCount: Number(photoCounts?.originalEligible ?? 0),
     lastError: connection?.lastError ?? null,
     forkPending: (connection?.pendingForkExpiresAt?.getTime() ?? 0) > now.getTime(),
   };

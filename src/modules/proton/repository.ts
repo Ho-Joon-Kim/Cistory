@@ -15,7 +15,12 @@ import type { Database } from "@/db";
 import { type ProtonConnection, photoBlocks, photos, protonConnections } from "@/db/schema";
 import { decryptSecret } from "@/lib/crypto";
 import { lockProtonTokens } from "./token";
-import { PROTON_ERRORS, PROTON_MAX_DETAILS_ATTEMPTS } from "./types";
+import {
+  PROTON_ERRORS,
+  PROTON_MAX_DETAILS_ATTEMPTS,
+  PROTON_MAX_ORIGINAL_ATTEMPTS,
+  type ProtonErrorMessage,
+} from "./types";
 
 /**
  * Anything that can run Drizzle statements: the root db or a transaction.
@@ -78,6 +83,76 @@ export async function selectDetailsBatch(
 export async function countPendingDetails(db: ProtonDbExecutor, userId: string): Promise<number> {
   const [row] = await db.select({ n: count() }).from(photos).where(pendingDetails(userId));
   return Number(row?.n ?? 0);
+}
+
+/**
+ * Exposed photos whose original is an image: the ones an original-EXIF read
+ * applies to. Videos (incl. Live Photo motion parts) carry no EXIF exifr can
+ * read, so they are neither read nor counted.
+ */
+export function originalExifEligible(): SQL {
+  return and(
+    photoIsExposed(),
+    or(isNull(photos.mediaType), sql`${photos.mediaType} LIKE 'image/%'`)
+  ) as SQL;
+}
+
+/** Exposed image rows whose original was not read yet and is still under the attempt cap. */
+export async function selectOriginalExifBatch(
+  db: ProtonDbExecutor,
+  userId: string,
+  limit: number
+): Promise<string[]> {
+  const rows = await db
+    .select({ nodeUid: photos.nodeUid })
+    .from(photos)
+    .where(
+      and(
+        eq(photos.userId, userId),
+        originalExifEligible(),
+        isNull(photos.originalCheckedAt),
+        lt(photos.originalAttempts, PROTON_MAX_ORIGINAL_ATTEMPTS)
+      )
+    )
+    .orderBy(desc(photos.capturedAt))
+    .limit(limit);
+  return rows.map((r) => r.nodeUid);
+}
+
+/** The details errors a thumbnail generated from the original can cure. */
+export const RECOVERABLE_DETAILS_ERRORS: ProtonErrorMessage[] = [
+  PROTON_ERRORS.thumbnailMissing,
+  PROTON_ERRORS.thumbnailUnclassifiable,
+];
+
+/**
+ * Hidden rows whose screening failed only for want of a usable Proton
+ * thumbnail, whatever their `details_attempts`: rows the details stage gave
+ * up on (e.g. the 2020 photos Proton never made thumbnails for) re-enter
+ * here without any attempt reset. Never an exposed row (ruling C3 keeps its
+ * old thumbnail).
+ */
+export async function selectThumbnailRecoveryBatch(
+  db: ProtonDbExecutor,
+  userId: string,
+  limit: number
+): Promise<string[]> {
+  const rows = await db
+    .select({ nodeUid: photos.nodeUid })
+    .from(photos)
+    .where(
+      and(
+        eq(photos.userId, userId),
+        isNull(photos.detailsSyncedAt),
+        isNull(photos.deletedAt),
+        inArray(photos.detailsError, RECOVERABLE_DETAILS_ERRORS),
+        isNull(photos.originalCheckedAt),
+        lt(photos.originalAttempts, PROTON_MAX_ORIGINAL_ATTEMPTS)
+      )
+    )
+    .orderBy(desc(photos.capturedAt))
+    .limit(limit);
+  return rows.map((r) => r.nodeUid);
 }
 
 /**
@@ -155,7 +230,15 @@ export async function resetForReingest(
   if (uids.length === 0) return;
   await tx
     .update(photos)
-    .set({ detailsAttempts: 0, detailsError: null, updatedAt: now })
+    .set({
+      detailsAttempts: 0,
+      detailsError: null,
+      // A new revision has a new original: thumbnail recovery may try it again.
+      originalAttempts: 0,
+      originalError: null,
+      originalCheckedAt: null,
+      updatedAt: now,
+    })
     .where(
       and(eq(photos.userId, userId), isNull(photos.detailsSyncedAt), inArray(photos.nodeUid, uids))
     );

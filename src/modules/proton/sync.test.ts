@@ -20,6 +20,7 @@ const m = vi.hoisted(() => ({
   runDetailsStage: vi.fn(),
   completeBackfill: vi.fn(),
   fillPhotoLocations: vi.fn(),
+  runOriginalsStage: vi.fn(),
   countPendingDetails: vi.fn(),
   assertConnectionUnchanged: vi.fn(),
   clearExpiredFork: vi.fn(),
@@ -84,6 +85,10 @@ vi.mock("./backfill", async (importOriginal) => {
   };
 });
 vi.mock("./location", () => ({ fillPhotoLocations: m.fillPhotoLocations }));
+vi.mock("./originals", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./originals")>();
+  return { ...actual, runOriginalsStage: m.runOriginalsStage };
+});
 vi.mock("./repository", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./repository")>();
   return {
@@ -202,6 +207,10 @@ beforeEach(() => {
   m.runBaselineStage.mockImplementation(async () => m.calls.push("baseline"));
   m.runTimelineListing.mockImplementation(async () => m.calls.push("list"));
   m.completeBackfill.mockImplementation(async () => m.calls.push("complete"));
+  m.runOriginalsStage.mockImplementation(async () => {
+    m.calls.push("originals");
+    return { recovered: 0, blocked: 0, exifChecked: 0, failed: 0, stopped: null };
+  });
   m.fillPhotoLocations.mockImplementation(async () => {
     m.calls.push("location");
     return { updated: 0, settled: 0 };
@@ -324,6 +333,7 @@ describe("syncProtonPhotosForUser tick", () => {
       "events",
       "read",
       "details",
+      "originals",
       "location",
       "write",
       "unlock",
@@ -349,6 +359,7 @@ describe("syncProtonPhotosForUser tick", () => {
       "open",
       "events",
       "details",
+      "originals",
       "location",
       "write",
       "unlock",
@@ -367,15 +378,17 @@ describe("syncProtonPhotosForUser tick", () => {
       "events",
       "baseline",
       "details",
+      "originals",
       "location",
     ]);
     expect(await step({ timelineListedAt: null })).toEqual([
       "events",
       "list",
       "details",
+      "originals",
       "location",
     ]);
-    expect(await step({})).toEqual(["events", "complete", "details", "location"]);
+    expect(await step({})).toEqual(["events", "complete", "details", "originals", "location"]);
   });
 
   it("records success via trackSourceSync on a zero-event tick (prevents stale)", async () => {
@@ -434,6 +447,47 @@ describe("syncProtonPhotosForUser tick", () => {
     expect(writes).toEqual([
       expect.objectContaining({ lastError: PROTON_ERRORS.classifierUnavailable }),
     ]);
+  });
+
+  it("runs the originals stage after details with the tick's fence, recovery only while the classifier is up", async () => {
+    const { db } = fakeDb([connection()]);
+    await syncProtonPhotosForUser(db, USER, deps());
+    expect(m.runOriginalsStage).toHaveBeenCalledWith(
+      db,
+      api,
+      classifier,
+      USER,
+      { volumeId: "vol-1", uid: "UID-1" },
+      NOW,
+      expect.objectContaining({ recovery: true })
+    );
+
+    m.runOriginalsStage.mockClear();
+    m.runDetailsStage.mockRejectedValue(new ClassifierUnavailableError());
+    await syncProtonPhotosForUser(fakeDb([connection()]).db, USER, deps());
+    // EXIF reads need no classifier and still run; recovery (which screens) does not.
+    expect(m.runOriginalsStage.mock.calls[0][6]).toMatchObject({ recovery: false });
+  });
+
+  it("measures the originals deadline from the start of the tick on the injected clock", async () => {
+    const { db } = fakeDb([connection()]);
+    let t = 1_000;
+    m.runOriginalsStage.mockImplementation(async (...args: unknown[]) => {
+      const { pastDeadline } = args[6] as { pastDeadline: () => boolean };
+      const before = pastDeadline();
+      t += 5 * 60_000;
+      return { before, after: pastDeadline() };
+    });
+    await syncProtonPhotosForUser(db, USER, deps({ clock: () => t }));
+    const result = await m.runOriginalsStage.mock.results[0].value;
+    expect(result).toEqual({ before: false, after: true });
+  });
+
+  it("an auth failure in the originals stage is handled like any other tick error", async () => {
+    const { db } = fakeDb([connection()]);
+    m.runOriginalsStage.mockRejectedValue(new RateLimitedError("slow down"));
+    await expect(syncProtonPhotosForUser(db, USER, deps())).resolves.toBe("rate_limited");
+    expect(m.fillPhotoLocations).not.toHaveBeenCalled();
   });
 
   it("a connection change mid-tick aborts without writing and is not a failure", async () => {

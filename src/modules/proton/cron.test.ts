@@ -5,6 +5,7 @@ const m = vi.hoisted(() => ({
   syncAll: vi.fn(),
   initRuntime: vi.fn(),
   load: vi.fn(),
+  loadHeic: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock("@/db", () => ({ getDb: () => ({}) }));
@@ -14,12 +15,14 @@ vi.mock("@/lib/adapters/proton/runtime", () => ({ initProtonRuntime: m.initRunti
 vi.mock("./nsfw/nsfwjs", () => ({
   createNsfwjsClassifier: () => ({ load: m.load }),
 }));
+vi.mock("./original-thumbnail", () => ({ loadHeicDecoder: m.loadHeic }));
 
 import { registerProtonPhotosTask, warmUpProtonRuntime } from "./cron";
 
 beforeEach(() => {
   m.initRuntime.mockResolvedValue({});
   m.load.mockResolvedValue("wasm");
+  m.loadHeic.mockResolvedValue(() => {});
 });
 
 describe("registerProtonPhotosTask", () => {
@@ -89,6 +92,16 @@ describe("warmUpProtonRuntime", () => {
     expect(m.initRuntime).toHaveBeenCalledTimes(1);
     expect(m.load).toHaveBeenCalledTimes(1);
     expect(m.logger.info).toHaveBeenCalledWith("[Proton] runtime ready", { backend: "wasm" });
+    expect(m.loadHeic).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs a HEIF decoder failure on its own, after the runtime is ready", async () => {
+    m.loadHeic.mockRejectedValue(new TypeError("wasm"));
+    await expect(warmUpProtonRuntime()).resolves.toBeUndefined();
+    expect(m.logger.info).toHaveBeenCalledWith("[Proton] runtime ready", { backend: "wasm" });
+    expect(m.logger.error).toHaveBeenCalledWith("[Proton] HEIF decoder warm-up failed", {
+      error: "TypeError",
+    });
   });
 
   it("never throws: a runtime failure is logged", async () => {

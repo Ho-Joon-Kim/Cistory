@@ -7,10 +7,12 @@ describe("buildLocationFillSql", () => {
     .sqlToQuery(buildLocationFillSql("u", new Date("2026-03-01T00:00:00Z"), "2026-03-01", 10))
     .sql.toLowerCase();
 
-  it("filters anomalies, undetailed rows, exif rows and uses the ±15 min window", () => {
+  it("filters anomalies, undetailed rows, GPS rows and uses the ±15 min window", () => {
     expect(text).toContain("anomaly is not true");
     expect(text).toContain("details_synced_at is not null");
-    expect(text).toContain("is distinct from 'exif'");
+    // Only estimates are recomputed; both GPS sources ('exif', 'exif_original') are final.
+    expect(text).toContain("(p.location_source is null or p.location_source = 'owntracks')");
+    expect(text).toContain("(ph.location_source is null or ph.location_source = 'owntracks')");
     expect(text).toContain("interval '15 minutes'");
   });
 

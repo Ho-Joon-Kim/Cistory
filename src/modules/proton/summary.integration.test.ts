@@ -28,16 +28,21 @@ describe("getProtonSummary", () => {
       updatedAt: now,
       ...over,
     });
-    await db
-      .insert(photos)
-      .values([
-        photo(owner, "exposed", { detailsSyncedAt: now }),
-        photo(owner, "deleted", { detailsSyncedAt: now, deletedAt: now }),
-        photo(owner, "listed-only", {}),
-        photo(owner, "exhausted", { detailsAttempts: 3 }),
-        photo(owner, "exhausted-deleted", { detailsAttempts: 3, deletedAt: now }),
-        photo(other, "foreign", { detailsSyncedAt: now }),
-      ]);
+    await db.insert(photos).values([
+      photo(owner, "exposed", { detailsSyncedAt: now, mediaType: "image/heic" }),
+      photo(owner, "exposed-read", {
+        detailsSyncedAt: now,
+        mediaType: "image/jpeg",
+        originalCheckedAt: now,
+      }),
+      photo(owner, "exposed-video", { detailsSyncedAt: now, mediaType: "video/mp4" }),
+      photo(owner, "hidden-read", { originalCheckedAt: now, mediaType: "image/jpeg" }),
+      photo(owner, "deleted", { detailsSyncedAt: now, deletedAt: now }),
+      photo(owner, "listed-only", {}),
+      photo(owner, "exhausted", { detailsAttempts: 3 }),
+      photo(owner, "exhausted-deleted", { detailsAttempts: 3, deletedAt: now }),
+      photo(other, "foreign", { detailsSyncedAt: now }),
+    ]);
     await db.insert(photoBlocks).values([
       { userId: owner, nodeUid: "b1", blockedAt: now, modelVersion: "m" },
       { userId: other, nodeUid: "b2", blockedAt: now, modelVersion: "m" },
@@ -46,11 +51,14 @@ describe("getProtonSummary", () => {
     expect(await getProtonSummary(db, owner)).toEqual({
       connected: true,
       status: "active",
-      photoCount: 1,
+      photoCount: 3,
       lastSyncedAt: now.toISOString(),
       backfilling: true,
       detailsFailedCount: 1,
       blockedCount: 1,
+      // Videos are not eligible; a hidden row never counts.
+      originalCheckedCount: 1,
+      originalEligibleCount: 2,
       lastError: null,
       forkPending: false,
     });

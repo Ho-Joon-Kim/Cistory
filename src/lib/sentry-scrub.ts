@@ -58,6 +58,12 @@ const HEALTH_EXTRA_KEY_DENYLIST = [
   "thumbnail",
   "keypassword",
   "key_password",
+  // Original-file EXIF: camera heading and capture UTC offset (and any `exif` payload).
+  "exif",
+  "imagedirection",
+  "image_direction",
+  "utcoffset",
+  "utc_offset",
 ];
 
 /** Structural subset of a Sentry event — only the fields we scrub. */

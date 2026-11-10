@@ -377,7 +377,9 @@ export const photos = pgTable(
     durationSec: doublePrecision("duration_sec"),
     lat: doublePrecision("lat"),
     lon: doublePrecision("lon"),
-    locationSource: text("location_source").$type<"exif" | "owntracks">(),
+    // `exif`: Proton's extended-attribute GPS; `exif_original`: GPS read from the
+    // original file's own EXIF (beats `exif`); `owntracks`: an estimate, never GPS.
+    locationSource: text("location_source").$type<"exif" | "exif_original" | "owntracks">(),
     locationGapSec: integer("location_gap_sec"),
     device: text("device"),
     tags: integer("tags").array(),
@@ -389,6 +391,16 @@ export const photos = pgTable(
     detailsAttempts: integer("details_attempts").notNull().default(0),
     detailsError: text("details_error"),
     thumbnailAttempts: integer("thumbnail_attempts").notNull().default(0),
+    // Original-file EXIF, read once per revision by the cron originals stage.
+    // Null `originalCheckedAt` means not read yet (or reset by a re-ingest).
+    originalCheckedAt: timestamp("original_checked_at"),
+    originalAttempts: integer("original_attempts").notNull().default(0),
+    originalError: text("original_error"),
+    // GPSImgDirection in degrees [0, 360) and its reference ('T' true / 'M' magnetic north).
+    imageDirection: doublePrecision("image_direction"),
+    imageDirectionRef: text("image_direction_ref").$type<"T" | "M">(),
+    // OffsetTimeOriginal as minutes east of UTC (e.g. +09:00 = 540).
+    captureUtcOffsetMin: integer("capture_utc_offset_min"),
     createdAt: timestamp("created_at")
       .notNull()
       .$defaultFn(() => new Date()),

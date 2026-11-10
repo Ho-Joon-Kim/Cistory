@@ -12,7 +12,7 @@ export const LOCATION_FILL_LIMIT = 2000;
 
 /**
  * One UPDATE that fills lat/lon from the nearest OwnTracks point (±15 min) for photos
- * that have no EXIF location. `location_checked_at` is only stamped once the photo's
+ * that have no GPS location (neither `exif` nor `exif_original`). `location_checked_at` is only stamped once the photo's
  * KST day can no longer gain points: the day's `location_processing_days` row is
  * `completed` with a `point_count` equal to the current count (late OwnTracks flushes
  * change the count), or the day is past the pipeline's candidate window. Unsettled
@@ -41,7 +41,9 @@ export function buildLocationFillSql(
         AND p.details_synced_at IS NOT NULL
         AND p.deleted_at IS NULL
         AND p.location_checked_at IS NULL
-        AND p.location_source IS DISTINCT FROM 'exif'
+        -- Only estimates are ever (re)computed: GPS from Proton's attributes
+        -- ('exif') or the original file ('exif_original') is final.
+        AND (p.location_source IS NULL OR p.location_source = 'owntracks')
       ORDER BY p.captured_at
       LIMIT ${limit}
     ),
@@ -96,7 +98,7 @@ export function buildLocationFillSql(
       ) n ON true
     ) t
     WHERE ph.id = t.id
-      AND ph.location_source IS DISTINCT FROM 'exif'
+      AND (ph.location_source IS NULL OR ph.location_source = 'owntracks')
       AND ph.details_synced_at IS NOT NULL
       AND ph.location_checked_at IS NULL
     RETURNING (t.lat IS NOT NULL) AS filled, (t.settled) AS settled

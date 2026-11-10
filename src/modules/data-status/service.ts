@@ -333,6 +333,9 @@ export async function getDataStatus(
   const protonNotes = [
     proton.detailsFailedCount > 0 ? `세부 정보 수집 실패 ${proton.detailsFailedCount}장` : null,
     proton.blockedCount > 0 ? `차단 ${proton.blockedCount}장` : null,
+    proton.originalEligibleCount > 0
+      ? `원본 메타데이터 확인 ${proton.originalCheckedCount}/${proton.originalEligibleCount}`
+      : null,
   ].filter((note): note is string => note !== null);
   const recoveryAvailability: Partial<Record<SourceId, boolean>> = {
     wakatime: waka?.status === "active",

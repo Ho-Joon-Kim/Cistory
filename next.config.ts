@@ -18,6 +18,13 @@ const nextConfig: NextConfig = {
     // Native libvips binding that decodes thumbnails for the classifier. Standalone
     // tracing copies it with the build platform's @img/* package (linuxmusl in Docker).
     "sharp",
+    // Original-file EXIF (src/modules/proton/original-exif.ts reaches exifr's
+    // registered chunked reader at runtime) and the HEIF thumbnail decoder:
+    // libheif compiled to wasm and embedded in JS, so there is no native
+    // binary and nothing for file tracing to miss.
+    "exifr",
+    "heic-decode",
+    "libheif-js",
   ],
   outputFileTracingIncludes: {
     // The .wasm binaries are read with fs at runtime, which file tracing can't see.
