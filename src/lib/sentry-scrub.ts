@@ -28,6 +28,10 @@ const HEALTH_EXTRA_KEY_DENYLIST = [
   "samples",
   "dailysummaries",
   "healthdata",
+  // 2026 data types (design §6): rollup payloads and their sums, blood glucose.
+  "rollup",
+  "kcalsum",
+  "bloodglucose",
 ];
 
 /** Structural subset of a Sentry event — only the fields we scrub. */

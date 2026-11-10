@@ -1,6 +1,6 @@
 import { HeartPulse } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CURATED_METRICS } from "@/modules/health/metrics-meta";
+import { CURATED_METRICS, metricSourceKeys } from "@/modules/health/metrics-meta";
 import type { TravelTripDetail } from "../hooks";
 
 type HealthSummary = TravelTripDetail["health"][number];
@@ -13,7 +13,10 @@ const HEALTH_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
 });
 
 function displayHealthValue(summary: HealthSummary): { label: string; value: string } {
-  const meta = CURATED_METRICS.find((candidate) => candidate.key === summary.metric);
+  // A card may merge several stored keys (VO₂max reads daily_vo2_max + vo2_max).
+  const meta = CURATED_METRICS.find((candidate) =>
+    metricSourceKeys(candidate).includes(summary.metric)
+  );
   const rawValue =
     meta?.agg === "sum"
       ? (summary.valueSum ?? summary.valueAvg)

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -1087,6 +1088,13 @@ export const healthConnections = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     // Google account subject (sub claim) — stable per-user id, for reference only.
     googleSub: text("google_sub"),
+    // Google Health's own user id (`GET /v4/users/me/identity` → healthUserId). A
+    // different value from googleSub; it is what webhook notifications carry, so it
+    // maps a notification back to this row. Stored at OAuth callback time and
+    // lazily backfilled by the cron sync for connections made before 0045.
+    // `legacyUserId` is deliberately NOT stored (Google policy limits it to
+    // migration mapping).
+    healthUserId: text("health_user_id"),
     accessTokenEnc: text("access_token_enc").notNull(),
     refreshTokenEnc: text("refresh_token_enc").notNull(),
     accessTokenExpiresAt: timestamp("access_token_expires_at"),
@@ -1104,7 +1112,12 @@ export const healthConnections = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("idx_health_conn_user").on(t.userId)]
+  (t) => [
+    uniqueIndex("idx_health_conn_user").on(t.userId),
+    uniqueIndex("idx_health_conn_health_user_id")
+      .on(t.healthUserId)
+      .where(sql`${t.healthUserId} IS NOT NULL`),
+  ]
 );
 
 // Per-metric sync watermarks (KIS-watermark analog). `syncedThrough` is the

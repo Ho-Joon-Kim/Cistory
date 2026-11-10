@@ -68,6 +68,17 @@ describe("scrubHealthData", () => {
     expect(event.extra?.userId).toBe("user-1");
   });
 
+  it("redacts the 2026 rollup / blood-glucose payload keys", () => {
+    const event: ScrubbableEvent = {
+      extra: { rollupPage: [{}], kcalSum: 2100, bloodGlucose: { mg: 100 }, metric: "x" },
+    };
+    scrubHealthData(event);
+    expect(event.extra?.rollupPage).toBe("[scrubbed:health]");
+    expect(event.extra?.kcalSum).toBe("[scrubbed:health]");
+    expect(event.extra?.bloodGlucose).toBe("[scrubbed:health]");
+    expect(event.extra?.metric).toBe("x");
+  });
+
   it("is a no-op on an event with no health data", () => {
     const event: ScrubbableEvent = {
       breadcrumbs: [{ message: "navigation", data: { from: "/", to: "/settings" } }],
