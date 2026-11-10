@@ -6,6 +6,7 @@ import { useSession } from "@/lib/auth-client";
 import { toKstCalendarDate } from "@/lib/date-key";
 import { toLocalDateString } from "@/lib/utils";
 import type { TransactionItem } from "@/modules/spending/hooks";
+import { dayErrorMessage } from "./error-copy";
 
 export interface Repository {
   fullName: string;
@@ -256,7 +257,7 @@ export function transactionsForDateOptions(sessionId: string | undefined, date: 
     queryFn: async ({ signal }): Promise<TransactionItem[]> => {
       const params = new URLSearchParams({ from: date, to: date, limit: "100", offset: "0" });
       const response = await fetch(`/api/spending?${params}`, { signal });
-      if (!response.ok) throw new Error("거래 내역을 불러오지 못했습니다.");
+      if (!response.ok) throw new Error("거래 내역을 불러오지 못했어요.");
       const data = (await response.json()) as { transactions: TransactionItem[] };
       return data.transactions;
     },
@@ -272,7 +273,7 @@ export function useTransactionsForDate(date: string) {
   return {
     transactions: query.data ?? [],
     isLoading: query.isLoading,
-    error: query.error?.message ?? null,
+    error: query.error ? dayErrorMessage(query.error, "거래 내역을 불러오지 못했어요.") : null,
     refresh: () => {
       void query.refetch();
     },
@@ -281,7 +282,7 @@ export function useTransactionsForDate(date: string) {
 
 export async function startInitialSync() {
   const response = await fetch("/api/sync", { method: "POST" });
-  if (!response.ok) throw new Error("동기화를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  if (!response.ok) throw new Error("동기화를 시작하지 못했어요. 잠시 후 다시 시도해 주세요.");
 }
 
 // --- Commits for a single KST day (the /dashboard day view) ---
@@ -313,7 +314,7 @@ export function dayCommitsOptions(sessionId: string | undefined, date: string) {
           to: date,
         });
         const response = await fetch(`/api/timeline?${params}`, { signal });
-        if (!response.ok) throw new Error("커밋을 불러오지 못했습니다.");
+        if (!response.ok) throw new Error("커밋을 불러오지 못했어요.");
         const data = (await response.json()) as TimelinePage;
         all.push(...(data.commits ?? []));
         if (!data.pagination?.hasNext) break;
@@ -332,7 +333,7 @@ export function useDayCommits(date: string) {
   return {
     commits: query.data ?? [],
     isLoading: query.isLoading,
-    error: query.error?.message ?? null,
+    error: query.error ? dayErrorMessage(query.error, "커밋을 불러오지 못했어요.") : null,
     refresh: () => {
       void query.refetch();
     },

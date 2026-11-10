@@ -578,15 +578,15 @@ function modeTab(
         score: 0.75,
         evidence: { kind: "keys", keys: ["running"] },
         template: `달리기 {km}km는 오분류로 보여요 — ${ctx.label} 걸음을 전부 달리기에 써도 1km에 {fact}뿐이에요.`,
-        trigger: `${formatCount(perKm)}보`,
+        trigger: `${formatCount(perKm)}걸음`,
         detail: { km: formatKm(running.distanceMeters) },
         rows: [
           {
             label: "달리기로 분류",
             value: `${running.segmentCount}구간 · ${formatKm(running.distanceMeters)}km`,
           },
-          { label: "같은 기간 걸음", value: `${formatCount(stepTotal)}보` },
-          { label: "1km당 걸음", value: `${formatCount(perKm)}보` },
+          { label: "같은 기간 걸음", value: `${formatCount(stepTotal)}걸음` },
+          { label: "1km당 걸음", value: `${formatCount(perKm)}걸음` },
         ],
       });
     }

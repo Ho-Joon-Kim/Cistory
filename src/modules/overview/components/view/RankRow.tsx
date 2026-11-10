@@ -14,7 +14,7 @@ export function RankRow({
   shortName,
   sub,
   flag,
-  flagTone = "place",
+  flagTone = "warn",
   value,
   trailing,
   share,
@@ -123,7 +123,7 @@ export function RankRow({
                 <span title={m.name} className="max-w-full truncate">
                   {m.name}
                 </span>
-                {m.flag ? <Flag>{m.flag}</Flag> : null}
+                {m.flag ? <Flag tone={flagTone}>{m.flag}</Flag> : null}
               </span>
               <span className="num shrink-0">{m.value}</span>
             </div>
@@ -136,7 +136,7 @@ export function RankRow({
 
 export function Flag({
   children,
-  tone = "place",
+  tone = "warn",
 }: {
   children: ReactNode;
   tone?: "place" | "warn";

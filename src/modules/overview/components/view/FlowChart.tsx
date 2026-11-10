@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { ChartAnnotation, Segmented, useDismissOnEvidence } from "@/components/ds";
 import { evidenceMatches } from "@/lib/facts/evidence";
 import { formatCount, formatWon, formatWonCompact } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useStayDays } from "@/modules/overview/hooks";
 import { tagEvidence, tagFamily } from "@/modules/overview/view/evidence-tag";
 import type { FlowAnnotation, FlowMetric, FlowModel, FlowUnit } from "@/modules/overview/view/flow";
 import { average, stayAnnotation } from "@/modules/overview/view/flow";
+import { faceClass } from "./face-class";
 import { useGrowClock } from "./useGrow";
 import { useMeasuredWidth } from "./useMeasuredWidth";
 import { useTaggedEvidence } from "./useTaggedEvidence";
@@ -78,7 +80,7 @@ function Tooltip({
     ["커밋", unit.commits === null ? "기록 안 됨" : formatCount(unit.commits)],
     [
       yearly ? "하루 평균 걸음" : "걸음",
-      unit.steps === null ? "기록 안 됨" : `${formatCount(unit.steps)}보`,
+      unit.steps === null ? "기록 안 됨" : `${formatCount(unit.steps)}걸음`,
     ],
     ["지출", unit.spending === null ? "기록 안 됨" : formatWonCompact(unit.spending)],
   ];
@@ -92,7 +94,7 @@ function Tooltip({
       {rows.map(([k, v]) => (
         <div key={k} className="flex justify-between gap-3 text-ink-2">
           <span>{k}</span>
-          <span className="num text-ink">{v}</span>
+          <span className={cn("text-ink", faceClass(v))}>{v}</span>
         </div>
       ))}
     </div>
@@ -217,7 +219,7 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
           <svg width="18" height="2" aria-hidden="true" className="shrink-0">
             <line x1="0" x2="18" y1="1" y2="1" stroke="var(--ink2)" strokeDasharray="4 3" />
           </svg>
-          <span className="num">{avgLabel}</span>
+          <span className={faceClass(avgLabel)}>{avgLabel}</span>
         </p>
       ) : null}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: hover tooltip is a pointer enhancement; the values are in the chart label */}
@@ -328,7 +330,7 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                         textAnchor="middle"
                         fontSize="11"
                         fill="var(--ink3)"
-                        className="num"
+                        className={faceClass(u.label)}
                       >
                         {u.label}
                       </text>

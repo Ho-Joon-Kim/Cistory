@@ -200,7 +200,7 @@ export function DayView({
   if (model.commitCount > 0)
     meta.push(
       <>
-        커밋 <CountUp value={model.commitCount} className="font-medium text-ink" />
+        커밋 <CountUp value={model.commitCount} className="font-medium text-ink" />건
       </>
     );
   if (distanceKm >= 0.1)
@@ -340,7 +340,7 @@ export function DayView({
 
   const errors =
     commitsError || txError ? (
-      <div role="alert" className="mb-3 flex flex-wrap gap-x-3 text-[13px] leading-5 text-gain">
+      <div role="alert" className="mb-3 flex flex-wrap gap-x-3 text-[13px] leading-5 text-danger">
         {commitsError ? (
           <span>
             {commitsError}{" "}

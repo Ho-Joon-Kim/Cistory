@@ -724,7 +724,7 @@ export function DayMap({
           </button>
           <div className="flex min-w-0 flex-col gap-0.5">
             <div className="flex min-w-0 items-baseline gap-2">
-              <span className="num text-[15px] font-semibold text-ink">
+              <span className="text-[15px] font-semibold text-ink tabular-nums">
                 {replay.currentTimestamp ? formatTime(new Date(replay.currentTimestamp)) : "--:--"}
               </span>
               <span className="truncate text-xs text-ink-2">{replayLabel}</span>

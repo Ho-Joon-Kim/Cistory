@@ -211,11 +211,11 @@ export function buildFlow(input: {
       to: si,
       label:
         ctx.periodType === "year"
-          ? `${units[si].label} 하루 ${formatCount(units[si].steps ?? 0)}보`
-          : `최다 ${formatCount(units[si].steps ?? 0)}보`,
+          ? `${units[si].label} 하루 ${formatCount(units[si].steps ?? 0)}걸음`
+          : `최다 ${formatCount(units[si].steps ?? 0)}걸음`,
       rows: [
-        { label: units[si].title, value: `${formatCount(units[si].steps ?? 0)}보` },
-        { label: "하루 평균", value: `${formatCount(average(units.map((x) => x.steps)))}보` },
+        { label: units[si].title, value: `${formatCount(units[si].steps ?? 0)}걸음` },
+        { label: "하루 평균", value: `${formatCount(average(units.map((x) => x.steps)))}걸음` },
       ],
     });
   }
@@ -279,7 +279,7 @@ export function buildFlow(input: {
     annotations,
     averageLabel: {
       commits: `${ctx.periodType === "year" ? "월평균" : "하루 평균"} ${formatCount(commitAvg)}`,
-      steps: `하루 평균 ${formatCount(stepAvg)}보`,
+      steps: `하루 평균 ${formatCount(stepAvg)}걸음`,
     },
     available: {
       commits: units.some((u) => u.commits !== null),

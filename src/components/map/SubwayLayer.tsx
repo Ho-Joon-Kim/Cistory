@@ -10,6 +10,25 @@ interface SubwayData {
   stations: GeoJSON.FeatureCollection;
 }
 
+interface StationTokens {
+  ink: string;
+  surface: string;
+  bg: string;
+}
+
+/** Light-theme token values, used only until the real ones are read. */
+const FALLBACK_TOKENS: StationTokens = { ink: "#141714", surface: "#FFFFFF", bg: "#FBFBFA" };
+
+function readStationTokens(): StationTokens {
+  const css = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  return {
+    ink: v("--ink", FALLBACK_TOKENS.ink),
+    surface: v("--surface", FALLBACK_TOKENS.surface),
+    bg: v("--bg", FALLBACK_TOKENS.bg),
+  };
+}
+
 interface SubwayLayerProps {
   visible?: boolean;
   theme?: "light" | "dark";
@@ -114,11 +133,22 @@ export function SubwayLayer({
     return () => controller.abort();
   }, [visible, debouncedBbox]);
 
+  const isDark = theme === "dark";
+  // Station and label neutrals come from the page tokens (as DayMap's palette
+  // does). They're read after commit so a theme switch has already applied.
+  const [tokens, setTokens] = useState<StationTokens>(FALLBACK_TOKENS);
+  const isMuted = muted !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: isDark is the trigger
+  useEffect(() => {
+    if (isMuted) return;
+    const id = requestAnimationFrame(() => setTokens(readStationTokens()));
+    return () => cancelAnimationFrame(id);
+  }, [isDark, isMuted]);
+
   if (!visible || !data) return null;
 
   const lines = filterFeatures(data.lines, highlightLineIds);
   const stations = filterFeatures(data.stations, highlightLineIds, "lineIds");
-  const isDark = theme === "dark";
 
   return (
     <>
@@ -171,9 +201,13 @@ export function SubwayLayer({
                   ],
                   // Paint each station with its primary line's colour; fall back to
                   // the old neutral dot when no line matched its OSM line_refs.
-                  "circle-color": ["coalesce", ["get", "color"], isDark ? "#d8dde5" : "#ffffff"],
+                  "circle-color": [
+                    "coalesce",
+                    ["get", "color"],
+                    isDark ? tokens.ink : tokens.surface,
+                  ],
                   // Light halo so a coloured dot stays legible on top of its own line.
-                  "circle-stroke-color": isDark ? "#0d1117" : "#ffffff",
+                  "circle-stroke-color": isDark ? tokens.bg : tokens.surface,
                   "circle-stroke-width": [
                     "case",
                     ["boolean", ["get", "isTransfer"], false],
@@ -206,8 +240,8 @@ export function SubwayLayer({
                   "text-halo-width": 1.5,
                 }
               : {
-                  "text-color": isDark ? "#f8fafc" : "#111827",
-                  "text-halo-color": isDark ? "#111318" : "#ffffff",
+                  "text-color": tokens.ink,
+                  "text-halo-color": isDark ? tokens.bg : tokens.surface,
                   "text-halo-width": 2,
                   "text-halo-blur": 0.4,
                 }

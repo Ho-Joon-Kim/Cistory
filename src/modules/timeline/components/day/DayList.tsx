@@ -2,7 +2,8 @@
 
 import { ChevronDown } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { AiLine, FactTrigger, RowFlag, useEvidence } from "@/components/ds";
+import { AiLine, FactTrigger, isMonoFactValue, RowFlag, useEvidence } from "@/components/ds";
+import { prefersReducedMotion } from "@/lib/hooks/usePrefersReducedMotion";
 import { cn } from "@/lib/utils";
 import {
   type CommitClusterRow,
@@ -57,7 +58,12 @@ export function DayList({
     const visible =
       top >= scroller.scrollTop &&
       top + el.offsetHeight <= scroller.scrollTop + scroller.clientHeight;
-    if (!visible) scroller.scrollTo({ top: Math.max(0, top - 24), behavior: "smooth" });
+    if (!visible) {
+      scroller.scrollTo({
+        top: Math.max(0, top - 24),
+        behavior: prefersReducedMotion() ? "auto" : "smooth",
+      });
+    }
   }, [scrollKey]);
 
   const toggle = (id: string) => {
@@ -92,7 +98,7 @@ export function DayList({
           >
             <span
               className={cn(
-                "num pt-2.5 text-right leading-[22px]",
+                "pt-2.5 text-right leading-[22px] tabular-nums",
                 row.depth === 0 ? "text-[13px] font-medium text-ink-2" : "text-xs text-ink-3"
               )}
             >
@@ -244,7 +250,7 @@ function StayBody({
         {row.via ? <span className="text-xs text-ink-3">경유</span> : null}
       </button>
       <p className="m-0 mt-0.5 text-[13px] leading-5 text-ink-2">
-        <span className="num text-xs">{row.range}</span>
+        <span className="text-xs tabular-nums">{row.range}</span>
         {row.area ? ` · ${row.area}` : null}
       </p>
     </>
@@ -306,7 +312,7 @@ function RideBody({
             ) : null}
             <span>
               <span className="text-[11px] text-ink-3">시간</span>{" "}
-              <span className="num">{row.range}</span>
+              <span className="tabular-nums">{row.range}</span>
             </span>
             {row.elevation ? (
               <span>
@@ -347,18 +353,43 @@ function RideBody({
               ))}
             </div>
           ) : null}
-          {row.segments.map((g, i) => (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
-              key={i}
-              className="grid grid-cols-[minmax(0,1fr)_64px_76px_72px] gap-2.5 border-t border-line py-1.5 text-[13px]"
-            >
-              <span>{g.mode}</span>
-              <span className="num text-right text-xs text-ink-2">{g.distance}</span>
-              <span className="num text-right text-xs text-ink-2">{g.duration}</span>
-              <span className="num text-right text-xs text-ink-2">{g.avg}</span>
-            </div>
-          ))}
+          {row.segments.length > 0 ? (
+            // Four columns (mode · distance · time · speed) once the rail is wide
+            // enough to hold them; below that each segment is two lines — mode and
+            // distance, then time and speed — so no label stacks per glyph and no
+            // value is clipped at the card edge.
+            <ol className="@container m-0 list-none p-0">
+              {row.segments.map((g, i) => (
+                <li
+                  // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+                  key={i}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2.5 gap-y-0.5 border-t border-line py-1.5 text-[13px] leading-5 @min-[19rem]:grid-cols-[minmax(0,1fr)_64px_76px_76px]"
+                >
+                  <span className="whitespace-nowrap">{g.mode}</span>
+                  <span className="num text-right text-xs whitespace-nowrap text-ink-2">
+                    {g.distance}
+                  </span>
+                  <span className="col-span-2 flex flex-wrap gap-x-1.5 text-xs text-ink-3 @min-[19rem]:contents @min-[19rem]:text-ink-2">
+                    <span className="num whitespace-nowrap @min-[19rem]:text-right">
+                      {g.duration}
+                    </span>
+                    {g.avg ? (
+                      <>
+                        <span aria-hidden="true" className="@min-[19rem]:hidden">
+                          ·
+                        </span>
+                        <span className="num whitespace-nowrap @min-[19rem]:text-right">
+                          {g.avg}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="hidden @min-[19rem]:block" />
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
         </div>
       ) : null}
     </>
@@ -398,8 +429,8 @@ function CommitBody({
         aria-expanded={open}
         onClick={onToggle}
       >
-        <Name depth={1}>커밋 {row.count}</Name>
-        <span className="num text-xs text-ink-2">{row.range}</span>
+        <Name depth={1}>커밋 {row.count}건</Name>
+        <span className="text-xs text-ink-2 tabular-nums">{row.range}</span>
         <span className="text-xs text-ink-3">{row.repo}</span>
         <Chevron />
       </button>
@@ -408,7 +439,8 @@ function CommitBody({
           {row.summary}
           {rest > 0 ? (
             <>
-              {/[.!?…]$/.test(row.summary.trim()) ? " 이 밖에 " : ". 이 밖에 "}
+              {/* Register-neutral tail: the stored summary may be in any register. */}
+              <span className="text-ink-3"> · 그 밖의 커밋 </span>
               <FactTrigger
                 rows={[
                   // The trigger's own number first, then where the sentence comes from.
@@ -429,7 +461,6 @@ function CommitBody({
               >
                 {`${rest}건`}
               </FactTrigger>
-              을 더 커밋했어요.
             </>
           ) : null}
         </AiLine>
@@ -443,7 +474,7 @@ function CommitBody({
               key={c.id}
               className="grid grid-cols-[40px_minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 border-t border-line py-2 text-[13px] leading-5"
             >
-              <span className="num text-xs text-ink-3">{c.time}</span>
+              <span className="text-xs text-ink-3 tabular-nums">{c.time}</span>
               <span className="text-ink">
                 {c.url ? (
                   <a
@@ -497,7 +528,11 @@ function IncomeBody({ row, onSelect }: { row: IncomeRow; onSelect: (id: string) 
     <button type="button" className={headClass} onClick={() => onSelect(row.id)}>
       <Name depth={1}>{row.label}</Name>
       <span className="num text-sm font-medium text-ink">{row.amount}</span>
-      <span className="num text-xs text-ink-3">{row.note}</span>
+      <span
+        className={cn("text-xs text-ink-3", isMonoFactValue(row.note) ? "num" : "tabular-nums")}
+      >
+        {row.note}
+      </span>
     </button>
   );
 }
@@ -542,7 +577,7 @@ function SleepBody({
         onClick={onToggle}
       >
         <Name depth={1}>수면 {row.asleep}</Name>
-        <span className="num text-xs text-ink-2">
+        <span className="text-xs text-ink-2 tabular-nums">
           {row.range}
           {row.efficiency ? ` · 효율 ${row.efficiency}` : ""}
         </span>
@@ -574,16 +609,20 @@ function SleepBody({
       ) : null}
       <FlagReason {...flag} />
       {open ? (
-        <div className="ds-reveal mt-2 grid grid-cols-4 gap-2 pt-1">
-          {row.stages?.map((g) => (
-            <div key={g.label} className="flex flex-col gap-0.5">
-              <span className="text-[11px] leading-[14px] text-ink-3">{g.label}</span>
-              <span className="num text-[13px]">{g.value}</span>
-            </div>
-          ))}
-          <span className="col-span-full text-[11px] leading-[14px] text-ink-3">
-            누워 있던 시간 {row.inBed}
-          </span>
+        // Four stages across when the row is wide enough; a 2×2 grid below that,
+        // so a value like "4시간 39분" never breaks between its hours and minutes.
+        <div className="ds-reveal @container mt-2 pt-1">
+          <div className="grid grid-cols-2 gap-2 @min-[19rem]:grid-cols-4">
+            {row.stages?.map((g) => (
+              <div key={g.label} className="flex flex-col gap-0.5">
+                <span className="text-[11px] leading-[14px] text-ink-3">{g.label}</span>
+                <span className="num text-[13px] whitespace-nowrap">{g.value}</span>
+              </div>
+            ))}
+            <span className="col-span-full text-[11px] leading-[14px] text-ink-3">
+              누워 있던 시간 <span className="num">{row.inBed}</span>
+            </span>
+          </div>
         </div>
       ) : null}
     </>

@@ -43,7 +43,7 @@ export function DayStrip({
     <div role="group" aria-label="하루 24시간" className="relative">
       {tip ? (
         <span
-          className="num pointer-events-none absolute top-[calc(100%+4px)] z-[5] -translate-x-1/2 rounded-lg bg-surface px-2 py-1 text-xs whitespace-nowrap text-ink shadow-ring"
+          className="tabular-nums pointer-events-none absolute top-[calc(100%+4px)] z-[5] -translate-x-1/2 rounded-lg bg-surface px-2 py-1 text-xs whitespace-nowrap text-ink shadow-ring"
           style={{ left: tip.left }}
         >
           {tip.text}

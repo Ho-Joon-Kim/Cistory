@@ -42,7 +42,7 @@ export function formatFactValue(value: number, unit: FactUnit, unitLabel = ""): 
     case "minutes":
       return formatDurationMinutes(value);
     case "steps":
-      return `${formatCount(value)}보`;
+      return `${formatCount(value)}걸음`;
     case "days":
       return `${formatCount(value)}일`;
     default:
@@ -62,7 +62,7 @@ function unitWord(fact: Fact): string {
     case "won":
       return "원";
     case "steps":
-      return "보";
+      return "걸음";
     case "days":
       return "일";
     case "km":

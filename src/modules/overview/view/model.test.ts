@@ -272,7 +272,7 @@ describe("buildOverviewModel", () => {
       now: NOW,
     });
     expect(m.hero.body.steps?.average).toBe(3000);
-    expect(m.hero.body.steps?.bars.at(-1)?.tip).toContain("하루 3,000보");
+    expect(m.hero.body.steps?.bars.at(-1)?.tip).toContain("하루 3,000걸음");
     expect(m.hero.commits?.bars.at(-1)?.tip).toContain("1,000");
   });
 

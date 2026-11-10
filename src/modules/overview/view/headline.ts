@@ -8,7 +8,7 @@ import { hasBatchim } from "@/lib/facts";
 import type { PeriodContext } from "./labels";
 
 interface Clause {
-  /** Connective form ending a non-final clause ("…늘었고"). */
+  /** Connective form ending a non-final clause ("…늘고" — non-past, so the whole sentence modifies the period noun). */
   conn: string;
   /** Adnominal form closing the sentence ("…늘어난"). */
   fin: string;
@@ -35,17 +35,17 @@ function commitsClause(ctx: PeriodContext, cur: number, prev: number): Clause {
   if (r >= 1) {
     const times = Math.round((cur / prev) * 10) / 10;
     return {
-      conn: `커밋은 ${ctx.previousLabel}의 ${times}배로 늘었고,`,
+      conn: `커밋은 ${ctx.previousLabel}의 ${times}배로 늘고,`,
       fin: `커밋이 ${ctx.previousLabel}의 ${times}배로 늘어난`,
     };
   }
   return r > 0
     ? {
-        conn: `커밋은 ${ctx.previousLabel}보다 ${p}% 늘었고,`,
+        conn: `커밋은 ${ctx.previousLabel}보다 ${p}% 늘고,`,
         fin: `커밋이 ${ctx.previousLabel}보다 ${p}% 늘어난`,
       }
     : {
-        conn: `커밋은 ${ctx.previousLabel}보다 ${p}% 줄었고,`,
+        conn: `커밋은 ${ctx.previousLabel}보다 ${p}% 줄고,`,
         fin: `커밋이 ${ctx.previousLabel}보다 ${p}% 줄어든`,
       };
 }
@@ -61,8 +61,8 @@ function cashClause(net: number, prev: number): Clause {
 
 function weightClause(cur: number, prev: number): Clause {
   const diff = cur - prev;
-  if (diff <= -0.3) return { conn: "체중은 줄었고", fin: "체중이 줄어든" };
-  if (diff >= 0.3) return { conn: "체중은 늘었고", fin: "체중이 늘어난" };
+  if (diff <= -0.3) return { conn: "체중은 줄고", fin: "체중이 줄어든" };
+  if (diff >= 0.3) return { conn: "체중은 늘고", fin: "체중이 늘어난" };
   return { conn: "체중은 그대로이고", fin: "체중이 그대로인" };
 }
 
