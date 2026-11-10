@@ -1,6 +1,6 @@
 "use client";
 
-import { useEvidence } from "@/components/ds";
+import { panelClass, useEvidence } from "@/components/ds";
 import { formatReturn, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { evidenceKey } from "../facts";
@@ -32,7 +32,7 @@ export function AccountOutcomes({ accounts }: { accounts: AccountOutcome[] }) {
   return (
     <section
       aria-labelledby="pf-accounts"
-      className="ds-enter mt-8 border-b border-line pb-7 lg:mt-12 lg:pb-12"
+      className={cn(panelClass, "ds-enter mt-8 border-b border-line pb-7 lg:mt-12 lg:pb-12")}
       style={enterStyle(2)}
     >
       <div id="pf-accounts">

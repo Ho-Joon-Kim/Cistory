@@ -14,6 +14,7 @@ import {
   EvidenceScope,
   LoadingState,
   PageTitle,
+  panelClass,
   Segmented,
   SOURCE_STATUS_LABELS,
   SourceTile,
@@ -267,7 +268,7 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
         >
           <section
             aria-label="요약"
-            className="ds-enter mt-8 grid grid-cols-1 gap-8 [animation-delay:100ms] lg:grid-cols-12 lg:gap-6"
+            className="ds-enter mt-6 grid grid-cols-1 gap-3 [animation-delay:100ms] lg:mt-8 lg:grid-cols-12 lg:gap-6"
           >
             <HeroSummary hero={hero} views={views} onOpenRow={openRow} now={now} />
             <FocusPanel
@@ -283,7 +284,7 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
 
           <section
             aria-labelledby="sources-heading"
-            className="ds-enter mt-12 [animation-delay:200ms] lg:mt-14"
+            className={cn(panelClass, "ds-enter mt-3 [animation-delay:200ms] lg:mt-14")}
           >
             <div className="mb-3 flex items-baseline justify-between gap-4">
               <h2
@@ -372,7 +373,7 @@ function HeroSummary({
   );
   const gap = hero.gapNote;
   return (
-    <div className="flex flex-col justify-center gap-7 py-1 lg:col-span-5">
+    <div className={cn(panelClass, "flex flex-col justify-center gap-7 py-1 lg:col-span-5")}>
       <div className="flex flex-col gap-4">
         <h2 className="m-0 font-serif text-[22px] leading-[30px] font-bold tracking-[-0.02em] sm:text-[28px] sm:leading-[38px]">
           {hero.headline}

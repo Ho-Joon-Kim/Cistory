@@ -274,7 +274,7 @@ export function PortfolioDisclosures({
   const filledCount = executions.filter((e) => e.filledQty > 0).length;
 
   return (
-    <section aria-label="자세히" className="pb-12 lg:pb-[72px]">
+    <section aria-label="자세히" className="lg:pb-[72px]">
       <Disclosure
         id="pf-perf"
         title="운용 성과"

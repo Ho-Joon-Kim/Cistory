@@ -11,6 +11,7 @@ import {
   MetaLine,
   PageContainer,
   PageTitle,
+  panelClass,
   Segmented,
 } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
@@ -306,8 +307,8 @@ export default function SpendingPage() {
   return (
     <div className="min-h-screen bg-page">
       <Header />
-      <PageContainer className="flex flex-col gap-12 lg:gap-16">
-        <div {...enter(0)} className="ds-enter">
+      <PageContainer className="flex flex-col gap-3 lg:gap-16">
+        <div {...enter(0)} className="ds-enter mb-3 lg:mb-0">
           <PageTitle
             title="소비"
             meta={
@@ -359,7 +360,7 @@ export default function SpendingPage() {
           />
         ) : (
           <>
-            <div className="-mt-6 lg:-mt-6">
+            <div className="lg:-mt-6">
               <SpendingHero
                 hero={hero}
                 trend={data}
@@ -372,7 +373,7 @@ export default function SpendingPage() {
             {selected ? (
               <section
                 {...enter(3)}
-                className="ds-enter flex flex-col gap-6"
+                className={cn(panelClass, "ds-enter flex flex-col gap-6")}
                 aria-labelledby="spending-months"
               >
                 <SectionTitle>
@@ -406,14 +407,17 @@ export default function SpendingPage() {
 
         <section
           {...enter(4)}
-          className="ds-enter flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-4"
+          className="ds-enter flex flex-col lg:grid lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-4"
           aria-label="거래 기록"
         >
           {tab === "ledger" ? (
             // Phones: 돈의 흐름 is its own serif section before 거래 내역 (mock order).
             // Desktop: it sits in the right column beside the ledger.
             <aside
-              className="mb-8 flex flex-col gap-2 lg:col-start-2 lg:row-start-2 lg:mb-0 lg:pt-3"
+              className={cn(
+                panelClass,
+                "flex flex-col gap-2 lg:col-start-2 lg:row-start-2 lg:pt-3"
+              )}
               aria-labelledby="spending-flow"
             >
               <SectionTitle className="lg:hidden">
@@ -427,111 +431,116 @@ export default function SpendingPage() {
             </aside>
           ) : null}
 
-          <div className="flex flex-col gap-4 lg:col-span-2 lg:row-start-1 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center justify-between gap-3">
-              <SectionTitle className="flex items-baseline gap-2">
-                <span id={`spending-tab-${tab}`}>
-                  {tab === "ledger" ? "거래 내역" : "원본 알림"}
-                </span>
-                {tab === "ledger" ? (
-                  !ledger.hasLoaded ? null : (
-                    <span className="num font-sans text-sm leading-[1.375rem] font-normal tracking-normal text-ink-2">
-                      {formatCount(txCount)}건
-                    </span>
-                  )
-                ) : logs.hasLoaded ? (
-                  <span className="num font-sans text-sm leading-[1.375rem] font-normal tracking-normal text-ink-2">
-                    {formatCount(logs.total)}건
+          {/* Phones/tablets: header + list are one panel; desktop: `contents`, so the
+              section grid still places them separately. */}
+          <div className={cn(panelClass, "flex flex-col gap-4 lg:contents")}>
+            <div className="flex flex-col gap-4 lg:col-span-2 lg:row-start-1 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center justify-between gap-3">
+                <SectionTitle className="flex items-baseline gap-2">
+                  <span id={`spending-tab-${tab}`}>
+                    {tab === "ledger" ? "거래 내역" : "원본 알림"}
                   </span>
-                ) : null}
-              </SectionTitle>
-              <ViewToggle
-                raw={tab === "raw"}
-                onToggle={() => setTab(tab === "raw" ? "ledger" : "raw")}
-                className="lg:hidden"
-              />
+                  {tab === "ledger" ? (
+                    !ledger.hasLoaded ? null : (
+                      <span className="num font-sans text-sm leading-[1.375rem] font-normal tracking-normal text-ink-2">
+                        {formatCount(txCount)}건
+                      </span>
+                    )
+                  ) : logs.hasLoaded ? (
+                    <span className="num font-sans text-sm leading-[1.375rem] font-normal tracking-normal text-ink-2">
+                      {formatCount(logs.total)}건
+                    </span>
+                  ) : null}
+                </SectionTitle>
+                <ViewToggle
+                  raw={tab === "raw"}
+                  onToggle={() => setTab(tab === "raw" ? "ledger" : "raw")}
+                  className="lg:hidden"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <ViewToggle
+                  raw={tab === "raw"}
+                  onToggle={() => setTab(tab === "raw" ? "ledger" : "raw")}
+                  className="hidden lg:inline-flex"
+                />
+                <Segmented
+                  items={LEDGER_PERIODS}
+                  value={period}
+                  onChange={(value) => {
+                    setPeriod(value);
+                    setShownDays(FIRST_DAYS);
+                  }}
+                  ariaLabel="기간"
+                  className="w-full sm:w-[300px]"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <ViewToggle
-                raw={tab === "raw"}
-                onToggle={() => setTab(tab === "raw" ? "ledger" : "raw")}
-                className="hidden lg:inline-flex"
-              />
-              <Segmented
-                items={LEDGER_PERIODS}
-                value={period}
-                onChange={(value) => {
-                  setPeriod(value);
-                  setShownDays(FIRST_DAYS);
-                }}
-                ariaLabel="기간"
-                className="w-full sm:w-[300px]"
-              />
-            </div>
-          </div>
 
-          {tab === "ledger" ? (
-            <div id="spending-panel-ledger" className="min-w-0 lg:col-start-1 lg:row-start-2">
-              <div className="min-w-0">
-                {ledger.error && ledger.transactions.length === 0 ? (
-                  <ErrorState
-                    title="거래 내역을 불러오지 못했어요"
-                    description="잠시 후 다시 시도해 주세요."
-                    actions={
-                      <button
-                        type="button"
-                        onClick={ledger.refresh}
-                        className="h-9 cursor-pointer rounded-[9px] border-0 bg-surface px-3.5 text-[0.8125rem] font-semibold shadow-ring"
-                      >
-                        다시 시도
-                      </button>
-                    }
-                  />
-                ) : !ledger.hasLoaded || (ledger.isLoading && ledger.transactions.length === 0) ? (
+            {tab === "ledger" ? (
+              <div id="spending-panel-ledger" className="min-w-0 lg:col-start-1 lg:row-start-2">
+                <div className="min-w-0">
+                  {ledger.error && ledger.transactions.length === 0 ? (
+                    <ErrorState
+                      title="거래 내역을 불러오지 못했어요"
+                      description="잠시 후 다시 시도해 주세요."
+                      actions={
+                        <button
+                          type="button"
+                          onClick={ledger.refresh}
+                          className="h-9 cursor-pointer rounded-[9px] border-0 bg-surface px-3.5 text-[0.8125rem] font-semibold shadow-ring"
+                        >
+                          다시 시도
+                        </button>
+                      }
+                    />
+                  ) : !ledger.hasLoaded ||
+                    (ledger.isLoading && ledger.transactions.length === 0) ? (
+                    <LoadingState variant="rows" rows={6} />
+                  ) : visibleDays.length === 0 ? (
+                    <EmptyState
+                      className="pt-5"
+                      title="이 기간에 기록된 거래가 없어요"
+                      description="Toss 알림이 들어오지 않았거나 거래로 분석되지 않았어요. 원본 알림에서 확인할 수 있어요."
+                    />
+                  ) : (
+                    <>
+                      <Ledger days={visibleDays} ctx={flagCtx} actions={actions} />
+                      {hiddenDays.length > 0 || ledger.hasMore ? (
+                        <MoreButton onClick={showMore}>{moreLabel}</MoreButton>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div
+                id="spending-panel-raw"
+                className="flex flex-col gap-4 lg:col-span-2 lg:row-start-2"
+              >
+                <BulkPanels
+                  onChanged={() => {
+                    logs.refresh();
+                    refreshAll();
+                  }}
+                />
+                {!logs.hasLoaded || (logs.isLoading && logs.logs.length === 0) ? (
                   <LoadingState variant="rows" rows={6} />
-                ) : visibleDays.length === 0 ? (
+                ) : logs.logs.length === 0 ? (
                   <EmptyState
                     className="pt-5"
-                    title="이 기간에 기록된 거래가 없어요"
-                    description="Toss 알림이 들어오지 않았거나 거래로 분석되지 않았어요. 원본 알림에서 확인할 수 있어요."
+                    title="이 기간에 받은 알림이 없어요"
+                    description="MacroDroid가 Toss 알림을 보내면 원문이 여기에 쌓여요."
                   />
                 ) : (
                   <>
-                    <Ledger days={visibleDays} ctx={flagCtx} actions={actions} />
-                    {hiddenDays.length > 0 || ledger.hasMore ? (
-                      <MoreButton onClick={showMore}>{moreLabel}</MoreButton>
-                    ) : null}
+                    <NotificationList logs={logs.logs} onDeleteTransaction={actions.onDelete} />
+                    {logs.hasMore ? <MoreButton onClick={logs.loadMore}>더 보기</MoreButton> : null}
                   </>
                 )}
               </div>
-            </div>
-          ) : (
-            <div
-              id="spending-panel-raw"
-              className="flex flex-col gap-4 lg:col-span-2 lg:row-start-2"
-            >
-              <BulkPanels
-                onChanged={() => {
-                  logs.refresh();
-                  refreshAll();
-                }}
-              />
-              {!logs.hasLoaded || (logs.isLoading && logs.logs.length === 0) ? (
-                <LoadingState variant="rows" rows={6} />
-              ) : logs.logs.length === 0 ? (
-                <EmptyState
-                  className="pt-5"
-                  title="이 기간에 받은 알림이 없어요"
-                  description="MacroDroid가 Toss 알림을 보내면 원문이 여기에 쌓여요."
-                />
-              ) : (
-                <>
-                  <NotificationList logs={logs.logs} onDeleteTransaction={actions.onDelete} />
-                  {logs.hasMore ? <MoreButton onClick={logs.loadMore}>더 보기</MoreButton> : null}
-                </>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </section>
       </PageContainer>
     </div>

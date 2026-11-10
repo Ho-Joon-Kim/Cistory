@@ -11,10 +11,12 @@ import {
   MetaLine,
   PageContainer,
   PageTitle,
+  panelClass,
 } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { formatDateTime, formatMonthDay, formatTime, formatWon } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
 import {
   type AccountOutcome,
@@ -452,7 +454,11 @@ function PortfolioContent() {
                 </EvidenceScope>
               ))}
               <div
-                className={model.drifts.length === 0 ? "ds-enter mt-10 lg:mt-14" : "ds-enter"}
+                className={cn(
+                  panelClass,
+                  "ds-enter",
+                  model.drifts.length === 0 && "mt-10 lg:mt-14"
+                )}
                 style={enterStyle(4)}
               >
                 <PortfolioDisclosures

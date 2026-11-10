@@ -32,6 +32,7 @@ export {
 } from "./menu";
 export { CountUp, HeroNumber, SecondaryNumber } from "./Numbers";
 export { MetaLine, PageContainer, PageTitle } from "./PageTitle";
+export { Panel, panelClass } from "./Panel";
 export { RowFlag, RowFlagReason } from "./RowFlag";
 export { Segmented, type SegmentedItem } from "./Segmented";
 export { ShareRow } from "./ShareRow";

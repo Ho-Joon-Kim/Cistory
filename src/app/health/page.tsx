@@ -2,7 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { type CSSProperties, type ReactNode, useEffect, useMemo } from "react";
-import { EmptyState, ErrorState, LoadingState, PageContainer, PageTitle } from "@/components/ds";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageContainer,
+  PageTitle,
+  panelClass,
+} from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { formatDateTime, formatDay, formatRelative } from "@/lib/format";
 import { GENERIC_ERROR_MESSAGE, sameErrorCopy } from "@/lib/user-error";
@@ -84,7 +91,7 @@ function HealthBody({
   if (!summary.hasConnection && !summary.hasAnyHistory) {
     return (
       <EmptyState
-        className="mt-8 border-t border-line pt-8"
+        className={`${panelClass} mt-8 border-t border-line pt-8`}
         title="아직 건강 데이터가 연결되지 않았어요"
         description="Google Health (Fitbit)를 연결하면 수면·심박·걸음 추이를 볼 수 있어요."
         action={<Button onClick={goSettings}>설정에서 연결하기</Button>}
@@ -136,7 +143,7 @@ function HealthBody({
         onBodyRetry={body.refresh}
       />
       <ActivitySection
-        className="ds-enter mt-10 lg:mt-16"
+        className={`${panelClass} ds-enter mt-3 lg:mt-16`}
         style={delay(2)}
         metrics={summary.metrics}
         win={win}
@@ -144,19 +151,19 @@ function HealthBody({
         lastSyncedAt={summary.lastSyncedAt}
       />
       <WorkoutsSection
-        className="ds-enter mt-11 lg:mt-[72px]"
+        className={`${panelClass} ds-enter mt-3 lg:mt-[72px]`}
         style={delay(3)}
         workouts={summary.workouts}
       />
       {summary.rhythm ? (
         <HeartRhythmCard
-          className="ds-enter mt-11 lg:mt-[72px]"
+          className={`${panelClass} ds-enter mt-3 lg:mt-[72px]`}
           style={delay(4)}
           rhythm={summary.rhythm}
         />
       ) : null}
       <DetailsSheet
-        className="ds-enter mt-8 border-t border-line pt-1 lg:mt-14 lg:pt-2"
+        className={`${panelClass} ds-enter mt-3 lg:mt-14 lg:border-t lg:border-line lg:pt-2`}
         style={delay(4)}
         rows={rows}
         body={body.data}

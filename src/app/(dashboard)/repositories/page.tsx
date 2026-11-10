@@ -7,12 +7,14 @@ import {
   LoadingState,
   PageContainer,
   PageTitle,
+  panelClass,
   SourceTile,
 } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
 import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { formatCount, formatDateTime, formatRelative, formatShare } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useRequireAuth } from "@/modules/auth/hooks";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 import { useRepositories } from "@/modules/timeline/hooks";
@@ -90,7 +92,12 @@ export default function RepositoriesPage() {
                   description="상단의 동기화 버튼을 눌러 GitHub 커밋을 가져오세요."
                 />
               ) : (
-                <ul className="m-0 list-none border-t border-line p-0">
+                <ul
+                  className={cn(
+                    panelClass,
+                    "m-0 list-none border-t border-line p-0 max-lg:[&>li:last-child]:border-b-0"
+                  )}
+                >
                   {repositories.map((repo) => {
                     const count = Number(repo.commitCount);
                     const [owner, name] = repo.fullName.includes("/")

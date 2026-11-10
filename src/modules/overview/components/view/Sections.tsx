@@ -37,10 +37,10 @@ export function SectionTitle({ children, id }: { children: string; id?: string }
 
 // ── 이동과 장소 ───────────────────────────────────────────────────────────────
 
-export function MoveSection({ move }: { move: MoveModel }) {
+export function MoveSection({ move, className }: { move: MoveModel; className?: string }) {
   const { stateOf } = useEvidence();
   return (
-    <section aria-labelledby="ov-move">
+    <section aria-labelledby="ov-move" className={className}>
       <SectionTitle id="ov-move">이동과 장소</SectionTitle>
       <dl className="m-0 mt-5 grid grid-cols-2 gap-x-10 gap-y-3 sm:flex sm:flex-wrap">
         {move.stats.map((s) => (

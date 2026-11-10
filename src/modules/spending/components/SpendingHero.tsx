@@ -1,7 +1,14 @@
 "use client";
 
 import { useId } from "react";
-import { CategoryMark, EvidenceScope, HeroNumber, Segmented, useEvidence } from "@/components/ds";
+import {
+  CategoryMark,
+  EvidenceScope,
+  HeroNumber,
+  panelClass,
+  Segmented,
+  useEvidence,
+} from "@/components/ds";
 import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatMonthDay, formatShare, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -146,14 +153,14 @@ export function SpendingHero({
     <EvidenceScope>
       <section
         aria-labelledby={`${forecastId}-title`}
-        className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-12"
+        className="grid grid-cols-1 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-12"
       >
         {/* The visible label is a small caption; the outline still needs the section's h2 so the
             aside's block title can step down to h3. */}
         <h2 id={`${forecastId}-title`} className="sr-only">
           {hero.monthLabel} 지출
         </h2>
-        <div {...enter(1)} className="ds-enter flex flex-col gap-5">
+        <div {...enter(1)} className={cn(panelClass, "ds-enter flex flex-col gap-5")}>
           <div className="flex flex-col gap-2">
             <span className="text-label">
               {hero.monthLabel} 지출 · {hero.day}일째
@@ -200,7 +207,10 @@ export function SpendingHero({
           ) : null}
         </div>
 
-        <div {...enter(2)} className="ds-enter min-w-0 lg:col-span-2 lg:row-start-2">
+        <div
+          {...enter(2)}
+          className={cn(panelClass, "ds-enter min-w-0 lg:col-span-2 lg:row-start-2")}
+        >
           <SpendingTrend
             trend={trend}
             hero={hero}
@@ -220,7 +230,10 @@ export function SpendingHero({
 
         <div
           {...enter(3)}
-          className="ds-enter flex flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:pt-5"
+          className={cn(
+            panelClass,
+            "ds-enter flex flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:pt-5"
+          )}
         >
           <div className="flex min-h-9 items-center">
             <BlockTitle>같은 기준으로 비교</BlockTitle>
@@ -261,7 +274,7 @@ export function SpendingHeroSkeleton() {
       role="status"
       aria-busy="true"
       aria-label="이번 달 지출 불러오는 중"
-      className="ds-delayed-in -mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-12"
+      className="ds-delayed-in grid grid-cols-1 gap-10 lg:-mt-6 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-12"
     >
       <div className="flex flex-col gap-2">
         <Bone className="h-3 w-28" />

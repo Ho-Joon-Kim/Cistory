@@ -11,7 +11,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AiLine, CountUp, EvidenceScope, LoadingState } from "@/components/ds";
+import { AiLine, CountUp, EvidenceScope, LoadingState, panelClass } from "@/components/ds";
 import { shiftDateKey } from "@/lib/date-key";
 import { formatCount, formatDurationMinutes, formatTime, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -483,12 +483,16 @@ export function DayView({
             {metaLine ? <div className="mt-0.5">{metaLine}</div> : null}
             {aiLine ? <div className="mt-1.5">{aiLine}</div> : null}
           </section>
-          <section className="ds-enter mt-4 px-4 [animation-delay:200ms]">
+          <section className={cn(panelClass, "ds-enter mx-4 mt-4 [animation-delay:200ms]")}>
             {notice}
             {errors}
             <div className="timeline-scroll-container">{list}</div>
           </section>
-          {bodyRow ? <section className="mt-6 px-4">{bodyRow}</section> : null}
+          {bodyRow ? (
+            <section className={cn(panelClass, "mx-4 mt-3 [&>div]:border-t-0 [&>div>div]:pt-0")}>
+              {bodyRow}
+            </section>
+          ) : null}
         </main>
       </EvidenceScope>
     );

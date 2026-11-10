@@ -7,6 +7,7 @@ import {
   ErrorState,
   EvidenceScope,
   LoadingState,
+  panelClass,
   useEvidence,
 } from "@/components/ds";
 import { evidenceMatches } from "@/lib/facts/evidence";
@@ -33,7 +34,7 @@ import {
 // ── shared bits ──────────────────────────────────────────────────────────────
 
 /** A column of the hero row: a flex stack on phones, six subgrid rows from lg. */
-const COLUMN = "flex min-w-0 flex-col lg:row-span-6 lg:grid lg:grid-rows-subgrid";
+const COLUMN = `${panelClass} flex min-w-0 flex-col lg:row-span-6 lg:grid lg:grid-rows-subgrid`;
 
 /** Stage marks: tokens in globals.css, each ≥3:1 against the page in both themes. */
 export const STAGE_BG: Record<SleepStageKey, string> = {
@@ -733,7 +734,7 @@ export function HeroRow({
       aria-label="핵심 지표"
       style={style}
       className={cn(
-        "border-t border-line lg:grid lg:grid-cols-[minmax(0,6fr)_minmax(0,3fr)_minmax(0,3fr)] lg:grid-rows-[repeat(6,auto)] lg:border-b",
+        "lg:grid lg:grid-cols-[minmax(0,6fr)_minmax(0,3fr)_minmax(0,3fr)] lg:grid-rows-[repeat(6,auto)] lg:border-y lg:border-line",
         className
       )}
     >

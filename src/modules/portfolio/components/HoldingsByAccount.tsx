@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AiLine, useEvidence } from "@/components/ds";
+import { AiLine, panelClass, useEvidence } from "@/components/ds";
 import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatReturn, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -56,7 +56,11 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
   const count = groups.reduce((s, g) => s + g.rows.length, 0);
 
   return (
-    <section aria-labelledby="pf-holdings" className="ds-enter mt-8 lg:mt-12" style={enterStyle(4)}>
+    <section
+      aria-labelledby="pf-holdings"
+      className={cn(panelClass, "ds-enter mt-8 lg:mt-12")}
+      style={enterStyle(4)}
+    >
       <div id="pf-holdings">
         <SectionTitle
           meta={

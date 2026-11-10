@@ -13,6 +13,7 @@ import {
   AiLine,
   EmptyState,
   LoadingState,
+  panelClass,
   Segmented,
   useDismissOnEvidence,
   useEvidence,
@@ -375,7 +376,7 @@ export function AssetTrend({
   return (
     <section
       aria-labelledby="pf-trend"
-      className="ds-enter mt-8 border-b border-line pb-7 lg:mt-12 lg:pb-12"
+      className={cn(panelClass, "ds-enter mt-8 border-b border-line pb-7 lg:mt-12 lg:pb-12")}
       style={enterStyle(3)}
     >
       <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center lg:justify-between">

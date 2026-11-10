@@ -14,6 +14,7 @@ import {
   LoadingState,
   MetaLine,
   PageTitle,
+  panelClass,
   Segmented,
   SOURCE_ICON_PATHS,
   type SourceIconName,
@@ -343,7 +344,7 @@ export function SettingsForm() {
           side column. The columns are `display: contents` below lg so `order`
           interleaves their sections. Below sm every button and date input on the
           page gets a 44px touch target (the compact `sm` sizes stay on desktop). */}
-      <div className="mt-10 flex flex-col gap-10 max-sm:[&_[data-slot=button]]:min-h-11 max-sm:[&_input[type=date]]:h-11 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
+      <div className="mt-8 flex flex-col max-sm:[&_[data-slot=button]]:min-h-11 max-sm:[&_input[type=date]]:h-11 lg:mt-10 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-10">
           <TodoSection
             views={views}
@@ -358,7 +359,7 @@ export function SettingsForm() {
 
           <section
             aria-labelledby="conn"
-            className="ds-enter order-2 flex flex-col [animation-delay:200ms]"
+            className={cn(panelClass, "ds-enter order-2 flex flex-col [animation-delay:200ms]")}
           >
             <SectionTitle id="conn">연결</SectionTitle>
             {connections.map((c) => (
@@ -386,7 +387,7 @@ export function SettingsForm() {
 
           <section
             aria-labelledby="more"
-            className="ds-enter order-4 flex flex-col [animation-delay:300ms]"
+            className={cn(panelClass, "ds-enter order-4 flex flex-col [animation-delay:300ms]")}
           >
             <SectionTitle id="more">관리</SectionTitle>
             <DisclosureRow
@@ -676,7 +677,7 @@ function TodoSection({
   return (
     <section
       aria-labelledby="todo"
-      className="ds-enter order-1 flex flex-col [animation-delay:100ms]"
+      className={cn(panelClass, "ds-enter order-1 flex flex-col [animation-delay:100ms]")}
     >
       <SectionTitle id="todo">
         확인할 것{" "}
@@ -1050,7 +1051,10 @@ function StorageSection({
   return (
     <section
       aria-labelledby="store"
-      className="ds-enter order-3 flex flex-col [animation-delay:300ms]"
+      className={cn(
+        panelClass,
+        "ds-enter order-3 mt-3 flex flex-col [animation-delay:300ms] lg:mt-0"
+      )}
     >
       <div className="flex items-baseline justify-between gap-3">
         <SectionTitle id="store">저장 공간</SectionTitle>
@@ -1247,7 +1251,7 @@ function DangerZone({
   return (
     <section
       aria-labelledby="danger"
-      className="ds-enter order-5 flex flex-col [animation-delay:400ms]"
+      className={cn(panelClass, "ds-enter order-5 flex flex-col [animation-delay:400ms]")}
     >
       <SectionTitle id="danger">위험 구역</SectionTitle>
       <p className="m-0 mb-3.5 text-[13px] leading-5 text-ink-3">
