@@ -66,6 +66,12 @@ interface UseTransactionsReturn {
   transactions: TransactionItem[];
   summary: TransactionSummary;
   isLoading: boolean;
+  /**
+   * The first page for the current filters has settled (data or error). Until
+   * then `transactions`/`summary` are placeholders (empty, zero), not a result —
+   * never render them as "0건" / "0원".
+   */
+  hasLoaded: boolean;
   error: boolean;
   hasMore: boolean;
   loadMore: () => void;
@@ -186,9 +192,12 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
   const [error, setError] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [offset, setOffset] = useState(0);
+  const filterKey = [perPage, filterFrom, filterTo, filterType, filterBucket].join("|");
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
   const fetchTransactions = useCallback(
     async (currentOffset: number, append: boolean, signal?: AbortSignal) => {
+      const key = [perPage, filterFrom, filterTo, filterType, filterBucket].join("|");
       setIsLoading(true);
       try {
         const params = new URLSearchParams({
@@ -219,12 +228,15 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
         setSummary({ ...emptySummary, ...data.summary });
         setHasMore(data.hasMore);
         setOffset(currentOffset + page.length);
+        setLoadedKey(key);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Failed to fetch transactions:", err);
         setError(true);
+        setLoadedKey(key);
       } finally {
-        setIsLoading(false);
+        // An aborted request (filters changed) must not end the new one's loading.
+        if (!signal?.aborted) setIsLoading(false);
       }
     },
     [perPage, filterFrom, filterTo, filterType, filterBucket]
@@ -235,6 +247,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
     const controller = new AbortController();
     setOffset(0);
     setTransactions([]);
+    setSummary(emptySummary);
     fetchTransactions(0, false, controller.signal);
     return () => controller.abort();
   }, [enabled, fetchTransactions]);
@@ -255,6 +268,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
     transactions,
     summary,
     isLoading,
+    hasLoaded: loadedKey === filterKey,
     error,
     hasMore,
     loadMore,
@@ -325,6 +339,8 @@ interface UseNotificationLogsReturn {
   logs: NotificationLogItem[];
   total: number;
   isLoading: boolean;
+  /** The first page for the current filters has settled; until then `total` is not a count. */
+  hasLoaded: boolean;
   hasMore: boolean;
   loadMore: () => void;
   refresh: () => void;
@@ -342,9 +358,12 @@ export function useNotificationLogs(
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [offset, setOffset] = useState(0);
+  const filterKey = [perPage, filterFrom, filterTo].join("|");
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
   const fetchLogs = useCallback(
     async (currentOffset: number, append: boolean, signal?: AbortSignal) => {
+      const key = [perPage, filterFrom, filterTo].join("|");
       setIsLoading(true);
       try {
         const params = new URLSearchParams({
@@ -372,11 +391,13 @@ export function useNotificationLogs(
         setTotal(data.total ?? 0);
         setHasMore(Boolean(data.hasMore));
         setOffset(currentOffset + page.length);
+        setLoadedKey(key);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Failed to fetch notification logs:", err);
+        setLoadedKey(key);
       } finally {
-        setIsLoading(false);
+        if (!signal?.aborted) setIsLoading(false);
       }
     },
     [perPage, filterFrom, filterTo]
@@ -403,7 +424,15 @@ export function useNotificationLogs(
     fetchLogs(0, false);
   }, [fetchLogs]);
 
-  return { logs, total, isLoading, hasMore, loadMore, refresh };
+  return {
+    logs,
+    total,
+    isLoading,
+    hasLoaded: loadedKey === filterKey,
+    hasMore,
+    loadMore,
+    refresh,
+  };
 }
 
 // ============ Reparse ============

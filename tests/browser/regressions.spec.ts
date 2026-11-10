@@ -576,3 +576,78 @@ for (const authenticated of [false, true]) {
     expect(errors).toEqual([]);
   });
 }
+
+test.describe("a reload paints the stored theme on the first frame", () => {
+  for (const [stored, os, expected] of [
+    ["dark", "light", "dark"],
+    ["light", "dark", "light"],
+    ["system", "dark", "dark"],
+  ] as const) {
+    test(`stored ${stored} on an OS in ${os} mode`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: os });
+      await page.addInitScript((theme) => {
+        localStorage.setItem("theme", theme);
+        // The theme on every DOM change once page content exists, so a frame
+        // painted in the wrong theme can't slip between two checks.
+        const seen: string[] = [];
+        (window as unknown as { __themeSeen: string[] }).__themeSeen = seen;
+        new MutationObserver(() => {
+          if (!document.body?.querySelector("header, main, nav, [role=status]")) return;
+          seen.push(document.documentElement.classList.contains("dark") ? "dark" : "light");
+        }).observe(document, { childList: true, subtree: true, attributes: true });
+      }, stored);
+      // /api/settings says "light" — a lagging server copy must never repaint a reload.
+      await page.goto("/dashboard");
+      await expect(page.locator("main")).toBeVisible();
+      await page.waitForTimeout(300);
+      const seen = await page.evaluate(
+        () => (window as unknown as { __themeSeen: string[] }).__themeSeen
+      );
+      expect(seen.length).toBeGreaterThan(0);
+      expect([...new Set(seen)]).toEqual([expected]);
+      // Cloudflare Rocket Loader defers every inline script it may touch until
+      // after `load` — the production flash. The theme script opts out.
+      const html = await (await page.request.get("/dashboard")).text();
+      expect(html).toMatch(/<script data-cfasync="false">\(\(/);
+    });
+  }
+});
+
+test("a slow day source shows the day as loading, never as empty", async ({ page }) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/timeline/locations/tracks?*", async (route) => {
+    await held;
+    await route.fulfill({ json: { tracks: [] } });
+  });
+  await page.goto("/dashboard");
+  const list = page.locator(".timeline-scroll-container");
+  await expect(list.getByRole("status", { name: "하루 기록을 불러오는 중" })).toBeAttached();
+  await page.waitForTimeout(800);
+  await expect(page.getByText("이날 남은 기록이 없어요")).toHaveCount(0);
+  await expect(page.getByText("이날 위치 기록이 없어요")).toHaveCount(0);
+  release();
+  await expect(page.getByText("이날 남은 기록이 없어요")).toBeVisible();
+});
+
+test("a slow ledger never shows its money flow as 0원", async ({ page }) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/spending?*", async (route) => {
+    const url = new URL(route.request().url());
+    // Only the ledger (100/page) is held; the month query feeds the hero.
+    if (url.searchParams.get("limit") === "100") await held;
+    await route.fallback();
+  });
+  await page.goto("/spending");
+  await expect(page.getByRole("status", { name: "돈의 흐름 불러오는 중" })).toBeAttached();
+  await page.waitForTimeout(800);
+  const flow = page.locator("aside[aria-labelledby=spending-flow]");
+  await expect(flow).not.toContainText("0원");
+  release();
+  await expect(flow).toContainText("순지출");
+});

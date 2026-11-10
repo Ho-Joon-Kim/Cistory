@@ -290,7 +290,7 @@ export function useTransactionsForDate(date: string) {
   const query = useQuery(transactionsForDateOptions(session?.session.id, date));
   return {
     transactions: query.data ?? [],
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     error: query.error ? dayErrorMessage(query.error, "거래 내역을 불러오지 못했어요.") : null,
     refresh: () => {
       void query.refetch();
@@ -350,7 +350,7 @@ export function useDayCommits(date: string) {
   const query = useQuery(dayCommitsOptions(session?.session.id, date));
   return {
     commits: query.data ?? [],
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     error: query.error ? dayErrorMessage(query.error, "커밋을 불러오지 못했어요.") : null,
     refresh: () => {
       void query.refetch();

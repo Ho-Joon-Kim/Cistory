@@ -83,9 +83,9 @@ function PortfolioContent() {
     () => ({ from: shiftDateKey(toKstCalendarDate(new Date()), -372) }),
     []
   );
-  const { snapshots } = useSnapshots(snapshotParams);
+  const { snapshots, isLoading: snapshotsLoading } = useSnapshots(snapshotParams);
   const { data: returns, error: returnsError } = useReturns(RETURNS_PARAMS);
-  const { executions } = useExecutions(EXECUTION_PARAMS);
+  const { executions, isLoading: executionsLoading } = useExecutions(EXECUTION_PARAMS);
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) router.replace("/login");
@@ -416,7 +416,11 @@ function PortfolioContent() {
                 <AccountOutcomes accounts={model.outcomes} />
               </EvidenceScope>
               <EvidenceScope>
-                <AssetTrend series={series} cashflows={returns?.cashflows ?? []} />
+                <AssetTrend
+                  series={series}
+                  cashflows={returns?.cashflows ?? []}
+                  loading={snapshotsLoading}
+                />
               </EvidenceScope>
               <EvidenceScope>
                 <HoldingsByAccount groups={model.groups} fact={model.holdings} />
@@ -446,6 +450,7 @@ function PortfolioContent() {
                   returns={returns}
                   returnsError={returnsError}
                   executions={executions}
+                  executionsLoading={executionsLoading}
                   pnlRate={
                     model.totals.totalPurchaseAmount > 0
                       ? model.totals.totalPnl / model.totals.totalPurchaseAmount

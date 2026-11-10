@@ -161,6 +161,7 @@ export function DayMap({
   className,
   padding = 56,
   loadError,
+  isLoading = false,
 }: {
   date: string;
   locations: LocationData[];
@@ -178,6 +179,8 @@ export function DayMap({
    * has no records.
    */
   loadError?: { message: string; onRetry: () => void } | null;
+  /** The day's locations are still loading: not "no records" yet. */
+  isLoading?: boolean;
 }) {
   const { resolvedTheme } = useTheme();
   const mapRef = useRef<MapRef>(null);
@@ -506,7 +509,7 @@ export function DayMap({
     );
   }
 
-  const noData = loaded && locations.length === 0 && stays.length === 0;
+  const noData = loaded && !isLoading && locations.length === 0 && stays.length === 0;
 
   return (
     <section

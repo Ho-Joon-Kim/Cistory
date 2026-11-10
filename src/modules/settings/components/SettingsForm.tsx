@@ -309,8 +309,15 @@ export function SettingsForm() {
     );
   }
 
-  const connections = buildConnections(settings, views, user?.githubUsername ?? null, now);
+  const connections = buildConnections(
+    settings,
+    views,
+    user?.githubUsername ?? null,
+    now,
+    status.isPending
+  );
   const connectedCount = connections.filter((c) => c.status !== "disconnected").length;
+  const connectionsPending = connections.some((c) => c.pending);
 
   return (
     <>
@@ -320,7 +327,7 @@ export function SettingsForm() {
         meta={
           <MetaLine
             items={[
-              `연결 ${connectedCount}개`,
+              connectionsPending ? null : `연결 ${connectedCount}개`,
               usage.data && usage.data.grandTotalBytes > 0
                 ? `저장 공간 ${formatSize(usage.data.grandTotalBytes)}`
                 : null,
@@ -366,7 +373,13 @@ export function SettingsForm() {
                 title={c.name}
                 meta={c.meta}
                 metaTone={c.status === "reauth" || c.status === "delayed" ? "warn" : "ink3"}
-                badge={<StatusBadge status={c.status} />}
+                badge={
+                  c.pending ? (
+                    <span aria-hidden="true" className="block h-5 w-12 rounded-full bg-track" />
+                  ) : (
+                    <StatusBadge status={c.status} />
+                  )
+                }
                 open={!!open[c.id]}
                 onToggle={toggle(c.id)}
               >
@@ -754,6 +767,8 @@ interface Connection {
   name: string;
   icon: SourceIconName;
   status: SourceStatus;
+  /** The status comes from /api/data-status, which hasn't answered yet. */
+  pending?: boolean;
   meta: string;
   body: (
     settings: UserSettings,
@@ -772,7 +787,8 @@ function buildConnections(
   settings: UserSettings,
   views: Map<SourceId, SourceView>,
   githubUsername: string | null,
-  now: Date
+  now: Date,
+  statusPending = false
 ): Connection[] {
   const st = (id: SourceId, connected: boolean): SourceStatus =>
     !connected ? "disconnected" : (views.get(id)?.status ?? "ok");
@@ -903,7 +919,14 @@ function buildConnections(
       name: "한국투자증권",
       icon: "kis",
       status: kis?.status ?? "disconnected",
-      meta: kis?.source.connected ? join("계좌 연결됨", lastText(kis, now)) : "계좌 없음",
+      // KIS has no settings flag: only the status response knows if an account
+      // is linked, so "계좌 없음" must wait for it.
+      pending: statusPending && !kis,
+      meta: kis?.source.connected
+        ? join("계좌 연결됨", lastText(kis, now))
+        : statusPending
+          ? "확인 중…"
+          : "계좌 없음",
       body: () => <KISAccountSettingsCard />,
     },
   ];

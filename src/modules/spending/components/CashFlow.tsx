@@ -56,7 +56,40 @@ const withTop = (top: string | null, count: number) => (top ? `${top} ${count}�
  * green): spending, refunds netted into 순지출, other money received, and what
  * the totals leave out.
  */
-export function CashFlow({ summary }: { summary: TransactionSummary }) {
+export function CashFlow({
+  summary,
+  loading = false,
+}: {
+  summary: TransactionSummary;
+  /** The summary is a placeholder: draw its rows' shape, never "0원". */
+  loading?: boolean;
+}) {
+  if (loading) {
+    return (
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label="돈의 흐름 불러오는 중"
+        className="ds-delayed-in border-t border-line"
+      >
+        {[0, 1].map((i) => (
+          <div
+            key={i}
+            className={cn(
+              "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3",
+              i === 0 && "border-b border-line"
+            )}
+          >
+            <span className="flex flex-col gap-1.5">
+              <span className="h-3.5 w-12 rounded bg-track" />
+              {i === 0 ? <span className="h-3 w-8 rounded bg-track" /> : null}
+            </span>
+            <span className={cn("rounded bg-track", i === 1 ? "h-6 w-28" : "h-4 w-20")} />
+          </div>
+        ))}
+      </div>
+    );
+  }
   const { flow } = summary;
   const spend = summary.totalSpending;
   const rows = [
