@@ -251,7 +251,7 @@ describe("same-span comparison base", () => {
     ],
   });
 
-  it("cuts the previous month to the elapsed days of the month in progress", () => {
+  it("cuts both sides at yesterday: today's partial day is never compared", () => {
     const history = buildOverviewHistory({
       periodType: "month",
       periodKey: "2026-11",
@@ -259,21 +259,22 @@ describe("same-span comparison base", () => {
       rows: [october],
     });
     expect(history.previous).toMatchObject({ commits: 4100, spending: 910_000 });
+    // 11/1–11/9 (nine settled days) vs 10/1–10/9: the 60 commits of 10/10 stay out.
     expect(history.previousToDate).toMatchObject({
       periodKey: "2026-10",
       from: "2026-10-01",
-      to: "2026-10-10",
-      commits: 100,
-      activeDays: 2,
+      to: "2026-10-09",
+      commits: 40,
+      activeDays: 1,
       spending: 10_000,
     });
   });
 
-  it("matches the elapsed weekdays of a week in progress", () => {
+  it("matches the settled weekdays of a week in progress", () => {
     const history = buildOverviewHistory({
       periodType: "week",
       periodKey: "2026-W46",
-      today: "2026-11-10",
+      today: "2026-11-11",
       rows: [
         row({
           periodType: "week",
@@ -281,7 +282,7 @@ describe("same-span comparison base", () => {
           dailyCommits: [
             { date: "2026-11-02", count: 5 },
             { date: "2026-11-03", count: 7 },
-            { date: "2026-11-06", count: 100 },
+            { date: "2026-11-04", count: 100 },
           ],
         }),
       ],
@@ -293,14 +294,92 @@ describe("same-span comparison base", () => {
     });
   });
 
-  it("caps the span at a shorter previous period and is absent once a period ends", () => {
-    const march = buildOverviewHistory({
+  it("has no comparison on the first day of a period (only today has elapsed)", () => {
+    const history = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-11",
+      today: "2026-11-01",
+      rows: [october],
+    });
+    expect(history.previousToDate).toBeNull();
+  });
+
+  it("has no comparison once the settled span outgrows a shorter previous period", () => {
+    const feb = row({
+      periodType: "month",
+      periodKey: "2026-02",
+      dailyCommits: [{ date: "2026-02-10", count: 3 }],
+    });
+    // 3/1–3/28 vs all of February: equal day counts, still comparable.
+    const march29 = buildOverviewHistory({
       periodType: "month",
       periodKey: "2026-03",
-      today: "2026-03-31",
-      rows: [row({ periodType: "month", periodKey: "2026-02", dailyCommits: [] })],
+      today: "2026-03-29",
+      rows: [feb],
     });
-    expect(march.previousToDate?.to).toBe("2026-02-28");
+    expect(march29.previousToDate).toMatchObject({ to: "2026-02-28", commits: 3 });
+    // 3/1–3/30 against a 28-day February would compare unequal spans.
+    for (const today of ["2026-03-31", "2026-03-30"]) {
+      const march = buildOverviewHistory({
+        periodType: "month",
+        periodKey: "2026-03",
+        today,
+        rows: [feb],
+      });
+      expect(march.previousToDate).toBeNull();
+    }
+    // 31st after a 30-day month: 12/1–12/30 vs all of November is equal.
+    const dec = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-12",
+      today: "2026-12-31",
+      rows: [row({ periodType: "month", periodKey: "2026-11", dailyCommits: [] })],
+    });
+    expect(dec.previousToDate).toMatchObject({ to: "2026-11-30" });
+    // ...but 31st after a 31-day month is an ordinary cut.
+    const aug = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-08",
+      today: "2026-08-31",
+      rows: [row({ periodType: "month", periodKey: "2026-07", dailyCommits: [] })],
+    });
+    expect(aug.previousToDate).toMatchObject({ to: "2026-07-30" });
+  });
+
+  it("cuts the previous year at the same month-day, not the same day count", () => {
+    const year = (periodKey: string) =>
+      row({
+        periodType: "year",
+        periodKey,
+        dailyCommits: [{ date: `${periodKey}-01-05`, count: 1 }],
+      });
+    // 2024 is a leap year: day-count arithmetic would land on 2023-03-02.
+    const leap = buildOverviewHistory({
+      periodType: "year",
+      periodKey: "2024",
+      today: "2024-03-02",
+      rows: [year("2023")],
+    });
+    expect(leap.previousToDate).toMatchObject({ from: "2023-01-01", to: "2023-03-01" });
+    // Day after a leap day: 02-29 has no counterpart and clamps to 02-28.
+    const afterLeapDay = buildOverviewHistory({
+      periodType: "year",
+      periodKey: "2028",
+      today: "2028-03-01",
+      rows: [year("2027")],
+    });
+    expect(afterLeapDay.previousToDate).toMatchObject({ to: "2027-02-28" });
+    // The year after a leap year: day-count arithmetic would land on 2024-11-08.
+    const after = buildOverviewHistory({
+      periodType: "year",
+      periodKey: "2025",
+      today: "2025-11-10",
+      rows: [year("2024")],
+    });
+    expect(after.previousToDate).toMatchObject({ to: "2024-11-09", commits: 1 });
+  });
+
+  it("is absent once a period ends", () => {
     const ended = buildOverviewHistory({
       periodType: "month",
       periodKey: "2026-10",
@@ -308,6 +387,41 @@ describe("same-span comparison base", () => {
       rows: [october],
     });
     expect(ended.previousToDate).toBeNull();
+  });
+});
+
+describe("stale health day values", () => {
+  it("drops a larger snapshot's days that a fresher smaller snapshot no longer has", () => {
+    const steps = (days: { date: string; value: number }[]) => [
+      { metric: "steps", days },
+      { metric: "heart_rate", days: days.map((d) => ({ date: d.date, value: d.value / 100 })) },
+    ];
+    const history = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-10",
+      today: "2026-11-10",
+      rows: [
+        row({
+          periodType: "year",
+          periodKey: "2026",
+          healthMetrics: steps([
+            { date: "2026-10-03", value: 9000 },
+            { date: "2026-10-04", value: 5000 },
+          ]) as HistorySnapshotRow["healthMetrics"],
+        }),
+        // The month was recomputed after 10/4's (bad) record was removed.
+        row({
+          periodType: "month",
+          periodKey: "2026-10",
+          healthMetrics: steps([
+            { date: "2026-10-03", value: 9000 },
+          ]) as HistorySnapshotRow["healthMetrics"],
+        }),
+      ],
+    });
+    const oct = history.series.at(-1);
+    expect(oct?.steps).toEqual({ total: 9000, days: 1 });
+    expect(oct?.heartRate).toBe(90);
   });
 });
 

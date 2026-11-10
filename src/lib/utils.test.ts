@@ -5,6 +5,7 @@ process.env.TZ = "Asia/Seoul";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   endOfLocalDay,
+  formatBytes,
   parseDateLocal,
   parseDateLocalEnd,
   parseDateParam,
@@ -130,5 +131,15 @@ describe("parseDateLocalEnd", () => {
 
   it("returns null for invalid input", () => {
     expect(parseDateLocalEnd("not-a-date")).toBeNull();
+  });
+});
+
+describe("formatBytes", () => {
+  it("scales from bytes to gigabytes", () => {
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(1536)).toBe("1.5 KB");
+    expect(formatBytes(12.34 * 1024 ** 2)).toBe("12.3 MB");
+    expect(formatBytes(287.4 * 1024 ** 2)).toBe("287 MB");
+    expect(formatBytes(1.25 * 1024 ** 3)).toBe("1.25 GB");
   });
 });

@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { CountUp, EvidenceScope, isMonoFactValue, useEvidence } from "@/components/ds";
+import { CountUp, Disclosure, EvidenceScope, isMonoFactValue, useEvidence } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import {
   formatCount,
@@ -45,7 +45,7 @@ import type { TravelRoute, TravelTripDetail } from "../hooks";
 import { dayCount, destinationOf, isSpendingRecorded, stayLabel } from "../list-model";
 import { REFERENCE_CITIES } from "../reference-cities";
 import { isRoutinePlace } from "../routine-places";
-import { Chevron, Collapse, DotList, enter, Fig, InsightLine, Pill } from "./parts";
+import { Chevron, DotList, enter, Fig, InsightLine, Pill } from "./parts";
 import { TripMenu } from "./TripMenu";
 import { TripRouteSketch, WalkSketch } from "./TripRouteSketch";
 
@@ -472,7 +472,7 @@ function RunCard({ run, hero }: { run: DenseRun; hero: HeroDay | null }) {
         </span>
         <Chevron className="text-ink-2" />
       </button>
-      <Collapse open={open} id={id}>
+      <Disclosure open={open} id={id}>
         <ol className="m-0 grid list-none gap-x-5 px-3.5 pt-0.5 pb-3.5 sm:grid-cols-2">
           {run.stops.map((stop) => (
             <li
@@ -492,7 +492,7 @@ function RunCard({ run, hero }: { run: DenseRun; hero: HeroDay | null }) {
             </li>
           ))}
         </ol>
-      </Collapse>
+      </Disclosure>
     </div>
   );
 }
@@ -906,7 +906,7 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
                 다른 지표 {table.more.length}개 <Chevron size={14} />
               </Button>
             </div>
-            <Collapse open={open} id={id}>
+            <Disclosure open={open} id={id}>
               <div className="relative mt-1.5">
                 <HotColumn index={hotIndex} count={table.days.length} dayPx={dayPx} />
                 <HealthGrid
@@ -918,7 +918,7 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
                   dayPx={dayPx}
                 />
               </div>
-            </Collapse>
+            </Disclosure>
           </>
         ) : null}
       </ScrollX>
@@ -954,11 +954,11 @@ function DisclosureRow({
         </span>
         <Chevron className="col-start-2 row-span-2 row-start-1 text-ink-2 lg:col-start-3 lg:row-span-1" />
       </button>
-      <Collapse open={open} id={id}>
+      <Disclosure open={open} id={id}>
         <div className="grid gap-x-6 gap-y-3 pb-5 lg:grid-cols-[220px_minmax(0,560px)]">
           {children}
         </div>
-      </Collapse>
+      </Disclosure>
     </div>
   );
 }

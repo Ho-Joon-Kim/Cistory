@@ -3,6 +3,7 @@
 import { Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { formatBytes } from "@/lib/utils";
 import {
   PanelActions,
   PanelNote,
@@ -35,12 +36,6 @@ interface ServerProgress {
 }
 
 const POLL_INTERVAL_MS = 1500;
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
 
 export function LocationImport() {
   const [state, setState] = useState<ImportProgress | null>(null);

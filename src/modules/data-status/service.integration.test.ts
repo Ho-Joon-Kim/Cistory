@@ -15,7 +15,7 @@ import {
   finishRecoveryDay,
   processRecoveryQueue,
 } from "./recovery";
-import { getDataStatus } from "./service";
+import { clearRetainedCountsMemo, getDataStatus } from "./service";
 import { trackSourceSync } from "./telemetry";
 
 vi.mock("@/lib/auth-helpers", () => ({ getAuthenticatedUser: vi.fn() }));
@@ -60,6 +60,7 @@ describe("data collection status and recovery against PostgreSQL", () => {
   });
 
   afterEach(async () => {
+    clearRetainedCountsMemo();
     const names = tables.map((name) => `"${namespace}"."${name.replaceAll('"', '""')}"`);
     await admin.query(`TRUNCATE ${names.join(", ")}`);
   });

@@ -68,9 +68,12 @@ export interface OverviewHistoryResponse {
   previous: OverviewHistoryPeriod | null;
   /**
    * While the viewed period is in progress: the previous period cut to the same
-   * elapsed span (11/1–11/10 → 10/1–10/10; `to` is the span's last day). A partial
-   * period is compared with this, never with the whole previous period. Null for
-   * an ended period or when nothing covers that span.
+   * settled span — through yesterday, since today is still partial (today 11/10 →
+   * 11/1–11/9 vs 10/1–10/9; `to` is the span's last day). A partial period is
+   * compared with this, never with the whole previous period, and the current
+   * side must be cut at yesterday too. Null for an ended period, on a period's
+   * first day, when the span outgrows a shorter previous period, or when nothing
+   * covers that span. See {@link sameSpanEnd}.
    */
   previousToDate?: OverviewHistoryPeriod | null;
   /**
@@ -217,6 +220,10 @@ function collectDays(rows: HistorySnapshotRow[]): DaySources {
     }
     if (ready(row.healthStatus) && row.healthMetrics) {
       sources.covered.health.push(range);
+      for (let d = range.from; d <= range.to; d = shiftDateKey(d, 1)) {
+        sources.steps.delete(d);
+        sources.heartRate.delete(d);
+      }
       for (const day of metricDays(row, "steps")) {
         if (day.value != null && Number.isFinite(Number(day.value))) {
           sources.steps.set(day.date, Number(day.value));
@@ -319,6 +326,35 @@ function summarize(
   };
 }
 
+/**
+ * Last day of the previous period's same-span cut, or null when there is no
+ * honest one. Today is still being recorded, so both sides end at YESTERDAY:
+ * on the first day of a period nothing has settled and there is no comparison.
+ * Weeks and months cut by settled day count; a year cuts at the same month-day
+ * (02-29 → 02-28) so leap years don't drift the span by a day. When the settled
+ * span outgrows a shorter previous month (3/1–3/30 vs February), the two sides
+ * would cover different day counts, so there is no comparison either.
+ */
+export function sameSpanEnd(
+  periodType: HistoryPeriodType,
+  viewed: DateRange,
+  previous: DateRange,
+  today: string
+): string | null {
+  const yesterday = shiftDateKey(today, -1);
+  if (yesterday < viewed.from) return null;
+  if (periodType === "year") {
+    let monthDay = yesterday.slice(5);
+    const year = previous.from.slice(0, 4);
+    if (monthDay === "02-29") monthDay = "02-28";
+    return `${year}-${monthDay}`;
+  }
+  let settled = 0;
+  for (let d = viewed.from; d <= yesterday; d = shiftDateKey(d, 1)) settled++;
+  const spanTo = shiftDateKey(previous.from, settled - 1);
+  return spanTo <= previous.to ? spanTo : null;
+}
+
 export function buildOverviewHistory(input: {
   periodType: HistoryPeriodType;
   periodKey: string;
@@ -347,18 +383,22 @@ export function buildOverviewHistory(input: {
   const viewed = periodDateRange(input.periodType, input.periodKey);
   let previousToDate: OverviewHistoryPeriod | null = null;
   if (input.today >= viewed.from && input.today <= viewed.to) {
-    let elapsed = 0;
-    for (let d = viewed.from; d <= input.today; d = shiftDateKey(d, 1)) elapsed++;
-    const prevRange = periodDateRange(plan.previous.periodType, plan.previous.periodKey);
-    const spanTo = shiftDateKey(prevRange.from, elapsed - 1);
-    const cut = summarize(
-      sources,
-      plan.previous.periodType,
-      plan.previous.periodKey,
-      input.today,
-      spanTo < prevRange.to ? spanTo : prevRange.to
+    const spanTo = sameSpanEnd(
+      input.periodType,
+      viewed,
+      periodDateRange(plan.previous.periodType, plan.previous.periodKey),
+      input.today
     );
-    previousToDate = hasAny(cut) ? cut : null;
+    if (spanTo) {
+      const cut = summarize(
+        sources,
+        plan.previous.periodType,
+        plan.previous.periodKey,
+        input.today,
+        spanTo
+      );
+      previousToDate = hasAny(cut) ? cut : null;
+    }
   }
   return {
     periodType: input.periodType,

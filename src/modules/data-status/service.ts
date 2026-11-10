@@ -100,16 +100,49 @@ function retainedQuery(id: SourceId, userId: string): SQL {
   }
 }
 
+/**
+ * The all-time counts scan a source's whole table, and `/data-status` polls every
+ * 5–30 s while a source needs attention, so each user+source result is memoized
+ * in-process for {@link RETAINED_TTL_MS}. The web container runs as a single
+ * replica (see CLAUDE.md), so a process-local memo is enough. Recovery jobs run
+ * in the cron container, so a finished job can't clear this memo directly;
+ * instead each entry remembers the source's job states (`version`) and a change
+ * — e.g. a job turning `completed` — recomputes immediately.
+ */
+export const RETAINED_TTL_MS = 10 * 60 * 1000;
+const RETAINED_MEMO_MAX = 1000;
+const retainedMemo = new Map<
+  string,
+  { value: { count: number; days: number }; version: string; expiresAt: number }
+>();
+
+/** Test hook: drop every memoized count. */
+export function clearRetainedCountsMemo() {
+  retainedMemo.clear();
+}
+
 export async function retainedCounts(
   db: Database,
   userId: string,
-  ids: SourceId[]
+  ids: SourceId[],
+  options: { now?: number; versions?: Partial<Record<SourceId, string>> } = {}
 ): Promise<Partial<Record<SourceId, { count: number; days: number }>>> {
+  const now = options.now ?? Date.now();
   const entries = await Promise.all(
     ids.map(async (id) => {
+      const key = `${userId}:${id}`;
+      const version = options.versions?.[id] ?? "";
+      const hit = retainedMemo.get(key);
+      if (hit && hit.expiresAt > now && hit.version === version) return [id, hit.value] as const;
       const result = await db.execute<{ count: number; days: number }>(retainedQuery(id, userId));
       const row = result.rows[0];
-      return [id, { count: Number(row?.count ?? 0), days: Number(row?.days ?? 0) }] as const;
+      const value = { count: Number(row?.count ?? 0), days: Number(row?.days ?? 0) };
+      if (retainedMemo.size >= RETAINED_MEMO_MAX) {
+        for (const [k, v] of retainedMemo) if (v.expiresAt <= now) retainedMemo.delete(k);
+        if (retainedMemo.size >= RETAINED_MEMO_MAX) retainedMemo.clear();
+      }
+      retainedMemo.set(key, { value, version, expiresAt: now + RETAINED_TTL_MS });
+      return [id, value] as const;
     })
   );
   return Object.fromEntries(entries);
@@ -302,7 +335,20 @@ export async function getDataStatus(
     userId,
     base
       .filter((b) => connections[b.id] && (b.needsReauth || b.stale || !!b.error))
-      .map((b) => b.id)
+      .map((b) => b.id),
+    {
+      now: now.getTime(),
+      // A recovery job changing state (completing, failing) invalidates the memo.
+      versions: Object.fromEntries(
+        SOURCE_IDS.map((id) => [
+          id,
+          jobs
+            .filter((j) => j.source === id)
+            .map((j) => `${j.id}:${j.status}`)
+            .join(","),
+        ])
+      ),
+    }
   );
   return {
     from,

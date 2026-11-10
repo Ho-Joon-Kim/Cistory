@@ -37,7 +37,7 @@ import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatMonthDay, formatRelative, formatShare, formatTime } from "@/lib/format";
 import { prefersReducedMotion } from "@/lib/hooks/usePrefersReducedMotion";
 import { userErrorMessage } from "@/lib/user-error";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
 import { buildSourceView, focusFact, type SourceView } from "@/modules/data-status/insights";
 import type { DataStatusResponse, SourceId } from "@/modules/data-status/types";
@@ -216,16 +216,6 @@ function DisclosureRow({
   );
 }
 
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
-  if (bytes >= 1024 ** 2) {
-    const mb = bytes / 1024 ** 2;
-    return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
-  }
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${bytes} B`;
-}
-
 // ── Form ────────────────────────────────────────────────────────────────────
 
 export function SettingsForm() {
@@ -322,7 +312,7 @@ export function SettingsForm() {
             items={[
               `연결 ${connectedCount}개`,
               usage.data && usage.data.grandTotalBytes > 0
-                ? `저장 공간 ${formatSize(usage.data.grandTotalBytes)}`
+                ? `저장 공간 ${formatBytes(usage.data.grandTotalBytes)}`
                 : null,
               <Link
                 key="ds"
@@ -1055,10 +1045,10 @@ function StorageSection({
         <>
           <p className="m-0 mt-1 mb-3.5 text-[15px] leading-6">
             {/* Figures inside a Korean sentence stay in the sans face (tabular only). */}
-            <span className="tabular-nums">{formatSize(total)}</span> 중 {top.label} 기록이{" "}
+            <span className="tabular-nums">{formatBytes(total)}</span> 중 {top.label} 기록이{" "}
             <span className="font-semibold tabular-nums">{formatShare(share(top.totalBytes))}</span>
             <span className="text-ink-2">
-              (<span className="tabular-nums">{formatSize(top.totalBytes)}</span>)
+              (<span className="tabular-nums">{formatBytes(top.totalBytes)}</span>)
             </span>
             예요.
           </p>
@@ -1090,17 +1080,17 @@ function StorageSection({
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs leading-4">
             <span>
               <span className="text-ink-2">{top.label}</span>{" "}
-              <span className="num">{formatSize(top.totalBytes)}</span>
+              <span className="num">{formatBytes(top.totalBytes)}</span>
             </span>
             {second ? (
               <span>
                 <span className="text-ink-2">{second.label}</span>{" "}
-                <span className="num">{formatSize(second.totalBytes)}</span>
+                <span className="num">{formatBytes(second.totalBytes)}</span>
               </span>
             ) : null}
             {restBytes > 0 ? (
               <span className="text-ink-3">
-                나머지 <span className="num">{formatSize(restBytes)}</span>
+                나머지 <span className="num">{formatBytes(restBytes)}</span>
               </span>
             ) : null}
           </div>
@@ -1130,7 +1120,7 @@ function StorageSection({
                     <span className="text-ink-3"> · 테이블 {c.tables.length}개</span>
                   </span>
                   <span className="num text-right text-ink-2">{formatCount(c.totalRows)}</span>
-                  <span className="num text-right">{formatSize(c.totalBytes)}</span>
+                  <span className="num text-right">{formatBytes(c.totalBytes)}</span>
                 </li>
               ))}
             </ul>

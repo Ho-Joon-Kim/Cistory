@@ -69,28 +69,6 @@ export function MoreIcon() {
   );
 }
 
-/** Height-animated reveal (grid-rows 0fr → 1fr); content stays mounted for a11y ids. */
-export function Collapse({
-  open,
-  id,
-  children,
-}: {
-  open: boolean;
-  id?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      id={id}
-      data-open={open}
-      inert={!open}
-      className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.2,0,0,1)] data-[open=true]:grid-rows-[1fr] data-[open=true]:opacity-100"
-    >
-      <div className="min-h-0 overflow-hidden">{children}</div>
-    </div>
-  );
-}
-
 /** Ring pill with a colored pip ("해외", "자동 분류 · 정확도 낮음"). */
 export function Pill({
   children,

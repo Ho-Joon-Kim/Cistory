@@ -1,5 +1,8 @@
-import { sql } from "drizzle-orm";
-import { transactions } from "@/db/schema";
+import { type SQL, sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type * as schema from "@/db/schema";
+import { accountRoles, transactions } from "@/db/schema";
+import { accountRolesJoinOn } from "./classify";
 
 /**
  * Refunds inside income.
@@ -121,4 +124,36 @@ export function summarizeIncomeFlow(rows: IncomeGroupRow[]): IncomeFlow {
   flow.refundTopMerchant = topKey(refundByMerchant);
   flow.inflowTopAccount = topKey(inflowByAccount);
   return flow;
+}
+
+/**
+ * Income rows (`bucket = 'income'` within `where`) grouped by refund flag, payer
+ * base name and account — the input of {@link summarizeIncomeFlow}. `bucket` is
+ * the caller's bucketSql() for the same user.
+ */
+export async function selectIncomeGroups(
+  db: NodePgDatabase<typeof schema>,
+  where: SQL | undefined,
+  bucket: ReturnType<typeof sql>
+): Promise<IncomeGroupRow[]> {
+  const merchant = sql<string>`btrim(split_part(${transactions.merchant}, '_', 1))`;
+  const rows = await db
+    .select({
+      isRefund: refundSql(bucket).as("is_refund"),
+      merchant: merchant.as("merchant_base"),
+      accountName: transactions.accountName,
+      total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
+      count: sql<number>`count(*)`.as("count"),
+    })
+    .from(transactions)
+    .leftJoin(accountRoles, accountRolesJoinOn)
+    .where(sql`${where ?? sql`true`} AND ${bucket} = 'income'`)
+    .groupBy(sql`1, 2, 3`);
+  return rows.map((row) => ({
+    isRefund: Boolean(row.isRefund),
+    merchant: row.merchant,
+    accountName: row.accountName,
+    total: Number(row.total),
+    count: Number(row.count),
+  }));
 }

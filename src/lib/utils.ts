@@ -209,12 +209,17 @@ export function formatCodingTime(seconds: number): string {
 }
 
 /**
- * Format bytes to human-readable string
+ * Bytes as `512 B`, `1.5 KB`, `12.3 MB`, `287 MB` (no decimal from 100 MB) or
+ * `1.25 GB`. The one byte formatter for every screen.
  */
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  if (bytes >= 1024 ** 2) {
+    const mb = bytes / 1024 ** 2;
+    return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
 }
 
 /**

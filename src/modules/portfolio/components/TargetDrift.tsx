@@ -5,6 +5,7 @@ import type { Fact } from "@/lib/facts/types";
 import { formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { evidenceKey, pp } from "../facts";
+import { LOAD_TARGETS_ERROR } from "../hooks";
 import { type DriftRow, driftScale } from "../view-model";
 import { enterStyle, SectionTitle } from "./parts";
 
@@ -73,6 +74,26 @@ function Bar({ row, scale, delay }: { row: DriftRow; scale: number; delay: numbe
   );
 }
 
+function LoadFailedNote({ onRetry, className }: { onRetry?: () => void; className?: string }) {
+  return (
+    <p role="status" className={cn("m-0 text-[13px] leading-5 text-ink-2", className)}>
+      {LOAD_TARGETS_ERROR}
+      {onRetry ? (
+        <>
+          {" "}
+          <button
+            type="button"
+            onClick={onRetry}
+            className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-brand underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
+          >
+            다시 불러오기
+          </button>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 export function TargetDrift({
   accountId,
   accountLabel,
@@ -81,6 +102,8 @@ export function TargetDrift({
   setAt,
   fact,
   onEdit,
+  loadFailed = false,
+  onRetry,
   following = false,
 }: {
   /** A second drift section directly after another: tighter top spacing. */
@@ -93,6 +116,12 @@ export function TargetDrift({
   fact: Fact | null;
   /** Gets the button that opened the editor, so focus can return to it on close. */
   onEdit: (opener: HTMLElement) => void;
+  /**
+   * The targets failed to load: what is shown may not be what is stored, and a
+   * save would overwrite the stored set — editing stays off until a retry loads.
+   */
+  loadFailed?: boolean;
+  onRetry?: () => void;
 }) {
   const { stateOf } = useEvidence();
   const scale = driftScale(rows);
@@ -177,10 +206,12 @@ export function TargetDrift({
             );
           })}
         </div>
+        {loadFailed ? <LoadFailedNote onRetry={onRetry} className="mt-4" /> : null}
         <button
           type="button"
+          disabled={loadFailed}
           onClick={(e) => onEdit(e.currentTarget)}
-          className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-control border-0 bg-surface text-base font-normal text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
+          className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-control border-0 bg-surface text-base font-normal text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:text-ink-3 disabled:active:scale-100"
         >
           목표 비중 수정
         </button>
@@ -234,11 +265,13 @@ export function TargetDrift({
           <Legend />
           <button
             type="button"
+            disabled={loadFailed}
             onClick={(e) => onEdit(e.currentTarget)}
-            className="mt-2 inline-flex h-9 w-fit cursor-pointer items-center rounded-control border-0 bg-surface px-3.5 text-[13px] font-normal text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
+            className="mt-2 inline-flex h-9 w-fit cursor-pointer items-center rounded-control border-0 bg-surface px-3.5 text-[13px] font-normal text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:text-ink-3 disabled:hover:shadow-ring disabled:active:scale-100"
           >
             목표 비중 수정
           </button>
+          {loadFailed ? <LoadFailedNote onRetry={onRetry} /> : null}
         </div>
       </div>
     </section>

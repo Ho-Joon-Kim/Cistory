@@ -3,6 +3,8 @@
  * body (weight + steps). Heart rate never appears here. Every comparison needs a
  * stored previous period; without one the delta line is simply omitted.
  */
+
+import { shiftDateKey } from "@/lib/date-key";
 import { concentration, type Fact, oneOff, pickOne, recordLowHigh } from "@/lib/facts";
 import { formatCount, formatMonthDay } from "@/lib/format";
 import type { OverviewHistoryPeriod, OverviewHistoryResponse } from "../history";
@@ -21,6 +23,7 @@ import {
   changePhrase,
   commitsByDay,
   kg,
+  metricByDay,
   pct,
   periodDays,
   sentenceFact,
@@ -165,7 +168,7 @@ function commitsFact(
   history: OverviewHistoryResponse | null
 ): Fact | null {
   const byDay = commitsByDay(coding);
-  const cmp = comparisonBase(ctx, history);
+  const cmp = comparisonBase(ctx, history, { coding });
   const candidates: (Fact | null)[] = [];
   if (ctx.periodType !== "year") {
     const days = periodDays(ctx).filter((d) => d <= ctx.through);
@@ -199,8 +202,19 @@ function commitsFact(
           detail: { windowLabel, span: SPAN_WORDS[windowSize] ?? "" },
           rows: [
             { label: `${ctx.label} 커밋`, value: formatCount(coding.totalCommits) },
-            ...(cmp?.period.commits != null
-              ? [{ label: `${cmp.label} 커밋`, value: formatCount(cmp.period.commits) }]
+            ...(cmp?.period.commits != null && cmp.current.commits !== null
+              ? [
+                  // In progress: both sides of the pair cover the same settled days.
+                  ...(ctx.inProgress
+                    ? [
+                        {
+                          label: `${ctx.label} ${daySpanLabel(ctx.from, cmp.through)} 커밋`,
+                          value: formatCount(cmp.current.commits),
+                        },
+                      ]
+                    : []),
+                  { label: `${cmp.label} 커밋`, value: formatCount(cmp.period.commits) },
+                ]
               : []),
             {
               label: windowLabel,
@@ -275,17 +289,19 @@ function commitsHero(
   coding: CodingAggregate,
   history: OverviewHistoryResponse | null
 ): CommitsHero {
-  const base = comparisonBase(ctx, history);
+  const base = comparisonBase(ctx, history, { coding });
   const prev = base?.period.commits ?? null;
+  const cur = base?.current.commits ?? null;
   let delta: HeroDelta | null = null;
-  if (base && prev !== null && prev > 0) {
-    const r = coding.totalCommits / prev - 1;
+  if (base && prev !== null && prev > 0 && cur !== null) {
+    const r = cur / prev - 1;
     delta = {
       text: `${base.label} ${formatCount(prev)}보다 ${changePhrase(r)}`,
       dir: direction(r),
     };
   }
   const prevActive = base?.period.activeDays ?? null;
+  const curActive = base?.current.activeDays ?? null;
   return {
     value: coding.totalCommits,
     delta,
@@ -308,10 +324,10 @@ function commitsHero(
               text: `${formatCount(ctx.elapsedDays)}일 중 ${pct(coding.activeDays / Math.max(1, ctx.elapsedDays))}`,
               dir: null,
             }
-          : base && prevActive !== null
+          : base && prevActive !== null && curActive !== null
             ? {
                 text: `${base.label} ${formatCount(prevActive)}일`,
-                dir: direction(coding.activeDays - prevActive),
+                dir: direction(curActive - prevActive),
               }
             : null,
     },
@@ -415,21 +431,19 @@ function savingsHero(
   history: OverviewHistoryResponse | null
 ): SavingsHero {
   const net = spending.income - spending.spending;
-  const base = comparisonBase(ctx, history);
+  const base = comparisonBase(ctx, history, { spending });
   const prev = base?.period;
   const hasPrev = base && prev && prev.income !== null && prev.spending !== null;
   const prevNet = hasPrev ? (prev.income ?? 0) - (prev.spending ?? 0) : null;
+  // The compared side: through yesterday while in progress, else the whole period.
+  const curIncome = base?.current.income ?? spending.income;
+  const curSpending = base?.current.spending ?? spending.spending;
+  const curNet = curIncome - curSpending;
 
   let pairs: CashPair[] | null = null;
   let netBars: NetBar[] | null = null;
   if (ctx.periodType !== "year" && hasPrev) {
-    const scale = Math.max(
-      1,
-      spending.income,
-      spending.spending,
-      prev.income ?? 0,
-      prev.spending ?? 0
-    );
+    const scale = Math.max(1, curIncome, curSpending, prev.income ?? 0, prev.spending ?? 0);
     // A partial period's pair names both spans, so the bars are visibly like for like.
     const span = ctx.inProgress;
     pairs = [
@@ -444,11 +458,11 @@ function savingsHero(
       },
       {
         label: ctx.label,
-        span: span ? daySpanLabel(ctx.from, ctx.through) : null,
-        income: spending.income,
-        spending: spending.spending,
-        incomeRatio: spending.income / scale,
-        spendingRatio: spending.spending / scale,
+        span: span ? daySpanLabel(ctx.from, base.through) : null,
+        income: curIncome,
+        spending: curSpending,
+        incomeRatio: curIncome / scale,
+        spendingRatio: curSpending / scale,
         current: true,
       },
     ];
@@ -471,8 +485,9 @@ function savingsHero(
   if (hasPrev && ctx.periodType !== "year") {
     const prevDays = dayCountBetween(prev.from, prev.to);
     const prevAvg = (prev.spending ?? 0) / prevDays;
+    const curAvg = curSpending / dayCountBetween(ctx.from, base.through);
     if (prevAvg > 0) {
-      const r = dailyAvg / prevAvg - 1;
+      const r = curAvg / prevAvg - 1;
       footDelta = {
         text: `${base.label} ${won(prevAvg)}보다 ${changePhrase(r)}`,
         dir: direction(r),
@@ -487,8 +502,8 @@ function savingsHero(
     delta:
       prevNet !== null
         ? {
-            text: netPhrase(base?.label ?? ctx.previousLabel, net, prevNet),
-            dir: net >= prevNet ? "up" : "down",
+            text: netPhrase(base?.label ?? ctx.previousLabel, curNet, prevNet),
+            dir: curNet >= prevNet ? "up" : "down",
           }
         : ctx.periodType === "year"
           ? { text: `수입 ${won(spending.income)} · 지출 ${won(spending.spending)}`, dir: null }
@@ -661,6 +676,13 @@ function weightBlock(
   };
 }
 
+/** Settled days an in-progress period needs before it can be called a record. */
+const MIN_SETTLED_DAYS_FOR_RECORD: Record<PeriodContext["periodType"], number> = {
+  week: 3,
+  month: 7,
+  year: 30,
+};
+
 function stepsBlock(
   ctx: PeriodContext,
   health: HealthAggregate | null,
@@ -668,22 +690,37 @@ function stepsBlock(
 ): BodyHero["steps"] {
   const average = stepsAverage(health);
   if (average === null) return null;
-  const base = comparisonBase(ctx, history);
+  const base = comparisonBase(ctx, history, { health });
+  // Today's few hours of steps would read as a slump: while the period is in
+  // progress, comparisons and records use the settled days (through yesterday).
+  const settledThrough = ctx.inProgress ? shiftDateKey(ctx.today, -1) : ctx.to;
+  const settledSteps = [...metricByDay(health, "steps")].filter(
+    ([d]) => d >= ctx.from && d <= settledThrough
+  );
+  const settledAverage =
+    settledSteps.length > 0
+      ? settledSteps.reduce((s, [, v]) => s + v, 0) / settledSteps.length
+      : null;
   const prev = base?.period.steps;
+  const cur = base?.current.steps;
   let delta: HeroDelta | null = null;
-  if (base && prev && prev.days > 0) {
-    const r = average / (prev.total / prev.days) - 1;
+  if (base && prev && prev.days > 0 && cur && cur.days > 0) {
+    const r = cur.total / cur.days / (prev.total / prev.days) - 1;
     delta = { text: `${base.label}보다 ${changePhrase(r)}`, dir: direction(r) };
   }
   const series = history?.series ?? [];
-  const avgOf = (p: OverviewHistoryPeriod) => (p.steps ? p.steps.total / p.steps.days : null);
+  const avgOf = (p: OverviewHistoryPeriod) =>
+    p.periodKey === ctx.periodKey ? settledAverage : p.steps ? p.steps.total / p.steps.days : null;
   let fact: Fact | null = null;
   const settled = series.filter(
     (p) => avgOf(p) !== null && (!p.inProgress || p.periodKey === ctx.periodKey)
   );
   // A period still being computed would silently shrink the "최근 N개월" scope.
   const unsettled = series.some((p) => p.pending && p.periodKey !== ctx.periodKey);
-  if (ctx.periodType !== "year" && !unsettled && settled.length >= 4) {
+  // Too few settled days and one ordinary day reads as a record.
+  const settledDays = ctx.inProgress ? dayCountBetween(ctx.from, settledThrough) : Infinity;
+  const enoughDays = settledDays >= MIN_SETTLED_DAYS_FOR_RECORD[ctx.periodType];
+  if (ctx.periodType !== "year" && !unsettled && enoughDays && settled.length >= 4) {
     const points = settled.map((p) => ({ key: p.periodKey, value: avgOf(p) ?? 0 }));
     const unitWord = ctx.periodType === "month" ? "달" : "주";
     for (const dir of ["low", "high"] as const) {
@@ -703,7 +740,7 @@ function stepsBlock(
         (dir === "low" ? p.value > m.value : p.value < m.value) ? p : m
       );
       const otherPeriod = settled.find((p) => p.periodKey === other.key);
-      const ratio = average / other.value;
+      const ratio = (settledAverage ?? average) / other.value;
       fact = sentenceFact({
         id: rec.id,
         metric: "steps",
@@ -723,7 +760,12 @@ function stepsBlock(
           other: otherPeriod ? seriesTitle(otherPeriod, ctx.now) : "",
         },
         rows: [
-          { label: `${ctx.label} 하루 평균`, value: `${formatCount(average)}걸음` },
+          {
+            label: ctx.inProgress
+              ? `${ctx.label} ${daySpanLabel(ctx.from, settledThrough)} 하루 평균`
+              : `${ctx.label} 하루 평균`,
+            value: `${formatCount(settledAverage ?? average)}걸음`,
+          },
           ...(otherPeriod
             ? [
                 {

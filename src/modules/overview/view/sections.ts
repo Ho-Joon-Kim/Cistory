@@ -31,15 +31,15 @@ export function formatKm(meters: number): string {
   return km >= 100 ? formatCount(km) : (Math.round(km * 10) / 10).toLocaleString("ko-KR");
 }
 
-/**
- * Amounts stacked in a mono column keep one fixed decimal of 만원 (`280.0만원`,
- * `8.0만원`, `108.3만원`) so the digits line up.
- */
 /** A row's share of the total: a non-zero share never reads "0%". */
 export function rowPct(ratio: number): string {
   return ratio > 0 && ratio < 0.005 ? "<1%" : pct(ratio);
 }
 
+/**
+ * Amounts stacked in a mono column keep one fixed decimal of 만원 (`280.0만원`,
+ * `8.0만원`, `108.3만원`) so the digits line up.
+ */
 export function wonColumn(n: number): string {
   if (Math.round(Math.abs(n)) < 10_000) return formatWonCompact(n);
   const man = Math.round(Math.abs(n) / 1_000) / 10;

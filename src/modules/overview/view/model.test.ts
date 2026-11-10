@@ -352,7 +352,16 @@ describe("a period in progress", () => {
       activeDays: 8,
       dailyCommits: novDays.map((date) => ({ date, count: 25 })),
     }),
-    spending: envelope({ ...spending, daily: [] }),
+    spending: envelope({
+      ...spending,
+      spending: 150_000,
+      income: 0,
+      daily: [
+        { date: "2026-11-03", spending: 100_000, income: 0, netSpend: 0 },
+        // Today: still being recorded, so it stays out of every comparison.
+        { date: "2026-11-10", spending: 50_000, income: 0, netSpend: 0 },
+      ],
+    }),
   };
   const novHistory: OverviewHistoryResponse = {
     periodType: "month",
@@ -360,7 +369,7 @@ describe("a period in progress", () => {
     // The whole of October: never the base while November is ten days old.
     previous: period("2026-10", { commits: 4678, activeDays: 26 }),
     previousToDate: period("2026-10", {
-      to: "2026-10-10",
+      to: "2026-10-09",
       commits: 300,
       activeDays: 9,
       spending: 400_000,
@@ -380,18 +389,20 @@ describe("a period in progress", () => {
       now: NOW,
     });
 
-  it("compares with the same elapsed span of the previous period, and says so", () => {
+  it("compares the settled days (through yesterday) of both periods, and says so", () => {
     const m = build(novHistory);
-    expect(m.headline).toMatch(/^커밋은 10월 같은 기간보다 15% 줄고,/);
+    // 11/1–11/9: 9 × 25 = 225 commits against 300 — today's 25 stay out.
+    expect(m.headline).toMatch(/^커밋은 10월 같은 기간보다 25% 줄고,/);
+    expect(m.hero.commits?.value).toBe(255);
     expect(m.hero.commits?.delta).toEqual({
-      text: "10월 같은 기간 300보다 15% 적음",
+      text: "10월 같은 기간 300보다 25% 적음",
       dir: "down",
     });
-    expect(m.hero.commits?.foot.delta?.text).toBe("10월 같은 기간 9일");
+    expect(m.hero.commits?.foot.delta).toEqual({ text: "10월 같은 기간 9일", dir: null });
     expect(m.hero.savings?.delta?.text).toMatch(/^10월 같은 기간 /);
     expect(m.hero.savings?.pairs?.map((p) => [p.label, p.span, p.spending])).toEqual([
-      ["10월", "1–10일", 400_000],
-      ["11월", "1–10일", spending.spending],
+      ["10월", "1–9일", 400_000],
+      ["11월", "1–9일", 100_000],
     ]);
     expect(JSON.stringify(m.hero)).not.toContain("4,678");
   });
@@ -404,6 +415,77 @@ describe("a period in progress", () => {
     expect(m.headline ?? "").not.toContain("커밋");
   });
 });
+
+describe("steps while a period is in progress", () => {
+  const stepsDomains = (stepDays: { date: string; value: number }[]): OverviewSnapshotDomains => {
+    const health = domains.health?.data;
+    if (!health) throw new Error("fixture");
+    return {
+      ...domains,
+      health: envelope({
+        ...health,
+        metrics: [
+          { metric: "steps", total: null, average: null, min: null, max: null, days: stepDays },
+        ],
+      }),
+    };
+  };
+  const series = (current: OverviewHistoryPeriod) => [
+    ...["2026-07", "2026-08", "2026-09", "2026-10"].map((k) =>
+      period(k, { steps: { total: 4600 * 30, days: 30 } })
+    ),
+    current,
+  ];
+  const build = (today: string, stepDays: { date: string; value: number }[]) =>
+    buildOverviewModel({
+      periodType: "month",
+      periodKey: "2026-11",
+      computedAt: null,
+      domains: stepsDomains(stepDays),
+      history: {
+        periodType: "month",
+        periodKey: "2026-11",
+        previous: period("2026-10"),
+        previousToDate: period("2026-10", {
+          to: shiftDay(today, -1).replace("2026-11", "2026-10"),
+          steps: { total: 4000 * 9, days: 9 },
+        }),
+        series: series(period("2026-11", { inProgress: true, to: "2026-11-30" })),
+        weight: [],
+      },
+      today,
+      now: new Date(`${today}T03:00:00Z`),
+    });
+
+  it("makes no record claim before the month has a week of settled days", () => {
+    // Two settled days and a barely started today: the average with today would
+    // read as the lowest month on record.
+    const m = build("2026-11-03", [
+      { date: "2026-11-01", value: 3000 },
+      { date: "2026-11-02", value: 3000 },
+      { date: "2026-11-03", value: 100 },
+    ]);
+    expect(m.hero.body.steps?.fact).toBeNull();
+  });
+
+  it("leaves today's partial day out of the record and the delta", () => {
+    const settled = Array.from({ length: 9 }, (_, i) => ({
+      date: `2026-11-${String(i + 1).padStart(2, "0")}`,
+      value: 5000,
+    }));
+    const m = build("2026-11-10", [...settled, { date: "2026-11-10", value: 100 }]);
+    // With today's 100 the average is 4,510 — a false record low against months of
+    // 4,600/day. Over the nine settled days it is 5,000: a record high.
+    expect(m.hero.body.steps?.delta).toEqual({ text: "10월 같은 기간보다 25% 많음", dir: "up" });
+    expect(m.hero.body.steps?.fact?.id).toBe("overview.steps.high");
+  });
+});
+
+function shiftDay(key: string, n: number) {
+  const d = new Date(`${key}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 
 describe("places", () => {
   it("groups away-from-home places by area and shortens region names", () => {

@@ -2,6 +2,8 @@ import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { formatDateRange, formatMonthDay, formatTime } from "@/lib/format";
 import type { HistoryPeriodType, OverviewHistoryPeriod, OverviewHistoryResponse } from "../history";
 import { periodDateRange, shiftPeriodKey } from "../history";
+import type { CodingAggregate, HealthAggregate, SpendingAggregate } from "../types";
+import { cashByDay, commitsByDay, metricByDay } from "./series";
 
 /** Everything the page needs to talk about the viewed period in Korean. */
 export interface PeriodContext {
@@ -125,28 +127,108 @@ export function seriesTitle(period: OverviewHistoryPeriod, now: Date): string {
   return `${period.periodKey}년`;
 }
 
+/** The viewed period's comparable totals over `ctx.from`–`ComparisonBase.through`. */
+export interface SpanTotals {
+  commits: number | null;
+  activeDays: number | null;
+  spending: number | null;
+  income: number | null;
+  /** Step total over the days with a step record, and how many such days. */
+  steps: { total: number; days: number } | null;
+}
+
 /** What the viewed period's changes are measured against, and how to name it. */
 export interface ComparisonBase {
   period: OverviewHistoryPeriod;
   /** "10월" for an ended period; "10월 같은 기간" while the viewed one is in progress. */
   label: string;
+  /**
+   * Last day of the viewed period's compared side: yesterday while it is in
+   * progress (today is still being recorded), `ctx.to` once it has ended.
+   */
+  through: string;
+  /** The viewed period's totals over that span — never today's partial day. */
+  current: SpanTotals;
+}
+
+export interface ComparisonDomains {
+  coding?: CodingAggregate | null;
+  spending?: SpendingAggregate | null;
+  health?: HealthAggregate | null;
+}
+
+/** The viewed period's totals; while in progress, only the days through `through`. */
+function spanTotals(ctx: PeriodContext, through: string, d: ComparisonDomains): SpanTotals {
+  const inSpan = (date: string) => date >= ctx.from && date <= through;
+  const stepDays = [...metricByDay(d.health ?? null, "steps")].filter(([date]) => inSpan(date));
+  const steps =
+    stepDays.length > 0
+      ? { total: stepDays.reduce((s, [, v]) => s + v, 0), days: stepDays.length }
+      : null;
+  if (!ctx.inProgress) {
+    return {
+      commits: d.coding ? d.coding.totalCommits : null,
+      activeDays: d.coding ? d.coding.activeDays : null,
+      spending: d.spending ? d.spending.spending : null,
+      income: d.spending ? d.spending.income : null,
+      steps,
+    };
+  }
+  let commits = 0;
+  let activeDays = 0;
+  for (const [date, count] of commitsByDay(d.coding ?? null)) {
+    if (!inSpan(date)) continue;
+    commits += count;
+    if (count > 0) activeDays += 1;
+  }
+  let spending = 0;
+  let income = 0;
+  for (const [date, cash] of cashByDay(d.spending ?? null)) {
+    if (!inSpan(date)) continue;
+    spending += cash.spending;
+    income += cash.income;
+  }
+  return {
+    commits: d.coding ? commits : null,
+    activeDays: d.coding ? activeDays : null,
+    spending: d.spending ? spending : null,
+    income: d.spending ? income : null,
+    steps,
+  };
 }
 
 /**
- * An in-progress period is only ever compared with the same elapsed span of the
- * previous one (11/1–11/10 vs 10/1–10/10) — comparing ten days with a whole month
- * reports a drop that has not happened. No such span stored → no comparison.
+ * An in-progress period is only ever compared with the same settled span of the
+ * previous one — both sides through yesterday (today 11/10: 11/1–11/9 vs
+ * 10/1–10/9). Comparing ten days with a whole month reports a drop that has not
+ * happened, and today's few hours against a full day do the same in miniature.
+ * No such span stored → no comparison.
  */
 export function comparisonBase(
   ctx: PeriodContext,
-  history: OverviewHistoryResponse | null
+  history: OverviewHistoryResponse | null,
+  domains: ComparisonDomains = {}
 ): ComparisonBase | null {
   if (!history) return null;
   if (!ctx.inProgress) {
-    return history.previous ? { period: history.previous, label: ctx.previousLabel } : null;
+    return history.previous
+      ? {
+          period: history.previous,
+          label: ctx.previousLabel,
+          through: ctx.to,
+          current: spanTotals(ctx, ctx.to, domains),
+        }
+      : null;
   }
   const cut = history.previousToDate ?? null;
-  return cut ? { period: cut, label: `${ctx.previousLabel} 같은 기간` } : null;
+  const through = shiftDateKey(ctx.today, -1);
+  if (!cut || through < ctx.from) return null;
+  return {
+    period: cut,
+    label: `${ctx.previousLabel} 같은 기간`,
+    through,
+    current: spanTotals(ctx, through, domains),
+  };
 }
 
 /** Day span inside one period for a compact label: "1–10일", "10일", "10/27–11/2". */

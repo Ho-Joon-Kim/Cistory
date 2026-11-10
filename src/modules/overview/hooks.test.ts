@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   abortableDelay,
   adjacentOverviewPeriod,
+  fetchCategoryPaymentCounts,
+  fetchStayDays,
   isCurrentOverviewRequest,
   loadNarrativeUntilSettled,
   loadOverviewUntilSettled,
@@ -366,5 +368,48 @@ describe("overviewErrorMessage", () => {
     );
     expect(overviewErrorMessage(new Error("rate limited"), "다시 시도")).toBe("다시 시도");
     expect(overviewErrorMessage("boom", "다시 시도")).toBe("다시 시도");
+  });
+});
+
+describe("auxiliary overview reads", () => {
+  const focus = { area: "대전", from: "2026-10-01", to: "2026-10-31" };
+  const visit = (date: string) => ({ source: "visit", date });
+
+  it("throws when any stay-day page fails instead of caching a partial list", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ items: [visit("2026-10-02")], hasMore: true }))
+      .mockResolvedValueOnce(new Response("oops", { status: 500 }));
+    await expect(fetchStayDays(focus as never)).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("collects stay days across pages", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ items: [visit("2026-10-02")], hasMore: true }))
+      .mockResolvedValueOnce(
+        Response.json({ items: [visit("2026-10-02"), visit("2026-10-03")], hasMore: false })
+      );
+    await expect(fetchStayDays(focus as never)).resolves.toEqual(["2026-10-02", "2026-10-03"]);
+  });
+
+  it("throws on a failed category count response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("no", { status: 503 }));
+    await expect(
+      fetchCategoryPaymentCounts({ from: "2026-10-01", to: "2026-10-31" })
+    ).rejects.toThrow();
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      Response.json({
+        summary: {
+          categoryBreakdown: [
+            { category: "food", count: 3 },
+            { category: null, count: 1 },
+          ],
+        },
+      })
+    );
+    await expect(
+      fetchCategoryPaymentCounts({ from: "2026-10-01", to: "2026-10-31" })
+    ).resolves.toEqual({ food: 3, uncategorized: 1 });
   });
 });

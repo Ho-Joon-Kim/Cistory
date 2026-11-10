@@ -35,6 +35,7 @@ import {
   splitCommitTitle,
 } from "../grouping";
 import { parseNaturalQuery, type RecordSource, SOURCE_LABELS } from "../nl-parser";
+import { clearLegacyRecent, loadRecent, saveRecent } from "../recent";
 import type { SearchItem, SearchResponse, SearchSource } from "../types";
 
 // ── URL state ───────────────────────────────────────────────────────────────
@@ -147,27 +148,6 @@ function hoursLabel(hours: string): string {
   return `${from}–${to}시`;
 }
 
-// ── Recent searches (per-viewer convenience) ────────────────────────────────
-
-const RECENT_KEY = "cistory.search.recent";
-function loadRecent(): string[] {
-  try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list.filter((s) => typeof s === "string").slice(0, 6) : [];
-  } catch {
-    return [];
-  }
-}
-function saveRecent(text: string) {
-  try {
-    const next = [text, ...loadRecent().filter((s) => s !== text)].slice(0, 6);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-  } catch {
-    // Storage unavailable (private mode): recent searches are optional.
-  }
-}
-
 // ── Icons ───────────────────────────────────────────────────────────────────
 
 const ICON_FOR: Record<RecordSource, Parameters<typeof SourceTile>[0]["icon"]> = {
@@ -215,7 +195,10 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
   const [text, setText] = useState(applied.text || applied.q);
   const narrow = useNarrowViewport();
   const [recent, setRecent] = useState<string[]>([]);
-  useEffect(() => setRecent(loadRecent()), []);
+  useEffect(() => {
+    clearLegacyRecent();
+    setRecent(loadRecent());
+  }, []);
 
   const api = new URLSearchParams({
     q: applied.q,

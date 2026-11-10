@@ -104,8 +104,10 @@ export function buildOverviewModel(input: {
   const hero = buildHero({ ctx, coding, spending, health, history });
   // Commits and cash are measured against the same elapsed span while in progress;
   // weight is a level, so it keeps the previous period's last weigh-in.
-  const base = comparisonBase(ctx, history);
+  const base = comparisonBase(ctx, history, { coding, spending, health });
   const prev = base?.period ?? null;
+  // Through yesterday while in progress: today is still partial on both sides.
+  const cur = base?.current ?? null;
   const prevWeight = history?.previous?.weight?.weight ?? null;
   // An earlier (out-of-period) weigh-in is context, not this period's change.
   const lastWeight = hero.body.weight && !hero.body.weight.asOf ? hero.body.weight.value : null;
@@ -115,10 +117,15 @@ export function buildOverviewModel(input: {
     title: periodTitle(ctx),
     meta: periodMeta(ctx, input.computedAt),
     headline: buildHeadline(ctx, {
-      commits: coding?.totalCommits ?? null,
+      commits: cur ? cur.commits : (coding?.totalCommits ?? null),
       previousCommits: prev?.commits ?? null,
       compareLabel: base?.label,
-      net: spending ? spending.income - spending.spending : null,
+      net:
+        cur && cur.income !== null && cur.spending !== null
+          ? cur.income - cur.spending
+          : spending
+            ? spending.income - spending.spending
+            : null,
       previousNet:
         prev && prev.income !== null && prev.spending !== null
           ? prev.income - prev.spending

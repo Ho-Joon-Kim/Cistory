@@ -32,6 +32,7 @@ import { TargetAllocationEditor } from "@/modules/portfolio/components/TargetAll
 import { TargetDrift } from "@/modules/portfolio/components/TargetDrift";
 import { driftFact, heroFact, holdingsFact } from "@/modules/portfolio/facts";
 import {
+  canEditTargets,
   type SummaryPosition,
   syncAllAccounts,
   type TargetAllocation,
@@ -247,9 +248,14 @@ function PortfolioContent() {
 
     const drifts = accounts.flatMap((a) => {
       const entry = targetsBy[a.id];
-      if (!entry || entry.targets.length === 0) return [];
+      // A failed load still gets its section (with the edit locked and a retry),
+      // so stored targets are never hidden or overwritten from an empty set.
+      if (!entry || (entry.targets.length === 0 && !entry.loadFailed)) return [];
       const base = snap(a.id).securitiesEvalAmount;
-      const rows = computeDrift(positionsBy.get(a.id) ?? [], entry.targets, base);
+      const rows =
+        entry.targets.length > 0
+          ? computeDrift(positionsBy.get(a.id) ?? [], entry.targets, base)
+          : [];
       const buys = executions.filter(
         (e) => e.accountId === a.id && e.side === "buy" && e.filledQty > 0 && !e.cancelled
       );
@@ -264,6 +270,7 @@ function PortfolioContent() {
           rows,
           base,
           setAt,
+          loadFailed: entry.loadFailed,
           fact: driftFact({
             accountId: a.id,
             accountLabel: a.label,
@@ -435,6 +442,8 @@ function PortfolioContent() {
                       editOpenerRef.current = opener;
                       setEditing(d.account.id);
                     }}
+                    loadFailed={d.loadFailed}
+                    onRetry={refreshTargets}
                   />
                 </EvidenceScope>
               ))}
@@ -456,7 +465,7 @@ function PortfolioContent() {
             </>
           )}
 
-          {editingAccount ? (
+          {editingAccount && canEditTargets(targetsBy[editingAccount.id]) ? (
             <TargetAllocationEditor
               open
               onOpenChange={(o) => {

@@ -491,33 +491,60 @@ export function useOverviewHistory(
  * KST days in the period with a visit to `focus.area` — the snapshot has no
  * per-day place data, so the flow chart's stay span reads the owner-scoped
  * record search (visits matching the area's city). A few pages at most.
+ * Throws on any failed page — a partial day list would be cached as if
+ * complete; the hook reads an error as "no data".
  */
+export async function fetchStayDays(focus: StayFocus, signal?: AbortSignal): Promise<string[]> {
+  const days = new Set<string>();
+  for (let page = 1; page <= 5; page++) {
+    const params = new URLSearchParams({
+      q: focus.area,
+      source: "visit",
+      from: focus.from,
+      to: focus.to,
+      page: String(page),
+    });
+    const response = await fetch(`/api/search?${params.toString()}`, { signal });
+    if (!response.ok) throw new Error(`stay days: HTTP ${response.status}`);
+    const body = (await response.json()) as SearchResponse;
+    for (const item of body.items) if (item.source === "visit") days.add(item.date);
+    if (!body.hasMore) break;
+  }
+  return [...days];
+}
+
 export function useStayDays(focus: StayFocus | null): string[] {
   const { data } = useQuery({
     queryKey: ["overview", "stay-days", focus?.area, focus?.from, focus?.to],
     enabled: focus != null,
     staleTime: 10 * 60_000,
-    queryFn: async ({ signal }) => {
-      if (!focus) return [];
-      const days = new Set<string>();
-      for (let page = 1; page <= 5; page++) {
-        const params = new URLSearchParams({
-          q: focus.area,
-          source: "visit",
-          from: focus.from,
-          to: focus.to,
-          page: String(page),
-        });
-        const response = await fetch(`/api/search?${params.toString()}`, { signal });
-        if (!response.ok) break;
-        const body = (await response.json()) as SearchResponse;
-        for (const item of body.items) if (item.source === "visit") days.add(item.date);
-        if (!body.hasMore) break;
-      }
-      return [...days];
-    },
+    queryFn: ({ signal }) => (focus ? fetchStayDays(focus, signal) : []),
   });
+  // An error leaves `data` undefined: no stay days are highlighted.
   return data ?? [];
+}
+
+/** Payment counts per category; throws on a failed response (never cached as data). */
+export async function fetchCategoryPaymentCounts(
+  range: { from: string; to: string },
+  signal?: AbortSignal
+): Promise<Record<string, number>> {
+  const params = new URLSearchParams({
+    from: range.from,
+    to: range.to,
+    bucket: "spending",
+    limit: "1",
+  });
+  const response = await fetch(`/api/spending?${params.toString()}`, { signal });
+  if (!response.ok) throw new Error(`category counts: HTTP ${response.status}`);
+  const body = (await response.json()) as {
+    summary?: { categoryBreakdown?: { category: string | null; count: number }[] };
+  };
+  const counts: Record<string, number> = {};
+  for (const row of body.summary?.categoryBreakdown ?? []) {
+    counts[row.category ?? "uncategorized"] = row.count;
+  }
+  return counts;
 }
 
 /**
@@ -531,25 +558,8 @@ export function useCategoryPaymentCounts(
     queryKey: ["overview", "category-counts", range?.from, range?.to],
     enabled: range != null,
     staleTime: 10 * 60_000,
-    queryFn: async ({ signal }) => {
-      if (!range) return null;
-      const params = new URLSearchParams({
-        from: range.from,
-        to: range.to,
-        bucket: "spending",
-        limit: "1",
-      });
-      const response = await fetch(`/api/spending?${params.toString()}`, { signal });
-      if (!response.ok) return null;
-      const body = (await response.json()) as {
-        summary?: { categoryBreakdown?: { category: string | null; count: number }[] };
-      };
-      const counts: Record<string, number> = {};
-      for (const row of body.summary?.categoryBreakdown ?? []) {
-        counts[row.category ?? "uncategorized"] = row.count;
-      }
-      return counts;
-    },
+    queryFn: ({ signal }) => (range ? fetchCategoryPaymentCounts(range, signal) : null),
   });
+  // An error leaves `data` undefined: no category is flagged.
   return data ?? null;
 }

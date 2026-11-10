@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import { toast } from "sonner";
 import {
   CountUp,
+  Disclosure,
   EmptyState,
   ErrorState,
   EvidenceScope,
@@ -34,7 +35,7 @@ import {
   weekdayRange,
   yearRecurringFact,
 } from "../list-model";
-import { Chevron, Collapse, enter, Fig, InsightLine, Pill } from "./parts";
+import { Chevron, enter, Fig, InsightLine, Pill } from "./parts";
 import { TripMenu } from "./TripMenu";
 import { YearRibbon } from "./YearRibbon";
 
@@ -429,13 +430,13 @@ function GroupRow({
           <Chevron />
         </span>
       </button>
-      <Collapse open={open} id={id}>
+      <Disclosure open={open} id={id}>
         <div className="pl-3 lg:pl-0">
           {group.trips.map((trip) => (
             <TripRow key={trip.id} trip={trip} actions={actions} nested year={year} />
           ))}
         </div>
-      </Collapse>
+      </Disclosure>
     </div>
   );
 }

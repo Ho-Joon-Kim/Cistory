@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { userErrorMessage } from "@/lib/user-error";
 
 export interface AccountListItem {
@@ -397,27 +397,66 @@ export async function saveTargetAllocations(
 export interface AccountTargets {
   targets: TargetAllocation[];
   updatedAt: string | null;
+  /**
+   * The last load failed. `targets` are then the last ones loaded (or empty), not
+   * what is stored — saving from them would overwrite the stored targets (PUT
+   * replaces the whole set), so editing stays off until a load succeeds.
+   */
+  loadFailed: boolean;
 }
 
-async function fetchTargets(ids: string[], signal?: AbortSignal) {
-  const entries = await Promise.all(
-    ids.map(async (id) => {
-      const res = await fetch(`/api/portfolio/accounts/${id}/targets`, { signal });
-      if (!res.ok) return [id, { targets: [], updatedAt: null }] as const;
-      const data = await res.json();
+export const LOAD_TARGETS_ERROR = "목표 비중을 불러오지 못해 지금은 수정할 수 없어요.";
+
+/** One account's stored targets; throws on any non-OK response. */
+export async function fetchAccountTargets(
+  id: string,
+  signal?: AbortSignal
+): Promise<Omit<AccountTargets, "loadFailed">> {
+  const res = await fetch(`/api/portfolio/accounts/${id}/targets`, { signal });
+  if (!res.ok) throw new Error(`Failed to fetch targets (${res.status})`);
+  const data = await res.json();
+  return { targets: data.targets ?? [], updatedAt: data.updatedAt ?? null };
+}
+
+/**
+ * Every account's targets. A failed account keeps its previously loaded targets
+ * (if any) and is flagged `loadFailed` — never silently turned into "no targets".
+ */
+export async function fetchTargets(
+  ids: string[],
+  previous: Record<string, AccountTargets> = {},
+  signal?: AbortSignal
+): Promise<Record<string, AccountTargets>> {
+  const results = await Promise.allSettled(ids.map((id) => fetchAccountTargets(id, signal)));
+  return Object.fromEntries(
+    ids.map((id, i) => {
+      const r = results[i];
+      if (r.status === "fulfilled") return [id, { ...r.value, loadFailed: false }];
+      const prior = previous[id];
       return [
         id,
-        { targets: data.targets ?? [], updatedAt: data.updatedAt ?? null } as AccountTargets,
-      ] as const;
+        {
+          targets: prior?.targets ?? [],
+          updatedAt: prior?.updatedAt ?? null,
+          loadFailed: true,
+        },
+      ];
     })
   );
-  return Object.fromEntries(entries) as Record<string, AccountTargets>;
+}
+
+/** Editing is allowed only from targets that were actually loaded. */
+export function canEditTargets(entry: AccountTargets | undefined): boolean {
+  return !!entry && !entry.loadFailed;
 }
 
 /** Target allocations for several accounts at once (keyed by account id). */
 export function useTargetsByAccount(accountIds: string[]) {
   const key = accountIds.join(",");
   const [byAccount, setByAccount] = useState<Record<string, AccountTargets>>({});
+  // Latest loaded targets, so a failed refresh can keep them (flagged) instead of blanking.
+  const latest = useRef(byAccount);
+  latest.current = byAccount;
 
   useEffect(() => {
     const ids = key ? key.split(",") : [];
@@ -426,7 +465,7 @@ export function useTargetsByAccount(accountIds: string[]) {
       return;
     }
     const ctrl = new AbortController();
-    fetchTargets(ids, ctrl.signal)
+    fetchTargets(ids, {}, ctrl.signal)
       .then((next) => {
         if (!ctrl.signal.aborted) setByAccount(next);
       })
@@ -437,7 +476,7 @@ export function useTargetsByAccount(accountIds: string[]) {
   const refresh = useCallback(() => {
     const ids = key ? key.split(",") : [];
     if (ids.length === 0) return;
-    fetchTargets(ids)
+    fetchTargets(ids, latest.current)
       .then(setByAccount)
       .catch(() => undefined);
   }, [key]);

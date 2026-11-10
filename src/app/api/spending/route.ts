@@ -21,7 +21,7 @@ import { accountRoles, transactions, users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { accountRolesJoinOn, type Bucket, bucketSql } from "@/modules/spending/classify";
-import { refundSql, summarizeIncomeFlow } from "@/modules/spending/refund";
+import { refundSql, selectIncomeGroups, summarizeIncomeFlow } from "@/modules/spending/refund";
 
 export async function GET(request: NextRequest) {
   try {
@@ -59,14 +59,13 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(transactions.type, type));
     }
     const categoryConditions = [...conditions, sql`${bucket} = 'spending'`];
-    const incomeConditions = [...conditions, sql`${bucket} = 'income'`];
+    const incomeWhere = and(...conditions);
     if (bucketFilter === "spending" || bucketFilter === "income" || bucketFilter === "ignore") {
       conditions.push(sql`${bucket} = ${bucketFilter}`);
     }
 
     const where = and(...conditions);
 
-    const incomeMerchant = sql<string>`btrim(split_part(${transactions.merchant}, '_', 1))`;
     const [rows, summaryRows, categoryRows, incomeRows] = await Promise.all([
       db
         .select({
@@ -113,18 +112,7 @@ export async function GET(request: NextRequest) {
         .where(and(...categoryConditions))
         .groupBy(transactions.category)
         .orderBy(sql`sum(${transactions.amount}) desc`),
-      db
-        .select({
-          isRefund: isRefund.as("is_refund"),
-          merchant: incomeMerchant.as("merchant_base"),
-          accountName: transactions.accountName,
-          total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
-          count: sql<number>`count(*)`.as("count"),
-        })
-        .from(transactions)
-        .leftJoin(accountRoles, accountRolesJoinOn)
-        .where(and(...incomeConditions))
-        .groupBy(sql`1, 2, 3`),
+      selectIncomeGroups(db, incomeWhere, bucket),
     ]);
 
     const hasMore = rows.length > limit;
@@ -148,15 +136,7 @@ export async function GET(request: NextRequest) {
         total: Number(row.total),
         count: Number(row.count),
       })),
-      flow: summarizeIncomeFlow(
-        incomeRows.map((row) => ({
-          isRefund: Boolean(row.isRefund),
-          merchant: row.merchant,
-          accountName: row.accountName,
-          total: Number(row.total),
-          count: Number(row.count),
-        }))
-      ),
+      flow: summarizeIncomeFlow(incomeRows),
     };
 
     for (const row of summaryRows) {
