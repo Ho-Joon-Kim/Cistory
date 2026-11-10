@@ -241,7 +241,9 @@ describe("unified record search against PostgreSQL", () => {
     const onlyCommits = await searchRecords(db, owner, { ...input, source: "commit" });
     expect(onlyCommits.items).toHaveLength(30);
     expect(onlyCommits.items[0].groupTotal).toBeUndefined();
-    expect(onlyCommits.items[0].groupTypes).toEqual({ other: 40 });
+    // "other repo" shares c0's timestamp, so pick the repository row explicitly.
+    const firstRepoCommit = onlyCommits.items.find((i) => i.repository === "owner/repository");
+    expect(firstRepoCommit?.groupTypes).toEqual({ other: 40 });
     const repo = await searchRecords(db, owner, { ...input, repo: "owner/other" });
     expect(repo.items.map((i) => i.title)).toEqual(["other repo"]);
     expect(repo.counts).toEqual({ commit: 1, spending: 0, visit: 0, trip: 0 });
