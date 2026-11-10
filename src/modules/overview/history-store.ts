@@ -51,6 +51,7 @@ export function createDatabaseOverviewHistoryStore(db: Database): OverviewHistor
         .select({
           periodType: periodSnapshots.periodType,
           periodKey: periodSnapshots.periodKey,
+          status: periodSnapshots.status,
           codingStatus: sql<string | null>`${periodSnapshots.coding}->>'status'`,
           dailyCommits: sql<
             HistorySnapshotRow["dailyCommits"]
@@ -71,7 +72,8 @@ export function createDatabaseOverviewHistoryStore(db: Database): OverviewHistor
         .where(
           and(
             eq(periodSnapshots.userId, userId),
-            inArray(periodSnapshots.status, ["ready", "failed"]),
+            // pending/computing rows only mark their range as "being computed".
+            inArray(periodSnapshots.status, ["ready", "failed", "pending", "computing"]),
             or(
               ...byType.map((k) =>
                 and(

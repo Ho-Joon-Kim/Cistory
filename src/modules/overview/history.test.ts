@@ -192,6 +192,125 @@ describe("buildOverviewHistory", () => {
   });
 });
 
+describe("snapshots still being computed", () => {
+  it("marks their periods unknown instead of empty, and never reads their data", () => {
+    const history = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-10",
+      today: "2026-11-10",
+      rows: [
+        row({
+          periodType: "month",
+          periodKey: "2026-08",
+          status: "computing",
+          dailyCommits: [{ date: "2026-08-03", count: 99 }],
+        }),
+        row({ periodType: "month", periodKey: "2026-09", status: "pending" }),
+        row({ periodType: "month", periodKey: "2026-10" }),
+      ],
+    });
+    const byKey = new Map(history.series.map((p) => [p.periodKey, p]));
+    expect(byKey.get("2026-08")).toMatchObject({ commits: null, pending: true });
+    expect(byKey.get("2026-09")).toMatchObject({ commits: null, pending: true });
+    expect(byKey.get("2026-07")).toMatchObject({ commits: null, pending: false });
+    expect(byKey.get("2026-10")).toMatchObject({ commits: 0, pending: false });
+    // No comparison against a month that is still being computed.
+    expect(history.previous).toBeNull();
+  });
+
+  it("uses a ready covering snapshot over a pending one", () => {
+    const history = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-10",
+      today: "2026-11-10",
+      rows: [
+        row({
+          periodType: "year",
+          periodKey: "2026",
+          dailyCommits: [{ date: "2026-09-04", count: 7 }],
+        }),
+        row({ periodType: "month", periodKey: "2026-09", status: "pending" }),
+      ],
+    });
+    expect(history.previous).toMatchObject({ commits: 7, pending: false });
+  });
+});
+
+describe("same-span comparison base", () => {
+  const october = row({
+    periodType: "month",
+    periodKey: "2026-10",
+    dailyCommits: [
+      { date: "2026-10-03", count: 40 },
+      { date: "2026-10-10", count: 60 },
+      { date: "2026-10-11", count: 4000 },
+    ],
+    spendingDaily: [
+      { date: "2026-10-05", spending: 10_000, income: 0 },
+      { date: "2026-10-20", spending: 900_000, income: 0 },
+    ],
+  });
+
+  it("cuts the previous month to the elapsed days of the month in progress", () => {
+    const history = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-11",
+      today: "2026-11-10",
+      rows: [october],
+    });
+    expect(history.previous).toMatchObject({ commits: 4100, spending: 910_000 });
+    expect(history.previousToDate).toMatchObject({
+      periodKey: "2026-10",
+      from: "2026-10-01",
+      to: "2026-10-10",
+      commits: 100,
+      activeDays: 2,
+      spending: 10_000,
+    });
+  });
+
+  it("matches the elapsed weekdays of a week in progress", () => {
+    const history = buildOverviewHistory({
+      periodType: "week",
+      periodKey: "2026-W46",
+      today: "2026-11-10",
+      rows: [
+        row({
+          periodType: "week",
+          periodKey: "2026-W45",
+          dailyCommits: [
+            { date: "2026-11-02", count: 5 },
+            { date: "2026-11-03", count: 7 },
+            { date: "2026-11-06", count: 100 },
+          ],
+        }),
+      ],
+    });
+    expect(history.previousToDate).toMatchObject({
+      from: "2026-11-02",
+      to: "2026-11-03",
+      commits: 12,
+    });
+  });
+
+  it("caps the span at a shorter previous period and is absent once a period ends", () => {
+    const march = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-03",
+      today: "2026-03-31",
+      rows: [row({ periodType: "month", periodKey: "2026-02", dailyCommits: [] })],
+    });
+    expect(march.previousToDate?.to).toBe("2026-02-28");
+    const ended = buildOverviewHistory({
+      periodType: "month",
+      periodKey: "2026-10",
+      today: "2026-11-10",
+      rows: [october],
+    });
+    expect(ended.previousToDate).toBeNull();
+  });
+});
+
 describe("getOverviewHistory", () => {
   it("rejects recent and non-canonical keys", async () => {
     const store = { findHistorySnapshots: vi.fn(async () => []) };

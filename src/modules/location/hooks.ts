@@ -191,8 +191,12 @@ export function useLocations(date: string) {
   const [locations, setLocations] = useState<LocationData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The thrown value itself, so callers can tell a network failure from a 500.
+  const [failure, setFailure] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
   const cache = useRef<Map<string, LocationData[]>>(new Map());
   const visible = usePageVisible();
+  const refresh = useCallback(() => setAttempt((n) => n + 1), []);
 
   const fetchLocations = useCallback(
     async (targetDate: string, signal: AbortSignal, silent = false) => {
@@ -201,14 +205,17 @@ export function useLocations(date: string) {
         if (cached) {
           setLocations(cached);
           setIsLoading(false);
+          setError(null);
+          setFailure(null);
           return;
         }
       }
 
       if (!silent) {
         setIsLoading(true);
+        setError(null);
+        setFailure(null);
       }
-      setError(null);
 
       try {
         const params = new URLSearchParams({ date: targetDate });
@@ -216,6 +223,8 @@ export function useLocations(date: string) {
         if (!response.ok) throw new Error("Failed to fetch locations");
 
         const data = (await response.json()) as LocationsResponse;
+        setError(null);
+        setFailure(null);
 
         // Skip state update if data hasn't changed (prevents map re-render/re-animation)
         if (silent) {
@@ -235,6 +244,7 @@ export function useLocations(date: string) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         if (!silent) {
           setError(e instanceof Error ? e.message : "Unknown error");
+          setFailure(e);
           setLocations([]);
         }
       } finally {
@@ -246,6 +256,7 @@ export function useLocations(date: string) {
     []
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` re-runs the fetch on retry
   useEffect(() => {
     if (!date) return;
 
@@ -263,9 +274,9 @@ export function useLocations(date: string) {
       controller.abort();
       clearInterval(interval);
     };
-  }, [date, visible, fetchLocations]);
+  }, [date, visible, fetchLocations, attempt]);
 
-  return { locations, isLoading, error };
+  return { locations, isLoading, error, failure, refresh };
 }
 
 // ── Track Data ───────────────────────────────────────────────────────────────

@@ -127,7 +127,14 @@ export function CashPairs({ pairs }: { pairs: CashPair[] }) {
           key={pair.label}
           className="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1"
         >
-          <span className="text-label row-span-2">{pair.label}</span>
+          <span className="text-label row-span-2 flex flex-col">
+            {pair.label}
+            {pair.span ? (
+              <span className="text-[0.6875rem] leading-[1.3] whitespace-nowrap text-ink-3">
+                {pair.span}
+              </span>
+            ) : null}
+          </span>
           {(
             [
               ["수입", pair.income, pair.incomeRatio, "bg-[var(--bar2)]"],

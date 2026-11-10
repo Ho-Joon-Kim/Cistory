@@ -8,7 +8,13 @@ import { formatCount, formatMonthDay } from "@/lib/format";
 import type { OverviewHistoryPeriod, OverviewHistoryResponse } from "../history";
 import type { CodingAggregate, HealthAggregate, SpendingAggregate } from "../types";
 import { tagFact } from "./evidence-tag";
-import { type PeriodContext, seriesBarLabel, seriesTitle } from "./labels";
+import {
+  comparisonBase,
+  daySpanLabel,
+  type PeriodContext,
+  seriesBarLabel,
+  seriesTitle,
+} from "./labels";
 import { wonColumn } from "./sections";
 import {
   cashByDay,
@@ -55,6 +61,8 @@ export interface CommitsHero {
 
 export interface CashPair {
   label: string;
+  /** The days the pair covers ("1–10일") when the viewed period is partial. */
+  span: string | null;
   income: number;
   spending: number;
   incomeRatio: number;
@@ -139,7 +147,7 @@ function seriesBars(
       ratio: v === null ? null : v / max,
       tip:
         v === null
-          ? `${title} · 기록 없음`
+          ? `${title} · ${p.pending ? "계산 중" : "기록 없음"}`
           : `${title} · ${tipValue(v)}${p.inProgress ? " (진행 중)" : ""}`,
       current: ctx.periodType !== "year" && p.periodKey === ctx.periodKey,
       partial: p.inProgress,
@@ -157,6 +165,7 @@ function commitsFact(
   history: OverviewHistoryResponse | null
 ): Fact | null {
   const byDay = commitsByDay(coding);
+  const cmp = comparisonBase(ctx, history);
   const candidates: (Fact | null)[] = [];
   if (ctx.periodType !== "year") {
     const days = periodDays(ctx).filter((d) => d <= ctx.through);
@@ -190,13 +199,8 @@ function commitsFact(
           detail: { windowLabel, span: SPAN_WORDS[windowSize] ?? "" },
           rows: [
             { label: `${ctx.label} 커밋`, value: formatCount(coding.totalCommits) },
-            ...(history?.previous?.commits != null
-              ? [
-                  {
-                    label: `${ctx.previousLabel} 커밋`,
-                    value: formatCount(history.previous.commits),
-                  },
-                ]
+            ...(cmp?.period.commits != null
+              ? [{ label: `${cmp.label} 커밋`, value: formatCount(cmp.period.commits) }]
               : []),
             {
               label: windowLabel,
@@ -210,8 +214,10 @@ function commitsFact(
   } else if (history) {
     // Year: the two consecutive months holding the largest share.
     const months = history.series.filter((p) => p.commits !== null);
+    // A month still being computed could change the share: no claim until it lands.
+    const settled = !history.series.some((p) => p.pending);
     const base =
-      months.length > 3
+      settled && months.length > 3
         ? concentration({
             id: "overview.commits.months",
             metric: "commits",
@@ -269,16 +275,17 @@ function commitsHero(
   coding: CodingAggregate,
   history: OverviewHistoryResponse | null
 ): CommitsHero {
-  const prev = history?.previous?.commits ?? null;
+  const base = comparisonBase(ctx, history);
+  const prev = base?.period.commits ?? null;
   let delta: HeroDelta | null = null;
-  if (prev !== null && prev > 0) {
+  if (base && prev !== null && prev > 0) {
     const r = coding.totalCommits / prev - 1;
     delta = {
-      text: `${ctx.previousLabel} ${formatCount(prev)}보다 ${changePhrase(r)}`,
+      text: `${base.label} ${formatCount(prev)}보다 ${changePhrase(r)}`,
       dir: direction(r),
     };
   }
-  const prevActive = history?.previous?.activeDays ?? null;
+  const prevActive = base?.period.activeDays ?? null;
   return {
     value: coding.totalCommits,
     delta,
@@ -301,9 +308,9 @@ function commitsHero(
               text: `${formatCount(ctx.elapsedDays)}일 중 ${pct(coding.activeDays / Math.max(1, ctx.elapsedDays))}`,
               dir: null,
             }
-          : prevActive !== null
+          : base && prevActive !== null
             ? {
-                text: `${ctx.previousLabel} ${formatCount(prevActive)}일`,
+                text: `${base.label} ${formatCount(prevActive)}일`,
                 dir: direction(coding.activeDays - prevActive),
               }
             : null,
@@ -395,8 +402,8 @@ function cashTagged(fact: Fact | null): Fact | null {
   return fact ? tagFact(fact, `cash.${fact.metric}`) : null;
 }
 
-function netPhrase(ctx: PeriodContext, net: number, prevNet: number): string {
-  const prev = `${ctx.previousLabel} ${won(prevNet, true)}`;
+function netPhrase(label: string, net: number, prevNet: number): string {
+  const prev = `${label} ${won(prevNet, true)}`;
   if (prevNet < 0 && net > 0) return `${prev}에서 흑자 전환`;
   if (prevNet > 0 && net < 0) return `${prev}에서 적자 전환`;
   return `${prev}`;
@@ -408,8 +415,9 @@ function savingsHero(
   history: OverviewHistoryResponse | null
 ): SavingsHero {
   const net = spending.income - spending.spending;
-  const prev = history?.previous;
-  const hasPrev = prev && prev.income !== null && prev.spending !== null;
+  const base = comparisonBase(ctx, history);
+  const prev = base?.period;
+  const hasPrev = base && prev && prev.income !== null && prev.spending !== null;
   const prevNet = hasPrev ? (prev.income ?? 0) - (prev.spending ?? 0) : null;
 
   let pairs: CashPair[] | null = null;
@@ -422,9 +430,12 @@ function savingsHero(
       prev.income ?? 0,
       prev.spending ?? 0
     );
+    // A partial period's pair names both spans, so the bars are visibly like for like.
+    const span = ctx.inProgress;
     pairs = [
       {
         label: ctx.previousLabel,
+        span: span ? daySpanLabel(prev.from, prev.to) : null,
         income: prev.income ?? 0,
         spending: prev.spending ?? 0,
         incomeRatio: (prev.income ?? 0) / scale,
@@ -433,6 +444,7 @@ function savingsHero(
       },
       {
         label: ctx.label,
+        span: span ? daySpanLabel(ctx.from, ctx.through) : null,
         income: spending.income,
         spending: spending.spending,
         incomeRatio: spending.income / scale,
@@ -462,7 +474,7 @@ function savingsHero(
     if (prevAvg > 0) {
       const r = dailyAvg / prevAvg - 1;
       footDelta = {
-        text: `${ctx.previousLabel} ${won(prevAvg)}보다 ${changePhrase(r)}`,
+        text: `${base.label} ${won(prevAvg)}보다 ${changePhrase(r)}`,
         dir: direction(r),
       };
     }
@@ -474,7 +486,10 @@ function savingsHero(
     net,
     delta:
       prevNet !== null
-        ? { text: netPhrase(ctx, net, prevNet), dir: net >= prevNet ? "up" : "down" }
+        ? {
+            text: netPhrase(base?.label ?? ctx.previousLabel, net, prevNet),
+            dir: net >= prevNet ? "up" : "down",
+          }
         : ctx.periodType === "year"
           ? { text: `수입 ${won(spending.income)} · 지출 ${won(spending.spending)}`, dir: null }
           : null,
@@ -653,11 +668,12 @@ function stepsBlock(
 ): BodyHero["steps"] {
   const average = stepsAverage(health);
   if (average === null) return null;
-  const prev = history?.previous?.steps;
+  const base = comparisonBase(ctx, history);
+  const prev = base?.period.steps;
   let delta: HeroDelta | null = null;
-  if (prev && prev.days > 0) {
+  if (base && prev && prev.days > 0) {
     const r = average / (prev.total / prev.days) - 1;
-    delta = { text: `${ctx.previousLabel}보다 ${changePhrase(r)}`, dir: direction(r) };
+    delta = { text: `${base.label}보다 ${changePhrase(r)}`, dir: direction(r) };
   }
   const series = history?.series ?? [];
   const avgOf = (p: OverviewHistoryPeriod) => (p.steps ? p.steps.total / p.steps.days : null);
@@ -665,7 +681,9 @@ function stepsBlock(
   const settled = series.filter(
     (p) => avgOf(p) !== null && (!p.inProgress || p.periodKey === ctx.periodKey)
   );
-  if (ctx.periodType !== "year" && settled.length >= 4) {
+  // A period still being computed would silently shrink the "최근 N개월" scope.
+  const unsettled = series.some((p) => p.pending && p.periodKey !== ctx.periodKey);
+  if (ctx.periodType !== "year" && !unsettled && settled.length >= 4) {
     const points = settled.map((p) => ({ key: p.periodKey, value: avgOf(p) ?? 0 }));
     const unitWord = ctx.periodType === "month" ? "달" : "주";
     for (const dir of ["low", "high"] as const) {

@@ -4,7 +4,13 @@ import type { CodingAggregate, HealthAggregate, SpendingAggregate } from "../typ
 import { buildFlow, type FlowModel } from "./flow";
 import { buildHeadline } from "./headline";
 import { buildHero, type HeroModel } from "./hero";
-import { type PeriodContext, periodContext, periodMeta, periodTitle } from "./labels";
+import {
+  comparisonBase,
+  type PeriodContext,
+  periodContext,
+  periodMeta,
+  periodTitle,
+} from "./labels";
 import {
   type AssetModel,
   buildAsset,
@@ -61,6 +67,8 @@ export function alignHistory(
           stepValues.length > 0
             ? { total: stepValues.reduce((s, v) => s + v, 0), days: stepValues.length }
             : p.steps,
+        // Its own snapshot supplies these numbers, so it is not "being computed" here.
+        pending: p.pending && !coding && !spending && !health,
       };
     }),
   };
@@ -94,7 +102,11 @@ export function buildOverviewModel(input: {
   const location = data(input.domains.location);
   const portfolio = data(input.domains.portfolio);
   const hero = buildHero({ ctx, coding, spending, health, history });
-  const prev = history?.previous ?? null;
+  // Commits and cash are measured against the same elapsed span while in progress;
+  // weight is a level, so it keeps the previous period's last weigh-in.
+  const base = comparisonBase(ctx, history);
+  const prev = base?.period ?? null;
+  const prevWeight = history?.previous?.weight?.weight ?? null;
   // An earlier (out-of-period) weigh-in is context, not this period's change.
   const lastWeight = hero.body.weight && !hero.body.weight.asOf ? hero.body.weight.value : null;
 
@@ -105,6 +117,7 @@ export function buildOverviewModel(input: {
     headline: buildHeadline(ctx, {
       commits: coding?.totalCommits ?? null,
       previousCommits: prev?.commits ?? null,
+      compareLabel: base?.label,
       net: spending ? spending.income - spending.spending : null,
       previousNet:
         prev && prev.income !== null && prev.spending !== null
@@ -115,7 +128,7 @@ export function buildOverviewModel(input: {
       weight: lastWeight,
       // A year without a stored previous year compares against its first weigh-in.
       previousWeight:
-        prev?.weight?.weight ??
+        prevWeight ??
         (ctx.periodType === "year"
           ? (hero.body.weight?.points.find((p) => p.inside)?.weight ?? null)
           : null),

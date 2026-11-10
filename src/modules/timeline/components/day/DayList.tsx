@@ -346,7 +346,9 @@ function RideBody({
               {row.legs.map((l) => (
                 <span
                   key={l}
-                  className="inline-flex h-[22px] items-center rounded-full bg-sunken px-2 text-xs text-ink-2 shadow-[inset_0_0_0_1px_var(--line)]"
+                  // Grows to a second line on a narrow rail instead of spilling out of
+                  // a fixed-height pill onto the elevation profile below.
+                  className="inline-flex min-h-[22px] max-w-full items-center rounded-[11px] bg-sunken px-2 py-[3px] text-xs leading-4 text-ink-2 shadow-[inset_0_0_0_1px_var(--line)]"
                 >
                   {l}
                 </span>
@@ -440,27 +442,30 @@ function CommitBody({
           {rest > 0 ? (
             <>
               {/* Register-neutral tail: the stored summary may be in any register. */}
-              <span className="text-ink-3"> · 그 밖의 커밋 </span>
-              <FactTrigger
-                rows={[
-                  // The trigger's own number first, then where the sentence comes from.
-                  { label: "그 밖의 커밋", value: `${rest}건` },
-                  ...(row.summarized > 0
-                    ? [{ label: "요약된 커밋", value: `${row.summarized}건` }]
-                    : []),
-                  ...(row.count > row.summarized
-                    ? [{ label: "요약 없음", value: `${row.count - row.summarized}건` }]
-                    : []),
-                  {
-                    label: "변경",
-                    value: `+${row.additions.toLocaleString("ko-KR")} −${row.deletions.toLocaleString("ko-KR")}`,
-                  },
-                  { label: "파일", value: `${row.files.toLocaleString("ko-KR")}개` },
-                ]}
-                title="이 묶음의 커밋"
-              >
-                {`${rest}건`}
-              </FactTrigger>
+              {/* Glued: the tail may wrap as a whole, never inside "그 밖의 커밋 N건". */}{" "}
+              <span className="whitespace-nowrap">
+                <span className="text-ink-3">· 그 밖의 커밋 </span>
+                <FactTrigger
+                  rows={[
+                    // The trigger's own number first, then where the sentence comes from.
+                    { label: "그 밖의 커밋", value: `${rest}건` },
+                    ...(row.summarized > 0
+                      ? [{ label: "요약된 커밋", value: `${row.summarized}건` }]
+                      : []),
+                    ...(row.count > row.summarized
+                      ? [{ label: "요약 없음", value: `${row.count - row.summarized}건` }]
+                      : []),
+                    {
+                      label: "변경",
+                      value: `+${row.additions.toLocaleString("ko-KR")} −${row.deletions.toLocaleString("ko-KR")}`,
+                    },
+                    { label: "파일", value: `${row.files.toLocaleString("ko-KR")}개` },
+                  ]}
+                  title="이 묶음의 커밋"
+                >
+                  {`${rest}건`}
+                </FactTrigger>
+              </span>
             </>
           ) : null}
         </AiLine>

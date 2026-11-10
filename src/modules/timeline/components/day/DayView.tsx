@@ -25,6 +25,7 @@ import {
 } from "@/modules/location/hooks";
 import { pickDayFact } from "../../day-facts";
 import { buildDayModel, dedupeNights, minuteOfDay, routeLabel, sleepForDay } from "../../day-model";
+import { dayErrorMessage } from "../../error-copy";
 import { useDayCommits, useTransactionsForDate } from "../../hooks";
 import { DateNav } from "./DateNav";
 import { DayList } from "./DayList";
@@ -82,12 +83,27 @@ export function DayView({
 
   const stayPointsData = useStayPoints(date).stayPoints;
   const tracksData = useTracks(date).tracks;
-  const locationsData = useLocations(date).locations;
+  const {
+    locations: locationsData,
+    failure: locationsFailure,
+    refresh: refreshLocations,
+  } = useLocations(date);
   // A malformed or partial response degrades to "no records", never a crash.
   const stayPoints = useMemo(() => stayPointsData ?? [], [stayPointsData]);
   const tracks = useMemo(() => tracksData ?? [], [tracksData]);
   const locations = useMemo(() => locationsData ?? [], [locationsData]);
   const { commits, error: commitsError, refresh: refreshCommits } = useDayCommits(date);
+  // A failed location request must never read as "이날 위치 기록이 없어요".
+  const locationsError = useMemo(
+    () =>
+      locationsFailure
+        ? {
+            message: dayErrorMessage(locationsFailure, "위치를 불러오지 못했어요."),
+            onRetry: refreshLocations,
+          }
+        : null,
+    [locationsFailure, refreshLocations]
+  );
   const { transactions, error: txError, refresh: refreshTx } = useTransactionsForDate(date);
   const { summary } = useHealthSummary();
   const { distances } = useDailyDistances(date, date);
@@ -385,6 +401,7 @@ export function DayView({
       selectedMapId={selectedMapId}
       onSelect={selectFromMap}
       initialCenter={initialCenter}
+      loadError={locationsError}
       padding={desktop ? 56 : 44}
       className={desktop ? "size-full" : "h-[330px] w-full border-b border-line"}
       topLeft={

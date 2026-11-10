@@ -160,6 +160,7 @@ export function DayMap({
   topLeft,
   className,
   padding = 56,
+  loadError,
 }: {
   date: string;
   locations: LocationData[];
@@ -172,6 +173,11 @@ export function DayMap({
   topLeft?: ReactNode;
   className?: string;
   padding?: number;
+  /**
+   * The location request failed: say so with a retry instead of claiming the day
+   * has no records.
+   */
+  loadError?: { message: string; onRetry: () => void } | null;
 }) {
   const { resolvedTheme } = useTheme();
   const mapRef = useRef<MapRef>(null);
@@ -491,7 +497,9 @@ export function DayMap({
         )}
       >
         {topLeft ? <div className="absolute top-2.5 left-2.5 z-[5]">{topLeft}</div> : null}
-        {!MAPBOX_TOKEN ? (
+        {loadError ? (
+          <LoadErrorNotice error={loadError} />
+        ) : !MAPBOX_TOKEN ? (
           <p className="text-sm text-ink-3">Mapbox 토큰이 설정되지 않았습니다</p>
         ) : null}
       </div>
@@ -684,7 +692,11 @@ export function DayMap({
 
       {topLeft ? <div className="absolute top-2.5 left-2.5 z-[5]">{topLeft}</div> : null}
 
-      {noData ? (
+      {loadError ? (
+        <div className="absolute inset-0 z-[6] flex items-center justify-center p-4">
+          <LoadErrorNotice error={loadError} />
+        </div>
+      ) : noData ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="rounded-lg bg-surface/90 px-3 py-2 text-sm text-ink-2 shadow-ring">
             이날 위치 기록이 없어요
@@ -750,5 +762,23 @@ export function DayMap({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function LoadErrorNotice({ error }: { error: { message: string; onRetry: () => void } }) {
+  return (
+    <div
+      role="alert"
+      className="max-w-[20rem] rounded-lg bg-surface px-3 py-2 text-center text-sm leading-5 text-danger shadow-ring"
+    >
+      {error.message}{" "}
+      <button
+        type="button"
+        onClick={error.onRetry}
+        className="inline-flex min-h-6 items-center font-medium whitespace-nowrap underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      >
+        다시 시도
+      </button>
+    </div>
   );
 }
