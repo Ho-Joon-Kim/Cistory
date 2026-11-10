@@ -239,8 +239,12 @@ class MemoryStore implements PrecomputeStore {
   }
 }
 
-function runner(store: MemoryStore, aggregate = vi.fn(async () => payload())) {
-  return { aggregate, runner: createOverviewPrecomputeRunner({ store, aggregate }) };
+function runner(
+  store: MemoryStore,
+  aggregate = vi.fn(async () => payload()),
+  extra: { timeBudgetMs?: number } = {}
+) {
+  return { aggregate, runner: createOverviewPrecomputeRunner({ store, aggregate, ...extra }) };
 }
 
 describe("overview precompute", () => {
@@ -425,7 +429,9 @@ describe("overview precompute", () => {
       (_, index) => `user-${String(index).padStart(3, "0")}`
     );
     const store = new MemoryStore([], userIds);
-    const { runner: precompute } = runner(store);
+    // Seeding is what's under test: a zero budget runs exactly one claim batch
+    // instead of computing all ~1,000 seeded snapshots (slow on CI hardware).
+    const { runner: precompute } = runner(store, undefined, { timeBudgetMs: 0 });
 
     await precompute.run({ now: NOW });
 
