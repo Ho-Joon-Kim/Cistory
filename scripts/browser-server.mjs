@@ -1,12 +1,57 @@
 // Run the real app from a disposable copy: never load local .env files or cron.
 
 import { spawn } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+const PREFIX = "cistory-browser-";
+const OWNER_FILE = ".owner-pid";
+// Copies from before the owner file existed can only be judged by age.
+const UNOWNED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+// The finally below can't run when this process is SIGKILLed or crashes, so sweep
+// copies left by earlier runs whose owner is gone. Live runs in other worktrees keep
+// theirs: each copy records the pid of the server that owns it.
+async function removeStaleRuntimes() {
+  const base = tmpdir();
+  for (const name of await readdir(base)) {
+    if (!name.startsWith(PREFIX)) continue;
+    const dir = path.join(base, name);
+    try {
+      const owner = Number.parseInt(await readFile(path.join(dir, OWNER_FILE), "utf8"), 10);
+      if (Number.isInteger(owner) && isAlive(owner)) continue;
+    } catch {
+      const { mtimeMs } = await stat(dir).catch(() => ({ mtimeMs: Date.now() }));
+      if (Date.now() - mtimeMs < UNOWNED_MAX_AGE_MS) continue;
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 const root = process.cwd();
-const runtime = await mkdtemp(path.join(tmpdir(), "cistory-browser-"));
+await removeStaleRuntimes();
+const runtime = await mkdtemp(path.join(tmpdir(), PREFIX));
+await writeFile(path.join(runtime, OWNER_FILE), String(process.pid));
 for (const name of [
   "src",
   "public",
