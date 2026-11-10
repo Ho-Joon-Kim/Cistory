@@ -15,7 +15,7 @@
  * called inside a transaction or under the token lock: the stages already
  * separate network work from their fenced write transactions.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { type Database, getPool } from "@/db";
 import { type ProtonConnection, protonConnections } from "@/db/schema";
 import type { ProtonPhotosApi } from "@/lib/adapters/proton/client";
@@ -216,6 +216,49 @@ async function outcomeOfError(
   throw error;
 }
 
+/** An active connection whose stored session cannot be read. */
+class ProtonSessionUnreadableError extends Error {
+  constructor() {
+    super("Proton connection session is unreadable");
+    this.name = "ProtonSessionUnreadableError";
+  }
+}
+
+/**
+ * Records a failed attempt and `syncFailed` for an active row the tick could
+ * not build a fence for. No fence exists, so the write is conditioned on the
+ * row still being the one read (same status and encrypted uid) instead.
+ */
+async function failUnreadableConnection(
+  db: Database,
+  conn: ProtonConnection,
+  now: Date
+): Promise<void> {
+  logger.warn("[Proton] stored session unreadable; sync failed", {
+    userId: conn.userId,
+    error: "ProtonSessionUnreadableError",
+  });
+  try {
+    await trackSourceSync(db, conn.userId, "proton", async () => {
+      throw new ProtonSessionUnreadableError();
+    });
+  } catch {
+    // Expected: the attempt is recorded as failed.
+  }
+  await db
+    .update(protonConnections)
+    .set({ lastError: PROTON_ERRORS.syncFailed, updatedAt: now })
+    .where(
+      and(
+        eq(protonConnections.userId, conn.userId),
+        eq(protonConnections.status, "active"),
+        conn.uidEnc === null
+          ? isNull(protonConnections.uidEnc)
+          : eq(protonConnections.uidEnc, conn.uidEnc)
+      )
+    );
+}
+
 /** The tick body, run while holding the per-user session lock. */
 async function syncLocked(
   db: Database,
@@ -223,13 +266,16 @@ async function syncLocked(
   deps: ProtonSyncDeps
 ): Promise<ProtonSyncOutcome> {
   const conn = await readConnection(db, userId);
+  // Missing or not active: nothing to sync, and nothing went wrong.
+  if (conn?.status !== "active") return "aborted";
   let fence: ProtonTickFence;
   try {
-    if (!conn) throw new ProtonConnectionChangedError();
     fence = connectionFence(conn);
-  } catch (error) {
-    if (error instanceof ProtonConnectionChangedError) return "aborted";
-    throw error;
+  } catch {
+    // An active row whose session can't be read (uid undecryptable after a
+    // KIS_ENCRYPTION_KEY rotation, or no volume): a visible failure, not a skip.
+    await failUnreadableConnection(db, conn, deps.now());
+    throw new ProtonSessionUnreadableError();
   }
 
   let sessionChanged = false;
@@ -277,6 +323,10 @@ export async function syncProtonPhotosForUser(
     locked = rows[0]?.locked === true;
     if (!locked) return "skipped_locked";
     return await syncLocked(db, userId, deps);
+  } catch (error) {
+    // The lock query itself failed: the connection may be broken, so discard it.
+    if (!locked) releaseError = error instanceof Error ? error : new Error("advisory lock failed");
+    throw error;
   } finally {
     if (locked) {
       try {

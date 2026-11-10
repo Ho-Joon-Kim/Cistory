@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   queries: [] as { client: number; text: string; values: unknown[] }[],
   lockAcquired: true,
   unlockFails: false,
+  lockFails: null as Error | null,
   releases: [] as { client: number; err: unknown }[],
   nextClient: 0,
   processEvents: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("@/db", async (importOriginal) => {
             m.queries.push({ client: id, text, values });
             if (text.includes("pg_try_advisory_lock")) {
               m.calls.push("lock");
+              if (m.lockFails) throw m.lockFails;
               return { rows: [{ locked: m.lockAcquired }] };
             }
             m.calls.push("unlock");
@@ -87,7 +89,10 @@ vi.mock("./repository", async (importOriginal) => {
   return {
     ...actual,
     connectionFence: (c: ProtonConnection) => {
-      if (c.status !== "active" || !c.volumeId) throw new actual.ProtonConnectionChangedError();
+      // Mirrors the real fence: an undecryptable uid reads as "changed".
+      if (c.status !== "active" || !c.volumeId || c.uidEnc === "undecryptable") {
+        throw new actual.ProtonConnectionChangedError();
+      }
       return { volumeId: c.volumeId, uid: "UID-1" };
     },
     assertConnectionUnchanged: m.assertConnectionUnchanged,
@@ -184,6 +189,7 @@ beforeEach(() => {
   m.telemetry = [];
   m.lockAcquired = true;
   m.unlockFails = false;
+  m.lockFails = null;
   m.nextClient = 0;
   m.processEvents.mockImplementation(async () => {
     m.calls.push("events");
@@ -247,6 +253,59 @@ describe("syncProtonPhotosForUser locking", () => {
 
     expect(m.releases).toHaveLength(1);
     expect(m.releases[0].err).toBeInstanceOf(Error);
+  });
+});
+
+describe("syncProtonPhotosForUser unreadable or missing connections", () => {
+  it("an active row whose uid cannot be decrypted is a recorded failure, not a silent skip", async () => {
+    const { db, writes } = fakeDb([connection({ uidEnc: "undecryptable" })]);
+    const d = deps();
+
+    const err = await syncProtonPhotosForUser(db, USER, d).catch((e: unknown) => e);
+
+    expect((err as Error).name).toBe("ProtonSessionUnreadableError");
+    expect(d.open).not.toHaveBeenCalled();
+    expect(writes).toEqual([{ lastError: PROTON_ERRORS.syncFailed, updatedAt: NOW }]);
+    expect(m.telemetry).toEqual([{ userId: USER, source: "proton", outcome: "failure" }]);
+    expect(m.logger.warn).toHaveBeenCalledWith("[Proton] stored session unreadable; sync failed", {
+      userId: USER,
+      error: "ProtonSessionUnreadableError",
+    });
+    expect(m.calls.at(-1)).toBe("unlock");
+  });
+
+  it("a session that fails to open (secrets undecryptable) records syncFailed and a failed attempt", async () => {
+    const { db, writes } = fakeDb([connection()]);
+    const decryptError = new Error("Unsupported state or unable to authenticate data");
+    const d = deps({ open: vi.fn(async () => Promise.reject(decryptError)) });
+
+    await expect(syncProtonPhotosForUser(db, USER, d)).rejects.toBe(decryptError);
+
+    expect(writes).toEqual([{ lastError: PROTON_ERRORS.syncFailed, updatedAt: NOW }]);
+    expect(m.telemetry).toEqual([{ userId: USER, source: "proton", outcome: "failure" }]);
+  });
+
+  it("a missing row stays a silent abort: no telemetry, no writes", async () => {
+    const { db, writes } = fakeDb([]);
+    const d = deps();
+
+    await expect(syncProtonPhotosForUser(db, USER, d)).resolves.toBe("aborted");
+
+    expect(d.open).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    expect(m.telemetry).toEqual([]);
+    expect(m.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("discards the client when the lock query itself throws", async () => {
+    const { db } = fakeDb([connection()]);
+    const broken = new Error("connection terminated");
+    m.lockFails = broken;
+
+    await expect(syncProtonPhotosForUser(db, USER, deps())).rejects.toBe(broken);
+
+    expect(m.calls).toEqual(["lock"]); // no unlock: nothing was locked
+    expect(m.releases).toEqual([{ client: 1, err: broken }]);
   });
 });
 
