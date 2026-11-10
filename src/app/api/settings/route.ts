@@ -5,11 +5,17 @@
  * PUT /api/settings - 사용자 설정 업데이트
  */
 
-import { eq } from "drizzle-orm";
+import { eq, max } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { healthConnections, users, wakatimeConnections, withingsConnections } from "@/db/schema";
+import {
+  healthConnections,
+  healthWebhookEvents,
+  users,
+  wakatimeConnections,
+  withingsConnections,
+} from "@/db/schema";
 import { withAuth, withValidation } from "@/lib/api-handler";
 import { DEFAULT_USER_SETTINGS, type UserSettings } from "@/modules/settings/types";
 
@@ -29,42 +35,47 @@ const SettingsUpdateBody = z
 async function readUserSettings(userId: string): Promise<UserSettings> {
   const db = getDb();
   // All selects key only on userId and are independent — run them together.
-  const [userResult, withingsResult, healthResult, wakatimeResult] = await Promise.all([
-    db
-      .select({
-        theme: users.theme,
-        syncIntervalHours: users.syncIntervalHours,
-        lastSyncedAt: users.lastSyncedAt,
-        ownTracksApiKey: users.ownTracksApiKey,
-        tossNotificationApiKey: users.tossNotificationApiKey,
-        tossMyName: users.tossMyName,
-        wakatimeApiKey: users.wakatimeApiKey,
-        healthImportApiKey: users.healthImportApiKey,
-        lastLat: users.lastLat,
-        lastLon: users.lastLon,
-      })
-      .from(users)
-      .where(eq(users.id, userId)),
-    db
-      .select({
-        withingsUserId: withingsConnections.withingsUserId,
-        status: withingsConnections.status,
-        lastSyncedAt: withingsConnections.lastSyncedAt,
-      })
-      .from(withingsConnections)
-      .where(eq(withingsConnections.userId, userId)),
-    db
-      .select({
-        status: healthConnections.status,
-        lastSyncedAt: healthConnections.lastSyncedAt,
-      })
-      .from(healthConnections)
-      .where(eq(healthConnections.userId, userId)),
-    db
-      .select({ status: wakatimeConnections.status })
-      .from(wakatimeConnections)
-      .where(eq(wakatimeConnections.userId, userId)),
-  ]);
+  const [userResult, withingsResult, healthResult, wakatimeResult, webhookResult] =
+    await Promise.all([
+      db
+        .select({
+          theme: users.theme,
+          syncIntervalHours: users.syncIntervalHours,
+          lastSyncedAt: users.lastSyncedAt,
+          ownTracksApiKey: users.ownTracksApiKey,
+          tossNotificationApiKey: users.tossNotificationApiKey,
+          tossMyName: users.tossMyName,
+          wakatimeApiKey: users.wakatimeApiKey,
+          healthImportApiKey: users.healthImportApiKey,
+          lastLat: users.lastLat,
+          lastLon: users.lastLon,
+        })
+        .from(users)
+        .where(eq(users.id, userId)),
+      db
+        .select({
+          withingsUserId: withingsConnections.withingsUserId,
+          status: withingsConnections.status,
+          lastSyncedAt: withingsConnections.lastSyncedAt,
+        })
+        .from(withingsConnections)
+        .where(eq(withingsConnections.userId, userId)),
+      db
+        .select({
+          status: healthConnections.status,
+          lastSyncedAt: healthConnections.lastSyncedAt,
+        })
+        .from(healthConnections)
+        .where(eq(healthConnections.userId, userId)),
+      db
+        .select({ status: wakatimeConnections.status })
+        .from(wakatimeConnections)
+        .where(eq(wakatimeConnections.userId, userId)),
+      db
+        .select({ at: max(healthWebhookEvents.receivedAt) })
+        .from(healthWebhookEvents)
+        .where(eq(healthWebhookEvents.userId, userId)),
+    ]);
 
   if (userResult.length === 0) {
     return DEFAULT_USER_SETTINGS;
@@ -92,6 +103,7 @@ async function readUserSettings(userId: string): Promise<UserSettings> {
     withingsNeedsReauth: withings?.status === "needs_reauth",
     hasHealthConnection: !!health,
     healthLastSyncedAt: health?.lastSyncedAt?.toISOString() ?? null,
+    healthLastWebhookAt: webhookResult[0]?.at?.toISOString() ?? null,
     healthNeedsReauth: health?.status === "needs_reauth",
     hasHealthImportKey: !!row.healthImportApiKey,
   };

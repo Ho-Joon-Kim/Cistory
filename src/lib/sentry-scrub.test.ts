@@ -79,6 +79,16 @@ describe("scrubHealthData", () => {
     expect(event.extra?.metric).toBe("x");
   });
 
+  it("redacts webhook user ids and interval payloads", () => {
+    const event: ScrubbableEvent = {
+      extra: { healthUserId: "123", intervals: [{}], dataType: "steps" },
+    };
+    scrubHealthData(event);
+    expect(event.extra?.healthUserId).toBe("[scrubbed:health]");
+    expect(event.extra?.intervals).toBe("[scrubbed:health]");
+    expect(event.extra?.dataType).toBe("steps");
+  });
+
   it("is a no-op on an event with no health data", () => {
     const event: ScrubbableEvent = {
       breadcrumbs: [{ message: "navigation", data: { from: "/", to: "/settings" } }],

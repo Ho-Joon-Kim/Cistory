@@ -1066,6 +1066,32 @@ export class HealthSyncService {
   }
 
   /**
+   * Re-read one metric over `[start, end)` and upsert it — the webhook consumer's
+   * entry point, for every SYNCED_METRICS entry (scalars, rollups and the
+   * time-windowed sleep/exercise sessions alike). Deliberately does NOT touch
+   * `syncedThrough`: webhook windows are not contiguous, so moving the forward
+   * watermark would skip the gaps between them. The 24h forward sync stays the
+   * safety net.
+   */
+  async refreshMetricWindow(
+    connection: HealthConnection,
+    config: MetricConfig,
+    start: Date,
+    end: Date
+  ): Promise<{ upserted: number; truncated: boolean }> {
+    if (config.fetch === "dailyRollUp") {
+      return this.fetchRollupWindowAndPersist(connection, config, start, end);
+    }
+    return this.fetchWindowAndPersist(
+      connection,
+      config,
+      buildTimeFilter(config, start, end),
+      start,
+      end
+    );
+  }
+
+  /**
    * Historical backfill: walk each metric's `backfilledFrom` watermark backward
    * over all available history — until no data remains below the cursor (a presence
    * probe, gap-proof) or the deep `health_connections.backfillFloor` backstop — a

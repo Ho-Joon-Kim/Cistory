@@ -14,6 +14,7 @@ import { logger } from "@/lib/logger";
 import { type BootCatchUpJobs, runBootCatchUp, runTripDetection } from "@/lib/trip-detection-cron";
 import { compactPendingSamples } from "@/modules/health/compaction";
 import { createHealthSyncService } from "@/modules/health/service";
+import { registerHealthWebhookTask } from "@/modules/health/webhook-cron";
 import { processYesterdayLocations } from "@/modules/location/cron-processing";
 import {
   precomputeOverviewSnapshots,
@@ -581,6 +582,7 @@ export async function reparseTodayNotifications() {
  * Should be called once when the server starts
  */
 let dataRecoveryTask: ReturnType<typeof registerDataRecoveryTask> | null = null;
+let healthWebhookTask: ReturnType<typeof registerHealthWebhookTask> = null;
 
 export function initializeCron() {
   if (isInitialized) {
@@ -606,6 +608,8 @@ export function initializeCron() {
 
   overviewPrecomputeTask = registerOverviewPrecomputeTask(cron.schedule, TZ);
   dataRecoveryTask = registerDataRecoveryTask(cron.schedule, TZ);
+  // Google Health webhook consumer — gated by GOOGLE_HEALTH_WEBHOOKS_ENABLED.
+  healthWebhookTask = registerHealthWebhookTask(cron.schedule, TZ);
 
   cronTask = cron.schedule(
     CRON_SCHEDULE,
@@ -767,6 +771,8 @@ export function initializeCron() {
 export async function stopCron() {
   dataRecoveryTask?.stop();
   dataRecoveryTask = null;
+  healthWebhookTask?.stop();
+  healthWebhookTask = null;
   if (cronTask) {
     cronTask.stop();
     cronTask = null;

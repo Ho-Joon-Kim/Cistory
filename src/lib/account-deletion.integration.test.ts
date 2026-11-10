@@ -9,7 +9,13 @@ import { deleteAccount } from "./account-deletion";
 
 describe("account deletion against PostgreSQL", () => {
   const namespace = `account_delete_test_${randomUUID().replaceAll("-", "")}`;
-  const appTables = ["users", "commits", "commit_summaries", "coding_sessions"];
+  const appTables = [
+    "users",
+    "commits",
+    "commit_summaries",
+    "coding_sessions",
+    "health_webhook_events",
+  ];
   const tables = [...appTables, "user", "account", "session"];
   let admin: Pool;
   let pool: Pool;
@@ -124,6 +130,15 @@ describe("account deletion against PostgreSQL", () => {
       startedAt: now,
       durationSeconds: 60,
       createdAt: now,
+    });
+    // Queued webhook notifications cascade with the user (design §6).
+    await db.insert(schema.healthWebhookEvents).values({
+      userId: id,
+      dataType: "steps",
+      operation: "UPSERT",
+      rangeStart: now,
+      rangeEnd: now,
+      receivedAt: now,
     });
     return id;
   }

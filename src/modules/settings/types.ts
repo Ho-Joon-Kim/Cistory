@@ -26,6 +26,8 @@ export interface UserSettings {
   withingsNeedsReauth: boolean;
   hasHealthConnection: boolean;
   healthLastSyncedAt: string | null;
+  /** Latest Google Health webhook notification received for this user, if any. */
+  healthLastWebhookAt: string | null;
   healthNeedsReauth: boolean;
   hasHealthImportKey: boolean;
 }
@@ -48,6 +50,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   withingsNeedsReauth: false,
   hasHealthConnection: false,
   healthLastSyncedAt: null,
+  healthLastWebhookAt: null,
   healthNeedsReauth: false,
   hasHealthImportKey: false,
 };

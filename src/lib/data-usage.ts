@@ -78,6 +78,7 @@ export const TABLE_DEFS: TableDef[] = [
   { category: "health", table: "health_raw_pages" },
   { category: "health", table: "health_connections" },
   { category: "health", table: "health_sync_state" },
+  { category: "health", table: "health_webhook_events" },
   { category: "system", table: "sync_jobs" },
 ];
 
