@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
-import { type FileDownloader, NodeType, type PhotoNode, ServerError } from "@protontech/drive-sdk";
+import {
+  type FileDownloader,
+  NodeType,
+  type PhotoNode,
+  RateLimitedError,
+  ServerError,
+} from "@protontech/drive-sdk";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -490,5 +496,46 @@ describe("proton originals stage against PostgreSQL", () => {
     getFileDownloader.mockRejectedValue(expired);
     await expect(run(user, api, classifierOf(SAFE).classifier)).rejects.toBe(expired);
     expect(await rowOf(user, "no-thumb")).toMatchObject({ originalAttempts: 0 });
+  });
+
+  it("a rate limit stops the stage without charging, so the tick can still fill and stamp", async () => {
+    const user = await newConnectedUser();
+    await seed(user, "a", { ...exposed });
+    const { api, getFileDownloader } = fakeApi({});
+    getFileDownloader.mockRejectedValue(new RateLimitedError("slow down"));
+
+    expect(await run(user, api, classifierOf(SAFE).classifier)).toMatchObject({
+      stopped: "rate_limited",
+      failed: 0,
+    });
+    expect(await rowOf(user, "a")).toMatchObject({ originalAttempts: 0, originalError: null });
+  });
+
+  it("never re-exposes a related uid blocked earlier in the same batch, whatever its main attribute", async () => {
+    const user = await newConnectedUser();
+    const newer = new Date("2020-05-06T00:00:00Z");
+    await seed(user, "main", { ...hiddenNoThumb, capturedAt: newer });
+    await seed(user, "part", { ...hiddenNoThumb });
+    const { getFileDownloader } = fakeApi({ main: HEIC, part: HEIC });
+    const api = {
+      async *iterateNodes(uids: string[]) {
+        for (const uid of uids) {
+          const node = nodeOf(uid) as unknown as { photo: { relatedPhotoNodeUids: string[] } };
+          // Inconsistent attributes: main lists the part, the part names no main.
+          if (uid === "main") node.photo.relatedPhotoNodeUids = ["part"];
+          yield node as unknown as PhotoNode;
+        }
+      },
+      getFileDownloader,
+    } as unknown as ProtonPhotosApi;
+    let calls = 0;
+    const classifier: PhotoClassifier = {
+      modelVersion: "m-test",
+      classify: async () => (calls++ === 0 ? NSFW : SAFE),
+    };
+
+    expect(await run(user, api, classifier)).toMatchObject({ blocked: 2, recovered: 0 });
+    expect(await rowOf(user, "part")).toBeUndefined();
+    expect(getFileDownloader.mock.calls.map((c) => c[0])).toEqual(["main"]);
   });
 });

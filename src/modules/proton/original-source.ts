@@ -184,14 +184,15 @@ export async function withOriginalDownloader<T>(
   try {
     return await use(downloader);
   } finally {
-    await endDownloader(raw, used, controller);
+    await endDownloader(raw, used, controller, signal);
   }
 }
 
 async function endDownloader(
   raw: FileDownloader,
   used: boolean,
-  controller: AbortController
+  controller: AbortController,
+  signal: AbortSignal
 ): Promise<void> {
   if (used) {
     controller.abort();
@@ -199,7 +200,10 @@ async function endDownloader(
   }
   try {
     // The stream registers its abort listener on creation; abort only after.
-    raw.getSeekableStream();
+    const stream = raw.getSeekableStream();
+    // Timed out before this point: the listener will never fire, but a pull
+    // on an aborted signal fails at once and ends the stream (freeing the slot).
+    if (signal.aborted) await stream.read(1).catch(() => undefined);
     controller.abort();
     return;
   } catch {

@@ -62,7 +62,7 @@ describe("parseUtcOffset", () => {
     expect(parseUtcOffset(value)).toBe(minutes);
   });
 
-  it.each(["", "09:00", "+9:00", "+09:60", "+15:00", "Z", "+0900", 540, null])(
+  it.each(["", "09:00", "+9:00", "+09:60", "+15:00", "-12:30", "Z", "+0900", 540, null])(
     "rejects %s",
     (value) => {
       expect(parseUtcOffset(value)).toBeNull();

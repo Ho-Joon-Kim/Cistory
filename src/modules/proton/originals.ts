@@ -77,7 +77,7 @@ export interface OriginalsResult {
   exifChecked: number;
   failed: number;
   /** Why the stage stopped before its batches ran out, if it did. */
-  stopped: "deadline" | "outage" | "classifier_unavailable" | null;
+  stopped: "deadline" | "outage" | "rate_limited" | "classifier_unavailable" | null;
 }
 
 interface StageContext {
@@ -113,13 +113,12 @@ interface OriginalFailure {
  * photo; anything else is this photo's failure.
  */
 function classifyFailure(error: unknown): OriginalFailure {
-  if (
-    isAuthFailure(error) ||
-    isRateLimited(error) ||
-    error instanceof ProtonConnectionChangedError
-  ) {
+  if (isAuthFailure(error) || error instanceof ProtonConnectionChangedError) {
     throw error;
   }
+  // Throttling here must not cost the tick its location fill and success stamp:
+  // this stage is optional, so it stops and the next tick tries again.
+  if (isRateLimited(error)) throw new StopStage("rate_limited");
   if (isTransientOutage(error)) throw new StopStage("outage");
   if (error instanceof ClassifierUnavailableError) throw new StopStage("classifier_unavailable");
   if (error instanceof OriginalTooLargeError) {
@@ -316,7 +315,11 @@ async function recoverCandidate(
   photo: MappedPhoto,
   known: Set<string>
 ): Promise<void> {
-  const mainBlocked = photo.mainPhotoNodeUid !== null && known.has(photo.mainPhotoNodeUid);
+  // Blocked already: as a related uid of a main blocked earlier in this batch
+  // (whatever its own main attribute says), or through its main.
+  const mainBlocked =
+    known.has(photo.nodeUid) ||
+    (photo.mainPhotoNodeUid !== null && known.has(photo.mainPhotoNodeUid));
   const outcome: IngestOutcome | OriginalFailure = mainBlocked
     ? { kind: "block", nodeUid: photo.nodeUid, relatedUids: [] }
     : await recoverOne(ctx, photo, known);

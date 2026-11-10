@@ -11,6 +11,7 @@
  */
 import exifr from "exifr";
 import { isValidCoordinate } from "./mapper";
+import { ClassifierUnavailableError } from "./nsfw/classifier";
 import type { ByteSource } from "./original-source";
 
 export interface OriginalExif {
@@ -78,7 +79,7 @@ export function parseUtcOffset(value: unknown): number | null {
   if (minutes >= 60) return null;
   const total = hours * 60 + minutes;
   // Real UTC offsets span -12:00 .. +14:00.
-  if (total > 14 * 60) return null;
+  if (m[1] === "-" ? total > 12 * 60 : total > 14 * 60) return null;
   return m[1] === "-" ? -total : total;
 }
 
@@ -134,7 +135,8 @@ function sourceReaderClass(): ChunkedReaderClass {
   );
   const Base = urlReader ? Object.getPrototypeOf(urlReader) : null;
   if (typeof Base !== "function" || typeof Base.prototype?.readChunk !== "function") {
-    throw new Error("exifr chunked reader unavailable");
+    // Infrastructure (an exifr upgrade moved its internals), never one photo's fault.
+    throw new ClassifierUnavailableError("exifr chunked reader unavailable");
   }
   const Reader = class extends (Base as ChunkedReaderClass) {
     async readChunked() {

@@ -142,6 +142,33 @@ async function fromSharpFormat(bytes: Uint8Array, format: string): Promise<Buffe
   return resizeToJpeg(sharp(bytes, options).rotate());
 }
 
+/** A 12 MP HEIC decodes in ~1–2 s; anything near this is a wedged decoder. */
+export const HEIC_DECODE_TIMEOUT_MS = 30_000;
+
+/**
+ * libheif-js reports a decode through a callback from an async timer; if the
+ * wasm traps inside it, the callback never runs and the promise never
+ * settles. A deadline turns that into an infrastructure failure (the module
+ * is dropped and reloaded next time) instead of a tick that hangs forever
+ * holding the user's sync lock.
+ */
+async function decodeWithDeadline(image: {
+  decode(): Promise<{ width: number; height: number; data: Uint8ClampedArray }>;
+}): Promise<{ width: number; height: number; data: Uint8ClampedArray }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      heicModule = null;
+      reject(new ClassifierUnavailableError("HEIF decode did not finish"));
+    }, HEIC_DECODE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([image.decode(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fromHeic(bytes: Uint8Array): Promise<Buffer> {
   const decodeAll = await loadHeicDecoder();
   const sharp = await loadSharp();
@@ -156,7 +183,7 @@ async function fromHeic(bytes: Uint8Array): Promise<Buffer> {
       throw new OriginalUndecodableError("HEIF image is empty or over the pixel cap");
     }
     // libheif applies the file's rotation/mirror transforms while decoding.
-    const { width, height, data } = await primary.decode();
+    const { width, height, data } = await decodeWithDeadline(primary);
     if (data.length !== width * height * 4) {
       throw new OriginalUndecodableError("HEIF decoded to a malformed bitmap");
     }

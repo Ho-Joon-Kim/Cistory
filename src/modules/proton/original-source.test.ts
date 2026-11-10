@@ -238,4 +238,36 @@ describe("withOriginalDownloader", () => {
     );
     expect(abortedDuringUse).toBe(true);
   });
+
+  it("frees an unused downloader's slot even when the signal had already timed out", async () => {
+    // The SDK registers its abort listener when the stream is created, so a
+    // signal that is already aborted never fires it; only a failing pull ends
+    // the stream. Model exactly that: the slot is freed on the first read
+    // after the abort, and never by the listener.
+    let released = 0;
+    await withOriginalDownloader(
+      async (signal) => {
+        await new Promise((r) => setTimeout(r, 10)); // the 1 ms timeout fires meanwhile
+        const { downloader } = fakeDownloader(data);
+        const seek = downloader.getSeekableStream.bind(downloader);
+        return Object.assign(downloader, {
+          getSeekableStream: () => {
+            const stream = seek();
+            return Object.assign(stream, {
+              read: async (n: number) => {
+                if (signal.aborted) {
+                  released += 1;
+                  throw new Error("aborted");
+                }
+                return stream.read(n);
+              },
+            });
+          },
+        }) as FileDownloader;
+      },
+      1,
+      async () => undefined
+    );
+    expect(released).toBe(1);
+  });
 });
