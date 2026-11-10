@@ -32,6 +32,14 @@ export class DbSessionCredentials implements SessionCredentials {
     );
   }
 
+  /** Credentials that exist only in memory (a just-completed fork, not yet stored). */
+  static fromSession(
+    tokens: { uid: string; accessToken: string; refreshToken: string },
+    keyPassword: string
+  ): DbSessionCredentials {
+    return new DbSessionCredentials({ ...tokens }, keyPassword);
+  }
+
   get uid(): string | undefined {
     return this.session.uid;
   }

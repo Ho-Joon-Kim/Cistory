@@ -13,6 +13,13 @@ export const PROTON_ERRORS = {
   syncFailed: "사진을 동기화하지 못했습니다. 잠시 후 다시 시도합니다.",
   classifierUnavailable: "사진 분류 모델을 불러오지 못해 세부 정보 수집을 미뤘습니다.",
   revokeFailed: "Proton 계정 설정의 세션 목록에서 Cistory 세션을 직접 삭제해 주세요.",
+  connectFailed: "Proton 연결을 진행하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+  disconnectFailed: "Proton 연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+  summaryFailed: "Proton 사진 연동 상태를 불러오지 못했습니다.",
+  invalidOrigin: "허용되지 않은 요청입니다. 이 앱 화면에서 다시 시도해 주세요.",
 } as const;
+
+/** A photo whose details failed this many times stays hidden until rescreened. */
+export const PROTON_MAX_DETAILS_ATTEMPTS = 3;
 
 export type ProtonErrorMessage = (typeof PROTON_ERRORS)[keyof typeof PROTON_ERRORS];
