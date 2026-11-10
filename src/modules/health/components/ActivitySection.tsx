@@ -369,14 +369,19 @@ export function ActivitySection({
   const unit = (v: number) => withUnit(fmtNum(v, m.decimals), m.unit);
   let headLead = "";
   let headEm = "";
-  let headTail = "";
+  // The comparison wraps as one unit and its "·" separator stays at the end of
+  // line 1, so a narrow column never starts a line with "·" or orphans "많음".
+  let headCmp = "";
+  let headNote = "";
   if (range === "30") {
     if (m.latest != null) {
       headLead = `${fullLabel} `;
       headEm = unit(m.latest);
       if (m.median != null) {
         const d = m.latest - m.median;
-        headTail = ` · 30일 중앙값 ${unit(m.median)}보다 ${unit(Math.abs(d))} ${d >= 0 ? "많음" : "적음"}`;
+        // The median right before carries the unit, so the delta drops it
+        // ("…2,580걸음보다 2,389 많음"), as in the mock.
+        headCmp = `30일 중앙값 ${unit(m.median)}보다 ${fmtNum(Math.abs(d), m.decimals)} ${d >= 0 ? "많음" : "적음"}`;
       }
     } else {
       headLead = `${fullLabel} 기록 없음`;
@@ -392,7 +397,8 @@ export function ActivitySection({
       headEm = unit(a7);
       if (m.median != null) {
         const d = a7 - m.median;
-        headTail = ` · 30일 중앙값보다 ${unit(Math.abs(d))} ${d >= 0 ? "많음" : "적음"} (오늘 제외 ${v7.length}일)`;
+        headCmp = `30일 중앙값보다 ${unit(Math.abs(d))} ${d >= 0 ? "많음" : "적음"}`;
+        headNote = `(오늘 제외 ${v7.length}일)`;
       }
     } else headLead = "최근 7일 기록 없음";
   }
@@ -527,7 +533,12 @@ export function ActivitySection({
           <p className="m-0 text-sm leading-[22px] text-ink">
             {headLead}
             {headEm ? <span className="num font-semibold">{headEm}</span> : null}
-            <span className="text-ink-2">{headTail}</span>
+            {headCmp ? (
+              <span className="text-ink-2">
+                {"\u00a0·"} <span className="whitespace-nowrap">{headCmp}</span>
+                {headNote ? <span className="whitespace-nowrap"> {headNote}</span> : null}
+              </span>
+            ) : null}
             {m.median != null ? (
               <span className="ml-2 hidden lg:inline-flex">{medianLegend}</span>
             ) : null}

@@ -480,8 +480,10 @@ export function heroPaceFact(hero: HeroModel, periodFrom: string, periodTo: stri
   const rows: FactRow[] = [];
   if (hero.health > 0) {
     rows.push({
-      label: "1회성",
-      value: `${SPLIT_LABEL} ${hero.healthCount}건 ${formatWon(hero.health)}`,
+      // The category name sits in the label so the value has the same
+      // "N건 금액" shape (and face) as the 나머지 row below it.
+      label: `1회성 ${SPLIT_LABEL}`,
+      value: `${hero.healthCount}건 ${formatWon(hero.health)}`,
     });
   }
   rows.push(
