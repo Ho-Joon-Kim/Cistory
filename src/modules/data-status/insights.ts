@@ -391,7 +391,7 @@ export function rowSubline(
   now: Date = new Date()
 ): {
   text: string;
-  tone: "gain" | "warn" | "ink3";
+  tone: "danger" | "warn" | "ink3";
 } {
   if (view.status === "disconnected") return { text: "연결 안 됨", tone: "ink3" };
   if (view.status === "failed" || view.status === "reauth") {
@@ -405,7 +405,7 @@ export function rowSubline(
             : "동기화 실패",
       // One severity per state: re-authorization is the amber state everywhere
       // (badge, meter, strip), only a real failure is red.
-      tone: view.status === "reauth" ? "warn" : "gain",
+      tone: view.status === "reauth" ? "warn" : "danger",
     };
   }
   if (view.gaps.length > 0) {

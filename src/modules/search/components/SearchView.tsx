@@ -19,9 +19,11 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSession } from "@/lib/auth-client";
 import { dateKeyToUtcMillis, shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
+import { isQuantityText } from "@/lib/facts/face";
 import { diagnosis } from "@/lib/facts/helpers";
 import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatDateRange, formatDay, formatTime, formatWon } from "@/lib/format";
+import { GENERIC_ERROR_MESSAGE, sameErrorCopy, userErrorMessage } from "@/lib/user-error";
 import { cn } from "@/lib/utils";
 import { EXPENSE_CATEGORY_LABELS, isExpenseCategory } from "@/modules/spending/categories";
 import {
@@ -234,7 +236,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
     getNextPageParam: (last) => (last.hasMore && last.page < 100 ? last.page + 1 : undefined),
     queryFn: async ({ signal, pageParam }) => {
       const response = await fetch(`/api/search?${request}&page=${pageParam}`, { signal });
-      if (!response.ok) throw new Error("기록을 검색하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      if (!response.ok) throw new Error("기록을 검색하지 못했어요");
       return response.json();
     },
   });
@@ -480,7 +482,13 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
           {query.isError ? (
             <ErrorState
               className="mt-8"
-              title={query.error.message}
+              title="기록을 검색하지 못했어요"
+              description={(() => {
+                const message = userErrorMessage(query.error);
+                return sameErrorCopy(message, "기록을 검색하지 못했어요")
+                  ? GENERIC_ERROR_MESSAGE
+                  : message;
+              })()}
               actions={
                 <Button
                   variant="outline"
@@ -500,7 +508,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
               {days.map((day, i) => (
                 <div key={day.date}>
                   <div className="flex items-baseline justify-between border-b border-line pt-5 pb-2">
-                    <h2 className="m-0 text-[15px] font-semibold">
+                    <h2 className="m-0 text-[17px] leading-6 font-semibold">
                       <time dateTime={day.date}>{formatDay(day.date)}</time>
                     </h2>
                     <span className="text-xs text-ink-3">
@@ -627,7 +635,7 @@ function RangeChip({
               </label>
             </div>
             {invalid ? (
-              <p role="alert" className="m-0 text-xs text-gain">
+              <p role="alert" className="m-0 text-xs text-danger">
                 최대 366일의 유효한 기간을 골라 주세요.
               </p>
             ) : null}
@@ -814,7 +822,8 @@ function ResultRow({ row }: { row: ItemRow }) {
         {right ? (
           <span
             className={cn(
-              "num text-[15px] leading-[22px] whitespace-nowrap",
+              "text-[15px] leading-[22px] whitespace-nowrap tabular-nums",
+              isQuantityText(right) && "num",
               item.source === "spending" || item.source === "visit"
                 ? "font-medium text-ink"
                 : "text-[13px] text-ink-3"
@@ -880,9 +889,9 @@ function CommitGroupRow({ group }: { group: CommitGroup }) {
                   className="flex flex-col gap-0.5 py-2 text-ink no-underline hover:text-brand focus-visible:outline-2 focus-visible:outline-brand"
                 >
                   <span className="flex items-baseline justify-between gap-3">
-                    <span className="num text-[11px] leading-4 text-ink-3">{tag}</span>
+                    <span className="text-[11px] leading-4 text-ink-3">{tag}</span>
                     {item.occurredAt ? (
-                      <span className="num text-[11px] leading-4 text-ink-3">
+                      <span className="text-[11px] leading-4 text-ink-3 tabular-nums">
                         {formatTime(new Date(item.occurredAt))}
                       </span>
                     ) : null}

@@ -158,9 +158,9 @@ function groupLead(
   const label = TYPE_LABELS[type] ?? type;
   if (!majority)
     return { type, count, template: `{total}건 중 ${label} 작업이 가장 많아요({fact}).` };
-  const lead =
-    count === n ? "{total}건 모두" : `{total}건 중 ${count / n >= 0.75 ? "대부분" : "절반 넘게"}`;
-  return { type, count, template: `${lead} ${label} 작업({fact})이에요.` };
+  if (count === n) return { type, count, template: `{fact} 모두 ${label} 작업이에요.` };
+  const share = count / n >= 0.75 ? "대부분" : "절반 넘게";
+  return { type, count, template: `{total}건 중 ${share} ${label} 작업({fact})이에요.` };
 }
 
 /**
@@ -175,7 +175,7 @@ export function commitGroupFact(group: CommitGroup): Fact | null {
   const n = group.typeCounts.reduce((sum, [, c]) => sum + c, 0);
   const lead = n < 5 ? null : groupLead(group.typeCounts, n);
   if (!lead) return null;
-  const { type, count, template } = lead;
+  const { count, template } = lead;
   return diagnosis({
     id: `search.commits.${group.key}`,
     metric: "commits",
@@ -185,7 +185,7 @@ export function commitGroupFact(group: CommitGroup): Fact | null {
     unit: "count",
     unitLabel: "건",
     template,
-    detail: { total: n, trigger: `${type} ${count}건` },
+    detail: { total: n, trigger: `${count}건` },
     rows: [
       { label: "유형", value: group.typeCounts.map(([t, c]) => `${t} ${c}`).join(" · ") },
       ...(group.ticket ? [{ label: "티켓", value: group.ticket }] : []),

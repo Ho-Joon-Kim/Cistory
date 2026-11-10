@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useSession } from "@/lib/auth-client";
+import { userErrorMessage } from "@/lib/user-error";
 
 export interface SummaryCounts {
   total: number;
@@ -20,7 +21,7 @@ export function useSummaryCounts() {
     enabled: !!session,
     queryFn: async ({ signal }) => {
       const response = await fetch("/api/summaries/process", { signal });
-      if (!response.ok) throw new Error("요약 상태를 불러오지 못했습니다.");
+      if (!response.ok) throw new Error("요약 상태를 불러오지 못했어요.");
       return response.json();
     },
   });
@@ -36,7 +37,7 @@ export function useRetryFailedSummaries() {
         requeued?: number;
         error?: string;
       };
-      if (!response.ok) throw new Error(body.error ?? "요약을 다시 시도하지 못했습니다.");
+      if (!response.ok) throw new Error(body.error ?? "요약을 다시 시도하지 못했어요.");
       return body.requeued ?? 0;
     },
     onSuccess: (requeued) => {
@@ -49,7 +50,10 @@ export function useRetryFailedSummaries() {
       // The run happens after the response; check back once it has had time.
       setTimeout(() => void client.invalidateQueries({ queryKey: ["summary-stats"] }), 8000);
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error) =>
+      toast.error(
+        userErrorMessage(error, "요약을 다시 시도하지 못했어요. 잠시 후 다시 시도해 주세요.")
+      ),
   });
 }
 

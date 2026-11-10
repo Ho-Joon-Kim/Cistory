@@ -19,24 +19,24 @@ export function HealthSettings({ hasConnection, lastSyncedAt, needsReauth }: Hea
   const handleDisconnect = async () => {
     if (
       !window.confirm(
-        "Google Health (Fitbit) 연결을 해제할까요? 저장된 인증 정보가 삭제되어 건강 데이터 자동 동기화가 멈춥니다. 이미 수집한 기록은 남습니다."
+        "Google Health (Fitbit) 연결을 해제할까요? 저장된 인증 정보가 삭제되어 건강 데이터 자동 동기화가 멈춰요. 이미 수집한 기록은 남아요."
       )
     )
       return;
     const success = await disconnect();
     if (success) {
-      toast.success("Google Health (Fitbit) 연결이 해제되었습니다.");
+      toast.success("Google Health (Fitbit) 연결이 해제됐어요.");
     } else {
-      toast.error("Google Health (Fitbit) 연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("Google Health (Fitbit) 연결을 해제하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
   const handleSync = async () => {
     const success = await syncNow();
     if (success) {
-      toast.success("건강 데이터가 동기화되었습니다.");
+      toast.success("건강 데이터가 동기화됐어요.");
     } else {
-      toast.error("건강 데이터를 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("건강 데이터를 동기화하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 

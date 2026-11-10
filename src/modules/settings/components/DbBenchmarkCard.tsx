@@ -168,10 +168,10 @@ export function DbBenchmarkCard() {
   const handleRun = async () => {
     const result = await runBenchmark();
     if (result) {
-      toast.success("벤치마크 측정이 완료되었습니다.");
+      toast.success("벤치마크 측정이 완료됐어요.");
       setCompareId(null);
     } else {
-      toast.error("벤치마크를 실행하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("벤치마크를 실행하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -184,7 +184,7 @@ export function DbBenchmarkCard() {
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div>
           <CardTitle className="text-lg">DB 성능 벤치마크</CardTitle>
-          <CardDescription>데이터베이스 쿼리 응답 속도를 측정합니다</CardDescription>
+          <CardDescription>데이터베이스 쿼리 응답 속도를 측정해요</CardDescription>
         </div>
         <Button onClick={handleRun} disabled={isRunning} size="sm">
           {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
@@ -243,7 +243,7 @@ export function DbBenchmarkCard() {
             {showHistory && (
               <div id="db-benchmark-history" className="mt-2 space-y-1">
                 <p className="text-xs text-muted-foreground mb-2">
-                  항목을 클릭하면 현재 결과와 비교합니다
+                  항목을 클릭하면 현재 결과와 비교해요
                 </p>
                 {history.map((run) => (
                   <HistoryItem
@@ -261,13 +261,13 @@ export function DbBenchmarkCard() {
                   onClick={() => {
                     if (
                       !window.confirm(
-                        `벤치마크 기록 ${history.length}건을 모두 삭제할까요? 삭제한 기록은 복구할 수 없습니다.`
+                        `벤치마크 기록 ${history.length}건을 모두 삭제할까요? 삭제한 기록은 복구할 수 없어요.`
                       )
                     )
                       return;
                     clearHistory();
                     setCompareId(null);
-                    toast.success("벤치마크 기록이 삭제되었습니다.");
+                    toast.success("벤치마크 기록이 삭제됐어요.");
                   }}
                 >
                   <Trash2 className="h-3.5 w-3.5 mr-1.5" />

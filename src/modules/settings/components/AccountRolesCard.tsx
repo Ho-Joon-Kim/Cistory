@@ -37,7 +37,7 @@ export function AccountRolesCard() {
         const data = (await res.json()) as { accounts: AccountRow[] };
         if (!cancelled) setAccounts(data.accounts);
       } catch {
-        if (!cancelled) toast.error("계좌 목록을 불러오지 못했습니다. 페이지를 새로고침해 주세요.");
+        if (!cancelled) toast.error("계좌 목록을 불러오지 못했어요. 페이지를 새로고침해 주세요.");
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -78,9 +78,9 @@ export function AccountRolesCard() {
         })
       );
       setEdited(new Map());
-      toast.success(`계좌 ${roles.length}개의 역할이 저장되었습니다.`);
+      toast.success(`계좌 ${roles.length}개의 역할이 저장됐어요.`);
     } catch {
-      toast.error("계좌 역할을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("계좌 역할을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsSaving(false);
     }

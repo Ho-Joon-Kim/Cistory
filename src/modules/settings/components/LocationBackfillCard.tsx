@@ -71,7 +71,7 @@ export function LocationBackfillCard() {
       if (!res.ok) throw new Error();
       setDryRun(await res.json());
     } catch {
-      toast.error("처리 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("처리 상태를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsLoading(false);
     }
@@ -95,7 +95,7 @@ export function LocationBackfillCard() {
         signal: abort.signal,
       });
 
-      if (!res.ok || !res.body) throw new Error("과거 데이터 처리를 시작하지 못했습니다.");
+      if (!res.ok || !res.body) throw new Error("과거 데이터 처리를 시작하지 못했어요.");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -117,13 +117,11 @@ export function LocationBackfillCard() {
 
             if (event.phase === "done") {
               toast.success(
-                `위치 데이터 처리가 완료되었습니다. 이상치 ${event.totalAnomalies}건, 방문 ${event.totalVisits}건, 교통수단 ${event.totalSegments}건`
+                `위치 데이터 처리가 완료됐어요. 이상치 ${event.totalAnomalies}건, 방문 ${event.totalVisits}건, 교통수단 ${event.totalSegments}건`
               );
               fetchDryRun();
             } else if (event.phase === "error") {
-              toast.error(
-                `위치 데이터를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요. (${event.error})`
-              );
+              toast.error("위치 데이터를 처리하지 못했어요. 잠시 후 다시 시도해 주세요.");
             }
           } catch {
             // ignore parse errors
@@ -132,7 +130,7 @@ export function LocationBackfillCard() {
       }
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
-        toast.error("위치 데이터를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        toast.error("위치 데이터를 처리하지 못했어요. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
       setIsRunning(false);
@@ -247,7 +245,7 @@ export function LocationBackfillCard() {
                     onClick={() =>
                       runBackfill(
                         "past",
-                        `과거 ${dryRun.past.daysRemaining}일의 위치 데이터를 처리할까요? 이 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다.`
+                        `과거 ${dryRun.past.daysRemaining}일의 위치 데이터를 처리할까요? 이 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않아요.`
                       )
                     }
                   >
@@ -260,7 +258,7 @@ export function LocationBackfillCard() {
                     onClick={() =>
                       runBackfill(
                         "today",
-                        "오늘 위치 데이터를 지금 처리할까요? 오늘의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다."
+                        "오늘 위치 데이터를 지금 처리할까요? 오늘의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않아요."
                       )
                     }
                   >

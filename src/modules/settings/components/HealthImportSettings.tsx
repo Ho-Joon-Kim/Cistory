@@ -17,29 +17,25 @@ export function HealthImportSettings({ hasKey }: HealthImportSettingsProps) {
     if (
       hasHealthImportKey &&
       !window.confirm(
-        "Health Connect 가져오기 API 키를 재생성할까요? 기존 키는 즉시 사용할 수 없게 되어 휴대폰 자동화 설정을 바꿔야 합니다."
+        "Health Connect 가져오기 API 키를 재생성할까요? 기존 키는 즉시 사용할 수 없게 되어 휴대폰 자동화 설정을 바꿔야 해요."
       )
     )
       return;
     const success = await generate();
     toast[success ? "success" : "error"](
-      success
-        ? "API 키가 생성되었습니다."
-        : "API 키를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      success ? "API 키가 생성됐어요." : "API 키를 생성하지 못했어요. 잠시 후 다시 시도해 주세요."
     );
   };
   const handleRevoke = async () => {
     if (
       !window.confirm(
-        "Health Connect 가져오기 API 키를 삭제할까요? 휴대폰 자동화가 더 이상 기록을 보낼 수 없습니다."
+        "Health Connect 가져오기 API 키를 삭제할까요? 휴대폰 자동화가 더 이상 기록을 보낼 수 없어요."
       )
     )
       return;
     const success = await revoke();
     toast[success ? "success" : "error"](
-      success
-        ? "API 키가 삭제되었습니다."
-        : "API 키를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      success ? "API 키가 삭제됐어요." : "API 키를 삭제하지 못했어요. 잠시 후 다시 시도해 주세요."
     );
   };
   return (

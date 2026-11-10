@@ -164,9 +164,7 @@ test("search distinguishes failures, retries, empty results and invalid ranges",
     );
   });
   await page.goto("/search?from=2026-08-01&to=2026-08-31&source=all");
-  await expect(page.getByRole("main").getByRole("alert")).toContainText(
-    "기록을 검색하지 못했습니다."
-  );
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("기록을 검색하지 못했어요");
   await expect(page.getByText("이 기간에는 기록이 없어요")).toHaveCount(0);
   fail = false;
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();

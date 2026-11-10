@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { LoadingState } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { formatCount } from "@/lib/format";
+import { userErrorMessage } from "@/lib/user-error";
 import { completionText, useRetryFailedSummaries, useSummaryCounts } from "../summaries";
 import { PanelActions, PanelNote, PanelStats, PanelText } from "./panel";
 
@@ -23,14 +24,17 @@ export function SummaryStats() {
   if (query.isError) {
     return (
       <PanelNote
-        tone="gain"
+        tone="danger"
         action={
           <Button variant="outline" size="sm" onClick={() => query.refetch()}>
             다시 불러오기
           </Button>
         }
       >
-        {query.error.message}
+        {userErrorMessage(
+          query.error,
+          "요약 상태를 불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+        )}
       </PanelNote>
     );
   }
@@ -50,7 +54,7 @@ export function SummaryStats() {
       toast.success("대기 중인 요약을 만들기 시작했어요.");
       setTimeout(() => void query.refetch(), 5000);
     } else {
-      toast.error("요약 생성을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("요약 생성을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -70,12 +74,12 @@ export function SummaryStats() {
           { label: "완료", value: stats.completed },
           { label: "대기", value: stats.pending, tone: stats.pending ? "ink" : "muted" },
           { label: "처리 중", value: stats.processing, tone: stats.processing ? "ink" : "muted" },
-          { label: "실패", value: stats.failed, tone: stats.failed ? "gain" : "muted" },
+          { label: "실패", value: stats.failed, tone: stats.failed ? "danger" : "muted" },
         ]}
       />
       {stats.failed > 0 ? (
         <PanelNote
-          tone="gain"
+          tone="danger"
           action={
             <Button size="sm" onClick={() => retry.mutate()} disabled={retry.isPending}>
               {retry.isPending ? "요청 중…" : `${formatCount(stats.failed)}건 다시 시도`}

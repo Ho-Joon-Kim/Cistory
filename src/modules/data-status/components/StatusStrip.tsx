@@ -9,13 +9,13 @@ import type { CellKind, StatusCell } from "../insights";
 const LEVEL_MIX = [0, 14, 30, 50, 70, 88] as const;
 
 /**
- * `failTone` colors the 수집 실패 hatch: --up for a failing source, --warn for one
+ * `failTone` colors the 수집 실패 hatch: --danger for a failing source, --warn for one
  * that only needs re-authorization, so the strip matches the row's badge.
  */
 export function cellStyle(
   kind: CellKind,
   level: number,
-  failTone: "up" | "warn" = "up"
+  failTone: "danger" | "warn" = "danger"
 ): CSSProperties {
   switch (kind) {
     case "fail":
@@ -91,7 +91,7 @@ export function StatusStrip({
   onHover?: (index: number | null) => void;
   /** Pointer click anywhere on the strip (the row uses it to expand). */
   onActivate?: () => void;
-  failTone?: "up" | "warn";
+  failTone?: "danger" | "warn";
   className?: string;
 }) {
   return (

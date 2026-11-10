@@ -17,28 +17,28 @@ export function OwnTracksSettings({ hasKey }: OwnTracksSettingsProps) {
     if (
       hasOwnTracksKey &&
       !window.confirm(
-        "OwnTracks API 키를 재생성할까요? 기존 키는 즉시 사용할 수 없게 되어 휴대폰 앱 설정을 바꿔야 합니다."
+        "OwnTracks API 키를 재생성할까요? 기존 키는 즉시 사용할 수 없게 되어 휴대폰 앱 설정을 바꿔야 해요."
       )
     )
       return;
     const success = await generate();
     if (success) {
-      toast.success("API 키가 생성되었습니다.");
+      toast.success("API 키가 생성됐어요.");
     } else {
-      toast.error("API 키를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("API 키를 생성하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
   const handleRevoke = async () => {
     if (
-      !window.confirm("OwnTracks API 키를 삭제할까요? 휴대폰 앱이 더 이상 위치를 보낼 수 없습니다.")
+      !window.confirm("OwnTracks API 키를 삭제할까요? 휴대폰 앱이 더 이상 위치를 보낼 수 없어요.")
     )
       return;
     const success = await revoke();
     if (success) {
-      toast.success("API 키가 삭제되었습니다.");
+      toast.success("API 키가 삭제됐어요.");
     } else {
-      toast.error("API 키를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("API 키를 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 

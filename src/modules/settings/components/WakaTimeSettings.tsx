@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatCount, formatRelative } from "@/lib/format";
+import { userErrorMessage } from "@/lib/user-error";
 import { reauthCopy } from "@/modules/data-status/reauth-copy";
 import { useWakaTime } from "../hooks";
 import { PanelActions, PanelNote, PanelStats, PanelText } from "./panel";
@@ -54,18 +55,18 @@ export function WakaTimeSettings({
     const success = await disconnect();
     setConfirmOpen(false);
     if (success) {
-      toast.success("WakaTime 연결이 해제되었습니다");
+      toast.success("WakaTime 연결이 해제됐어요");
     } else {
-      toast.error("WakaTime 연결 해제에 실패했습니다");
+      toast.error("WakaTime 연결 해제에 실패했어요");
     }
   };
 
   const handleSync = async (mode: "initial" | "regular") => {
     try {
       await triggerSync(mode);
-      toast.success("WakaTime 동기화가 완료되었습니다");
+      toast.success("WakaTime 동기화가 완료됐어요");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "동기화에 실패했습니다");
+      toast.error(userErrorMessage(e, "동기화에 실패했어요. 잠시 후 다시 시도해 주세요."));
     }
   };
 
@@ -131,7 +132,7 @@ export function WakaTimeSettings({
               size="sm"
               onClick={() => setConfirmOpen(true)}
               disabled={isDisconnecting}
-              className="text-gain hover:bg-gain-soft hover:text-gain"
+              className="text-danger hover:bg-danger-soft hover:text-danger"
             >
               연결 해제
             </Button>
@@ -144,8 +145,8 @@ export function WakaTimeSettings({
           <DialogHeader>
             <DialogTitle>WakaTime 연결을 해제할까요?</DialogTitle>
             <DialogDescription>
-              WakaTime 접근 권한을 철회하고 저장된 인증 정보를 삭제합니다. 이미 가져온 코딩 기록은
-              유지되며, 다시 연결하면 동기화가 재개됩니다.
+              WakaTime 접근 권한을 철회하고 저장된 인증 정보를 삭제해요. 이미 가져온 코딩 기록은
+              유지되며, 다시 연결하면 동기화가 재개돼요.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
