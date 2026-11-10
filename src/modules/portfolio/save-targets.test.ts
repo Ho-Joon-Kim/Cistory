@@ -9,7 +9,7 @@ describe("saveTargetAllocations", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(saveTargetAllocations("acc-1", targets)).resolves.toEqual({
       ok: false,
-      error: NETWORK_ERROR_MESSAGE,
+      error: `목표 비중을 저장하지 못했어요. ${NETWORK_ERROR_MESSAGE}`,
     });
   });
 

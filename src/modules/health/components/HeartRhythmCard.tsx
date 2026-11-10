@@ -22,7 +22,7 @@ function Column({ title, children }: { title: string; children: ReactNode }) {
 function Row({ when, children }: { when: string; children: ReactNode }) {
   return (
     <li className="flex items-baseline justify-between gap-3 border-b border-line py-2.5">
-      <span className="text-[13px] leading-5 text-ink-2 tabular-nums">
+      <span className="text-[0.8125rem] leading-5 text-ink-2 tabular-nums">
         {formatDateTime(new Date(when))}
       </span>
       <span className="text-right text-sm leading-5">{children}</span>
@@ -53,7 +53,7 @@ export function HeartRhythmCard({
       >
         심전도 · 불규칙 심박
       </h2>
-      <p className="m-0 mt-1 text-[13px] leading-5 text-ink-2">
+      <p className="m-0 mt-1 text-[0.8125rem] leading-5 text-ink-2">
         의료 진단이 아니에요. 기기가 판정한 결과를 그대로 보여 줘요.
       </p>
       <div className="mt-4 grid gap-6 sm:grid-cols-2 sm:gap-10">
@@ -69,7 +69,7 @@ export function HeartRhythmCard({
                       {ecgClassificationLabel(r.classification)}
                     </span>
                     {r.bpm != null ? (
-                      <span className="num ml-2 text-[13px] text-ink-3">
+                      <span className="num ml-2 text-[0.8125rem] text-ink-3">
                         {Math.round(r.bpm)} bpm
                       </span>
                     ) : null}

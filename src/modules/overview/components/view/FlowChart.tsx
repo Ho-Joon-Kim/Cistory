@@ -426,7 +426,7 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
           .filter((u) => !u.future)
           .map(
             (u) =>
-              `${u.title} 커밋 ${u.commits ?? (u.pending ? "계산 중" : "기록 없음")}, 지출 ${u.spending === null ? (u.pending ? "계산 중" : "기록 없음") : formatWon(u.spending)}`
+              `${u.title} 커밋 ${u.commits != null ? `${u.commits.toLocaleString("ko-KR")}건` : u.pending ? "계산 중" : "기록 없음"}, 지출 ${u.spending === null ? (u.pending ? "계산 중" : "기록 없음") : formatWon(u.spending)}`
           )
           .join(". ")}
       </p>

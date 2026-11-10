@@ -388,7 +388,9 @@ export async function saveTargetAllocations(
     const data = await res.json().catch(() => ({}));
     return { ok: false, error: userErrorMessage(data?.error, SAVE_TARGETS_ERROR) };
   } catch (e) {
-    return { ok: false, error: userErrorMessage(e, SAVE_TARGETS_ERROR) };
+    // A network failure maps to the generic network line; lead with what failed.
+    const cause = userErrorMessage(e, "잠시 후 다시 시도해 주세요.");
+    return { ok: false, error: `목표 비중을 저장하지 못했어요. ${cause}` };
   }
 }
 
