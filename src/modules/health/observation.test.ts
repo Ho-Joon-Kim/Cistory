@@ -23,11 +23,7 @@ describe("health request states", () => {
     const markup = renderToStaticMarkup(createElement(BodyCard, { data: null, isLoading: false }));
     expect(markup).toContain("측정 기록이 아직 없습니다");
     expect(markup).not.toContain("animate-pulse");
-<<<<<<< ours
-    expect(hero({ bodyError: null })).toContain("체성분 측정 기록이 아직 없습니다");
-=======
     expect(hero({ bodyError: null })).toContain("체성분 측정 기록이 아직 없어요");
->>>>>>> theirs
   });
   it("distinguishes body request failures from empty data", () => {
     const body = renderToStaticMarkup(
