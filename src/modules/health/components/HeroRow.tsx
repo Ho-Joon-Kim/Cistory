@@ -81,8 +81,8 @@ function Cmp({ lead, sub }: { lead?: ReactNode; sub?: ReactNode }) {
 
 function Stat({ label, value }: { label: ReactNode; value: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-label truncate">{label}</span>
+    <div className="flex min-w-0 flex-col justify-between gap-0.5">
+      <span className="text-label break-keep">{label}</span>
       <span className="num text-[15px] leading-[22px] text-ink">{value}</span>
     </div>
   );
@@ -675,7 +675,11 @@ function WeightColumn({
         </div>
         <div className="grid grid-cols-3 gap-2 pt-3.5 lg:gap-3 lg:pt-5 lg:pb-6">
           <Stat
-            label={`최저 · ${formatMonthDay(view.low.date)}`}
+            label={
+              <>
+                최저 · <span className="whitespace-nowrap">{formatMonthDay(view.low.date)}</span>
+              </>
+            }
             value={fmtNum(view.low.weight, 1)}
           />
           <Stat label="체지방률" value={fat != null ? `${fmtNum(fat, 1)}%` : "—"} />
