@@ -235,13 +235,11 @@ test("spending month bars and forecast keep real geometry", async ({ page }, tes
       .poll(() => path.evaluate((el) => (el as SVGGraphicsElement).getBBox().width))
       .toBeGreaterThan(30);
   const series = (name: string) =>
-    forecast
-      .locator(`[data-series="${name}"]`)
-      .evaluate((el) => {
-        // SVGRect doesn't serialize across the page boundary; copy the numbers.
-        const { x, y, width, height } = (el as SVGGraphicsElement).getBBox();
-        return { x, y, width, height };
-      });
+    forecast.locator(`[data-series="${name}"]`).evaluate((el) => {
+      // SVGRect doesn't serialize across the page boundary; copy the numbers.
+      const { x, y, width, height } = (el as SVGGraphicsElement).getBBox();
+      return { x, y, width, height };
+    });
   // Day 1 → 15 of 30 against the full-month reference: 14/29 of its width, and
   // the projection covers the remaining 15/29.
   const actualBox = await series("actual");
