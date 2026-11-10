@@ -9,8 +9,9 @@
  * the row and its related rows are deleted, the thumbnail cascades, and
  * `photo_blocks` is inserted). Each batch is its own transaction.
  *
- * Fail closed: a stored thumbnail that can no longer be decoded counts as
- * blocked. An unavailable classifier aborts the run (nothing is half-written;
+ * Fail closed: a stored thumbnail that can no longer be decoded is hidden
+ * (bytes dropped, details marker cleared) so the details stage re-screens it;
+ * it is never blocked, since a decoder regression must not block photos forever. An unavailable classifier aborts the run (nothing is half-written;
  * earlier batches stay committed and a re-run is idempotent).
  *
  * Thumbnail bytes, scores and node uids are never logged.
@@ -20,7 +21,8 @@
  */
 
 import { argv } from "node:process";
-import { and, asc, eq, gt } from "drizzle-orm";
+import { pathToFileURL } from "node:url";
+import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { type Database, getDb, getPool, photos, photoThumbnails } from "../src/db";
 import { applyIngest, type IngestOutcome } from "../src/modules/proton/ingest";
 import {
@@ -29,6 +31,7 @@ import {
   type PhotoClassifier,
 } from "../src/modules/proton/nsfw/classifier";
 import { photoIsExposed } from "../src/modules/proton/repository";
+import { PROTON_ERRORS } from "../src/modules/proton/types";
 
 /** Thumbnails read (and classified) per page / per write transaction. */
 export const RESCREEN_BATCH = 50;
@@ -36,6 +39,8 @@ export const RESCREEN_BATCH = 50;
 export interface RescreenResult {
   scanned: number;
   blocked: number;
+  /** Undecodable stored thumbnails: hidden for a re-fetch, not blocked. */
+  hidden: number;
 }
 
 export type RescreenArgs = { userId: string; apply: boolean } | { error: string };
@@ -52,13 +57,38 @@ export function parseRescreenArgs(rawArgs: string[]): RescreenArgs {
   return { userId: positionals[0], apply: flags.includes("--apply") };
 }
 
-async function wouldBlock(classifier: PhotoClassifier, jpeg: Uint8Array): Promise<boolean> {
+async function verdict(
+  classifier: PhotoClassifier,
+  jpeg: Uint8Array
+): Promise<"pass" | "block" | "hide"> {
   try {
-    return isBlocked(await classifier.classify(jpeg));
+    return isBlocked(await classifier.classify(jpeg)) ? "block" : "pass";
   } catch (error) {
-    if (error instanceof ClassifyInputError) return true;
+    if (error instanceof ClassifyInputError) return "hide";
     throw error; // ClassifierUnavailableError or a runtime fault: abort, do not block.
   }
+}
+
+/**
+ * Reversible, fail-closed hide: stop serving the bytes and drop the exposure
+ * marker so the normal details stage re-fetches and re-screens the photo.
+ */
+async function hidePhotos(
+  tx: Parameters<typeof applyIngest>[0],
+  userId: string,
+  ids: string[],
+  now: Date
+): Promise<void> {
+  await tx.delete(photoThumbnails).where(inArray(photoThumbnails.photoId, ids));
+  await tx
+    .update(photos)
+    .set({
+      detailsSyncedAt: null,
+      detailsError: PROTON_ERRORS.thumbnailUnclassifiable,
+      detailsAttempts: 0,
+      updatedAt: now,
+    })
+    .where(and(eq(photos.userId, userId), inArray(photos.id, ids)));
 }
 
 export async function rescreenUser(
@@ -69,6 +99,7 @@ export async function rescreenUser(
 ): Promise<RescreenResult> {
   let scanned = 0;
   let blocked = 0;
+  let hidden = 0;
   let cursor: string | null = null;
 
   for (;;) {
@@ -94,25 +125,31 @@ export async function rescreenUser(
     if (page.length === 0) break;
 
     const outcomes: IngestOutcome[] = [];
+    const hideIds: string[] = [];
     for (const row of page) {
       scanned += 1;
-      if (await wouldBlock(classifier, row.bytes)) {
+      const v = await verdict(classifier, row.bytes);
+      if (v === "block") {
         blocked += 1;
         outcomes.push({ kind: "block", nodeUid: row.nodeUid, relatedUids: [] });
+      } else if (v === "hide") {
+        hidden += 1;
+        hideIds.push(row.id);
       }
     }
 
-    if (!opts.dryRun && outcomes.length > 0) {
+    if (!opts.dryRun && (outcomes.length > 0 || hideIds.length > 0)) {
       const now = new Date();
       await db.transaction(async (tx) => {
         await applyIngest(tx, userId, outcomes, classifier.modelVersion, now);
+        if (hideIds.length > 0) await hidePhotos(tx, userId, hideIds, now);
       });
     }
 
     cursor = page[page.length - 1].id;
     if (page.length < RESCREEN_BATCH) break;
   }
-  return { scanned, blocked };
+  return { scanned, blocked, hidden };
 }
 
 async function main() {
@@ -130,14 +167,17 @@ async function main() {
       dryRun ? "dry run, nothing written" : "APPLY"
     }) ...`
   );
-  const { scanned, blocked } = await rescreenUser(getDb(), parsed.userId, classifier, { dryRun });
+  const { scanned, blocked, hidden } = await rescreenUser(getDb(), parsed.userId, classifier, {
+    dryRun,
+  });
   console.log(
-    `Done: scanned=${scanned}, ${dryRun ? "would block" : "blocked"}=${blocked}` +
-      (dryRun && blocked > 0 ? " (re-run with --apply to write)" : "")
+    `Done: scanned=${scanned}, ${dryRun ? "would block" : "blocked"}=${blocked}, ${
+      dryRun ? "would hide" : "hidden"
+    }=${hidden}` + (dryRun && blocked + hidden > 0 ? " (re-run with --apply to write)" : "")
   );
 }
 
-const isMainModule = import.meta.url === `file://${argv[1]}`;
+const isMainModule = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
 if (isMainModule) {
   main()
     .catch((error) => {
