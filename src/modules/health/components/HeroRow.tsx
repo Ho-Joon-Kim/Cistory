@@ -65,13 +65,14 @@ function Cmp({ lead, sub }: { lead?: ReactNode; sub?: ReactNode }) {
   return (
     <p className="m-0 text-sm leading-[22px] text-ink">
       {lead}
-      {lead && sub ? " " : null}
       {sub ? (
         // The comparison wraps as a unit ("중앙값 68보다 3 낮음"), never leaving
-        // an orphaned "낮음" on the second line of a narrow column.
-        <span className="whitespace-nowrap text-ink-2">
-          {lead ? "· " : null}
-          {sub}
+        // an orphaned "낮음" on the second line of a narrow column. The "·" is
+        // glued (nbsp) to the end of the lead, so a wrapped line never starts
+        // with a dangling separator.
+        <span className="text-ink-2">
+          {lead ? "\u00a0· " : null}
+          <span className="whitespace-nowrap">{sub}</span>
         </span>
       ) : null}
     </p>

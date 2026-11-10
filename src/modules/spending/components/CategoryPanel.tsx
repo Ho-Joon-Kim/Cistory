@@ -24,8 +24,10 @@ const MIN_BAR_SHARE = 0.12;
 
 /**
  * A category row as in the mock's `.crow`: amount is the primary figure (ink,
- * medium), the share is secondary (12px --ink3). The share bar lives in the
- * label column so it never runs under the amount.
+ * medium), the share is secondary (12px --ink3). The share bar is the mock's
+ * full-row track (`.crow .bg`, inset 0), running under the amount too. A bar
+ * whose value exceeds the scale (`capped`) fades out at its end instead of
+ * stopping square, so a capped 의료·건강 never reads as smaller than 식비.
  */
 function CategoryRow({
   label,
@@ -34,6 +36,7 @@ function CategoryRow({
   value,
   pct,
   share,
+  capped,
   color,
   evidence,
   compact,
@@ -44,41 +47,40 @@ function CategoryRow({
   value: string;
   pct?: string;
   share: number;
+  capped?: boolean;
   color?: string;
   evidence?: "on" | "dim";
   compact?: boolean;
 }) {
+  const fill = color ? `color-mix(in oklab, ${color} 11%, transparent)` : "var(--track)";
   return (
     <div
       data-evidence={evidence}
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3",
+        "relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5",
         compact ? "h-8 text-[13px]" : "h-9 text-sm"
       )}
     >
-      <span className="relative flex h-full min-w-0 items-center px-2.5">
-        {share >= MIN_BAR_SHARE ? (
-          <span
-            aria-hidden="true"
-            className="ds-growx absolute inset-y-1 left-0 rounded-[6px]"
-            style={{
-              width: `${Math.min(1, share) * 100}%`,
-              background: color ? `color-mix(in oklab, ${color} 11%, transparent)` : "var(--track)",
-            }}
-          />
-        ) : null}
+      {share >= MIN_BAR_SHARE ? (
         <span
-          className={cn(
-            "relative flex min-w-0 items-center gap-2 text-ink",
-            !compact && "font-medium"
-          )}
-        >
+          aria-hidden="true"
+          className="ds-growx absolute inset-y-0 left-0 rounded-[6px]"
+          style={{
+            width: `${Math.min(1, share) * 100}%`,
+            background: capped
+              ? `linear-gradient(to right, ${fill} 0, ${fill} calc(100% - 56px), transparent)`
+              : fill,
+          }}
+        />
+      ) : null}
+      <span className="relative flex min-w-0 items-center">
+        <span className={cn("flex min-w-0 items-center gap-2 text-ink", !compact && "font-medium")}>
           {leading}
           <span className="truncate">{label}</span>
           {count ? <span className="num text-xs font-normal text-ink-3">{count}</span> : null}
         </span>
       </span>
-      <span className="flex shrink-0 items-baseline gap-2.5 pr-1">
+      <span className="relative flex shrink-0 items-baseline gap-2.5">
         <span className={cn("num text-ink", !compact && "font-medium")}>{value}</span>
         <span className="num w-[38px] text-right text-xs text-ink-3">{pct ?? ""}</span>
       </span>
@@ -111,7 +113,7 @@ export function CategoryPanel({
   // so 쇼핑 is the same width in the top three and in the full list. 의료·건강 can
   // exceed it and is capped at full width.
   const barTop = everyday.rows[0]?.value ?? 0;
-  const barShare = (value: number) => (barTop > 0 ? Math.min(1, value / barTop) : 0);
+  const barShare = (value: number) => (barTop > 0 ? value / barTop : 0);
   const meta = [
     month.isCurrent ? `${today}일째` : null,
     `${SPLIT_LABEL} 제외 ${formatWon(everyday.base)}`,
@@ -177,6 +179,7 @@ export function CategoryPanel({
                           : formatCategoryShare(row.value / everyday.base)
                       }
                       share={barShare(row.value)}
+                      capped={barShare(row.value) > 1}
                       color={split ? categoryColor("health") : undefined}
                     />
                   );

@@ -122,8 +122,10 @@ export function rhrFact(view: RhrView | null): Fact | null {
     rows: [
       { label: "안정시 심박", value: `${md(view.latestDay)} · ${view.latest}bpm` },
       {
-        label: "시작점",
-        value: `${md(view.days[view.runStart])} · ${view.runFrom}bpm${view.runFrom === view.max ? " (30일 최고와 같음)" : ""}`,
+        // The "same as the 30-day high" note lives in the label so this value has
+        // the same shape (date · bpm) as the row above and shares its face.
+        label: view.runFrom === view.max ? "시작점 · 30일 최고" : "시작점",
+        value: `${md(view.days[view.runStart])} · ${view.runFrom}bpm`,
       },
       {
         label: "구간",
@@ -238,6 +240,8 @@ const isWeekend = (iso: string) => {
   return w === 0 || w === 6;
 };
 
+const WORKOUT_TIME_ROWS = 5;
+
 /** Workouts: one kind that repeats only on weekdays inside a tight time band. */
 export function workoutFact(workouts: readonly HealthWorkout[]): Fact | null {
   const by = new Map<string, HealthWorkout[]>();
@@ -276,15 +280,14 @@ export function workoutFact(workouts: readonly HealthWorkout[]): Fact | null {
     },
     rows: [
       { label: name, value: `${list.length}회 · ${minutes}분` },
-      {
-        label: "시각",
-        value: list
-          .map(
-            (w) =>
-              `${formatMonthDay(toKstCalendarDate(new Date(w.start)))} ${formatTime(new Date(w.start))}`
-          )
-          .join(", "),
-      },
+      // One time per row: a comma-joined list wrapped mid-entry ("11월 / 6일 16:51").
+      ...list.slice(0, WORKOUT_TIME_ROWS).map((w, i) => ({
+        label: i === 0 ? "시각" : "",
+        value: `${formatMonthDay(toKstCalendarDate(new Date(w.start)))} ${formatTime(new Date(w.start))}`,
+      })),
+      ...(list.length > WORKOUT_TIME_ROWS
+        ? [{ label: "", value: `외 ${list.length - WORKOUT_TIME_ROWS}회` }]
+        : []),
       { label: "출처", value: "Fitbit 운동 기록" },
     ],
   };
