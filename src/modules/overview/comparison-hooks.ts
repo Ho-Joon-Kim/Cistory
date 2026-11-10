@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { loadStoredOverviewComparison } from "./comparison";
+import { overviewErrorMessage } from "./hooks";
 import type { OverviewSnapshotResponse } from "./service";
 
 export function useStoredOverviewComparison(year1: string, year2: string, enabled: boolean) {
@@ -22,7 +23,7 @@ export function useStoredOverviewComparison(year1: string, year2: string, enable
       .then((result) => setSnapshots(result))
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : "연간 비교를 불러오지 못했습니다.");
+          setError(overviewErrorMessage(cause, "연간 비교를 불러오지 못했어요."));
         }
       })
       .finally(() => {

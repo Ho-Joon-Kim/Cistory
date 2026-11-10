@@ -231,19 +231,22 @@ export function DayView({
     );
   const metaLine =
     meta.length > 0 ? (
-      <p className="m-0 flex min-w-0 flex-wrap text-[13px] leading-5 text-ink-2">
+      // Each item carries its "·" in a ::before inside its own left padding; the
+      // item that starts a line has that dot pushed into the negative margin the
+      // overflow-hidden wrapper clips, so a wrap never leads with "·" (DotList pattern).
+      <p className="m-0 min-w-0 overflow-hidden text-[13px] leading-5 text-ink-2">
         <span className="sr-only">하루 요약: </span>
-        {meta.map((m, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: positional meta items
-          <span key={i} className="whitespace-nowrap">
-            {i > 0 ? (
-              <span aria-hidden="true" className="mx-[7px] text-ink-3">
-                ·
-              </span>
-            ) : null}
-            {m}
-          </span>
-        ))}
+        <span className="-ml-[18px] flex flex-wrap">
+          {meta.map((m, i) => (
+            <span
+              // biome-ignore lint/suspicious/noArrayIndexKey: positional meta items
+              key={i}
+              className="relative whitespace-nowrap pl-[18px] before:absolute before:left-[7px] before:text-ink-3 before:content-['·']"
+            >
+              {m}
+            </span>
+          ))}
+        </span>
       </p>
     ) : null;
 

@@ -21,6 +21,7 @@ import { Slider } from "@/components/ui/slider";
 import { MAPBOX_PRIVACY_OPTIONS } from "@/lib/mapbox-options";
 import type { SavedPlaceData } from "../hooks";
 import { createGeoCircle } from "../utils";
+import { markerA11yRef } from "./marker-a11y";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -234,7 +235,14 @@ function DialogMiniMap({
         <Layer {...RADIUS_FILL_LAYER} />
         <Layer {...RADIUS_OUTLINE_LAYER} />
       </Source>
-      <Marker longitude={lon} latitude={lat} anchor="bottom" draggable onDragEnd={handleDragEnd}>
+      <Marker
+        ref={pinA11y}
+        longitude={lon}
+        latitude={lat}
+        anchor="bottom"
+        draggable
+        onDragEnd={handleDragEnd}
+      >
         <div className="dialog-map-pin">
           <MapPin className="h-6 w-6" />
         </div>
@@ -242,6 +250,8 @@ function DialogMiniMap({
     </MapGL>
   );
 }
+
+const pinA11y = markerA11yRef("선택한 위치 (끌어서 옮길 수 있어요)");
 
 // --- Main Dialog ---
 
