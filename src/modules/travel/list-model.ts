@@ -132,12 +132,12 @@ export function km(meters: number | null): number | null {
   return meters == null ? null : meters / 1000;
 }
 
-/** `3,338 km`, `0.3 km`, or `–` when the trip has no distance. */
+/** `3,338km`, `0.3km`, or `–` when the trip has no distance. */
 export function formatKm(meters: number | null): string {
   const value = km(meters);
   if (value == null) return "–";
-  if (value < 10) return `${(Math.round(value * 10) / 10).toLocaleString("ko-KR")} km`;
-  return `${formatCount(value)} km`;
+  if (value < 10) return `${(Math.round(value * 10) / 10).toLocaleString("ko-KR")}km`;
+  return `${formatCount(value)}km`;
 }
 
 // ── recurring destinations ──────────────────────────────────────────────────
@@ -472,7 +472,7 @@ export function pickHighlights(summary: TravelListSummary): Highlight[] {
           ? insight(
               `travel.highlight.farthest.${farthest.id}`,
               share,
-              `올해 여행 이동 거리 ${formatCount(totalMeters / 1000)} km 중 {fact}가 이 ${days}일${visitClause}`,
+              `올해 여행 이동 거리 ${formatCount(totalMeters / 1000)}km 중 {fact}가 이 ${days}일${visitClause}`,
               formatShare(share),
               [
                 {

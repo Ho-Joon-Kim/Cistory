@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     try {
       body = (await request.json()) as Record<string, unknown>;
     } catch {
-      return NextResponse.json({ error: "유효하지 않은 JSON 본문입니다" }, { status: 400 });
+      return NextResponse.json({ error: "유효하지 않은 JSON 본문이에요" }, { status: 400 });
     }
     const { from, to, confirm } = body;
 
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
         !body.trips.every(isValidDetectedTrip) ||
         typeof body.exclusionRevision !== "string"
       ) {
-        return NextResponse.json({ error: "유효한 여행 후보가 필요합니다" }, { status: 400 });
+        return NextResponse.json({ error: "유효한 여행 후보가 필요해요" }, { status: 400 });
       }
       const count = await persistTrips(
         user.id,
@@ -47,14 +47,14 @@ export async function POST(request: NextRequest) {
         body.exclusionRevision
       );
       return NextResponse.json({
-        message: `여행 ${count}건이 저장되었습니다.`,
+        message: `여행 ${count}건이 저장됐어요.`,
         saved: count,
       });
     }
 
     if (typeof from !== "string" || typeof to !== "string" || !isValidTripDateRange(from, to)) {
       return NextResponse.json(
-        { error: "유효한 from, to 날짜가 필요합니다 (YYYY-MM-DD)" },
+        { error: "유효한 from, to 날짜가 필요해요 (YYYY-MM-DD)" },
         { status: 400 }
       );
     }
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { error: "여행을 감지하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { error: "여행을 감지하지 못했어요. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
     );
   }

@@ -46,7 +46,7 @@ export const PATCH = withValidation<typeof PatchBody, RouteParams>(
       .returning({ id: brokerageAccounts.id });
 
     if (result.length === 0) {
-      throw new ApiError(404, "계좌를 찾을 수 없습니다", "NOT_FOUND");
+      throw new ApiError(404, "계좌를 찾을 수 없어요", "NOT_FOUND");
     }
 
     return NextResponse.json({ ok: true });
@@ -63,7 +63,7 @@ export const DELETE = withAuth<RouteParams>(async ({ user }, { params }) => {
     .returning({ id: brokerageAccounts.id });
 
   if (result.length === 0) {
-    throw new ApiError(404, "계좌를 찾을 수 없습니다", "NOT_FOUND");
+    throw new ApiError(404, "계좌를 찾을 수 없어요", "NOT_FOUND");
   }
 
   return NextResponse.json({ ok: true });

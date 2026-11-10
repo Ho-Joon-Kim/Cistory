@@ -122,7 +122,7 @@ export function AssetTimelineChart() {
           <div className="text-sm text-muted-foreground py-12 text-center">불러오는 중…</div>
         ) : data.length === 0 ? (
           <div className="text-sm text-muted-foreground py-12 text-center">
-            스냅샷 데이터가 아직 없습니다
+            스냅샷 데이터가 아직 없어요
           </div>
         ) : (
           <ChartContainer config={{}} className="h-[200px] md:h-[260px] w-full">

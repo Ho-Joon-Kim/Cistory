@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   EmptyState,
@@ -325,33 +325,35 @@ function PortfolioContent() {
             title="포트폴리오"
             meta={
               <MetaLine
-                items={[
-                  accountCount > 0 ? (
-                    <span key="count">
-                      <span className="hidden lg:inline">한국투자증권 </span>계좌 {accountCount}개
-                    </span>
-                  ) : null,
-                  model?.syncedAt ? (
-                    // One sync time only (the header carries the app-wide sync age):
-                    // "16:00 기준" today, the date too when it's older.
-                    <span
-                      key="at"
-                      className="whitespace-nowrap"
-                      title={`KIS 동기화 ${formatDateTime(model.syncedAt)}`}
-                    >
-                      <span className="num">
-                        {toKstCalendarDate(model.syncedAt) === toKstCalendarDate(new Date())
-                          ? formatTime(model.syncedAt)
-                          : formatDateTime(model.syncedAt)}
-                      </span>{" "}
-                      기준
-                    </span>
-                  ) : null,
-                  syncErrors.length > 0 ? (
-                    <span key="err" className="text-warn">
-                      {syncErrors.map((a) => a.label).join("·")} 동기화 실패
-                    </span>
-                  ) : null,
+                items={withTrailingAction(
+                  [
+                    accountCount > 0 ? (
+                      <span key="count">
+                        <span className="hidden lg:inline">한국투자증권 </span>계좌 {accountCount}개
+                      </span>
+                    ) : null,
+                    model?.syncedAt ? (
+                      // One sync time only (the header carries the app-wide sync age):
+                      // "16:00 기준" today, the date too when it's older.
+                      <span
+                        key="at"
+                        className="whitespace-nowrap"
+                        title={`KIS 동기화 ${formatDateTime(model.syncedAt)}`}
+                      >
+                        <span className="tabular-nums">
+                          {toKstCalendarDate(model.syncedAt) === toKstCalendarDate(new Date())
+                            ? formatTime(model.syncedAt)
+                            : formatDateTime(model.syncedAt)}
+                        </span>{" "}
+                        기준
+                      </span>
+                    ) : null,
+                    syncErrors.length > 0 ? (
+                      <span key="err" className="text-warn">
+                        {syncErrors.map((a) => a.label).join("·")} 동기화 실패
+                      </span>
+                    ) : null,
+                  ],
                   accountCount > 0 ? (
                     <button
                       key="sync"
@@ -362,8 +364,8 @@ function PortfolioContent() {
                     >
                       {syncing ? "동기화 중…" : "지금 동기화"}
                     </button>
-                  ) : null,
-                ]}
+                  ) : null
+                )}
               />
             }
           />
@@ -473,6 +475,26 @@ function PortfolioContent() {
       </div>
     </SyncStatusProvider>
   );
+}
+
+/**
+ * Glues a trailing action ("지금 동기화") to the item before it, so a narrow
+ * meta line wraps before the "·" instead of ending on a dangling one.
+ */
+function withTrailingAction(items: ReactNode[], action: ReactNode): ReactNode[] {
+  const shown = items.filter(Boolean);
+  if (!action) return shown;
+  const last = shown.pop();
+  if (last === undefined) return [action];
+  return [
+    ...shown,
+    <span key="tail">
+      {last}{" "}
+      <span className="whitespace-nowrap">
+        <span aria-hidden="true">·</span> {action}
+      </span>
+    </span>,
+  ];
 }
 
 export default function PortfolioPage() {

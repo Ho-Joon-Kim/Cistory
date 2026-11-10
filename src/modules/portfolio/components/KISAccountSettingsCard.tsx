@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { LoadingState } from "@/components/ds";
 import { Button } from "@/components/ui/button";
+import { userErrorMessage } from "@/lib/user-error";
 import {
   PanelActions,
   PanelBox,
@@ -36,19 +37,17 @@ export function KISAccountSettingsCard() {
     const r = await syncAccount(a.id);
     setBusyId(null);
     if (r.ok) {
-      toast.success(`${a.label} 계좌가 동기화되었습니다.`);
+      toast.success(`${a.label} 계좌가 동기화됐어요.`);
       refresh();
     } else {
-      toast.error(
-        r.error ?? `${a.label} 계좌를 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요.`
-      );
+      toast.error(r.error ?? `${a.label} 계좌를 동기화하지 못했어요. 잠시 후 다시 시도해 주세요.`);
     }
   };
 
   const handleDelete = async (a: AccountListItem) => {
     if (
       !confirm(
-        `${a.label} 계좌를 삭제할까요? 저장된 보유 종목·체결 내역·손익 기록이 함께 삭제되며 되돌릴 수 없습니다.`
+        `${a.label} 계좌를 삭제할까요? 저장된 보유 종목·체결 내역·손익 기록이 함께 삭제되며 되돌릴 수 없어요.`
       )
     ) {
       return;
@@ -57,10 +56,10 @@ export function KISAccountSettingsCard() {
     const ok = await deleteAccount(a.id);
     setBusyId(null);
     if (ok) {
-      toast.success("계좌가 삭제되었습니다.");
+      toast.success("계좌가 삭제됐어요.");
       refresh();
     } else {
-      toast.error("계좌를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("계좌를 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -96,13 +95,13 @@ export function KISAccountSettingsCard() {
                     · {a.lastSyncedAt ? `${formatRelative(a.lastSyncedAt)} 동기화` : "동기화 전"}
                   </span>
                   {a.lastSyncError ? (
-                    <span className="mt-0.5 flex items-start gap-1.5 text-xs leading-4 text-gain">
+                    <span className="mt-0.5 flex items-start gap-1.5 text-xs leading-4 text-danger">
                       <span
                         aria-hidden="true"
-                        className="mt-[5px] size-1.5 flex-none rounded-full bg-gain"
+                        className="mt-[5px] size-1.5 flex-none rounded-full bg-danger"
                       />
                       <span className="[overflow-wrap:anywhere]">
-                        동기화 실패 · {a.lastSyncError}
+                        동기화 실패 · {userErrorMessage(a.lastSyncError)}
                       </span>
                     </span>
                   ) : null}

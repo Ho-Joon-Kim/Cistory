@@ -72,9 +72,9 @@ function maskAppKey(enc: string): string {
 }
 
 function friendlyAuthMessage(code: string, fallback: string): string {
-  if (code === "OPSQ2000") return "이 키는 입력한 계좌와 매칭되지 않습니다";
-  if (code === "APBK1271") return "계좌번호 또는 상품코드가 올바르지 않습니다";
-  if (code === "APAC0489") return "이 계좌 유형은 일반 잔고조회를 지원하지 않습니다";
+  if (code === "OPSQ2000") return "이 키는 입력한 계좌와 매칭되지 않아요";
+  if (code === "APBK1271") return "계좌번호 또는 상품코드가 올바르지 않아요";
+  if (code === "APAC0489") return "이 계좌 유형은 일반 잔고조회를 지원하지 않아요";
   return fallback;
 }
 
@@ -94,11 +94,11 @@ async function verifyKisCredentials(
     expiresAt = t.expiresAt;
   } catch (err) {
     if (err instanceof KISAuthError) {
-      throw new ApiError(401, `KIS 키를 확인하지 못했습니다: ${err.message}`, err.code);
+      throw new ApiError(401, `KIS 키를 확인하지 못했어요: ${err.message}`, err.code);
     }
     throw new ApiError(
       500,
-      "KIS 접근 토큰을 발급받지 못했습니다. 앱 키와 시크릿을 확인해 주세요.",
+      "KIS 접근 토큰을 발급받지 못했어요. 앱 키와 시크릿을 확인해 주세요.",
       "TOKEN_FAILED"
     );
   }
@@ -111,7 +111,7 @@ async function verifyKisCredentials(
     }
     throw new ApiError(
       500,
-      "잔고를 조회하지 못해 계좌를 확인할 수 없습니다. 계좌번호와 상품코드를 확인해 주세요.",
+      "잔고를 조회하지 못해 계좌를 확인할 수 없어요. 계좌번호와 상품코드를 확인해 주세요.",
       "VERIFY_FAILED"
     );
   }
@@ -134,7 +134,7 @@ export const POST = withValidation(CreateBody, async ({ user, body }) => {
     )
     .limit(1);
   if (existing.length > 0) {
-    throw new ApiError(409, "이미 등록된 계좌입니다.", "DUPLICATE_ACCOUNT");
+    throw new ApiError(409, "이미 등록된 계좌예요.", "DUPLICATE_ACCOUNT");
   }
 
   const { accessToken, expiresAt } = await verifyKisCredentials(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { userErrorMessage } from "@/lib/user-error";
 
 export interface AccountListItem {
   id: string;
@@ -88,7 +89,7 @@ export function useAccounts() {
       const data = await res.json();
       setAccounts(data.accounts ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userErrorMessage(e));
     } finally {
       setIsLoading(false);
     }
@@ -115,7 +116,7 @@ export function usePortfolioSummary() {
       const data = (await res.json()) as PortfolioSummary;
       setSummary(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userErrorMessage(e));
     } finally {
       setIsLoading(false);
     }
@@ -284,7 +285,7 @@ export function useTargetAllocations(accountId: string | null) {
       setTargets(data.targets ?? []);
       setUpdatedAt(data.updatedAt ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userErrorMessage(e));
     } finally {
       setIsLoading(false);
     }
@@ -351,7 +352,7 @@ export function useReturns(params: { accountId?: string; from?: string; to?: str
     setError(null);
     fetch(url.toString(), { signal: ctrl.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("수익률을 불러오지 못했습니다");
+        if (!response.ok) throw new Error("수익률을 불러오지 못했어요");
         return response.json();
       })
       .then((result) => {
@@ -359,7 +360,7 @@ export function useReturns(params: { accountId?: string; from?: string; to?: str
       })
       .catch(() => {
         if (!ctrl.signal.aborted)
-          setError("수익률을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+          setError("수익률을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
       })
       .finally(() => {
         if (!ctrl.signal.aborted) setIsLoading(false);

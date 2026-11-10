@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { userErrorMessage } from "@/lib/user-error";
 
 export interface TravelTripListItem {
   id: string;
@@ -289,7 +290,7 @@ function isHealthSummary(value: unknown): boolean {
 
 export function parseTravelDetail(value: unknown): TravelTripDetail {
   if (!isRecord(value) || !isTravelTrip(value.trip)) {
-    throw new Error("여행 상세 응답 형식이 올바르지 않습니다");
+    throw new Error("여행 상세 응답 형식이 올바르지 않아요");
   }
   const { spending, transport, routine } = value;
   if (
@@ -318,7 +319,7 @@ export function parseTravelDetail(value: unknown): TravelTripDetail {
       isDateKey(value.spendingSince)
     )
   ) {
-    throw new Error("여행 상세 응답 형식이 올바르지 않습니다");
+    throw new Error("여행 상세 응답 형식이 올바르지 않아요");
   }
   const detail = value as unknown as TravelTripDetail;
   return {
@@ -348,7 +349,7 @@ export function parseTravelRoute(value: unknown): TravelRoute {
     !isFiniteNumber(value.rawSampledCount) ||
     !isFiniteNumber(value.maxPoints)
   ) {
-    throw new Error("여행 경로 응답 형식이 올바르지 않습니다");
+    throw new Error("여행 경로 응답 형식이 올바르지 않아요");
   }
   return value as unknown as TravelRoute;
 }
@@ -360,7 +361,7 @@ export function parseTravelTripsPage(value: unknown): TravelTripsPage {
     !value.trips.every(isTravelTripListItem) ||
     !(value.nextCursor === null || typeof value.nextCursor === "string")
   ) {
-    throw new Error("여행 목록 응답 형식이 올바르지 않습니다");
+    throw new Error("여행 목록 응답 형식이 올바르지 않아요");
   }
   const page: TravelTripsPage = {
     trips: value.trips.map(withListDefaults),
@@ -375,7 +376,7 @@ export function parseTravelTripsPage(value: unknown): TravelTripsPage {
       !summary.trips.every(isTravelTripListItem) ||
       !(summary.spendingSince === null || isDateKey(summary.spendingSince))
     ) {
-      throw new Error("여행 목록 응답 형식이 올바르지 않습니다");
+      throw new Error("여행 목록 응답 형식이 올바르지 않아요");
     }
     page.summary = {
       year: summary.year as number,
@@ -432,7 +433,7 @@ export async function requestMarkNotTrip(
   throw new Error(
     typeof body?.error === "string"
       ? body.error
-      : "여행에서 제외하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      : "여행에서 제외하지 못했어요. 잠시 후 다시 시도해 주세요."
   );
 }
 
@@ -449,7 +450,7 @@ export async function requestRenameTrip(tripId: string, name: string): Promise<v
   if (response.ok) return;
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
   throw new Error(
-    typeof body?.error === "string" ? body.error : "이름을 바꾸지 못했습니다. 다시 시도해 주세요."
+    typeof body?.error === "string" ? body.error : "이름을 바꾸지 못했어요. 다시 시도해 주세요."
   );
 }
 
@@ -470,7 +471,7 @@ async function requestTravelTripsPage(
   if (cursor) params.set("cursor", cursor);
   else params.set("summary", "1");
   const response = await fetch(`/api/trips?${params.toString()}`, { signal });
-  if (!response.ok) throw new Error("여행 목록을 불러오지 못했습니다");
+  if (!response.ok) throw new Error("여행 목록을 불러오지 못했어요");
   return parseTravelTripsPage(await response.json());
 }
 
@@ -523,7 +524,7 @@ export async function requestCurrentTravelTripsPage(
 }
 
 function fetchErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "여행 목록을 불러오지 못했습니다";
+  return userErrorMessage(error, "여행 목록을 불러오지 못했어요.");
 }
 
 class TravelDetailRequestError extends Error {
@@ -539,7 +540,7 @@ class TravelDetailRequestError extends Error {
 async function assertDetailResponse(response: Response, fallbackMessage: string): Promise<void> {
   if (response.ok) return;
   if (response.status === 404) {
-    throw new TravelDetailRequestError("여행을 찾을 수 없습니다", 404);
+    throw new TravelDetailRequestError("여행을 찾을 수 없어요", 404);
   }
   throw new TravelDetailRequestError(fallbackMessage, response.status);
 }
@@ -553,8 +554,8 @@ export async function requestTravelDetail(
     fetch(`/api/trips/${encodedTripId}`, { signal }),
     fetch(`/api/trips/${encodedTripId}/route-points`, { signal }),
   ]);
-  await assertDetailResponse(detailResponse, "여행 상세를 불러오지 못했습니다");
-  await assertDetailResponse(routeResponse, "여행 경로를 불러오지 못했습니다");
+  await assertDetailResponse(detailResponse, "여행 상세를 불러오지 못했어요");
+  await assertDetailResponse(routeResponse, "여행 경로를 불러오지 못했어요");
   const [detailValue, routeValue] = await Promise.all([
     detailResponse.json(),
     routeResponse.json(),
@@ -650,9 +651,7 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
         return true;
       } catch (requestError) {
         setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "여행에서 제외하지 못했습니다. 잠시 후 다시 시도해 주세요."
+          userErrorMessage(requestError, "여행에서 제외하지 못했어요. 잠시 후 다시 시도해 주세요.")
         );
         return false;
       } finally {
@@ -721,7 +720,7 @@ export function useTravelTrips(enabled = true): UseTravelTripsReturn {
       );
       return true;
     } catch (renameError) {
-      setError(renameError instanceof Error ? renameError.message : "이름을 바꾸지 못했습니다.");
+      setError(userErrorMessage(renameError, "이름을 바꾸지 못했어요."));
       return false;
     }
   }, []);
@@ -791,9 +790,7 @@ export function useTravelDetail(tripId: string, enabled = true): UseTravelDetail
         }
         const missing = loadError instanceof TravelDetailRequestError && loadError.status === 404;
         setNotFound(missing);
-        setError(
-          loadError instanceof Error ? loadError.message : "여행 상세를 불러오지 못했습니다"
-        );
+        setError(userErrorMessage(loadError, "여행을 불러오지 못했어요."));
         setDetail(null);
         setRoute(null);
       })

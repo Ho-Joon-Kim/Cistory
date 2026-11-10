@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Sheet } from "@/components/ds";
 import { cn } from "@/lib/utils";
@@ -68,7 +68,7 @@ export function TargetAllocationEditor({
 
   const fillFromCurrent = () => {
     if (currentPositions.length === 0) {
-      toast.error("이 계좌에 보유 종목이 없습니다. 종목 추가로 직접 입력해 주세요.");
+      toast.error("이 계좌에 보유 종목이 없어요. 종목 추가로 직접 입력해 주세요.");
       return;
     }
     setRows(
@@ -84,8 +84,12 @@ export function TargetAllocationEditor({
     );
   };
 
+  // The row just added by 종목 추가: its 티커 field takes focus once it mounts.
+  const focusRowId = useRef<string | null>(null);
   const addRow = () => {
-    setRows((prev) => [...prev, { id: nextId(), ticker: "", name: "", weightPct: "0" }]);
+    const id = nextId();
+    focusRowId.current = id;
+    setRows((prev) => [...prev, { id, ticker: "", name: "", weightPct: "0" }]);
   };
 
   const updateRow = (id: string, patch: Partial<Omit<RowDraft, "id">>) => {
@@ -100,12 +104,12 @@ export function TargetAllocationEditor({
     if (!valid) return;
     const tickers = rows.map((r) => r.ticker.trim());
     if (tickers.some((t) => !t)) {
-      toast.error("비어 있는 티커가 있습니다. 모든 종목의 티커를 입력해 주세요.");
+      toast.error("비어 있는 티커가 있어요. 모든 종목의 티커를 입력해 주세요.");
       return;
     }
     const duplicate = tickers.find((t, i) => tickers.indexOf(t) !== i);
     if (duplicate) {
-      toast.error(`티커 ${duplicate}이(가) 두 번 입력되었습니다. 한 줄을 지워 주세요.`);
+      toast.error(`티커 ${duplicate}이(가) 두 번 입력됐어요. 한 줄을 지워 주세요.`);
       return;
     }
 
@@ -119,11 +123,11 @@ export function TargetAllocationEditor({
     try {
       const res = await saveTargetAllocations(account.id, targets);
       if (res.ok) {
-        toast.success("목표 비중이 저장되었습니다.");
+        toast.success("목표 비중이 저장됐어요.");
         onSaved();
         onOpenChange(false);
       } else {
-        toast.error(res.error ?? "목표 비중을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        toast.error(res.error ?? "목표 비중을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
       setSaving(false);
@@ -175,6 +179,12 @@ export function TargetAllocationEditor({
               className="grid grid-cols-[minmax(0,1fr)_104px_44px] items-center gap-x-2 gap-y-2 border-b border-line py-3 sm:grid-cols-[104px_minmax(0,1fr)_96px_36px] sm:gap-x-3 sm:py-2"
             >
               <input
+                ref={(el) => {
+                  if (el && focusRowId.current === r.id) {
+                    focusRowId.current = null;
+                    el.focus();
+                  }
+                }}
                 value={r.ticker}
                 onChange={(e) => updateRow(r.id, { ticker: e.target.value.toUpperCase() })}
                 placeholder="티커"

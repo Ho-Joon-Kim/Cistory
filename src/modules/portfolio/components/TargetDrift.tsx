@@ -96,13 +96,23 @@ export function TargetDrift({
 }) {
   const { stateOf } = useEvidence();
   const scale = driftScale(rows);
-  const amountText = (r: DriftRow) =>
-    `${formatWon(r.amount)} ${r.over ? "초과" : "모자람"}${r.shares > 0 ? ` · ${r.shares}주` : ""}`;
+  // "…원 모자람 · 78주": mono on the quantities only; the word stays in the sans face.
+  const amountText = (r: DriftRow) => (
+    <>
+      <span className="num">{formatWon(r.amount)}</span> {r.over ? "초과" : "모자람"}
+      {r.shares > 0 ? (
+        <>
+          {" "}
+          · <span className="num">{r.shares}주</span>
+        </>
+      ) : null}
+    </>
+  );
   const meta = (
     <>
       {setAt ? (
         <>
-          <span className="num">{setAt}</span> 설정 ·{" "}
+          <span className="tabular-nums">{setAt}</span> 설정 ·{" "}
         </>
       ) : null}
       주식 평가금액 <span className="num">{formatWon(base)}</span> 기준
@@ -157,10 +167,11 @@ export function TargetDrift({
                   <Bar row={r} scale={scale} delay={100 + i * 40} />
                 </div>
                 <div className="mt-2 flex justify-between gap-3 text-xs text-ink-2">
-                  <span className="num">
-                    {pct(r.current, 2)} / 목표 {pct(r.target, 0)}
+                  <span className="tabular-nums">
+                    <span className="num">{pct(r.current, 2)}</span> / 목표{" "}
+                    <span className="num">{pct(r.target, 0)}</span>
                   </span>
-                  <span className="num">{amountText(r)}</span>
+                  <span className="tabular-nums">{amountText(r)}</span>
                 </div>
               </div>
             );
@@ -212,7 +223,9 @@ export function TargetDrift({
                 >
                   {pp(r.diff)}
                 </span>
-                <span className="num text-right text-[13px] text-ink-2">{amountText(r)}</span>
+                <span className="text-right text-[13px] text-ink-2 tabular-nums">
+                  {amountText(r)}
+                </span>
               </div>
             );
           })}

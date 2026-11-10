@@ -102,8 +102,8 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
                   {g.rows.length}종목
                 </span>
               </span>
-              <span className="num text-xs text-ink-2 lg:ml-auto lg:text-[13px]">
-                주식 {formatWon(g.securities)}
+              <span className="text-xs text-ink-2 lg:ml-auto lg:text-[13px]">
+                주식 <span className="num">{formatWon(g.securities)}</span>
               </span>
             </div>
 
@@ -149,8 +149,9 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
                         {r.ticker}
                       </span>
                       <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-4 text-ink-3 lg:hidden">
-                        <span className="num whitespace-nowrap">
-                          {formatCount(r.quantity)}주 · 비중 {pctOne(r.weight)}
+                        <span className="whitespace-nowrap">
+                          <span className="num">{formatCount(r.quantity)}주</span> · 비중{" "}
+                          <span className="num">{pctOne(r.weight)}</span>
                         </span>
                         {r.flag ? <Flag>{r.flag}</Flag> : null}
                       </span>
@@ -231,15 +232,14 @@ export function HoldingsByAccount({ groups, fact }: { groups: HoldingGroup[]; fa
                       {r.target !== null ? (
                         <span>
                           <span className="text-ink-3">{g.label} 목표 비중 </span>
-                          <span className="num">
-                            {pctOne(r.target)} · 현재 {pctTwo(r.weight)}
-                          </span>
+                          <span className="num">{pctOne(r.target)}</span> · 현재{" "}
+                          <span className="num">{pctTwo(r.weight)}</span>
                         </span>
                       ) : null}
                       {r.fills.length > 0 ? (
                         <span className="truncate lg:whitespace-normal">
                           <span className="text-ink-3">최근 체결 </span>
-                          <span className="num">{r.fills.join("  ·  ")}</span>
+                          <span className="tabular-nums">{r.fills.join("  ·  ")}</span>
                         </span>
                       ) : null}
                     </div>

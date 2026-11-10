@@ -13,14 +13,14 @@ const SAVED_PLACE_PIN_RADIUS_M = 100;
 
 export class TripNotFoundError extends Error {
   constructor() {
-    super("여행을 찾을 수 없습니다");
+    super("여행을 찾을 수 없어요");
     this.name = "TripNotFoundError";
   }
 }
 
 export class TripHasNoVisitsError extends Error {
   constructor() {
-    super("여행 기간에 제외 장소를 만들 방문 기록이 없습니다");
+    super("여행 기간에 제외 장소를 만들 방문 기록이 없어요");
     this.name = "TripHasNoVisitsError";
   }
 }
@@ -200,7 +200,7 @@ export async function markTripNotATrip(
           })
           .returning();
       }
-      if (!place) throw new Error("여행 제외 장소를 저장하지 못했습니다");
+      if (!place) throw new Error("여행 제외 장소를 저장하지 못했어요");
 
       const [deleted] = await tx
         .delete(trips)
