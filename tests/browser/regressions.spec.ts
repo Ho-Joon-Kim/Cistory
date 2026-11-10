@@ -447,6 +447,7 @@ test("collection status retries errors and retains a queued recovery on reload",
           ["kis", "KIS 자산"],
           ["withings", "Withings 체성분"],
           ["health", "건강 · Google Health / Health Connect"],
+          ["proton", "Proton Drive 사진"],
         ].map(([id, label]) => ({
           id,
           label,
@@ -500,7 +501,7 @@ test("collection status retries errors and retains a queued recovery on reload",
   await page.getByRole("button", { name: "새로고침", exact: true }).click();
   const calendar = page.getByRole("list", { name: "WakaTime 날짜별 기록" });
   await expect(calendar.getByRole("listitem")).toHaveCount(30);
-  await expect(page.getByRole("list", { name: /날짜별 기록$/ })).toHaveCount(7);
+  await expect(page.getByRole("list", { name: /날짜별 기록$/ })).toHaveCount(8);
   await expect(calendar).toContainText("기록 없음");
   await expect(calendar).toContainText("재수집 완료 · 기록 없음");
   // The stale source leads the hero and owns the primary recovery action.
