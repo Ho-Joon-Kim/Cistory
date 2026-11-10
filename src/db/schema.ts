@@ -170,9 +170,7 @@ export const locationPoints = pgTable(
     uniqueIndex("idx_location_unique").on(table.userId, table.timestamp, table.lat, table.lon),
     // ~1.5% of points are anomalies; settings counts them per user on every load,
     // which was a full parallel seq scan of the table (~260 ms at 4M rows).
-    index("idx_location_points_anomaly")
-      .on(table.userId)
-      .where(sql`${table.anomaly} = true`),
+    index("idx_location_points_anomaly").on(table.userId).where(sql`${table.anomaly} = true`),
   ]
 );
 
