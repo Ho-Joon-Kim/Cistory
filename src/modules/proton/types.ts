@@ -17,6 +17,9 @@ export const PROTON_ERRORS = {
   disconnectFailed: "Proton 연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.",
   summaryFailed: "Proton 사진 연동 상태를 불러오지 못했습니다.",
   invalidOrigin: "허용되지 않은 요청입니다. 이 앱 화면에서 다시 시도해 주세요.",
+  detailsUndecryptable: "세부 정보를 복호화하지 못했습니다",
+  thumbnailMissing: "썸네일을 받지 못했습니다",
+  thumbnailUnclassifiable: "썸네일 형식을 분류할 수 없습니다",
 } as const;
 
 /** A photo whose details failed this many times stays hidden until rescreened. */
