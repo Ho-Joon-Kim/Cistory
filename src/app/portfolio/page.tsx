@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   EmptyState,
@@ -66,6 +66,18 @@ function PortfolioContent() {
   const { summary, isLoading, error, refresh } = usePortfolioSummary();
   const [syncing, setSyncing] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  /** The 목표 비중 수정 button that opened the editor: focus returns there on close. */
+  const editOpenerRef = useRef<HTMLElement | null>(null);
+  const closeEditor = () => {
+    setEditing(null);
+    // After the sheet unmounts (its own focus restore has run), put keyboard
+    // focus back on the opener instead of leaving it on <body>.
+    requestAnimationFrame(() => {
+      const el = editOpenerRef.current;
+      if (el?.isConnected) el.focus();
+      editOpenerRef.current = null;
+    });
+  };
 
   const snapshotParams = useMemo(
     () => ({ from: shiftDateKey(toKstCalendarDate(new Date()), -372) }),
@@ -417,7 +429,10 @@ function PortfolioContent() {
                     base={d.base}
                     setAt={d.setAt}
                     fact={d.fact}
-                    onEdit={() => setEditing(d.account.id)}
+                    onEdit={(opener) => {
+                      editOpenerRef.current = opener;
+                      setEditing(d.account.id);
+                    }}
                   />
                 </EvidenceScope>
               ))}
@@ -443,14 +458,14 @@ function PortfolioContent() {
             <TargetAllocationEditor
               open
               onOpenChange={(o) => {
-                if (!o) setEditing(null);
+                if (!o) closeEditor();
               }}
               account={editingAccount}
               currentPositions={view?.positionsBy.get(editingAccount.id) ?? NO_POSITIONS}
               initialTargets={targetsBy[editingAccount.id]?.targets ?? NO_TARGETS}
               onSaved={() => {
                 refreshTargets();
-                setEditing(null);
+                closeEditor();
               }}
             />
           ) : null}

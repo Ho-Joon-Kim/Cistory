@@ -26,7 +26,7 @@ import {
   labelWidth,
   placeAxisLabel,
   placeCallout,
-  polylineHitsBox,
+  placeLineLabel,
 } from "../chart-layout";
 import { chartFact, evidenceKey } from "../facts";
 import {
@@ -275,22 +275,17 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
     // An axis label a callout still covers gives way to the callout.
     for (const g of grid) g.show &&= !annBoxes.some((b) => boxesOverlap(b, g.box, 1));
 
-    // "매입금액" at the cost line's right end: below it, else above, then a
-    // step further out — clear of both lines, the callouts and the axis labels.
-    const invEnd = costPts[n - 1].y;
-    const invW = labelWidth("매입금액");
-    const invBox = (ly: number): Box => ({ x0: W - invW, x1: W, y0: ly - 12, y1: ly + 2 });
-    const invSpots = [16, -6, 30, -20, 44, -34]
-      .map((d) => invEnd + d)
-      .filter((ly) => ly - 12 >= 0 && ly + 2 < base);
-    const shownAxis = grid.filter((g) => g.show).map((g) => g.box);
-    const invFree = (ly: number) =>
-      ![...annBoxes, ...shownAxis].some((b) => boxesOverlap(b, invBox(ly), 1));
-    const invLabelY =
-      invSpots.find((ly) => invFree(ly) && !lines.some((l) => polylineHitsBox(l, invBox(ly), 1))) ??
-      invSpots.find(invFree) ??
-      null;
-    const invLabelShow = invLabelY !== null;
+    // "매입금액" names the dashed cost line (see placeLineLabel). Nothing
+    // qualifies → dropped; the legend below still names it.
+    const invLabel = placeLineLabel({
+      w: labelWidth("매입금액"),
+      width: W,
+      bottom: base,
+      own: costPts,
+      other: valuePts,
+      avoid: [...annBoxes, ...grid.filter((g) => g.show).map((g) => g.box)],
+    });
+    const invLabelShow = invLabel !== null;
 
     // X-axis: every day when they fit, else evenly spaced back from the latest.
     const xl = axisTickIndices(n, Math.max(2, Math.floor(W / (desktop ? 110 : 90)))).map((j) => {
@@ -321,7 +316,8 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
       xl,
       markers,
       base,
-      invLabelY: invLabelY ?? 0,
+      invLabelX: invLabel?.x ?? 0,
+      invLabelY: invLabel?.y ?? 0,
       invLabelShow,
     };
   }, [n, W, pts, plotH, ext, desktop, cfs]);
@@ -488,7 +484,13 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                     ) : null
                   )}
                   {geo.invLabelShow ? (
-                    <text x={W} y={geo.invLabelY} textAnchor="end" fontSize={12} fill="var(--ink3)">
+                    <text
+                      x={geo.invLabelX}
+                      y={geo.invLabelY}
+                      textAnchor="end"
+                      fontSize={12}
+                      fill="var(--ink3)"
+                    >
                       매입금액
                     </text>
                   ) : null}

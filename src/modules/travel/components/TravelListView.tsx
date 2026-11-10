@@ -259,18 +259,36 @@ function TripRow({
             nested ? "text-sm font-medium" : "text-[15px] leading-[22px] font-semibold"
           )}
         >
-          <span className="truncate">
-            {nested ? cities || destinationOf(trip) : destinationOf(trip)}
-          </span>
+          {nested && cities ? (
+            // Narrow phones name the first two cities and count the rest
+            // ("… 외 N곳") rather than cutting a name mid-word.
+            <span className="truncate" title={cities}>
+              <span className="lg:hidden">{cityLine(trip.visitedCities, 2)}</span>
+              <span className="hidden lg:inline">{cities}</span>
+            </span>
+          ) : (
+            <span className="truncate">{destinationOf(trip)}</span>
+          )}
           {trip.isOverseas ? <Pill className="h-[22px] font-medium">해외</Pill> : null}
         </Link>
-        {/* Narrow phones drop the stay length before the km would be cut. */}
-        <span className="truncate text-xs leading-4 text-ink-3 lg:hidden">
-          {yearPrefix}
-          {rangeLabel(trip.startDate, trip.endDate)}
-          <span className="max-[359px]:hidden"> · {stayLabel(trip.startDate, trip.endDate)}</span>
-          {" · "}
-          {formatKm(trip.totalDistanceMeters)}
+        {/* Narrow phones drop the stay length (and, in a group, shorten the
+            year) before the km would be cut; the km itself never shrinks. */}
+        <span className="flex min-w-0 text-xs leading-4 whitespace-nowrap text-ink-3 lg:hidden">
+          <span className="min-w-0 truncate">
+            {yearPrefix ? (
+              <>
+                <span className="max-[359px]:hidden">{yearPrefix}</span>
+                <span className="min-[360px]:hidden">{yearPrefix.slice(2)}</span>
+              </>
+            ) : null}
+            {rangeLabel(trip.startDate, trip.endDate)}
+            <span className="max-[359px]:hidden"> · {stayLabel(trip.startDate, trip.endDate)}</span>
+          </span>
+          <span className="shrink-0">
+            {/* nbsp: a flex item's leading space would collapse. */}
+            {"\u00a0· "}
+            {formatKm(trip.totalDistanceMeters)}
+          </span>
         </span>
         {!nested ? (
           <>

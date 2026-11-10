@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { CountUp, EvidenceScope, useEvidence } from "@/components/ds";
+import { CountUp, EvidenceScope, isMonoFactValue, useEvidence } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import {
   formatCount,
@@ -306,7 +306,12 @@ function HeroDayPanel({ hero, route }: { hero: HeroDay; route: TravelRoute }) {
                     animationDelay: `${i * 20}ms`,
                   }}
                 />
-                <span className={cn("text-label truncate", top && "text-ink")}>
+                {/* Color by style: cn() would merge text-ink over text-label and
+                    drop the label's 12px/500 face. */}
+                <span
+                  className="text-label truncate"
+                  style={top ? { color: "var(--ink)" } : undefined}
+                >
                   {Number(s.day.slice(5, 7))}월 {Number(s.day.slice(8))}일
                 </span>
               </div>
@@ -472,10 +477,15 @@ function RunCard({ run, hero }: { run: DenseRun; hero: HeroDay | null }) {
               className="flex gap-2.5 border-t border-line py-1.5 text-xs leading-[18px]"
             >
               <span className="num w-[38px] shrink-0 text-ink-3">{hm(stop.at)}</span>
-              <span className="text-ink-2">
-                {stop.name}
-                {stop.minutes >= 8 ? ` · ${formatDurationMinutes(stop.minutes)}` : ""}
-              </span>
+              <DotList
+                className="min-w-0 text-ink-2"
+                items={[
+                  { key: "name", node: stop.name },
+                  ...(stop.minutes >= 8
+                    ? [{ key: "dur", node: formatDurationMinutes(stop.minutes) }]
+                    : []),
+                ]}
+              />
             </li>
           ))}
         </ol>
@@ -651,6 +661,13 @@ function SpendingSection({ detail }: { detail: TravelTripDetail }) {
 /** Label column + one column per day; shared by both health tables so they line up. */
 const LABEL_COL_PX = 120;
 const DAY_COL_MIN_PX = 76;
+/**
+ * As in the mock: a wide label column and narrow 120px day columns. When the
+ * days don't fit at 120px they share what is left after the label minimum.
+ */
+const DAY_COL_MAX_PX = 120;
+const dayColPx = (tableWidth: number, count: number) =>
+  Math.max(0, Math.min(DAY_COL_MAX_PX, (tableWidth - LABEL_COL_PX) / count));
 
 function HealthGrid({
   rows,
@@ -658,19 +675,22 @@ function HealthGrid({
   heroDay,
   muted,
   label,
+  dayPx,
 }: {
   rows: HealthRow[];
   days: string[];
   heroDay: string | null;
   muted?: boolean;
   label: string;
+  /** Measured day-column width; null before the first layout (equal split). */
+  dayPx: number | null;
 }) {
   return (
     <table aria-label={label} className="relative w-full table-fixed border-collapse">
       <colgroup>
-        <col style={{ width: LABEL_COL_PX }} />
+        <col />
         {days.map((day) => (
-          <col key={day} />
+          <col key={day} style={dayPx === null ? undefined : { width: dayPx }} />
         ))}
       </colgroup>
       <thead className={muted ? "sr-only" : undefined}>
@@ -682,10 +702,8 @@ function HealthGrid({
             <th
               key={day}
               scope="col"
-              className={cn(
-                "text-label px-3 pb-2 text-right whitespace-nowrap",
-                day === heroDay && "font-semibold text-ink"
-              )}
+              className="text-label px-3 pb-2 text-right whitespace-nowrap"
+              style={day === heroDay ? { fontWeight: 600, color: "var(--ink)" } : undefined}
             >
               {shortDay(day)}
             </th>
@@ -734,17 +752,24 @@ function HealthGrid({
 }
 
 /** The hero day as one tinted column behind both tables (and the toggle between). */
-function HotColumn({ index, count }: { index: number; count: number }) {
-  if (index < 0) return null;
-  const col = `((100% - ${LABEL_COL_PX}px) / ${count})`;
+function HotColumn({
+  index,
+  count,
+  dayPx,
+}: {
+  index: number;
+  count: number;
+  dayPx: number | null;
+}) {
+  if (index < 0 || dayPx === null) return null;
   return (
     <span
       aria-hidden="true"
       data-testid="hot-column"
       className="pointer-events-none absolute inset-y-0"
       style={{
-        left: `calc(${LABEL_COL_PX}px + ${index} * ${col})`,
-        width: `calc(${col})`,
+        left: `calc(100% - ${(count - index) * dayPx}px)`,
+        width: dayPx,
         background: "color-mix(in oklab, var(--health) 9%, transparent)",
       }}
     />
@@ -817,10 +842,24 @@ function ScrollX({
 function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroDay | null }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  // Both grids share the measured width so their 120px day columns and the
+  // hero tint line up (a table can't size a <col> with min()).
+  const [tableWidth, setTableWidth] = useState(0);
+  const roRef = useRef<ResizeObserver | null>(null);
+  const measureRef = useCallback((el: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setTableWidth(el.clientWidth));
+    ro.observe(el);
+    roRef.current = ro;
+    setTableWidth(el.clientWidth);
+  }, []);
   const table = healthTable(detail);
   if (table.primary.length === 0 && table.more.length === 0) return null;
   const heroDay = hero?.day ?? null;
   const hotIndex = heroDay ? table.days.indexOf(heroDay) : -1;
+  const dayPx = tableWidth > 0 ? dayColPx(tableWidth, table.days.length) : null;
   return (
     <section aria-labelledby="trip-health-h" className="flex max-w-[640px] flex-col gap-3.5">
       <h2 id="trip-health-h" className={H3}>
@@ -829,9 +868,15 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
       <ScrollX label="건강 지표 표" minWidth={LABEL_COL_PX + table.days.length * DAY_COL_MIN_PX}>
         {/* The hero-day tint sits behind each grid of rows on its own, so it
             breaks at the "다른 지표" toggle row instead of running behind it. */}
-        <div className="relative">
-          <HotColumn index={hotIndex} count={table.days.length} />
-          <HealthGrid rows={table.primary} days={table.days} heroDay={heroDay} label="건강 지표" />
+        <div ref={measureRef} className="relative">
+          <HotColumn index={hotIndex} count={table.days.length} dayPx={dayPx} />
+          <HealthGrid
+            rows={table.primary}
+            days={table.days}
+            heroDay={heroDay}
+            label="건강 지표"
+            dayPx={dayPx}
+          />
         </div>
         {table.more.length > 0 ? (
           <>
@@ -848,13 +893,14 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
             </div>
             <Collapse open={open} id={id}>
               <div className="relative mt-1.5">
-                <HotColumn index={hotIndex} count={table.days.length} />
+                <HotColumn index={hotIndex} count={table.days.length} dayPx={dayPx} />
                 <HealthGrid
                   rows={table.more}
                   days={table.days}
                   heroDay={heroDay}
                   muted
                   label="다른 건강 지표"
+                  dayPx={dayPx}
                 />
               </div>
             </Collapse>
@@ -964,7 +1010,9 @@ function RoutineDisclosure({ detail, hero }: { detail: TravelTripDetail; hero: H
           // interactive line (with its evidence popover) sits in the panel.
           <span className="ai-voice">
             {insight.pre}
-            <span className={cn("ds-fact cursor-[inherit]", /\d/.test(insight.trigger) && "num")}>
+            <span
+              className={cn("ds-fact cursor-[inherit]", isMonoFactValue(insight.trigger) && "num")}
+            >
               {insight.trigger}
             </span>
             {insight.post}

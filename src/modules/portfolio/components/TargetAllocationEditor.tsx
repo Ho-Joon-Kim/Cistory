@@ -189,13 +189,16 @@ export function TargetAllocationEditor({
                 className={cn(fieldClass, "order-first col-span-3 sm:order-none sm:col-span-1")}
               />
               <input
-                type="number"
+                type="text"
                 inputMode="decimal"
-                step="0.1"
-                min="0"
-                max="100"
+                autoComplete="off"
                 value={r.weightPct}
-                onChange={(e) => updateRow(r.id, { weightPct: e.target.value })}
+                onChange={(e) => {
+                  // A decimal field without the native number spinner: digits
+                  // and one decimal point only.
+                  const v = e.target.value.replace(/[^\d.]/g, "");
+                  if (/^\d*\.?\d*$/.test(v)) updateRow(r.id, { weightPct: v });
+                }}
                 placeholder="비중 %"
                 aria-label={`${index + 1}번째 종목 비중 (%)`}
                 className={cn(fieldClass, "num text-right")}
@@ -213,7 +216,11 @@ export function TargetAllocationEditor({
         )}
       </div>
 
-      <button type="button" onClick={addRow} className={cn(buttonClass("ghost"), "self-start")}>
+      <button
+        type="button"
+        onClick={addRow}
+        className={cn(buttonClass("ghost"), "shrink-0 self-start")}
+      >
         <Plus aria-hidden="true" className="size-4" strokeWidth={1.75} />
         종목 추가
       </button>
