@@ -83,6 +83,7 @@ function DashboardContent() {
   const {
     repositories,
     isLoading: isLoadingRepos,
+    error: reposError,
     refresh: refreshRepos,
   } = useRepositories(isAuthenticated);
 
@@ -120,7 +121,8 @@ function DashboardContent() {
 
   if (!isAuthenticated) return null;
 
-  const showFirstSync = !isLoadingRepos && repositories.length === 0;
+  // A failed repository load is not an empty account — don't invite a first sync.
+  const showFirstSync = !isLoadingRepos && !reposError && repositories.length === 0;
 
   return (
     <SyncStatusProvider

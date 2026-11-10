@@ -1,8 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { EmptyState, LoadingState, PageContainer, PageTitle, SourceTile } from "@/components/ds";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageContainer,
+  PageTitle,
+  SourceTile,
+} from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
+import { Button } from "@/components/ui/button";
 import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { formatCount, formatDateTime, formatRelative, formatShare } from "@/lib/format";
 import { useRequireAuth } from "@/modules/auth/hooks";
@@ -27,7 +35,7 @@ function repoCommitsHref(fullName: string, lastCommitAt: string): string {
 
 export default function RepositoriesPage() {
   const { isLoading: isAuthLoading, isAuthenticated } = useRequireAuth();
-  const { repositories, isLoading } = useRepositories(isAuthenticated);
+  const { repositories, isLoading, error, refresh } = useRepositories(isAuthenticated);
 
   if (isAuthLoading) {
     return (
@@ -54,15 +62,27 @@ export default function RepositoriesPage() {
               className="ds-enter"
               title="레포지토리"
               meta={
-                <>
-                  <span className="tabular-nums">{formatCount(repositories.length)}</span>개
-                  레포지토리 · 커밋{" "}
-                  <span className="tabular-nums">{formatCount(totalCommits)}</span>개
-                </>
+                repositories.length === 0 && (error || isLoading) ? undefined : (
+                  <>
+                    <span className="tabular-nums">{formatCount(repositories.length)}</span>개
+                    레포지토리 · 커밋{" "}
+                    <span className="tabular-nums">{formatCount(totalCommits)}</span>건
+                  </>
+                )
               }
             />
             <div className="ds-enter mt-8 [animation-delay:100ms]">
-              {isLoading ? (
+              {error && !isLoading ? (
+                <ErrorState
+                  title="레포지토리를 불러오지 못했어요"
+                  error={error}
+                  actions={
+                    <Button variant="outline" onClick={refresh}>
+                      다시 시도
+                    </Button>
+                  }
+                />
+              ) : isLoading ? (
                 <LoadingState variant="rows" rows={6} label="레포지토리를 불러오는 중" />
               ) : repositories.length === 0 ? (
                 <EmptyState
@@ -119,7 +139,7 @@ export default function RepositoriesPage() {
                           </span>
                           <span className="text-right text-[15px] leading-[22px]">
                             <span className="num font-medium">{formatCount(count)}</span>
-                            <span className="text-xs text-ink-3">개</span>
+                            <span className="text-xs text-ink-3">건</span>
                             <span className="sr-only">
                               {" "}
                               커밋, 전체의 {formatShare(totalCommits ? count / totalCommits : 0)}

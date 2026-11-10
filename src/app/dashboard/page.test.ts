@@ -20,7 +20,7 @@ vi.mock("@/modules/timeline/components/day/DayView", () => ({
     createElement("div", { "data-testid": "day" }, notice as never),
 }));
 vi.mock("@/modules/timeline/hooks", () => ({
-  useRepositories: () => ({ repositories: [], isLoading: false, refresh: () => {} }),
+  useRepositories: () => ({ repositories: [], isLoading: false, error: null, refresh: () => {} }),
   startInitialSync: vi.fn(),
 }));
 afterEach(() => vi.unstubAllGlobals());

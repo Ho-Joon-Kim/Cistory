@@ -19,29 +19,47 @@ export interface Repository {
 interface UseRepositoriesReturn {
   repositories: Repository[];
   isLoading: boolean;
+  /** Why the last load failed; `null` after a successful load. Never an empty list. */
+  error: Error | null;
   refresh: () => void;
 }
 
+interface RepositoriesState {
+  repositories: Repository[];
+  isLoading: boolean;
+  error: Error | null;
+}
+
+/** Fixed Korean copy for a non-OK response; an `error` body that is Korean wins. */
+async function repositoriesResponseError(response: Response): Promise<Error> {
+  const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+  const message = typeof body?.error === "string" && body.error.trim() ? body.error : null;
+  return new Error(message ?? `HTTP ${response.status}`);
+}
+
 export function useRepositories(enabled = true): UseRepositoriesReturn {
-  const [state, setState] = useState<{ repositories: Repository[]; isLoading: boolean }>({
+  const [state, setState] = useState<RepositoriesState>({
     repositories: [],
     isLoading: true,
+    error: null,
   });
 
   const fetchRepos = useCallback(async (signal?: AbortSignal) => {
     setState((prev) => ({ ...prev, isLoading: true }));
     try {
       const response = await fetch("/api/timeline/repos", { signal });
-      if (response.ok) {
-        const data = (await response.json()) as { repositories: Repository[] };
-        setState({ repositories: data.repositories, isLoading: false });
-      } else {
-        setState((prev) => ({ ...prev, isLoading: false }));
-      }
+      if (!response.ok) throw await repositoriesResponseError(response);
+      const data = (await response.json()) as { repositories: Repository[] };
+      setState({ repositories: data.repositories, isLoading: false, error: null });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
+      if (signal?.aborted) return;
       console.error("Failed to fetch repositories:", err);
-      setState((prev) => ({ ...prev, isLoading: false }));
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: err instanceof Error ? err : new Error(String(err)),
+      }));
     }
   }, []);
 

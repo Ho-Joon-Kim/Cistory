@@ -71,7 +71,21 @@ describe("buildSourceView", () => {
       NOW
     );
     expect(view.status).toBe("reauth");
-    expect(rowSubline(view, NOW)).toEqual({ text: "다시 연결 필요", tone: "warn" });
+    expect(rowSubline(view, NOW)).toEqual({ text: "인증 만료 · 미동기화 63일", tone: "warn" });
+  });
+
+  it("never repeats the badge's 다시 연결 필요 on a re-auth sub-line", () => {
+    const legacy = buildSourceView(
+      source("wakatime", [0, 0, 0], {
+        needsReauth: true,
+        reauthReason: "legacy_key",
+        lastSuccessAt: null,
+      }),
+      NOW
+    );
+    const text = rowSubline(legacy, NOW).text;
+    expect(text).toBe("API 키 읽기 중단됨");
+    expect(text).not.toContain("다시 연결 필요");
   });
 
   it("names the retired API-key path, not an expired token, for a legacy WakaTime key", () => {
