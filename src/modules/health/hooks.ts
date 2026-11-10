@@ -30,7 +30,7 @@ export function useHealthSummary() {
   const client = useQueryClient();
   return {
     summary: query.data ?? null,
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     error: query.error ? userErrorMessage(query.error) : null,
     refresh: () => {
       void client.invalidateQueries({ queryKey: ["health"] });
@@ -46,7 +46,7 @@ export function useBody() {
   );
   return {
     data: query.data?.data ?? null,
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     error: query.error ? userErrorMessage(query.error) : null,
     refresh: () => {
       void query.refetch();
@@ -61,7 +61,7 @@ export function useActivityCorrelation() {
   );
   return {
     days: query.data?.days ?? null,
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     error: query.error ? userErrorMessage(query.error) : null,
     refresh: () => {
       void query.refetch();

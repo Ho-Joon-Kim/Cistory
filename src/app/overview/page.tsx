@@ -7,12 +7,13 @@ import { Header } from "@/components/Layout/Header";
 import { toKstCalendarDate } from "@/lib/date-key";
 import { useAuth } from "@/modules/auth/hooks";
 import { resolveComparisonYears } from "@/modules/overview/comparison";
-import { ComputingState } from "@/modules/overview/components/ComputingState";
+import { ComputingState, UpdatingNote } from "@/modules/overview/components/ComputingState";
 import { OverviewComparison } from "@/modules/overview/components/OverviewComparison";
 import { OverviewView } from "@/modules/overview/components/view/OverviewView";
 import { PeriodControls } from "@/modules/overview/components/view/PeriodControls";
 import type { HistoryPeriodType } from "@/modules/overview/history";
 import {
+  isStaleOverviewSnapshot,
   type OverviewPeriodSelection,
   resolveOverviewPeriod,
   useOverviewHistory,
@@ -21,7 +22,11 @@ import {
 import { focusOverviewSection } from "@/modules/overview/section-focus";
 import { periodContext, periodMeta, periodTitle } from "@/modules/overview/view/labels";
 import { buildOverviewModel } from "@/modules/overview/view/model";
-import { shouldShowOverviewFailure } from "@/modules/overview/view-state";
+import {
+  HISTORY_GRACE_MS,
+  overviewBodyReady,
+  shouldShowOverviewFailure,
+} from "@/modules/overview/view-state";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 
 /**
@@ -36,6 +41,20 @@ function resolveSelection(
   const type = rawType === "week" || rawType === "month" || rawType === "year" ? rawType : "month";
   const selection = resolveOverviewPeriod(type, type === rawType ? rawKey : null, now);
   return selection as { periodType: HistoryPeriodType; periodKey: string };
+}
+
+/** Period meta line; while a stale snapshot recomputes it adds the updating note. */
+function OverviewMeta({ text, updating }: { text: string; updating: boolean }) {
+  if (!updating) return text;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5">
+      <span>{text}</span>
+      <span aria-hidden="true" className="hidden sm:inline">
+        ·
+      </span>
+      <UpdatingNote className="basis-full sm:basis-auto" />
+    </span>
+  );
 }
 
 function OverviewContent() {
@@ -60,13 +79,31 @@ function OverviewContent() {
     selection.periodKey,
     isAuthenticated && !isComparison
   );
+  // A stale snapshot (queued for recompute, still holding its last computed data)
+  // renders exactly like a ready one — same tree, so the swap to fresh numbers
+  // replays no entrance — with a small note in the meta line.
   const ready = snapshot && "domains" in snapshot ? snapshot : null;
-  const history = useOverviewHistory(
+  const updating = isStaleOverviewSnapshot(snapshot);
+  // Starts with the snapshot request, not after it: the hero needs both. A stale
+  // snapshot counts as unready here, so history is re-read once fresh data lands.
+  const { history, settled: historySettled } = useOverviewHistory(
     selection.periodType,
     selection.periodKey,
     isAuthenticated && !isComparison,
-    ready?.computedAt ?? null
+    snapshot ? { ready: ready != null && !updating, computedAt: ready?.computedAt ?? null } : null
   );
+  const requestKey = `${selection.periodType}:${selection.periodKey}`;
+  const [graceKey, setGraceKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ready || historySettled) return;
+    const timer = window.setTimeout(() => setGraceKey(requestKey), HISTORY_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [ready, historySettled, requestKey]);
+  const bodyReady = overviewBodyReady({
+    snapshotReady: ready != null,
+    historySettled,
+    graceElapsed: graceKey === requestKey,
+  });
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) router.replace("/login");
@@ -181,7 +218,7 @@ function OverviewContent() {
         <ComputingState status="failed" error={error} onRecompute={() => void recompute()} />
       </div>
     );
-  } else if (isLoading || !snapshot) {
+  } else if (isLoading || !snapshot || (ready && !bodyReady)) {
     body = (
       <div className="mt-10">
         <ComputingState status="loading" />
@@ -218,7 +255,14 @@ function OverviewContent() {
           <PageTitle
             className="ds-enter"
             title={isComparison ? "연간 비교" : periodTitle(ctx)}
-            meta={isComparison ? null : periodMeta(ctx, ready?.computedAt ?? null)}
+            meta={
+              isComparison ? null : (
+                <OverviewMeta
+                  text={periodMeta(ctx, ready?.computedAt ?? null)}
+                  updating={updating}
+                />
+              )
+            }
             actions={
               isComparison ? null : (
                 <PeriodControls

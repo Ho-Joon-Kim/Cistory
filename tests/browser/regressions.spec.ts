@@ -13,6 +13,14 @@ const trend = {
     lower: i >= 14 ? (i + 1) * 35000 : null,
     categories: { food: (i + 1) * 24000, shopping: (i + 1) * 16000 },
   })),
+  references: {
+    previous: {
+      months: ["2026-07"],
+      total: Array.from({ length: 30 }, (_, i) => (i + 1) * 30000),
+      split: Array.from({ length: 30 }, () => 0),
+    },
+    average: null,
+  },
   monthlyBars: [
     {
       month: "07",
@@ -219,13 +227,27 @@ test("spending month bars and forecast keep real geometry", async ({ page }, tes
   await page.getByRole("button", { name: /2026년 7월/ }).click();
   await expect(page.getByRole("heading", { name: "7월 상위 카테고리" })).toBeVisible();
 
-  await page.getByRole("button", { name: "월말 예상" }).filter({ visible: true }).click();
+  // The cumulative trend is always open (no disclosure) right under the hero.
   const forecast = page.getByRole("img", { name: /누적 지출과 월말 예상/ });
   await expect(forecast).toBeVisible();
   for (const path of await forecast.locator("path").all())
     await expect
       .poll(() => path.evaluate((el) => (el as SVGGraphicsElement).getBBox().width))
       .toBeGreaterThan(30);
+  const series = (name: string) =>
+    forecast.locator(`[data-series="${name}"]`).evaluate((el) => {
+      // SVGRect doesn't serialize across the page boundary; copy the numbers.
+      const { x, y, width, height } = (el as SVGGraphicsElement).getBBox();
+      return { x, y, width, height };
+    });
+  // Day 1 → 15 of 30 against the full-month reference: 14/29 of its width, and
+  // the projection covers the remaining 15/29.
+  const actualBox = await series("actual");
+  const previousBox = await series("previous");
+  const forecastBox = await series("forecast");
+  expect(actualBox.width / previousBox.width).toBeCloseTo(14 / 29, 2);
+  expect(forecastBox.width / previousBox.width).toBeCloseTo(15 / 29, 2);
+  expect(forecastBox.x).toBeCloseTo(actualBox.x + actualBox.width, 0);
   await page.screenshot({ path: testInfo.outputPath("spending.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
@@ -284,6 +306,64 @@ test("zero GitHub commits still shows the daily life timeline", async ({ page })
   ).toBeVisible();
   await expect(page.locator(".timeline-scroll-container")).toBeVisible();
   await expect(page.locator(".timeline-scroll-container")).not.toBeEmpty();
+});
+
+test("returning to a cached day renders it at once, without a skeleton or refetch", async ({
+  page,
+}) => {
+  // Regression: the location hooks kept their cache in component refs, so every
+  // return to the timeline started empty — list skeleton, then rows, and the
+  // map framed twice as each source landed.
+  const locationRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/timeline/locations")) locationRequests.push(url.pathname);
+  });
+  await page.route("**/api/timeline/locations/stay-points?*", (route) =>
+    route.fulfill({
+      json: {
+        stayPoints: [
+          {
+            lat: 37.5,
+            lon: 127.03,
+            placeName: "브라우저 카페",
+            address: null,
+            category: null,
+            startTime: "2026-08-15T01:00:00.000Z",
+            endTime: "2026-08-15T03:00:00.000Z",
+            durationMinutes: 120,
+          },
+        ],
+      },
+    })
+  );
+  await page.goto("/dashboard?date=2026-08-15");
+  const list = page.locator(".timeline-scroll-container");
+  await expect(list.getByText("브라우저 카페").first()).toBeVisible();
+  await expect(list.locator('[aria-busy="true"]')).toHaveCount(0);
+
+  await page.locator('a[href="/spending"]:visible').first().click();
+  await expect(page).toHaveURL(/\/spending$/);
+  await page.evaluate(() => {
+    // Record whether the list ever shows its skeleton after the return.
+    const w = window as unknown as { __sawSkeleton: boolean };
+    w.__sawSkeleton = false;
+    new MutationObserver(() => {
+      if (document.querySelector('.timeline-scroll-container [aria-busy="true"]')) {
+        w.__sawSkeleton = true;
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  locationRequests.length = 0;
+  await page.goBack();
+  await expect(page).toHaveURL(/\/dashboard\?date=2026-08-15$/);
+  await expect(list.getByText("브라우저 카페").first()).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(
+    await page.evaluate(() => (window as unknown as { __sawSkeleton: boolean }).__sawSkeleton)
+  ).toBe(false);
+  // A past day is still fresh: no location request at all on the way back.
+  expect(locationRequests).toEqual([]);
 });
 
 test("health auxiliary failures can retry into an honest empty state", async ({ page }) => {
@@ -577,3 +657,78 @@ for (const authenticated of [false, true]) {
     expect(errors).toEqual([]);
   });
 }
+
+test.describe("a reload paints the stored theme on the first frame", () => {
+  for (const [stored, os, expected] of [
+    ["dark", "light", "dark"],
+    ["light", "dark", "light"],
+    ["system", "dark", "dark"],
+  ] as const) {
+    test(`stored ${stored} on an OS in ${os} mode`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: os });
+      await page.addInitScript((theme) => {
+        localStorage.setItem("theme", theme);
+        // The theme on every DOM change once page content exists, so a frame
+        // painted in the wrong theme can't slip between two checks.
+        const seen: string[] = [];
+        (window as unknown as { __themeSeen: string[] }).__themeSeen = seen;
+        new MutationObserver(() => {
+          if (!document.body?.querySelector("header, main, nav, [role=status]")) return;
+          seen.push(document.documentElement.classList.contains("dark") ? "dark" : "light");
+        }).observe(document, { childList: true, subtree: true, attributes: true });
+      }, stored);
+      // /api/settings says "light" — a lagging server copy must never repaint a reload.
+      await page.goto("/dashboard");
+      await expect(page.locator("main")).toBeVisible();
+      await page.waitForTimeout(300);
+      const seen = await page.evaluate(
+        () => (window as unknown as { __themeSeen: string[] }).__themeSeen
+      );
+      expect(seen.length).toBeGreaterThan(0);
+      expect([...new Set(seen)]).toEqual([expected]);
+      // Cloudflare Rocket Loader defers every inline script it may touch until
+      // after `load` — the production flash. The theme script opts out.
+      const html = await (await page.request.get("/dashboard")).text();
+      expect(html).toMatch(/<script data-cfasync="false">\(\(/);
+    });
+  }
+});
+
+test("a slow day source shows the day as loading, never as empty", async ({ page }) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/timeline/locations/tracks?*", async (route) => {
+    await held;
+    await route.fulfill({ json: { tracks: [] } });
+  });
+  await page.goto("/dashboard");
+  const list = page.locator(".timeline-scroll-container");
+  await expect(list.getByRole("status", { name: "하루 기록을 불러오는 중" })).toBeAttached();
+  await page.waitForTimeout(800);
+  await expect(page.getByText("이날 남은 기록이 없어요")).toHaveCount(0);
+  await expect(page.getByText("이날 위치 기록이 없어요")).toHaveCount(0);
+  release();
+  await expect(page.getByText("이날 남은 기록이 없어요")).toBeVisible();
+});
+
+test("a slow ledger never shows its money flow as 0원", async ({ page }) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/spending?*", async (route) => {
+    const url = new URL(route.request().url());
+    // Only the ledger (100/page) is held; the month query feeds the hero.
+    if (url.searchParams.get("limit") === "100") await held;
+    await route.fallback();
+  });
+  await page.goto("/spending");
+  await expect(page.getByRole("status", { name: "돈의 흐름 불러오는 중" })).toBeAttached();
+  await page.waitForTimeout(800);
+  const flow = page.locator("aside[aria-labelledby=spending-flow]");
+  await expect(flow).not.toContainText("0원");
+  release();
+  await expect(flow).toContainText("순지출");
+});

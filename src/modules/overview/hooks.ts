@@ -16,9 +16,20 @@ import {
 } from "./period";
 import type { OverviewSnapshotResponse } from "./service";
 import type { StayFocus } from "./view/flow";
+import { historyRefreshToken } from "./view-state";
 
-export const OVERVIEW_POLL_INTERVAL_MS = 3_000;
-export const OVERVIEW_MAX_POLLS = 200;
+/**
+ * Snapshot polling backs off 3 s → 10 s → 30 s: a single recompute lands within
+ * seconds, while a bulk invalidation can keep a period queued for minutes, and
+ * the stale data already on screen makes a slow cadence cheap to wait through.
+ */
+export const OVERVIEW_POLL_BACKOFF = [
+  { untilPoll: 5, delayMs: 3_000 },
+  { untilPoll: 15, delayMs: 10_000 },
+  { untilPoll: Number.POSITIVE_INFINITY, delayMs: 30_000 },
+] as const;
+/** Polls (≈ 24 min with the back-off) before an empty pending state reports a timeout. */
+export const OVERVIEW_MAX_POLLS = 60;
 export const NARRATIVE_POLL_INTERVAL_MS = 10_000;
 export const NARRATIVE_MAX_POLLS = 60;
 
@@ -131,7 +142,48 @@ export function overviewPeriodLabel(periodType: PeriodType, periodKey: string): 
   return `${date(range.from)} – ${date(end)}`;
 }
 
-type Wait = (signal: AbortSignal) => Promise<void>;
+type Wait = (signal: AbortSignal, poll: number) => Promise<void>;
+
+/** Delay before the poll numbered `poll` (0-based) of one snapshot load. */
+export function overviewPollDelay(poll: number): number {
+  return (
+    OVERVIEW_POLL_BACKOFF.find((step) => poll < step.untilPoll)?.delayMs ??
+    OVERVIEW_POLL_BACKOFF[OVERVIEW_POLL_BACKOFF.length - 1].delayMs
+  );
+}
+
+/** Pending/computing but still carrying its last computed data (stale-while-revalidate). */
+export function isStaleOverviewSnapshot(response: OverviewSnapshotResponse | null): boolean {
+  return response != null && "stale" in response && response.stale === true;
+}
+
+/**
+ * A bare pending/computing response (a recompute request's reply) keeps the data
+ * already on screen as stale, rather than blanking the page until the next poll.
+ */
+export function keepPreviousOverviewData(
+  next: OverviewSnapshotResponse,
+  previous: OverviewSnapshotResponse | null
+): OverviewSnapshotResponse {
+  if (
+    (next.status !== "pending" && next.status !== "computing") ||
+    "domains" in next ||
+    !previous ||
+    !("domains" in previous) ||
+    previous.periodType !== next.periodType ||
+    previous.periodKey !== next.periodKey
+  ) {
+    return next;
+  }
+  return {
+    status: next.status,
+    stale: true,
+    periodType: next.periodType,
+    periodKey: next.periodKey,
+    computedAt: previous.computedAt,
+    domains: previous.domains,
+  };
+}
 
 interface PollingInput {
   get: (signal: AbortSignal) => Promise<OverviewSnapshotResponse>;
@@ -165,13 +217,15 @@ export async function loadOverviewUntilSettled(input: PollingInput) {
     input.onUpdate(response);
   }
 
+  // Stale data is already on screen, so it polls (at the slowest back-off step)
+  // until the recompute lands; only an empty pending state gives up and errors.
   let polls = 0;
   while (
     (response.status === "pending" || response.status === "computing") &&
     input.isVisible() &&
-    polls < input.maxPolls
+    (polls < input.maxPolls || isStaleOverviewSnapshot(response))
   ) {
-    await input.wait(input.signal);
+    await input.wait(input.signal, polls);
     if (input.signal.aborted || !input.isVisible()) break;
     response = await input.get(input.signal);
     input.onUpdate(response);
@@ -179,6 +233,7 @@ export async function loadOverviewUntilSettled(input: PollingInput) {
   }
   if (
     (response.status === "pending" || response.status === "computing") &&
+    !isStaleOverviewSnapshot(response) &&
     input.isVisible() &&
     !input.signal.aborted &&
     polls >= input.maxPolls
@@ -237,7 +292,7 @@ export function abortableDelay(signal: AbortSignal, intervalMs: number) {
   });
 }
 
-const snapshotDelay: Wait = (signal) => abortableDelay(signal, OVERVIEW_POLL_INTERVAL_MS);
+const snapshotDelay: Wait = (signal, poll) => abortableDelay(signal, overviewPollDelay(poll));
 const narrativeDelay: Wait = (signal) => abortableDelay(signal, NARRATIVE_POLL_INTERVAL_MS);
 
 export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, enabled = true) {
@@ -350,8 +405,9 @@ export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, e
         return;
       }
       enqueued.current.add(requestKey);
-      latest.current = response;
-      setSnapshot(response);
+      const next = keepPreviousOverviewData(response, latest.current);
+      latest.current = next;
+      setSnapshot(next);
       setRefreshVersion((version) => version + 1);
     } catch (reason) {
       if (
@@ -399,7 +455,7 @@ export async function loadNarrativeUntilSettled(input: NarrativePollingInput) {
     input.isVisible() &&
     polls < input.maxPolls
   ) {
-    await input.wait(input.signal);
+    await input.wait(input.signal, polls);
     if (input.signal.aborted || !input.isVisible()) break;
     response = await input.get(input.signal);
     input.onUpdate(response);
@@ -463,11 +519,26 @@ export function useOverviewHistory(
   periodType: PeriodType,
   periodKey: string,
   enabled: boolean,
-  refreshKey: string | null
-) {
-  const [history, setHistory] = useState<OverviewHistoryResponse | null>(null);
+  snapshot: { ready: boolean; computedAt: string | null } | null
+): { history: OverviewHistoryResponse | null; settled: boolean } {
+  const key = `${periodType}:${periodKey}`;
+  // The key whose snapshot was seen pending/computing in this page session.
+  const [unreadyKey, setUnreadyKey] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    key: string;
+    history: OverviewHistoryResponse | null;
+  } | null>(null);
+  const snapshotUnready = snapshot != null && !snapshot.ready;
   useEffect(() => {
-    void refreshKey;
+    if (snapshotUnready) setUnreadyKey(key);
+  }, [snapshotUnready, key]);
+  const refreshToken = historyRefreshToken(
+    unreadyKey === key,
+    snapshot?.ready ? snapshot.computedAt : null
+  );
+
+  useEffect(() => {
+    void refreshToken;
     if (!enabled || periodType === "recent") return;
     const controller = new AbortController();
     const params = new URLSearchParams({ periodType, periodKey });
@@ -476,15 +547,18 @@ export function useOverviewHistory(
         if (!response.ok) throw new Error("history unavailable");
         return (await response.json()) as OverviewHistoryResponse;
       })
-      .then((body) => setHistory(body))
+      .then((body) => setResult({ key, history: body }))
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
         // History only adds comparisons; the page renders without it.
-        setHistory(null);
+        setResult({ key, history: null });
       });
     return () => controller.abort();
-  }, [enabled, periodKey, periodType, refreshKey]);
-  return history;
+  }, [enabled, key, periodKey, periodType, refreshToken]);
+
+  // Another period's history never leaks into this one while it loads.
+  const current = result?.key === key ? result : null;
+  return { history: current?.history ?? null, settled: current != null };
 }
 
 /**

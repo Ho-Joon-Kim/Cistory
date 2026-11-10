@@ -248,15 +248,20 @@ export function PortfolioDisclosures({
   returns,
   returnsError,
   executions,
+  executionsLoading = false,
   pnlRate,
 }: {
   returns: ReturnsResponse | null;
   returnsError: string | null;
   executions: ExecutionItem[];
+  /** Executions haven't arrived: no "0건" / "아직 체결 기록이 없어요" yet. */
+  executionsLoading?: boolean;
   pnlRate: number;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
+  // Cashflows come with the returns response: until it settles, counts are unknown.
+  const returnsLoading = !returns && !returnsError;
   const cashflows = returns?.cashflows ?? [];
   const net = cashflows.reduce((s, c) => s + c.amount, 0);
   const range =
@@ -269,7 +274,7 @@ export function PortfolioDisclosures({
   const filledCount = executions.filter((e) => e.filledQty > 0).length;
 
   return (
-    <section aria-label="자세히" className="pb-12 lg:pb-[72px]">
+    <section aria-label="자세히" className="lg:pb-[72px]">
       <Disclosure
         id="pf-perf"
         title="운용 성과"
@@ -311,25 +316,37 @@ export function PortfolioDisclosures({
 
       <Disclosure
         id="pf-cashflows"
-        title={
-          <>
-            입출금 <span className="num">{cashflows.length}건</span>
-          </>
-        }
+        title={<>입출금 {returns ? <span className="num">{cashflows.length}건</span> : null}</>}
         summary={
-          <>
-            예수금 변화로 계산한 입출금 · 순입금 <span className="num">{signed(net)}</span>
-          </>
+          returns ? (
+            <>
+              예수금 변화로 계산한 입출금 · 순입금 <span className="num">{signed(net)}</span>
+            </>
+          ) : returnsLoading ? (
+            "불러오는 중…"
+          ) : (
+            "예수금 변화로 계산한 입출금"
+          )
         }
         mobileSummary={
-          <>
-            순입금 <span className="num">{signed(net)}</span>
-          </>
+          returns ? (
+            <>
+              순입금 <span className="num">{signed(net)}</span>
+            </>
+          ) : returnsLoading ? (
+            "불러오는 중…"
+          ) : null
         }
         open={!!open.cf}
         onToggle={() => toggle("cf")}
       >
-        {cashflows.length > 0 ? (
+        {returnsError ? (
+          <p role="alert" className="m-0 text-[13px] text-ink-2">
+            {returnsError}
+          </p>
+        ) : returnsLoading ? (
+          <p className="m-0 text-[13px] text-ink-3">불러오는 중…</p>
+        ) : cashflows.length > 0 ? (
           <Cashflows cashflows={cashflows} />
         ) : (
           <p className="m-0 text-[13px] text-ink-3">기간 안에 찾은 입출금이 없어요.</p>
@@ -339,37 +356,47 @@ export function PortfolioDisclosures({
       <Disclosure
         id="pf-executions"
         title={
-          <>
-            최근 체결 <span className="num">{filledCount}건</span>
-          </>
+          <>최근 체결 {executionsLoading ? null : <span className="num">{filledCount}건</span>}</>
         }
         summary={
-          <>
-            {lastFill ? (
-              <>
-                마지막 체결{" "}
-                <span className="tabular-nums">{formatMonthDay(ordDateKey(lastFill.ordDt))}</span> ·{" "}
-              </>
-            ) : null}
-            미체결 <span className="num">{unfilled}건</span>
-          </>
+          executionsLoading ? (
+            "불러오는 중…"
+          ) : (
+            <>
+              {lastFill ? (
+                <>
+                  마지막 체결{" "}
+                  <span className="tabular-nums">{formatMonthDay(ordDateKey(lastFill.ordDt))}</span>{" "}
+                  ·{" "}
+                </>
+              ) : null}
+              미체결 <span className="num">{unfilled}건</span>
+            </>
+          )
         }
         mobileSummary={
-          <>
-            {lastFill ? (
-              <>
-                마지막{" "}
-                <span className="tabular-nums">{formatMonthDay(ordDateKey(lastFill.ordDt))}</span> ·{" "}
-              </>
-            ) : null}
-            미체결 <span className="num">{unfilled}건</span>
-          </>
+          executionsLoading ? (
+            "불러오는 중…"
+          ) : (
+            <>
+              {lastFill ? (
+                <>
+                  마지막{" "}
+                  <span className="tabular-nums">{formatMonthDay(ordDateKey(lastFill.ordDt))}</span>{" "}
+                  ·{" "}
+                </>
+              ) : null}
+              미체결 <span className="num">{unfilled}건</span>
+            </>
+          )
         }
         open={!!open.ex}
         onToggle={() => toggle("ex")}
         last
       >
-        {executions.length > 0 ? (
+        {executionsLoading ? (
+          <p className="m-0 text-[13px] text-ink-3">불러오는 중…</p>
+        ) : executions.length > 0 ? (
           <Executions executions={executions} />
         ) : (
           <p className="m-0 text-[13px] text-ink-3">아직 체결 기록이 없어요.</p>

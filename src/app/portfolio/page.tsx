@@ -11,10 +11,12 @@ import {
   MetaLine,
   PageContainer,
   PageTitle,
+  panelClass,
 } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { formatDateTime, formatMonthDay, formatTime, formatWon } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
 import {
   type AccountOutcome,
@@ -84,9 +86,9 @@ function PortfolioContent() {
     () => ({ from: shiftDateKey(toKstCalendarDate(new Date()), -372) }),
     []
   );
-  const { snapshots } = useSnapshots(snapshotParams);
+  const { snapshots, isLoading: snapshotsLoading } = useSnapshots(snapshotParams);
   const { data: returns, error: returnsError } = useReturns(RETURNS_PARAMS);
-  const { executions } = useExecutions(EXECUTION_PARAMS);
+  const { executions, isLoading: executionsLoading } = useExecutions(EXECUTION_PARAMS);
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) router.replace("/login");
@@ -423,7 +425,11 @@ function PortfolioContent() {
                 <AccountOutcomes accounts={model.outcomes} />
               </EvidenceScope>
               <EvidenceScope>
-                <AssetTrend series={series} cashflows={returns?.cashflows ?? []} />
+                <AssetTrend
+                  series={series}
+                  cashflows={returns?.cashflows ?? []}
+                  loading={snapshotsLoading}
+                />
               </EvidenceScope>
               <EvidenceScope>
                 <HoldingsByAccount groups={model.groups} fact={model.holdings} />
@@ -448,13 +454,18 @@ function PortfolioContent() {
                 </EvidenceScope>
               ))}
               <div
-                className={model.drifts.length === 0 ? "ds-enter mt-10 lg:mt-14" : "ds-enter"}
+                className={cn(
+                  panelClass,
+                  "ds-enter",
+                  model.drifts.length === 0 && "mt-10 lg:mt-14"
+                )}
                 style={enterStyle(4)}
               >
                 <PortfolioDisclosures
                   returns={returns}
                   returnsError={returnsError}
                   executions={executions}
+                  executionsLoading={executionsLoading}
                   pnlRate={
                     model.totals.totalPurchaseAmount > 0
                       ? model.totals.totalPnl / model.totals.totalPurchaseAmount

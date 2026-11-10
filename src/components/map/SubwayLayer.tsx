@@ -94,6 +94,10 @@ export function SubwayLayer({
     if (!map || !visible) return;
     const mapInstance = map.getMap();
     const update = () => {
+      // Below minZoomLines every layer here is hidden by its own minzoom, so a
+      // country-wide viewport would download (and parse) ~1.3 MB of geometry that
+      // never draws. Wait until the map is zoomed in far enough to show lines.
+      if (mapInstance.getZoom() < minZoomLines) return;
       const b = mapInstance.getBounds();
       if (!b) return;
       setBbox([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
@@ -103,7 +107,7 @@ export function SubwayLayer({
     return () => {
       mapInstance.off("moveend", update);
     };
-  }, [map, visible]);
+  }, [map, visible, minZoomLines]);
 
   const debouncedBbox = useDebouncedValue(bbox, 400);
 

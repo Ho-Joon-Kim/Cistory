@@ -10,10 +10,12 @@ import {
   createOverviewPrecomputeRunner,
   getClaimPriority,
   OVERVIEW_COMPUTE_VERSION,
+  PRECOMPUTE_CLAIM_LIMIT,
   PRECOMPUTE_MAX_ATTEMPTS,
   PRECOMPUTE_USER_BATCH_LIMIT,
   type PrecomputeSnapshot,
   type PrecomputeStore,
+  periodEndKey,
   type SnapshotPublication,
   toSnapshotDomainColumns,
 } from "./precompute";
@@ -77,6 +79,7 @@ class MemoryStore implements PrecomputeStore {
   readonly snapshots: SnapshotState[];
   readonly userIds: string[];
   claimedIds: string[] = [];
+  claimBatches: string[][] = [];
   seedBatchSizes: number[] = [];
   userPageCalls = 0;
 
@@ -132,31 +135,58 @@ class MemoryStore implements PrecomputeStore {
   }
 
   async claimSnapshots(options: Parameters<PrecomputeStore["claimSnapshots"]>[0]) {
-    const eligible = this.snapshots
-      .filter(
-        (item) =>
-          item.status !== "computing" &&
-          item.attemptCount < options.maxAttempts &&
-          (getClaimPriority(item, options.activePeriods, options.computeVersion) < 4 ||
-            item.status === "failed")
-      )
+    const excluded = new Set(options.excludeIds ?? []);
+    const tier = (item: SnapshotState) =>
+      getClaimPriority(item, options.activePeriods, options.computeVersion);
+    const eligible = this.snapshots.filter(
+      (item) =>
+        item.status !== "computing" &&
+        item.attemptCount < options.maxAttempts &&
+        !excluded.has(item.id) &&
+        // Same candidate predicate as the SQL.
+        (options.activePeriods.some(
+          (active) => active.periodType === item.periodType && active.periodKey === item.periodKey
+        ) ||
+          item.status === "pending" ||
+          item.status === "failed" ||
+          (item.periodType !== "recent" && item.finalizedAt === null) ||
+          item.computeVersion < options.computeVersion)
+    );
+    // Same order as the SQL: tier, per-user round-robin rank, newest period first.
+    const byRecency = (a: SnapshotState, b: SnapshotState) =>
+      periodEndKey(b.periodType, b.periodKey).localeCompare(
+        periodEndKey(a.periodType, a.periodKey)
+      ) ||
+      a.updatedAt.getTime() - b.updatedAt.getTime() ||
+      a.id.localeCompare(b.id);
+    const rank = new Map<string, number>();
+    for (const item of eligible) {
+      const peers = eligible
+        .filter((other) => other.userId === item.userId && tier(other) === tier(item))
+        .sort(byRecency);
+      rank.set(item.id, peers.indexOf(item));
+    }
+    const claimed = eligible
       .sort(
         (a, b) =>
-          getClaimPriority(a, options.activePeriods, options.computeVersion) -
-            getClaimPriority(b, options.activePeriods, options.computeVersion) ||
-          a.updatedAt.getTime() - b.updatedAt.getTime() ||
-          a.id.localeCompare(b.id)
+          tier(a) - tier(b) || (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0) || byRecency(a, b)
       )
       .slice(0, options.limit);
-    for (const item of eligible) {
+    for (const item of claimed) {
       item.status = "computing";
       item.attemptCount += 1;
       item.leaseExpiresAt = options.leaseExpiresAt;
       item.computeStartedAt = options.now;
       item.updatedAt = options.now;
     }
-    this.claimedIds = eligible.map((item) => item.id);
-    return eligible.map((item) => ({ ...item }));
+    this.claimBatches.push(claimed.map((item) => item.id));
+    this.claimedIds = claimed.map((item) => item.id);
+    return claimed.map((item) => ({ ...item }));
+  }
+
+  /** Every id claimed so far, in claim order, across batches and runs. */
+  get claimOrder() {
+    return this.claimBatches.flat();
   }
 
   async publishSnapshot(item: PrecomputeSnapshot, publication: SnapshotPublication) {
@@ -230,22 +260,30 @@ describe("overview precompute", () => {
     expect(aggregate).toHaveBeenCalledTimes(4);
   });
 
-  it("claims at most five in pending, active, unfinalized, version order", async () => {
+  it("claims current periods first, then backlog newest-first, then routine refresh", async () => {
     const store = new MemoryStore([
-      snapshot("d-version", "month", "2025-01", {
+      snapshot("version", "month", "2025-01", {
         finalizedAt: new Date("2025-02-01T00:00:00Z"),
         computeVersion: 0,
       }),
-      snapshot("c-unfinalized", "month", "2026-06"),
-      snapshot("b-pending", "month", "2025-05", { status: "pending" }),
-      snapshot("a-active", "month", "2026-07", { finalizedAt: null }),
-      snapshot("e-version", "year", "2024", {
-        finalizedAt: new Date("2025-01-01T00:00:00Z"),
-        computeVersion: 0,
+      snapshot("unfinalized", "month", "2026-06"),
+      // Re-marked pending long ago vs. just now: recency, not updatedAt, decides.
+      snapshot("old-pending", "month", "2025-05", {
+        status: "pending",
+        updatedAt: new Date("2026-07-01T00:00:00Z"),
       }),
-      snapshot("f-version", "year", "2023", {
-        finalizedAt: new Date("2024-01-01T00:00:00Z"),
-        computeVersion: 0,
+      snapshot("newer-pending", "week", "2026-W20", {
+        status: "pending",
+        updatedAt: new Date("2026-07-22T02:59:00Z"),
+      }),
+      snapshot("active-pending", "month", "2026-07", {
+        status: "pending",
+        updatedAt: new Date("2026-07-22T02:59:59Z"),
+      }),
+      snapshot("active-ready", "week", "2026-W30"),
+      snapshot("old-recent", "recent", "2026-07-01", { status: "pending" }),
+      snapshot("finalized", "month", "2026-05", {
+        finalizedAt: new Date("2026-06-01T00:00:00Z"),
       }),
     ]);
     const { runner: precompute } = runner(store);
@@ -255,16 +293,116 @@ describe("overview precompute", () => {
       completedLocationWindows: [{ userId: "user-1", completedThrough: "2026-06-30" }],
     });
 
-    expect(store.claimedIds).toEqual([
-      "b-pending",
-      "a-active",
-      "c-unfinalized",
-      "d-version",
-      "e-version",
+    expect(store.claimOrder).toEqual([
+      "active-pending",
+      "newer-pending",
+      "old-pending",
+      "unfinalized",
+      "version",
+      "active-ready",
+      "old-recent",
     ]);
+    expect(store.claimBatches[0]).toHaveLength(PRECOMPUTE_CLAIM_LIMIT);
   });
 
-  it("moves refreshed active rows behind older due rows so repeated ticks converge", async () => {
+  it("puts a viewed current period ahead of a large invalidated backlog", async () => {
+    const backlog = Array.from({ length: 40 }, (_, index) =>
+      snapshot(
+        `backlog-${index}`,
+        "month",
+        `20${23 + Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`,
+        {
+          status: "pending",
+          updatedAt: new Date("2026-07-22T01:00:00Z"),
+        }
+      )
+    );
+    const current = snapshot("current", "month", "2026-07", {
+      status: "pending",
+      updatedAt: new Date("2026-07-22T02:00:00Z"),
+    });
+    const store = new MemoryStore([...backlog, current]);
+    const { runner: precompute } = runner(store);
+
+    await precompute.run({ now: NOW });
+
+    expect(store.claimOrder[0]).toBe("current");
+  });
+
+  it("round-robins users within a tier", async () => {
+    const store = new MemoryStore([
+      snapshot("a-1", "month", "2025-05", { userId: "user-a", status: "pending" }),
+      snapshot("a-2", "month", "2025-04", { userId: "user-a", status: "pending" }),
+      snapshot("a-3", "month", "2025-03", { userId: "user-a", status: "pending" }),
+      snapshot("b-1", "month", "2024-01", { userId: "user-b", status: "pending" }),
+    ]);
+    const { runner: precompute } = runner(store);
+
+    await precompute.run({
+      now: NOW,
+      completedLocationWindows: [
+        { userId: "user-a", completedThrough: "2026-07-21" },
+        { userId: "user-b", completedThrough: "2026-07-21" },
+      ],
+    });
+
+    expect(store.claimOrder).toEqual(["a-1", "b-1", "a-2", "a-3"]);
+  });
+
+  it("keeps claiming batches within the time budget and claims each row once per run", async () => {
+    const rows = Array.from({ length: 12 }, (_, index) =>
+      snapshot(`row-${String(index).padStart(2, "0")}`, "month", "2026-07", {
+        userId: `user-${index}`,
+        status: "pending",
+      })
+    );
+    const store = new MemoryStore(rows);
+    const { runner: precompute } = runner(store);
+
+    const result = await precompute.run({ now: NOW });
+
+    expect(result).toMatchObject({ claimed: 12, published: 12 });
+    expect(store.claimBatches.map((batch) => batch.length)).toEqual([5, 5, 2, 0]);
+    expect(new Set(store.claimOrder).size).toBe(12);
+  });
+
+  it("stops claiming new batches once the time budget is spent", async () => {
+    const rows = Array.from({ length: 12 }, (_, index) =>
+      snapshot(`row-${index}`, "month", "2026-07", { userId: `user-${index}`, status: "pending" })
+    );
+    const store = new MemoryStore(rows);
+    let elapsed = 0;
+    const precompute = createOverviewPrecomputeRunner({
+      store,
+      aggregate: async () => {
+        elapsed += 1_000;
+        return payload();
+      },
+      clock: () => elapsed,
+      timeBudgetMs: 4_000,
+    });
+
+    const result = await precompute.run({ now: NOW });
+
+    // The batch in flight finishes; no new batch starts after the deadline.
+    expect(result.claimed).toBe(5);
+    expect(store.claimBatches).toHaveLength(1);
+  });
+
+  it("does not spin on a deferred finalization within one run", async () => {
+    const ended = snapshot("ended", "month", "2026-06", { status: "pending" });
+    const store = new MemoryStore([ended]);
+    const { aggregate, runner: precompute } = runner(store);
+
+    const result = await precompute.run({ now: NOW });
+
+    expect(result).toMatchObject({ claimed: 1, deferredForLocation: 1 });
+    expect(store.claimBatches).toEqual([["ended"], []]);
+    expect(aggregate).not.toHaveBeenCalled();
+    expect(ended.status).toBe("pending");
+  });
+
+  it("refreshes every active row in one run, then again on the next", async () => {
     const activeRows = ["a", "b", "c", "d", "e", "f"].map((id) =>
       snapshot(id, "month", "2026-07", {
         userId: `user-${id}`,
@@ -275,10 +413,10 @@ describe("overview precompute", () => {
     const { runner: precompute } = runner(store);
 
     await precompute.run({ now: NOW });
-    expect(store.claimedIds).toEqual(["a", "b", "c", "d", "e"]);
+    expect([...store.claimOrder].sort()).toEqual(["a", "b", "c", "d", "e", "f"]);
 
-    await precompute.run({ now: new Date("2026-07-22T03:01:00.000Z") });
-    expect(store.claimedIds[0]).toBe("f");
+    await precompute.run({ now: new Date("2026-07-22T03:05:00.000Z") });
+    expect(store.claimOrder).toHaveLength(12);
   });
 
   it("seeds users in bounded pages", async () => {

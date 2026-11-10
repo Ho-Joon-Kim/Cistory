@@ -200,6 +200,12 @@ export interface SubwayOverlay {
  * every vertex of every line — megabytes of coordinates the client can't
  * even render at that zoom — while a city-level bbox gets an imperceptible
  * tolerance and stays visually exact.
+ *
+ * Lines are also clipped to the bbox and written with 6 decimals (~0.1 m):
+ * a city bbox intersects lines that run far past it, and shipping their whole
+ * length was ~65% of an 880 KB Seoul response. The client already requests a
+ * padded bbox and refetches once the viewport leaves it (SubwayLayer), so the
+ * clipped ends never come into view.
  */
 export async function getSubwayOverlay(
   bbox: [number, number, number, number]
@@ -218,7 +224,16 @@ export async function getSubwayOverlay(
                   THEN (ROW_NUMBER() OVER (PARTITION BY system_id, (colour IS NULL)
                                             ORDER BY ref, name, id) - 1)
                   ELSE 0 END AS fallback_idx,
-             ST_AsGeoJSON(ST_SimplifyPreserveTopology(geometry, ${simplifyTolerance}))::json AS geom
+             ST_AsGeoJSON(
+               ST_CollectionExtract(
+                 ST_ClipByBox2D(
+                   ST_SimplifyPreserveTopology(geometry, ${simplifyTolerance}),
+                   ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
+                 ),
+                 2
+               ),
+               6
+             )::json AS geom
       FROM subway_lines
       WHERE ST_Intersects(
         geometry,

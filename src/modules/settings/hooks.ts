@@ -4,7 +4,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { userErrorMessage } from "@/lib/user-error";
-import { readStoredTheme, themeToApplyFromServer } from "./theme-sync";
+import {
+  isThemePreference,
+  readLastSeenServerTheme,
+  readStoredTheme,
+  themeToApplyFromServer,
+  writeLastSeenServerTheme,
+} from "./theme-sync";
 import type { UserSettings } from "./types";
 
 // Shared with the API route (single response contract) — re-exported so
@@ -35,6 +41,8 @@ export function useSaveThemePreference() {
       })
         .then(async (response) => {
           if (!response.ok) return;
+          // This device wrote it, so it is not "changed elsewhere" on the next load.
+          writeLastSeenServerTheme(theme);
           queryClient.setQueryData(SETTINGS_QUERY_KEY, (await response.json()) as UserSettings);
         })
         .catch(() => {});
@@ -45,8 +53,8 @@ export function useSaveThemePreference() {
 
 /**
  * The user's settings. One shared query (every consumer on the page dedupes to a
- * single GET). The server theme is applied only when this browser has no
- * explicit choice yet — see themeToApplyFromServer.
+ * single GET). The server theme seeds a browser with no explicit choice and is
+ * adopted when another device changed it — see themeToApplyFromServer.
  */
 export function useSettings() {
   const queryClient = useQueryClient();
@@ -67,7 +75,9 @@ export function useSettings() {
 
   const serverTheme = query.data?.theme;
   useEffect(() => {
-    const theme = themeToApplyFromServer(serverTheme, readStoredTheme());
+    if (!isThemePreference(serverTheme)) return;
+    const theme = themeToApplyFromServer(serverTheme, readStoredTheme(), readLastSeenServerTheme());
+    writeLastSeenServerTheme(serverTheme);
     if (theme) setThemeRef.current(theme);
   }, [serverTheme]);
 

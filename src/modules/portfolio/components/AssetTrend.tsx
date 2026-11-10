@@ -9,7 +9,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { AiLine, EmptyState, Segmented, useDismissOnEvidence, useEvidence } from "@/components/ds";
+import {
+  AiLine,
+  EmptyState,
+  LoadingState,
+  panelClass,
+  Segmented,
+  useDismissOnEvidence,
+  useEvidence,
+} from "@/components/ds";
 import {
   formatDateRange,
   formatDay,
@@ -102,7 +110,16 @@ function annBox(a: Annotation, w: number): Box {
   return { x0: a.left, x1: a.left + w, y0: a.top, y1: a.top + ANN_H };
 }
 
-export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashflows: Cashflow[] }) {
+export function AssetTrend({
+  series,
+  cashflows,
+  loading = false,
+}: {
+  series: AssetPoint[];
+  cashflows: Cashflow[];
+  /** Snapshots are still loading: hold the chart's place, don't call it empty. */
+  loading?: boolean;
+}) {
   const [range, setRange] = useState<RangeKey>("30");
   const [hover, setHover] = useState<number | null>(null);
   /** A touch put the crosshair down: it stays after lift until a tap elsewhere. */
@@ -359,7 +376,7 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
   return (
     <section
       aria-labelledby="pf-trend"
-      className="ds-enter mt-8 border-b border-line pb-7 lg:mt-12 lg:pb-12"
+      className={cn(panelClass, "ds-enter mt-8 border-b border-line pb-7 lg:mt-12 lg:pb-12")}
       style={enterStyle(3)}
     >
       <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center lg:justify-between">
@@ -379,7 +396,9 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
         />
       </div>
 
-      {n < 2 ? (
+      {loading ? (
+        <LoadingState variant="block" label="자산 추이 불러오는 중" className="mt-6" />
+      ) : n < 2 ? (
         <EmptyState
           className="mt-6"
           title="추이를 그릴 기록이 아직 부족해요"

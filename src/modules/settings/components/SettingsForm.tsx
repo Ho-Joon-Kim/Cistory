@@ -14,6 +14,7 @@ import {
   LoadingState,
   MetaLine,
   PageTitle,
+  panelClass,
   Segmented,
   SOURCE_ICON_PATHS,
   type SourceIconName,
@@ -176,6 +177,12 @@ function DisclosureRow({
   children: ReactNode;
 }) {
   const panelId = `settings-${id}`;
+  // A closed panel is inert and collapsed, but its body still mounted — so every
+  // card's on-mount fetch (the location dry run alone scans millions of points)
+  // ran on page load for panels nobody opened. Mount on first open, then keep it
+  // mounted so closing animates and the card keeps its state.
+  const [everOpened, setEverOpened] = useState(open);
+  if (open && !everOpened) setEverOpened(true);
   return (
     <div className="scroll-mt-24 border-b border-line" id={`row-${id}`}>
       <button
@@ -211,7 +218,7 @@ function DisclosureRow({
         <Chevron />
       </button>
       <Disclosure open={open} id={panelId}>
-        <div className={cn("pb-5", icon && "pl-11", BARE)}>{children}</div>
+        <div className={cn("pb-5", icon && "pl-11", BARE)}>{everOpened ? children : null}</div>
       </Disclosure>
     </div>
   );
@@ -300,8 +307,15 @@ export function SettingsForm() {
     );
   }
 
-  const connections = buildConnections(settings, views, user?.githubUsername ?? null, now);
+  const connections = buildConnections(
+    settings,
+    views,
+    user?.githubUsername ?? null,
+    now,
+    status.isPending
+  );
   const connectedCount = connections.filter((c) => c.status !== "disconnected").length;
+  const connectionsPending = connections.some((c) => c.pending);
 
   return (
     <>
@@ -311,7 +325,7 @@ export function SettingsForm() {
         meta={
           <MetaLine
             items={[
-              `연결 ${connectedCount}개`,
+              connectionsPending ? null : `연결 ${connectedCount}개`,
               usage.data && usage.data.grandTotalBytes > 0
                 ? `저장 공간 ${formatBytes(usage.data.grandTotalBytes)}`
                 : null,
@@ -331,7 +345,7 @@ export function SettingsForm() {
           side column. The columns are `display: contents` below lg so `order`
           interleaves their sections. Below sm every button and date input on the
           page gets a 44px touch target (the compact `sm` sizes stay on desktop). */}
-      <div className="mt-10 flex flex-col gap-10 max-sm:[&_[data-slot=button]]:min-h-11 max-sm:[&_input[type=date]]:h-11 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
+      <div className="mt-8 flex flex-col max-sm:[&_[data-slot=button]]:min-h-11 max-sm:[&_input[type=date]]:h-11 lg:mt-10 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-16">
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-10">
           <TodoSection
             views={views}
@@ -346,7 +360,7 @@ export function SettingsForm() {
 
           <section
             aria-labelledby="conn"
-            className="ds-enter order-2 flex flex-col [animation-delay:200ms]"
+            className={cn(panelClass, "ds-enter order-2 flex flex-col [animation-delay:200ms]")}
           >
             <SectionTitle id="conn">연결</SectionTitle>
             {connections.map((c) => (
@@ -357,7 +371,13 @@ export function SettingsForm() {
                 title={c.name}
                 meta={c.meta}
                 metaTone={c.status === "reauth" || c.status === "delayed" ? "warn" : "ink3"}
-                badge={<StatusBadge status={c.status} />}
+                badge={
+                  c.pending ? (
+                    <span aria-hidden="true" className="block h-5 w-12 rounded-full bg-track" />
+                  ) : (
+                    <StatusBadge status={c.status} />
+                  )
+                }
                 open={!!open[c.id]}
                 onToggle={toggle(c.id)}
               >
@@ -368,7 +388,7 @@ export function SettingsForm() {
 
           <section
             aria-labelledby="more"
-            className="ds-enter order-4 flex flex-col [animation-delay:300ms]"
+            className={cn(panelClass, "ds-enter order-4 flex flex-col [animation-delay:300ms]")}
           >
             <SectionTitle id="more">관리</SectionTitle>
             <DisclosureRow
@@ -658,7 +678,7 @@ function TodoSection({
   return (
     <section
       aria-labelledby="todo"
-      className="ds-enter order-1 flex flex-col [animation-delay:100ms]"
+      className={cn(panelClass, "ds-enter order-1 flex flex-col [animation-delay:100ms]")}
     >
       <SectionTitle id="todo">
         확인할 것{" "}
@@ -745,6 +765,8 @@ interface Connection {
   name: string;
   icon: SourceIconName;
   status: SourceStatus;
+  /** The status comes from /api/data-status, which hasn't answered yet. */
+  pending?: boolean;
   meta: string;
   body: (
     settings: UserSettings,
@@ -763,7 +785,8 @@ function buildConnections(
   settings: UserSettings,
   views: Map<SourceId, SourceView>,
   githubUsername: string | null,
-  now: Date
+  now: Date,
+  statusPending = false
 ): Connection[] {
   const st = (id: SourceId, connected: boolean): SourceStatus =>
     !connected ? "disconnected" : (views.get(id)?.status ?? "ok");
@@ -907,7 +930,14 @@ function buildConnections(
       name: "한국투자증권",
       icon: "kis",
       status: kis?.status ?? "disconnected",
-      meta: kis?.source.connected ? join("계좌 연결됨", lastText(kis, now)) : "계좌 없음",
+      // KIS has no settings flag: only the status response knows if an account
+      // is linked, so "계좌 없음" must wait for it.
+      pending: statusPending && !kis,
+      meta: kis?.source.connected
+        ? join("계좌 연결됨", lastText(kis, now))
+        : statusPending
+          ? "확인 중…"
+          : "계좌 없음",
       body: () => <KISAccountSettingsCard />,
     },
   ];
@@ -1035,7 +1065,10 @@ function StorageSection({
   return (
     <section
       aria-labelledby="store"
-      className="ds-enter order-3 flex flex-col [animation-delay:300ms]"
+      className={cn(
+        panelClass,
+        "ds-enter order-3 mt-3 flex flex-col [animation-delay:300ms] lg:mt-0"
+      )}
     >
       <div className="flex items-baseline justify-between gap-3">
         <SectionTitle id="store">저장 공간</SectionTitle>
@@ -1232,7 +1265,7 @@ function DangerZone({
   return (
     <section
       aria-labelledby="danger"
-      className="ds-enter order-5 flex flex-col [animation-delay:400ms]"
+      className={cn(panelClass, "ds-enter order-5 flex flex-col [animation-delay:400ms]")}
     >
       <SectionTitle id="danger">위험 구역</SectionTitle>
       <p className="m-0 mb-3.5 text-[13px] leading-5 text-ink-3">

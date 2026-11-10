@@ -1,6 +1,6 @@
 "use client";
 
-import { AiLine, CountUp, FactTrigger, HeroNumber } from "@/components/ds";
+import { AiLine, CountUp, FactTrigger, HeroNumber, panelClass } from "@/components/ds";
 import { renderTemplate } from "@/lib/facts/template";
 import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatDay, formatReturn, formatWon } from "@/lib/format";
@@ -98,7 +98,10 @@ export function PortfolioHero({
   return (
     <section
       aria-label="총자산"
-      className="ds-enter mt-7 grid grid-cols-1 border-b border-line pb-7 lg:mt-10 lg:grid-cols-12 lg:gap-x-6 lg:pb-12"
+      className={cn(
+        panelClass,
+        "ds-enter mt-7 grid grid-cols-1 border-b border-line pb-7 lg:mt-10 lg:grid-cols-12 lg:gap-x-6 lg:pb-12"
+      )}
       style={enterStyle(1)}
     >
       <div className="flex min-w-0 flex-col lg:col-span-7">

@@ -290,7 +290,7 @@ export function useTransactionsForDate(date: string) {
   const query = useQuery(transactionsForDateOptions(session?.session.id, date));
   return {
     transactions: query.data ?? [],
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     error: query.error ? dayErrorMessage(query.error, "거래 내역을 불러오지 못했어요.") : null,
     refresh: () => {
       void query.refetch();
@@ -305,8 +305,10 @@ export async function startInitialSync() {
 
 // --- Commits for a single KST day (the /dashboard day view) ---
 
-/** Pages fetched per day at most (50 per page — the API cap): 1,000 commits. */
-const DAY_COMMIT_PAGE_LIMIT = 20;
+/** Commits per request — the API cap, so an ordinary day is one round trip. */
+const DAY_COMMIT_PAGE_SIZE = 200;
+/** Pages fetched per day at most: 1,000 commits. */
+const DAY_COMMIT_PAGE_LIMIT = 5;
 
 interface TimelinePage {
   commits: TimelineCommit[];
@@ -327,7 +329,7 @@ export function dayCommitsOptions(sessionId: string | undefined, date: string) {
       for (let page = 1; page <= DAY_COMMIT_PAGE_LIMIT; page++) {
         const params = new URLSearchParams({
           page: String(page),
-          per_page: "50",
+          per_page: String(DAY_COMMIT_PAGE_SIZE),
           from: date,
           to: date,
         });
@@ -350,7 +352,7 @@ export function useDayCommits(date: string) {
   const query = useQuery(dayCommitsOptions(session?.session.id, date));
   return {
     commits: query.data ?? [],
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     error: query.error ? dayErrorMessage(query.error, "커밋을 불러오지 못했어요.") : null,
     refresh: () => {
       void query.refetch();

@@ -1,6 +1,6 @@
 "use client";
 
-import { AiLine, useEvidence } from "@/components/ds";
+import { AiLine, panelClass, useEvidence } from "@/components/ds";
 import type { Fact } from "@/lib/facts/types";
 import { formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -151,7 +151,11 @@ export function TargetDrift({
   return (
     <section
       aria-labelledby={`pf-drift-${accountId}`}
-      className={cn("ds-enter pb-8 lg:pb-12", following ? "mt-2 lg:mt-2" : "mt-10 lg:mt-14")}
+      className={cn(
+        panelClass,
+        "ds-enter pb-8 lg:pb-12",
+        following ? "mt-2 lg:mt-2" : "mt-10 lg:mt-14"
+      )}
       style={enterStyle(4)}
     >
       <div id={`pf-drift-${accountId}`}>

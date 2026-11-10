@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { RouteDay } from "../detail-model";
+import { legEndName, toward } from "../sketch-focus";
 
 export interface SketchLabel {
   key: string;
@@ -114,39 +115,45 @@ function overlaps(a: Rect, b: Rect, gap: number): boolean {
   );
 }
 
-/** Whether a segment passes through (or ends inside) a rect, padded by 1.5px for the stroke. */
-export function crosses([a, b]: Segment, r: Rect): boolean {
-  const pad = 1.5;
-  const x0 = r.x - pad;
-  const x1 = r.x + r.w + pad;
-  const y0 = r.y - pad;
-  const y1 = r.y + r.h + pad;
-  // Liang–Barsky clip of the segment against the rect.
+/** Liang–Barsky parameters [enter, exit] of a segment inside a rect, or null when it misses. */
+function clipParams(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  r: Rect
+): [number, number] | null {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   let t0 = 0;
   let t1 = 1;
   const edges: [number, number][] = [
-    [-dx, a.x - x0],
-    [dx, x1 - a.x],
-    [-dy, a.y - y0],
-    [dy, y1 - a.y],
+    [-dx, a.x - r.x],
+    [dx, r.x + r.w - a.x],
+    [-dy, a.y - r.y],
+    [dy, r.y + r.h - a.y],
   ];
   for (const [p, q] of edges) {
     if (p === 0) {
-      if (q < 0) return false;
+      if (q < 0) return null;
       continue;
     }
     const t = q / p;
     if (p < 0) {
-      if (t > t1) return false;
+      if (t > t1) return null;
       if (t > t0) t0 = t;
     } else {
-      if (t < t0) return false;
+      if (t < t0) return null;
       if (t < t1) t1 = t;
     }
   }
-  return t0 <= t1;
+  return [t0, t1];
+}
+
+/** Whether a segment passes through (or ends inside) a rect, padded by 1.5px for the stroke. */
+export function crosses([a, b]: Segment, r: Rect): boolean {
+  const pad = 1.5;
+  return (
+    clipParams(a, b, { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 }) !== null
+  );
 }
 
 type Spot = { tx: number; ty: number; anchor: "start" | "end" | "middle"; rect: Rect };
@@ -202,6 +209,132 @@ export function placeCallout(
   };
 }
 
+function inRect(p: { x: number; y: number }, r: Rect): boolean {
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+}
+
+export interface EdgeCue {
+  x: number;
+  y: number;
+  /** Direction of travel at the edge, degrees (0 = east, 90 = south). */
+  angle: number;
+}
+
+/**
+ * Where to point at a leg's far end (where the way out started, where the way
+ * back ended) from a focused sketch: the spot on the frame (inset by `inset`)
+ * in that end's direction from the centre, the arrow pointing in for the way
+ * out and out for the way back. Points along the edge are skipped past the
+ * cues already placed (`taken`), so two legs to one city don't stack. Null
+ * when the far end is inside the frame (the leg never leaves it).
+ */
+export function edgeCue(
+  far: { x: number; y: number },
+  role: "out" | "back",
+  width: number,
+  height: number,
+  inset: number,
+  taken: readonly EdgeCue[] = []
+): EdgeCue | null {
+  const r: Rect = { x: inset, y: inset, w: width - inset * 2, h: height - inset * 2 };
+  if (inRect(far, r)) return null;
+  const c = { x: width / 2, y: height / 2 };
+  const t = clipParams(c, far, r);
+  if (!t) return null;
+  const ray = Math.atan2(far.y - c.y, far.x - c.x);
+  let x = c.x + (far.x - c.x) * t[1];
+  let y = c.y + (far.y - c.y) * t[1];
+  // Slide along the edge the cue sits on, away from cues already there.
+  const vertical = Math.abs(x - r.x) < 0.5 || Math.abs(x - (r.x + r.w)) < 0.5;
+  for (let i = 0; i < 3 && taken.some((o) => Math.hypot(o.x - x, o.y - y) < 26); i++) {
+    if (vertical) y = y + 26 <= r.y + r.h ? y + 26 : y - 52;
+    else x = x + 26 <= r.x + r.w ? x + 26 : x - 52;
+  }
+  const deg = (ray * 180) / Math.PI;
+  return { x, y, angle: role === "out" ? deg + 180 : deg };
+}
+
+/**
+ * The rect for a cue's place name: a step inward from the arrow toward the
+ * frame centre, anchored to the near side, nudged along the edge until it
+ * clears the labels (`cost` null) and preferably every route line (cost 0).
+ */
+export function placeCueText(
+  cue: { x: number; y: number },
+  w: number,
+  width: number,
+  height: number,
+  cost: (r: Rect) => number | null
+): Rect | null {
+  const toCenter = Math.atan2(height / 2 - cue.y, width / 2 - cue.x);
+  const cx = cue.x + Math.cos(toCenter) * 18;
+  const cy = cue.y + Math.sin(toCenter) * 18;
+  const left = cue.x < width / 3 ? cx : cue.x > (width * 2) / 3 ? cx - w : cx - w / 2;
+  const x = Math.max(4, Math.min(width - 4 - w, left));
+  const free = [0, 16, -16, 32, -32]
+    .map((dy) => ({ x, y: Math.max(2, Math.min(height - 16, cy - 7 + dy)), w, h: 14 }))
+    .map((r) => ({ r, c: cost(r) }))
+    .filter((x): x is { r: Rect; c: number } => x.c !== null);
+  return (free.find((x) => x.c === 0) ?? free[0])?.r ?? null;
+}
+
+interface LegCue {
+  day: string;
+  role: "out" | "back";
+  cue: EdgeCue;
+  text: { value: string; x: number; y: number } | null;
+}
+
+/**
+ * One marker per spot (two saved places a few px apart read as one blob).
+ * Labels arrive in priority order (home first), so the earlier one names it.
+ * A focused sketch (`frame` given) drops the labels its frame cut off.
+ */
+function placeMarkers(
+  labels: SketchLabel[],
+  project: (p: Point) => { x: number; y: number },
+  frame: { width: number; height: number } | null
+): { label: SketchLabel; x: number; y: number }[] {
+  const markers: { label: SketchLabel; x: number; y: number }[] = [];
+  for (const label of labels) {
+    const { x, y } = project(label);
+    const cut = frame && (x < 8 || x > frame.width - 8 || y < 8 || y > frame.height - 8);
+    if (cut || markers.some((m) => Math.hypot(m.x - x, m.y - y) < 10)) continue;
+    markers.push({ label, x, y });
+  }
+  return markers;
+}
+
+/** Edge cues for the ways out and back that run off a focused sketch. */
+function legCues(
+  days: RouteDay[],
+  project: (p: Point) => { x: number; y: number },
+  width: number,
+  height: number,
+  textOf: (role: "out" | "back", end: Point) => string | null,
+  place: (cue: EdgeCue, w: number) => Rect | null
+): LegCue[] {
+  const cues: LegCue[] = [];
+  for (const day of days) {
+    if (day.role === "middle") continue;
+    const end = day.role === "out" ? day.points[0] : day.points[day.points.length - 1];
+    const cue = edgeCue(
+      project(end),
+      day.role,
+      width,
+      height,
+      14,
+      cues.map((q) => q.cue)
+    );
+    if (!cue) continue;
+    const value = textOf(day.role, end);
+    const spot = place(cue, value ? textWidth(value, 11) : 0);
+    const text = value && spot ? { value, x: spot.x, y: spot.y + 11 } : null;
+    cues.push({ day: day.day, role: day.role, cue, text });
+  }
+  return cues;
+}
+
 const STROKE: Record<RouteDay["role"], { color: string; width: number; dash?: string }> = {
   out: { color: "var(--place)", width: 2.5 },
   back: { color: "var(--ink2)", width: 2, dash: "5 4" },
@@ -212,12 +345,17 @@ const STROKE: Record<RouteDay["role"], { color: string; width: number; dash?: st
  * The trip route drawn as a quiet SVG sketch (no tiles): the way out solid in
  * the place color, the way back dashed, days in between in the health color,
  * key stays labelled, and the hero day's walk called out.
+ *
+ * With `focus` (see sketchFocus) the projection fits those points instead of
+ * the whole route: long ways out and back run off the frame and end in an edge
+ * arrow naming where they come from or go to, and off-frame labels drop out.
  */
 export function TripRouteSketch({
   days,
   labels,
   references = [],
   highlight,
+  focus = null,
   minHeight = 360,
   maxHeight = 680,
   ariaLabel,
@@ -226,6 +364,8 @@ export function TripRouteSketch({
   labels: SketchLabel[];
   references?: readonly SketchReference[];
   highlight?: SketchHighlight | null;
+  /** Points to fit instead of the whole route (the destination of a long-haul trip). */
+  focus?: readonly Point[] | null;
   minHeight?: number;
   maxHeight?: number;
   ariaLabel: string;
@@ -239,8 +379,10 @@ export function TripRouteSketch({
       </div>
     );
   }
-  const height = sketchHeight(all, width, minHeight, maxHeight);
-  const project = fitProjection(all, width, height, 40);
+  const focused = (focus?.length ?? 0) >= 2;
+  const fit = focused ? [...(focus ?? [])] : all;
+  const height = sketchHeight(fit, width, minHeight, maxHeight);
+  const project = fitProjection(fit, width, height, 40);
   // Route polylines in screen space: labels are placed off them, not just off
   // each other, so no route line strikes through a name.
   const segments: Segment[] = days.flatMap((day) => {
@@ -251,17 +393,33 @@ export function TripRouteSketch({
   const hitsLabel = (r: Rect, own?: Rect) => placed.some((p) => p !== own && overlaps(p, r, 3));
   const routeHits = (r: Rect) => segments.reduce((n, sg) => n + (crosses(sg, r) ? 1 : 0), 0);
 
-  // Markers: one per spot (two saved places a few px apart read as one blob).
-  // Labels arrive in priority order (home first), so the earlier one names it.
-  const markers: { label: SketchLabel; x: number; y: number }[] = [];
-  for (const label of labels) {
-    const { x, y } = project(label);
-    if (markers.some((m) => Math.hypot(m.x - x, m.y - y) < 10)) continue;
-    markers.push({ label, x, y });
-  }
+  const markers = placeMarkers(labels, project, focused ? { width, height } : null);
   // Marker discs and the highlight callout are obstacles for every label.
   const discs = markers.map((m) => discRect(m.x, m.y));
   placed.push(...discs);
+
+  // Clipped ways out and back: an arrow where they cross the frame and the
+  // place they come from or go to, set inward from it, clear of the other cue.
+  const cues = focused
+    ? legCues(
+        days,
+        project,
+        width,
+        height,
+        (role, end) => {
+          const name = legEndName(end, labels, references);
+          return name ? (role === "out" ? `${name}에서` : toward(name)) : null;
+        },
+        (cue, w) => {
+          placed.push(discRect(cue.x, cue.y));
+          const spot = placeCueText(cue, w, width, height, (r) =>
+            hitsLabel(r) ? null : routeHits(r)
+          );
+          if (spot) placed.push(spot);
+          return spot;
+        }
+      )
+    : [];
   const hl = highlight ? project(highlight) : null;
   const callout = hl && highlight ? placeCallout(hl, highlight, width, height) : null;
   if (hl) placed.push(discRect(hl.x, hl.y));
@@ -347,6 +505,32 @@ export function TripRouteSketch({
               strokeLinejoin="round"
               strokeLinecap="round"
             />
+          );
+        })}
+        {cues.map(({ day, role, cue, text }) => {
+          const s = STROKE[role];
+          return (
+            <g key={`cue-${day}`} data-cue={role}>
+              <path
+                d="M5 0 L-4 -4.5 L-4 4.5 Z"
+                transform={`translate(${cue.x.toFixed(1)} ${cue.y.toFixed(1)}) rotate(${cue.angle.toFixed(1)})`}
+                fill={s.color}
+                stroke="var(--sunken)"
+                strokeWidth={1.5}
+                strokeLinejoin="round"
+                style={{ paintOrder: "stroke" }}
+              />
+              {text ? (
+                <text
+                  x={text.x}
+                  y={text.y}
+                  className="fill-ink-2 text-[11px]"
+                  style={{ paintOrder: "stroke", stroke: "var(--sunken)", strokeWidth: 3 }}
+                >
+                  {text.value}
+                </text>
+              ) : null}
+            </g>
           );
         })}
         {refs.map(({ r, x, y }) => (

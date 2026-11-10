@@ -81,6 +81,12 @@ export default function RootLayout({
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
+          // Production sits behind Cloudflare with Rocket Loader on, which rewrites
+          // every inline <script> to a deferred type and runs it only after `load`
+          // — the first frame painted light and flipped to dark ~100 ms later.
+          // `data-cfasync="false"` is Rocket Loader's per-script opt-out, so the
+          // stored theme lands on <html> before the first paint again.
+          scriptProps={{ "data-cfasync": "false" }}
         >
           <QueryProvider>{children}</QueryProvider>
           <Toaster />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OverviewSnapshotDomains, OverviewSnapshotResponse } from "./service";
-import { shouldShowOverviewFailure } from "./view-state";
+import { historyRefreshToken, overviewBodyReady, shouldShowOverviewFailure } from "./view-state";
 
 const successfulDomain = {
   data: {},
@@ -52,5 +52,64 @@ describe("overview failure presentation", () => {
         })
       )
     ).toBe(false);
+  });
+
+  it("does not flag old failures on a stale snapshot that is already recomputing", () => {
+    expect(
+      shouldShowOverviewFailure({
+        status: "pending",
+        stale: true,
+        periodType: "month",
+        periodKey: "2026-07",
+        computedAt: "2026-07-22T00:00:00.000Z",
+        domains: {
+          coding: {
+            ...successfulDomain,
+            data: null,
+            status: "failed",
+          } as OverviewSnapshotDomains["coding"],
+          location: null,
+          health: null,
+          spending: null,
+          portfolio: null,
+        },
+      })
+    ).toBe(false);
+  });
+});
+
+describe("historyRefreshToken", () => {
+  it("does not refetch history when the snapshot was ready on load", () => {
+    // Regression: null → computedAt on the first response fired a second, serial
+    // history request that always landed after the hero.
+    expect(historyRefreshToken(false, "2026-11-10T04:50:00.000Z")).toBeNull();
+  });
+
+  it("refetches once a pending snapshot is published while the page is open", () => {
+    expect(historyRefreshToken(true, null)).toBeNull();
+    expect(historyRefreshToken(true, "2026-11-10T04:50:00.000Z")).toBe("2026-11-10T04:50:00.000Z");
+  });
+});
+
+describe("overviewBodyReady", () => {
+  it("waits for the snapshot", () => {
+    expect(
+      overviewBodyReady({ snapshotReady: false, historySettled: true, graceElapsed: true })
+    ).toBe(false);
+  });
+
+  it("holds the hero briefly for history so comparisons don't pop in", () => {
+    expect(
+      overviewBodyReady({ snapshotReady: true, historySettled: false, graceElapsed: false })
+    ).toBe(false);
+    expect(
+      overviewBodyReady({ snapshotReady: true, historySettled: true, graceElapsed: false })
+    ).toBe(true);
+  });
+
+  it("never lets a slow history request block the hero past the grace period", () => {
+    expect(
+      overviewBodyReady({ snapshotReady: true, historySettled: false, graceElapsed: true })
+    ).toBe(true);
   });
 });

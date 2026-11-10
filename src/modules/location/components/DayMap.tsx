@@ -12,7 +12,7 @@ import { SubwayLayer } from "@/components/map/SubwayLayer";
 import { formatTime } from "@/lib/format";
 import { MAPBOX_PRIVACY_OPTIONS } from "@/lib/mapbox-options";
 import { cn } from "@/lib/utils";
-import { cameraDuration } from "../camera";
+import { boundsKey, boundsOf, cameraDuration, type LngLatBounds } from "../camera";
 import type { LocationData, StayPointData } from "../hooks";
 import { useRouteReplay } from "../hooks/useRouteReplay";
 import { markerA11yRef } from "./marker-a11y";
@@ -32,6 +32,8 @@ function clockOf(minutes: number): string {
 }
 
 const SEOUL = { longitude: 126.978, latitude: 37.5665 };
+/** Closest the day (or a selected ride) is framed. */
+const FIT_MAX_ZOOM = 15.5;
 
 export interface MapStay {
   id: string;
@@ -161,6 +163,7 @@ export function DayMap({
   className,
   padding = 56,
   loadError,
+  isLoading = false,
 }: {
   date: string;
   locations: LocationData[];
@@ -178,6 +181,8 @@ export function DayMap({
    * has no records.
    */
   loadError?: { message: string; onRetry: () => void } | null;
+  /** The day's locations are still loading: not "no records" yet. */
+  isLoading?: boolean;
 }) {
   const { resolvedTheme } = useTheme();
   const mapRef = useRef<MapRef>(null);
@@ -310,13 +315,20 @@ export function DayMap({
 
   // Keep the canvas the size of its frame: a viewport resize or rotation that
   // changes the container without a window resize event (grid reflow) would
-  // otherwise leave a blank band and a clipped route.
+  // otherwise leave a blank band and a clipped route. The observer's first
+  // report is the size the map already has, so only a real change re-frames.
   const frameRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const el = frameRef.current;
     if (!el || !loaded || typeof ResizeObserver === "undefined") return;
     let frame = 0;
-    const observer = new ResizeObserver(() => {
+    let size = "";
+    const observer = new ResizeObserver(([entry]) => {
+      const next = `${Math.round(entry.contentRect.width)}x${Math.round(entry.contentRect.height)}`;
+      const first = size === "";
+      if (next === size) return;
+      size = next;
+      if (first) return;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         mapRef.current?.getMap().resize();
@@ -331,27 +343,24 @@ export function DayMap({
     };
   }, [loaded]);
 
+  const dayBounds = useMemo<LngLatBounds | null>(
+    () =>
+      boundsOf([
+        ...routes.flatMap((r) => r.coords),
+        ...stays.map((s) => [s.lon, s.lat] as [number, number]),
+      ]),
+    [routes, stays]
+  );
+  const dayKey = isLoading ? null : boundsKey(date, dayBounds);
+
   const fitDay = useCallback(
     (duration: number) => {
       const map = mapRef.current;
-      if (!map) return false;
-      const pts: [number, number][] = [
-        ...routes.flatMap((r) => r.coords),
-        ...stays.map((s) => [s.lon, s.lat] as [number, number]),
-      ];
-      if (pts.length === 0) return false;
-      const lons = pts.map((p) => p[0]);
-      const lats = pts.map((p) => p[1]);
-      map.fitBounds(
-        [
-          [Math.min(...lons), Math.min(...lats)],
-          [Math.max(...lons), Math.max(...lats)],
-        ],
-        { padding, maxZoom: 15.5, duration }
-      );
+      if (!map || !dayBounds) return false;
+      map.fitBounds(dayBounds, { padding, maxZoom: FIT_MAX_ZOOM, duration });
       return true;
     },
-    [routes, stays, padding]
+    [dayBounds, padding]
   );
 
   const fitDayRef = useRef(fitDay);
@@ -359,14 +368,25 @@ export function DayMap({
   const selectionRef = useRef(selectedMapId);
   selectionRef.current = selectedMapId;
 
-  // Fit the day once its data arrives (and again on a new date).
-  const fittedFor = useRef<string | null>(null);
+  // The first camera. Coming back to a day already in the query cache, the map
+  // is created (or, with reuseMaps, re-attached) straight onto the day's
+  // bounds; it used to open on the default centre and jump once the refetch
+  // landed. Read once: later framing goes through the fit below.
+  const [initialViewState] = useState(() =>
+    dayKey && dayBounds
+      ? { bounds: dayBounds, fitBoundsOptions: { padding, maxZoom: FIT_MAX_ZOOM } }
+      : { ...(initialCenter ?? SEOUL), zoom: 12 }
+  );
+
+  // Fit the day once all of its map sources have settled, and again only when
+  // its bounds actually change (a new date, a ride that widens today's box) —
+  // never for a refetch that brought the same day back.
+  const fittedFor = useRef<string | null>(dayKey);
   useEffect(() => {
-    if (!mapRef.current || !loaded) return;
-    const key = `${date}:${routes.length}:${stays.length}`;
-    if (fittedFor.current === key) return;
-    if (fitDay(0)) fittedFor.current = key;
-  }, [date, loaded, routes.length, stays.length, fitDay]);
+    if (!mapRef.current || !loaded || !dayKey) return;
+    if (fittedFor.current === dayKey) return;
+    if (fitDay(0)) fittedFor.current = dayKey;
+  }, [dayKey, loaded, fitDay]);
 
   // Zoom to a selection (a place close enough to read among its neighbours, a
   // ride fitted whole); clearing the selection returns to the whole day.
@@ -398,7 +418,7 @@ export function DayMap({
           [Math.min(...lons), Math.min(...lats)],
           [Math.max(...lons), Math.max(...lats)],
         ],
-        { padding, maxZoom: 15.5, duration: cameraDuration(700) }
+        { padding, maxZoom: FIT_MAX_ZOOM, duration: cameraDuration(700) }
       );
     }
   }, [selectedMapId, loaded, stays, routes, padding, fitDay]);
@@ -486,7 +506,6 @@ export function DayMap({
   }, [palette, replayOn]);
 
   const mapStyle = resolvedTheme === "dark" ? DARK_STYLE : LIGHT_STYLE;
-  const center = initialCenter ?? SEOUL;
 
   if (!MAPBOX_TOKEN || !resolvedTheme) {
     return (
@@ -506,7 +525,7 @@ export function DayMap({
     );
   }
 
-  const noData = loaded && locations.length === 0 && stays.length === 0;
+  const noData = loaded && !isLoading && locations.length === 0 && stays.length === 0;
 
   return (
     <section
@@ -518,7 +537,7 @@ export function DayMap({
         ref={mapRef}
         id="day-map"
         mapboxAccessToken={MAPBOX_TOKEN}
-        initialViewState={{ ...center, zoom: 12 }}
+        initialViewState={initialViewState}
         mapStyle={mapStyle}
         fadeDuration={0}
         attributionControl={false}

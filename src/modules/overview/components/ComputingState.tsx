@@ -1,4 +1,5 @@
 import { ErrorState, LoadingState } from "@/components/ds";
+import { cn } from "@/lib/utils";
 
 interface ComputingStateProps {
   status: "loading" | "pending" | "computing" | "failed";
@@ -42,5 +43,25 @@ export function ComputingState({ status, error, onRecompute }: ComputingStatePro
         <LoadingState label={label} className="hidden lg:flex" />
       </div>
     </div>
+  );
+}
+
+/**
+ * Inline note beside the period meta while a stale snapshot recomputes. The page
+ * keeps showing the last computed numbers; this only says fresher ones are coming.
+ */
+export function UpdatingNote({ className }: { className?: string }) {
+  return (
+    <output
+      aria-live="polite"
+      data-testid="overview-updating"
+      className={cn(
+        "ds-reveal inline-flex items-center gap-1.5 whitespace-nowrap text-ink-2",
+        className
+      )}
+    >
+      <span aria-hidden="true" className="size-1.5 flex-none animate-pulse rounded-full bg-brand" />
+      최신 기록으로 업데이트하고 있어요
+    </output>
   );
 }

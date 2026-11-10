@@ -10,7 +10,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { CountUp, Disclosure, EvidenceScope, isMonoFactValue, useEvidence } from "@/components/ds";
+import {
+  CountUp,
+  Disclosure,
+  EvidenceScope,
+  isMonoFactValue,
+  panelClass,
+  useEvidence,
+} from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import {
   formatCount,
@@ -45,6 +52,7 @@ import type { TravelRoute, TravelTripDetail } from "../hooks";
 import { dayCount, destinationOf, isSpendingRecorded, stayLabel } from "../list-model";
 import { REFERENCE_CITIES } from "../reference-cities";
 import { isRoutinePlace } from "../routine-places";
+import { sketchFocus } from "../sketch-focus";
 import { Chevron, DotList, enter, Fig, InsightLine, Pill } from "./parts";
 import { TripMenu } from "./TripMenu";
 import { TripRouteSketch, WalkSketch } from "./TripRouteSketch";
@@ -258,7 +266,12 @@ function HeroDayPanel({ hero, route }: { hero: HeroDay; route: TravelRoute }) {
         .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
     : [];
   return (
-    <div className="grid min-w-0 gap-6 border-line sm:grid-cols-[minmax(0,1fr)_200px] sm:gap-8 lg:col-span-7 lg:border-l lg:pl-8">
+    <div
+      className={cn(
+        panelClass,
+        "grid min-w-0 gap-6 border-line sm:grid-cols-[minmax(0,1fr)_200px] sm:gap-8 lg:col-span-7 lg:border-l lg:pl-8"
+      )}
+    >
       <div className="flex min-w-0 flex-col gap-3">
         <span className="text-label flex items-center gap-1.5">
           <span aria-hidden="true" className="size-1.5 rounded-full bg-health" />
@@ -349,13 +362,17 @@ function Hero({
   return (
     <div
       className={cn(
-        "mt-8 grid grid-cols-[minmax(0,1fr)] gap-8 border-b border-line pb-8 lg:grid-cols-12 lg:gap-x-6",
+        "mt-8 grid grid-cols-[minmax(0,1fr)] lg:grid-cols-12 lg:gap-8 lg:gap-x-6 lg:border-b lg:border-line lg:pb-8",
         enter(1).className
       )}
       style={enter(1).style}
     >
       <div
-        className={cn("flex min-w-0 flex-col gap-2.5", hero ? "lg:col-span-5" : "lg:col-span-12")}
+        className={cn(
+          panelClass,
+          "flex min-w-0 flex-col gap-2.5",
+          hero ? "lg:col-span-5" : "lg:col-span-12"
+        )}
       >
         <span className="text-label">이동 거리</span>
         {trip.totalDistanceMeters != null ? (
@@ -520,7 +537,10 @@ function ItineraryList({
   hero: HeroDay | null;
 }) {
   return (
-    <section aria-labelledby="trip-plan-h" className="flex max-w-[640px] flex-col">
+    <section
+      aria-labelledby="trip-plan-h"
+      className={cn(panelClass, "flex max-w-[640px] flex-col")}
+    >
       <div className="flex items-baseline justify-between pb-2">
         <h2 id="trip-plan-h" className={H3}>
           일정
@@ -592,7 +612,7 @@ function SpendingSection({ detail }: { detail: TravelTripDetail }) {
   const view = spendingView(detail);
   const recorded = isSpendingRecorded(detail.trip, detail.spendingSince);
   return (
-    <section aria-labelledby="trip-spend-h" className="flex flex-col gap-3.5">
+    <section aria-labelledby="trip-spend-h" className={cn(panelClass, "flex flex-col gap-3.5")}>
       <h2 id="trip-spend-h" className={H3}>
         지출
       </h2>
@@ -871,7 +891,10 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
   const hotIndex = heroDay ? table.days.indexOf(heroDay) : -1;
   const dayPx = tableWidth > 0 ? dayColPx(tableWidth, table.days.length) : null;
   return (
-    <section aria-labelledby="trip-health-h" className="flex max-w-[640px] flex-col gap-3.5">
+    <section
+      aria-labelledby="trip-health-h"
+      className={cn(panelClass, "flex max-w-[640px] flex-col gap-3.5")}
+    >
       <h2 id="trip-health-h" className={H3}>
         건강
       </h2>
@@ -1112,6 +1135,7 @@ export function TravelDetailView({
   const hero = pickHeroDay(detail, itinerary.runs);
   const routeDays = routeByDay(route.points, detail.trip.startDate, detail.trip.endDate);
   const labels = mapLabels(detail);
+  const focus = sketchFocus(routeDays, detail.visits, labels);
   const run = hero?.run;
   const highlight =
     run && hero
@@ -1140,18 +1164,19 @@ export function TravelDetailView({
       <Hero detail={detail} hero={hero} route={route} />
       <div
         className={cn(
-          "mt-10 grid items-start gap-14 lg:grid-cols-12 lg:gap-x-6",
+          "mt-3 grid items-start gap-3 lg:mt-10 lg:grid-cols-12 lg:gap-14 lg:gap-x-6",
           enter(2).className
         )}
         style={enter(2).style}
       >
-        <div className="flex min-w-0 flex-col gap-14 lg:col-span-5">
+        <div className="flex min-w-0 flex-col gap-3 lg:col-span-5 lg:gap-14">
           <figure className="m-0 flex flex-col gap-2.5">
             <TripRouteSketch
               days={routeDays}
               labels={labels}
               references={REFERENCE_CITIES}
               highlight={highlight}
+              focus={focus}
               ariaLabel={`여행 경로 지도: ${detail.trip.name}`}
             />
             <figcaption className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-2">
@@ -1197,7 +1222,7 @@ export function TravelDetailView({
             <SpendingSection detail={detail} />
           </div>
         </div>
-        <div className="flex min-w-0 flex-col gap-14 lg:col-span-7 lg:pl-6">
+        <div className="flex min-w-0 flex-col gap-3 lg:col-span-7 lg:gap-14 lg:pl-6">
           <ItineraryList days={itinerary.days} skipped={itinerary.skippedRoutine} hero={hero} />
           <div className="lg:hidden">
             <SpendingSection detail={detail} />
@@ -1205,7 +1230,10 @@ export function TravelDetailView({
           <HealthSection detail={detail} hero={hero} />
         </div>
       </div>
-      <div className={cn("mt-12 border-t border-line", enter(3).className)} style={enter(3).style}>
+      <div
+        className={cn(panelClass, "mt-3 lg:mt-12 lg:border-t lg:border-line", enter(3).className)}
+        style={enter(3).style}
+      >
         <TransportDisclosure detail={detail} />
         <RoutineDisclosure detail={detail} hero={hero} />
       </div>

@@ -158,7 +158,10 @@ export function useSnapshots(params: { from?: string; to?: string; accountId?: s
       .then((r) => r.json())
       .then((data) => setSnapshots(data.snapshots ?? []))
       .catch(() => undefined)
-      .finally(() => setIsLoading(false));
+      // An aborted request (params changed) must not end the new one's loading.
+      .finally(() => {
+        if (!ctrl.signal.aborted) setIsLoading(false);
+      });
 
     return () => ctrl.abort();
   }, [params.from, params.to, params.accountId]);

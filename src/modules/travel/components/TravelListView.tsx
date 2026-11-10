@@ -10,6 +10,7 @@ import {
   ErrorState,
   EvidenceScope,
   LoadingState,
+  panelClass,
   useEvidence,
 } from "@/components/ds";
 import { Button } from "@/components/ui/button";
@@ -88,7 +89,7 @@ function YearHero({
   return (
     <section
       aria-label={`${y.year}년 요약`}
-      className={cn("mt-8 flex flex-col gap-4 lg:mt-12", enter(1).className)}
+      className={cn(panelClass, "mt-8 flex flex-col gap-4 lg:mt-12", enter(1).className)}
       style={enter(1).style}
     >
       <span className="text-label">
@@ -470,7 +471,7 @@ function TripList({
   return (
     <section
       aria-labelledby="travel-list-h"
-      className={cn("mt-14 flex flex-col lg:mt-[72px]", enter(3).className)}
+      className={cn(panelClass, "mt-8 flex flex-col lg:mt-[72px]", enter(3).className)}
       style={enter(3).style}
     >
       <div className="flex items-baseline justify-between pb-3">
@@ -625,7 +626,7 @@ export function TravelListView({
       {highlights.length > 0 ? (
         <section
           aria-labelledby="travel-hl-h"
-          className={cn("mt-14 flex flex-col gap-4 sm:gap-5 lg:mt-[72px]", enter(2).className)}
+          className={cn("mt-8 flex flex-col gap-4 sm:gap-5 lg:mt-[72px]", enter(2).className)}
           style={enter(2).style}
         >
           <h2

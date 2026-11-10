@@ -12,6 +12,7 @@ import {
   ErrorState,
   LoadingState,
   PageTitle,
+  panelClass,
   Segmented,
   SourceTile,
 } from "@/components/ds";
@@ -460,7 +461,7 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
         <section
           aria-label="검색 결과"
           aria-busy={query.isFetching}
-          className="ds-enter mt-1 [animation-delay:100ms]"
+          className="ds-enter mt-4 [animation-delay:100ms] lg:mt-1"
         >
           {query.isError ? (
             <ErrorState
@@ -489,8 +490,8 @@ export function SearchView({ params, enabled }: { params: URLSearchParams; enabl
           ) : (
             <>
               {days.map((day, i) => (
-                <div key={day.date}>
-                  <div className="flex items-baseline justify-between border-b border-line pt-5 pb-2">
+                <div key={day.date} className={panelClass}>
+                  <div className="flex items-baseline justify-between border-b border-line pb-2 lg:pt-5">
                     <h2 className="m-0 text-[17px] leading-6 font-semibold">
                       <time dateTime={day.date}>{formatDay(day.date)}</time>
                     </h2>
