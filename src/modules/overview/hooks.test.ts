@@ -7,7 +7,10 @@ import {
   isCurrentOverviewRequest,
   loadNarrativeUntilSettled,
   loadOverviewUntilSettled,
+  OVERVIEW_MAX_POLLS,
+  OVERVIEW_POLL_MAX_INTERVAL_MS,
   overviewErrorMessage,
+  overviewPollDelayMs,
   recomputeResponseJson,
   resolveOverviewPeriod,
 } from "./hooks";
@@ -366,5 +369,21 @@ describe("overviewErrorMessage", () => {
     );
     expect(overviewErrorMessage(new Error("rate limited"), "다시 시도")).toBe("다시 시도");
     expect(overviewErrorMessage("boom", "다시 시도")).toBe("다시 시도");
+  });
+});
+
+describe("overviewPollDelayMs", () => {
+  it("backs off from 3 s to a 15 s cap", () => {
+    expect(overviewPollDelayMs(0)).toBe(3_000);
+    expect(overviewPollDelayMs(1)).toBe(4_500);
+    expect(overviewPollDelayMs(10)).toBe(OVERVIEW_POLL_MAX_INTERVAL_MS);
+  });
+
+  it("still waits out the ten-minute window the 5-minute precompute cron is sized for", () => {
+    let total = 0;
+    for (let poll = 0; poll < OVERVIEW_MAX_POLLS; poll++) total += overviewPollDelayMs(poll);
+    expect(total).toBeGreaterThanOrEqual(10 * 60_000);
+    // …with far fewer requests than the old flat 3 s × 200.
+    expect(OVERVIEW_MAX_POLLS).toBeLessThan(60);
   });
 });

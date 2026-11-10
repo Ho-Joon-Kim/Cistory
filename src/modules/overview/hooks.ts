@@ -16,9 +16,24 @@ import {
 } from "./period";
 import type { OverviewSnapshotResponse } from "./service";
 import type { StayFocus } from "./view/flow";
+import { historyRefreshToken } from "./view-state";
 
 export const OVERVIEW_POLL_INTERVAL_MS = 3_000;
-export const OVERVIEW_MAX_POLLS = 200;
+export const OVERVIEW_POLL_MAX_INTERVAL_MS = 15_000;
+/**
+ * With the backoff below this keeps the ~10-minute window the 5-minute
+ * precompute cron is sized for (3 + 4.5 + 6.75 + 10.1 + 15 s × 44 ≈ 11.4 min).
+ */
+export const OVERVIEW_MAX_POLLS = 48;
+
+/**
+ * Delay before the `poll`-th re-read of a pending snapshot: 3 s, growing ×1.5 to
+ * a 15 s cap. The cron publishes at most every 5 minutes, so a flat 3 s poll was
+ * ~100 requests per wait (one every 3 s per open tab during a backlog).
+ */
+export function overviewPollDelayMs(poll: number): number {
+  return Math.min(OVERVIEW_POLL_INTERVAL_MS * 1.5 ** poll, OVERVIEW_POLL_MAX_INTERVAL_MS);
+}
 export const NARRATIVE_POLL_INTERVAL_MS = 10_000;
 export const NARRATIVE_MAX_POLLS = 60;
 
@@ -131,7 +146,7 @@ export function overviewPeriodLabel(periodType: PeriodType, periodKey: string): 
   return `${date(range.from)} – ${date(end)}`;
 }
 
-type Wait = (signal: AbortSignal) => Promise<void>;
+type Wait = (signal: AbortSignal, poll: number) => Promise<void>;
 
 interface PollingInput {
   get: (signal: AbortSignal) => Promise<OverviewSnapshotResponse>;
@@ -171,7 +186,7 @@ export async function loadOverviewUntilSettled(input: PollingInput) {
     input.isVisible() &&
     polls < input.maxPolls
   ) {
-    await input.wait(input.signal);
+    await input.wait(input.signal, polls);
     if (input.signal.aborted || !input.isVisible()) break;
     response = await input.get(input.signal);
     input.onUpdate(response);
@@ -237,7 +252,7 @@ export function abortableDelay(signal: AbortSignal, intervalMs: number) {
   });
 }
 
-const snapshotDelay: Wait = (signal) => abortableDelay(signal, OVERVIEW_POLL_INTERVAL_MS);
+const snapshotDelay: Wait = (signal, poll) => abortableDelay(signal, overviewPollDelayMs(poll));
 const narrativeDelay: Wait = (signal) => abortableDelay(signal, NARRATIVE_POLL_INTERVAL_MS);
 
 export function useOverviewSnapshot(periodType: PeriodType, periodKey: string, enabled = true) {
@@ -399,7 +414,7 @@ export async function loadNarrativeUntilSettled(input: NarrativePollingInput) {
     input.isVisible() &&
     polls < input.maxPolls
   ) {
-    await input.wait(input.signal);
+    await input.wait(input.signal, polls);
     if (input.signal.aborted || !input.isVisible()) break;
     response = await input.get(input.signal);
     input.onUpdate(response);
@@ -463,11 +478,26 @@ export function useOverviewHistory(
   periodType: PeriodType,
   periodKey: string,
   enabled: boolean,
-  refreshKey: string | null
-) {
-  const [history, setHistory] = useState<OverviewHistoryResponse | null>(null);
+  snapshot: { ready: boolean; computedAt: string | null } | null
+): { history: OverviewHistoryResponse | null; settled: boolean } {
+  const key = `${periodType}:${periodKey}`;
+  // The key whose snapshot was seen pending/computing in this page session.
+  const [unreadyKey, setUnreadyKey] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    key: string;
+    history: OverviewHistoryResponse | null;
+  } | null>(null);
+  const snapshotUnready = snapshot != null && !snapshot.ready;
   useEffect(() => {
-    void refreshKey;
+    if (snapshotUnready) setUnreadyKey(key);
+  }, [snapshotUnready, key]);
+  const refreshToken = historyRefreshToken(
+    unreadyKey === key,
+    snapshot?.ready ? snapshot.computedAt : null
+  );
+
+  useEffect(() => {
+    void refreshToken;
     if (!enabled || periodType === "recent") return;
     const controller = new AbortController();
     const params = new URLSearchParams({ periodType, periodKey });
@@ -476,15 +506,18 @@ export function useOverviewHistory(
         if (!response.ok) throw new Error("history unavailable");
         return (await response.json()) as OverviewHistoryResponse;
       })
-      .then((body) => setHistory(body))
+      .then((body) => setResult({ key, history: body }))
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
         // History only adds comparisons; the page renders without it.
-        setHistory(null);
+        setResult({ key, history: null });
       });
     return () => controller.abort();
-  }, [enabled, periodKey, periodType, refreshKey]);
-  return history;
+  }, [enabled, key, periodKey, periodType, refreshToken]);
+
+  // Another period's history never leaks into this one while it loads.
+  const current = result?.key === key ? result : null;
+  return { history: current?.history ?? null, settled: current != null };
 }
 
 /**
