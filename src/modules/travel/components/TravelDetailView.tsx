@@ -199,10 +199,10 @@ function DetailHeader({
           {window.departAt && window.arriveAt ? (
             <>
               {headWhen(window.departAt).replace(/ (\d\d:\d\d)$/, " ")}
-              <span className="num">{hm(window.departAt)}</span>
+              <span className="tabular-nums">{hm(window.departAt)}</span>
               {window.departFromHome ? " 집에서 출발" : " 출발"} →{" "}
               {headWhen(window.arriveAt).replace(/ (\d\d:\d\d)$/, " ")}
-              <span className="num">{hm(window.arriveAt)}</span>
+              <span className="tabular-nums">{hm(window.arriveAt)}</span>
               {window.arriveHome ? " 도착" : " 마지막 기록"}
               {window.minutes != null ? (
                 <>
@@ -239,7 +239,7 @@ function DetailHeader({
               : undefined
           }
           triggerClassName="size-9 bg-surface shadow-ring hover:bg-surface hover:shadow-ring-hover"
-          exclusionRadiusText="10 km"
+          exclusionRadiusText="10km"
         />
       </div>
     </div>
@@ -374,10 +374,13 @@ function Hero({
             <>
               {" "}
               이동 수단으로 분류된 구간은{" "}
-              <span className="num text-ink">
-                {formatCount(transport.totalDistanceMeters / 1000)}
-              </span>{" "}
-              km예요(아래 이동 수단).
+              <span className="whitespace-nowrap">
+                <span className="num text-ink">
+                  {formatCount(transport.totalDistanceMeters / 1000)}km
+                </span>
+                예요
+              </span>
+              (아래 이동 수단).
             </>
           ) : null}
         </p>
@@ -442,7 +445,7 @@ function RunCard({ run, hero }: { run: DenseRun; hero: HeroDay | null }) {
           <span className="flex flex-wrap items-baseline gap-x-2.5">
             <span className="text-[15px] leading-[22px] font-semibold">{run.label}</span>
             <DotList
-              className="num text-xs text-ink-2"
+              className="text-xs text-ink-2 tabular-nums"
               items={[
                 { key: "time", node: `${hm(run.startAt)}–${hm(run.endAt)}` },
                 { key: "dur", node: formatDurationMinutes(run.minutes) },
@@ -476,7 +479,7 @@ function RunCard({ run, hero }: { run: DenseRun; hero: HeroDay | null }) {
               key={`${stop.at}-${stop.name}`}
               className="flex gap-2.5 border-t border-line py-1.5 text-xs leading-[18px]"
             >
-              <span className="num w-[38px] shrink-0 text-ink-3">{hm(stop.at)}</span>
+              <span className="w-[38px] shrink-0 text-ink-3 tabular-nums">{hm(stop.at)}</span>
               <DotList
                 className="min-w-0 text-ink-2"
                 items={[
@@ -538,7 +541,7 @@ function ItineraryList({
               <li key={item.key} className="grid grid-cols-[52px_20px_minmax(0,1fr)] items-start">
                 <span
                   className={cn(
-                    "num pt-[9px] text-[13px] leading-[22px]",
+                    "pt-[9px] text-[13px] leading-[22px] tabular-nums",
                     item.kind === "anchor" ? "text-ink-3" : "text-ink-2"
                   )}
                 >
@@ -631,7 +634,7 @@ function SpendingSection({ detail }: { detail: TravelTripDetail }) {
                 key={tx.id}
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-b border-line py-[11px] sm:grid-cols-[92px_minmax(0,1fr)_auto]"
               >
-                <span className="num col-span-2 text-xs text-ink-3 sm:col-span-1">
+                <span className="col-span-2 text-xs text-ink-3 tabular-nums sm:col-span-1">
                   {txWhen(tx.transactedAt)}
                 </span>
                 <span className="flex min-w-0 flex-col gap-0.5">
@@ -751,23 +754,30 @@ function HealthGrid({
   );
 }
 
+/** The day header row of the health table: a 16px label line + 8px padding. */
+const HEALTH_HEAD_PX = 24;
+
 /** The hero day as one tinted column behind both tables (and the toggle between). */
 function HotColumn({
   index,
   count,
   dayPx,
+  top = 0,
 }: {
   index: number;
   count: number;
   dayPx: number | null;
+  /** Px to leave untinted above (the day header row, as in the mock). */
+  top?: number;
 }) {
   if (index < 0 || dayPx === null) return null;
   return (
     <span
       aria-hidden="true"
       data-testid="hot-column"
-      className="pointer-events-none absolute inset-y-0"
+      className="pointer-events-none absolute bottom-0"
       style={{
+        top,
         left: `calc(100% - ${(count - index) * dayPx}px)`,
         width: dayPx,
         background: "color-mix(in oklab, var(--health) 9%, transparent)",
@@ -869,7 +879,12 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
         {/* The hero-day tint sits behind each grid of rows on its own, so it
             breaks at the "다른 지표" toggle row instead of running behind it. */}
         <div ref={measureRef} className="relative">
-          <HotColumn index={hotIndex} count={table.days.length} dayPx={dayPx} />
+          <HotColumn
+            index={hotIndex}
+            count={table.days.length}
+            dayPx={dayPx}
+            top={HEALTH_HEAD_PX}
+          />
           <HealthGrid
             rows={table.primary}
             days={table.days}
@@ -960,7 +975,7 @@ function TransportDisclosure({ detail }: { detail: TravelTripDetail }) {
           <Pill pip="var(--warn)">자동 분류 · 정확도 낮음</Pill>
           <span className="text-[13px] text-ink-2">
             분류된 구간{" "}
-            <span className="num">{formatCount(transport.totalDistanceMeters / 1000)}</span> km ·{" "}
+            <span className="num">{formatCount(transport.totalDistanceMeters / 1000)}km</span> ·{" "}
             {transport.modes.length}가지
           </span>
         </span>
@@ -982,7 +997,7 @@ function TransportDisclosure({ detail }: { detail: TravelTripDetail }) {
             />
             <span className="relative">{modeLabel(mode.mode)}</span>
             <span className="num relative text-right">
-              {(mode.distanceMeters / 1000).toFixed(1)} km
+              {(mode.distanceMeters / 1000).toFixed(1)}km
             </span>
             <span className="num relative text-right text-ink-3">
               {formatDurationMinutes(mode.durationSeconds / 60)}
@@ -1019,7 +1034,7 @@ function RoutineDisclosure({ detail, hero }: { detail: TravelTripDetail; hero: H
           </span>
         ) : (
           <span className="text-[13px] text-ink-2">
-            여행 중 커밋 <span className="num">{formatCount(routine.commitCount)}</span>개
+            여행 중 커밋 <span className="num">{formatCount(routine.commitCount)}건</span>
           </span>
         )
       }

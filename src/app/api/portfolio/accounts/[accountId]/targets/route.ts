@@ -16,7 +16,7 @@ async function assertAccountOwned(userId: string, accountId: string): Promise<vo
     .where(and(eq(brokerageAccounts.id, accountId), eq(brokerageAccounts.userId, userId)))
     .limit(1);
   if (rows.length === 0) {
-    throw new ApiError(404, "계좌를 찾을 수 없습니다", "NOT_FOUND");
+    throw new ApiError(404, "계좌를 찾을 수 없어요", "NOT_FOUND");
   }
 }
 
@@ -64,10 +64,10 @@ const PutBody = z
       .max(50),
   })
   .refine((b) => Math.abs(b.targets.reduce((s, t) => s + t.targetWeight, 0) - 1) < 0.005, {
-    message: "비중 합계가 100%가 되어야 합니다 (오차 0.5% 허용)",
+    message: "비중 합계가 100%가 되어야 해요 (오차 0.5% 허용)",
   })
   .refine((b) => new Set(b.targets.map((t) => t.ticker)).size === b.targets.length, {
-    message: "중복된 종목이 있습니다",
+    message: "중복된 종목이 있어요",
   });
 
 export const PUT = withValidation<typeof PutBody, RouteParams>(

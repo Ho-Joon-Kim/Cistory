@@ -90,7 +90,7 @@ function AnnotationLabel({ a, width }: { a: Annotation; width: number }) {
   return (
     <span
       ref={ref}
-      className="num pointer-events-none absolute bg-page px-1 py-px text-xs leading-4 whitespace-nowrap text-ink"
+      className="pointer-events-none absolute bg-page tabular-nums px-1 py-px text-xs leading-4 whitespace-nowrap text-ink"
       style={{ left: left ?? a.left, top: a.top, visibility: left === null ? "hidden" : undefined }}
     >
       {a.text}
@@ -389,7 +389,7 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
         <>
           <div className="mt-3.5 text-[13px] leading-5 text-ink-2 lg:mt-3 lg:flex lg:items-baseline lg:gap-3 lg:text-sm">
             <span className="block lg:inline">
-              <span className="num">{formatDateRange(first.date, last.date)}</span>
+              <span className="tabular-nums">{formatDateRange(first.date, last.date)}</span>
               <span className="hidden lg:inline"> · </span>
             </span>
             <span className="block lg:inline">

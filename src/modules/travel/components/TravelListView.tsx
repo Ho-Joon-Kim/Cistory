@@ -12,6 +12,7 @@ import {
   useEvidence,
 } from "@/components/ds";
 import { Button } from "@/components/ui/button";
+import { isQuantityText } from "@/lib/facts/face";
 import { formatCount, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { NOT_TRIP_UNDO_MS, type TravelListSummary, type TravelTripListItem } from "../hooks";
@@ -36,6 +37,9 @@ import {
 import { Chevron, Collapse, enter, Fig, InsightLine, Pill } from "./parts";
 import { TripMenu } from "./TripMenu";
 import { YearRibbon } from "./YearRibbon";
+
+/** Mono for a pure quantity ("2박 3일"); words ("당일") stay in the sans face. */
+const faceOf = (text: string) => (isQuantityText(text) ? "num" : "tabular-nums");
 
 export interface TravelListViewProps {
   trips: TravelTripListItem[];
@@ -301,7 +305,8 @@ function TripRow({
       </span>
       <span
         className={cn(
-          "num hidden text-ink lg:block",
+          "hidden text-ink lg:block",
+          faceOf(stayLabel(trip.startDate, trip.endDate)),
           nested ? "text-[13px] text-ink-2" : "text-sm"
         )}
       >
@@ -405,7 +410,12 @@ function GroupRow({
         </span>
         <span className="flex shrink-0 flex-col items-end text-right">
           <span className="num text-sm lg:hidden">{group.totalDays}일</span>
-          <span className="num hidden text-sm lg:block">
+          <span
+            className={cn(
+              "hidden text-sm lg:block",
+              group.spendRecordedCount > 0 ? "num" : "text-ink-3"
+            )}
+          >
             {group.spendRecordedCount > 0 ? formatWon(group.spendTotal) : "기록 없음"}
           </span>
           <span className="num text-xs text-ink-3 lg:hidden">{formatKm(group.totalMeters)}</span>
@@ -604,7 +614,7 @@ export function TravelListView({
   return (
     <EvidenceScope>
       {error ? (
-        <p role="alert" className="mt-6 text-[13px] text-gain">
+        <p role="alert" className="mt-6 text-[13px] text-danger">
           {error}
         </p>
       ) : null}

@@ -228,14 +228,20 @@ export function holdingsFact(input: {
   const topText = signedWon(top.pnl);
   const rows: FactRow[] = [
     { label: "수익 종목", value: `${gainers} / ${holdings.length}개` },
-    { label: `손익 1위 · ${shortName(top.name)}`, value: `${topText} (${formatReturn(top.rate)})` },
+    // Name and amount on separate rows: a long name in the label used to squeeze
+    // "+2,504,540원 (+83.68%)" onto two lines.
+    { label: "손익 1위", value: shortName(top.name) },
+    { label: "그 종목 평가손익", value: `${topText} (${formatReturn(top.rate)})` },
     { label: "총 평가손익", value: signedWon(totalPnl) },
   ];
   if (worst.pnl < 0) {
-    rows.push({
-      label: `손실 1위 · ${shortName(worst.name)}`,
-      value: `${signedWon(worst.pnl)} (${formatReturn(worst.rate)})`,
-    });
+    rows.push(
+      { label: "손실 1위", value: shortName(worst.name) },
+      {
+        label: "그 종목 평가손익",
+        value: `${signedWon(worst.pnl)} (${formatReturn(worst.rate)})`,
+      }
+    );
   }
   const losers = holdings.filter((h) => h.pnl < 0);
   const lossSum = losers.reduce((s, h) => s + h.pnl, 0);

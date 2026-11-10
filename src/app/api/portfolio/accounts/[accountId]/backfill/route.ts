@@ -18,7 +18,7 @@ export const POST = withAuth<RouteParams>(async ({ user }, { params }) => {
     .where(and(eq(brokerageAccounts.id, accountId), eq(brokerageAccounts.userId, user.id)))
     .limit(1);
   if (owned.length === 0) {
-    throw new ApiError(404, "계좌를 찾을 수 없습니다", "NOT_FOUND");
+    throw new ApiError(404, "계좌를 찾을 수 없어요", "NOT_FOUND");
   }
 
   const sync = createPortfolioSyncService(db);

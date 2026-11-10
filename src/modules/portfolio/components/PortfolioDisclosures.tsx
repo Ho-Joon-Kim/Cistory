@@ -140,7 +140,7 @@ function Performance({ data, pnlRate }: { data: ReturnsResponse; pnlRate: number
         <p className="m-0 max-w-[480px] text-[13px] leading-5 text-ink-2 lg:leading-[21px]">
           총 평가손익 <span className="num">{formatReturn(pnlRate)}</span>는 지금 평가금액을
           매입금액과 비교한 값이에요. 운용 성과는 기준이 달라요.{" "}
-          <span className="num">{range}</span> 동안 입출금 효과를 빼고{" "}
+          <span className="tabular-nums">{range}</span> 동안 입출금 효과를 빼고{" "}
           <span className="num">{formatWon(data.startValue)}</span>에서{" "}
           <span className="num">{formatWon(data.endValue)}</span>까지 돈이 얼마나 불었는지(TWR)
           {annual
@@ -219,7 +219,7 @@ function Executions({ executions }: { executions: ExecutionItem[] }) {
             className="grid grid-cols-[minmax(0,1fr)_auto] gap-y-0.5 border-b border-line py-2.5 text-[13px] leading-[18px] lg:h-10 lg:grid-cols-[136px_56px_80px_56px_minmax(0,1fr)_180px_140px] lg:items-center lg:py-0"
           >
             <span className="hidden text-ink-2 lg:inline">{date}</span>
-            <span className="num hidden text-ink-3 lg:inline">{time}</span>
+            <span className="hidden text-ink-3 tabular-nums lg:inline">{time}</span>
             <span className="hidden text-ink-2 lg:inline">{e.accountLabel}</span>
             <span className="hidden lg:inline">
               <span className="inline-flex h-[22px] items-center rounded-full bg-surface px-2 text-[11px] font-medium text-ink shadow-[inset_0_0_0_1px_var(--line)]">
@@ -229,12 +229,12 @@ function Executions({ executions }: { executions: ExecutionItem[] }) {
             <span className="truncate font-medium">{e.name}</span>
             <span className="num hidden text-ink-2 lg:inline">{qty}</span>
             <span
-              className={cn("num text-right", filled && !e.cancelled ? "text-ink" : "text-ink-3")}
+              className={cn("text-right", filled && !e.cancelled ? "num text-ink" : "text-ink-3")}
             >
               {amount}
             </span>
             <span className="text-xs text-ink-3 lg:hidden">
-              {date} <span className="num">{time}</span> · {e.accountLabel} · {side}
+              {date} <span className="tabular-nums">{time}</span> · {e.accountLabel} · {side}
             </span>
             <span className="num text-right text-xs text-ink-3 lg:hidden">{qty}</span>
           </li>
@@ -279,7 +279,7 @@ export function PortfolioDisclosures({
             {range ? (
               <>
                 {" "}
-                · <span className="num">{range}</span>
+                · <span className="tabular-nums">{range}</span>
               </>
             ) : null}
           </>
@@ -290,7 +290,7 @@ export function PortfolioDisclosures({
             {range ? (
               <>
                 {" "}
-                · <span className="num">{range}</span>
+                · <span className="tabular-nums">{range}</span>
               </>
             ) : null}
           </>
@@ -348,7 +348,7 @@ export function PortfolioDisclosures({
             {lastFill ? (
               <>
                 마지막 체결{" "}
-                <span className="num">{formatMonthDay(ordDateKey(lastFill.ordDt))}</span> ·{" "}
+                <span className="tabular-nums">{formatMonthDay(ordDateKey(lastFill.ordDt))}</span> ·{" "}
               </>
             ) : null}
             미체결 <span className="num">{unfilled}건</span>
@@ -358,7 +358,8 @@ export function PortfolioDisclosures({
           <>
             {lastFill ? (
               <>
-                마지막 <span className="num">{formatMonthDay(ordDateKey(lastFill.ordDt))}</span> ·{" "}
+                마지막{" "}
+                <span className="tabular-nums">{formatMonthDay(ordDateKey(lastFill.ordDt))}</span> ·{" "}
               </>
             ) : null}
             미체결 <span className="num">{unfilled}건</span>

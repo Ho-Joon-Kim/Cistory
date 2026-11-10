@@ -231,7 +231,7 @@ describe("health, hero day and route", () => {
     expect(hero?.day).toBe("2026-09-24");
     expect(hero?.insight.trigger).toBe("3.0배");
     expect(hero?.insight.pre).toBe("다른 2일 평균 3,777걸음의 ");
-    expect(hero?.insight.post).toContain("오전 10:34부터");
+    expect(hero?.insight.post).toContain(" — 10:34부터");
     expect(hero?.run?.stops).toHaveLength(5);
   });
 
@@ -314,7 +314,7 @@ describe("spending, transport and routine lines", () => {
     expect(transportInsight(d)?.trigger).toBe("25%");
     const routine = routineInsight(d);
     expect(`${routine?.pre}${routine?.trigger}${routine?.post}`).toBe(
-      "여행 중 커밋 472개 — 직전 3일 526개보다 10% 적었어요."
+      "여행 중 커밋 472건 — 직전 3일 526건보다 10% 적었어요."
     );
   });
 

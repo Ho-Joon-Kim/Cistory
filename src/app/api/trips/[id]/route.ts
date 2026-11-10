@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const detail = await new TravelService(getDb()).getTripDetail(user.id, id);
     if (!detail) {
-      return NextResponse.json({ error: "여행을 찾을 수 없습니다" }, { status: 404 });
+      return NextResponse.json({ error: "여행을 찾을 수 없어요" }, { status: 404 });
     }
     return NextResponse.json(detail);
   } catch (error) {
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { error: "여행을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { error: "여행을 불러오지 못했어요. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
     );
   }
@@ -71,7 +71,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     });
 
     if (!updated) {
-      return NextResponse.json({ error: "여행을 찾을 수 없습니다" }, { status: 404 });
+      return NextResponse.json({ error: "여행을 찾을 수 없어요" }, { status: 404 });
     }
 
     return NextResponse.json({ trip: updated });
@@ -80,7 +80,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { error: "여행을 수정하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { error: "여행을 수정하지 못했어요. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
     );
   }
@@ -103,16 +103,16 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     });
 
     if (!deleted) {
-      return NextResponse.json({ error: "여행을 찾을 수 없습니다" }, { status: 404 });
+      return NextResponse.json({ error: "여행을 찾을 수 없어요" }, { status: 404 });
     }
 
-    return NextResponse.json({ message: "여행이 삭제되었습니다" });
+    return NextResponse.json({ message: "여행이 삭제됐어요" });
   } catch (error) {
     logger.error("Trip DELETE error", {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { error: "여행을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { error: "여행을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
     );
   }

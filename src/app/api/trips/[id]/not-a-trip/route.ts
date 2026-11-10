@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { error: "여행을 제외하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { error: "여행을 제외하지 못했어요. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
     );
   }

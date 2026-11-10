@@ -48,6 +48,8 @@ export function AccountOutcomes({ accounts }: { accounts: AccountOutcome[] }) {
           return (
             <div
               key={a.id}
+              // Lit evidence: the hero fact's popover places itself off this card.
+              data-evidence={lit ? "on" : undefined}
               className={cn(
                 "-m-3 flex flex-col rounded-xl p-3 transition-colors duration-150 ease-out lg:-m-4 lg:p-4",
                 lit ? "bg-brand-soft" : "bg-transparent"
@@ -98,8 +100,12 @@ export function AccountOutcomes({ accounts }: { accounts: AccountOutcome[] }) {
                 />
               </div>
               <div className="mt-1.5 flex justify-between text-xs text-ink-3">
-                <span className="num">매입 {formatWon(a.invested)}</span>
-                <span className="num">주식 평가 {formatWon(a.securities)}</span>
+                <span>
+                  매입 <span className="num">{formatWon(a.invested)}</span>
+                </span>
+                <span>
+                  주식 평가 <span className="num">{formatWon(a.securities)}</span>
+                </span>
               </div>
               <dl className="m-0 mt-3 grid grid-cols-2 gap-y-2.5 lg:mt-4 lg:grid-cols-[repeat(4,auto)] lg:justify-start lg:gap-x-8">
                 {[

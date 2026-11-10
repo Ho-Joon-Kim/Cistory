@@ -712,7 +712,7 @@ export function pickHeroDay(detail: TravelTripDetail, runs: DenseRun[]): HeroDay
     });
   }
   const runClause = run
-    ? ` — ${Number(time(run.startAt).slice(0, 2)) < 12 ? "오전" : "오후"} ${time(run.startAt)}부터 ${formatDurationMinutes(run.minutes)} 동안 ${run.stops.length}곳을 지났어요.`
+    ? ` — ${time(run.startAt)}부터 ${formatDurationMinutes(run.minutes)} 동안 ${run.stops.length}곳을 지났어요.`
     : "였어요.";
   return {
     day: top.day,
@@ -826,8 +826,8 @@ export function transportInsight(detail: TravelTripDetail): TravelInsight | null
     trigger: `${Math.round(share * 100)}%`,
     post: "는 수단을 알 수 없어요. 수단별 거리는 참고로만 보세요.",
     rows: [
-      { label: "분류 안 됨 · 거리", value: `${(unknown.distanceMeters / 1000).toFixed(1)} km` },
-      { label: "분류된 구간 전체", value: `${(total / 1000).toFixed(1)} km` },
+      { label: "분류 안 됨 · 거리", value: `${(unknown.distanceMeters / 1000).toFixed(1)}km` },
+      { label: "분류된 구간 전체", value: `${(total / 1000).toFixed(1)}km` },
       { label: "수단 가짓수", value: `${detail.transport.modes.length}가지` },
     ],
     source: "위치 기록의 이동 수단 자동 분류 · 정확도 낮음",
@@ -845,12 +845,12 @@ export function routineInsight(detail: TravelTripDetail): TravelInsight | null {
   return {
     id: "travel.detail.routine.commits",
     score: Math.min(1, Math.abs(change) / 50),
-    pre: `여행 중 커밋 ${formatCount(routine.commitCount)}개 — 직전 ${days}일 ${formatCount(cmp.commitCount)}개보다 `,
+    pre: `여행 중 커밋 ${formatCount(routine.commitCount)}건 — 직전 ${days}일 ${formatCount(cmp.commitCount)}건보다 `,
     trigger: `${Math.abs(change)}%`,
     post: change === 0 ? " 차이 없이 같았어요." : change < 0 ? " 적었어요." : " 많았어요.",
     rows: [
-      { label: `커밋 · 여행 ${days}일`, value: formatCount(routine.commitCount) },
-      { label: `커밋 · 직전 ${days}일`, value: formatCount(cmp.commitCount) },
+      { label: `커밋 · 여행 ${days}일`, value: `${formatCount(routine.commitCount)}건` },
+      { label: `커밋 · 직전 ${days}일`, value: `${formatCount(cmp.commitCount)}건` },
       {
         label: "코딩 시간 · 여행 / 직전",
         value: `${formatDurationMinutes(routine.codingSeconds / 60)} / ${formatDurationMinutes(cmp.codingSeconds / 60)}`,

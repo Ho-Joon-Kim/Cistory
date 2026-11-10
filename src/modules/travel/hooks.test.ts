@@ -74,12 +74,12 @@ describe("여행 아님", () => {
   it("실패 응답의 서버 메시지를 사용자 오류로 전달한다", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () =>
-      new Response(JSON.stringify({ error: "장소를 만들 수 없습니다" }), {
+      new Response(JSON.stringify({ error: "장소를 만들 수 없어요" }), {
         status: 500,
         headers: { "Content-Type": "application/json" },
       });
 
-    await expect(requestMarkNotTrip("trip-1")).rejects.toThrow("장소를 만들 수 없습니다");
+    await expect(requestMarkNotTrip("trip-1")).rejects.toThrow("장소를 만들 수 없어요");
     globalThis.fetch = originalFetch;
   });
 
@@ -148,7 +148,7 @@ describe("parseTravelTripsPage", () => {
         trips: [{ ...trip("trip-1", "2026-07-20"), visitCount: "1" }],
         nextCursor: null,
       })
-    ).toThrow("여행 목록 응답 형식이 올바르지 않습니다");
+    ).toThrow("여행 목록 응답 형식이 올바르지 않아요");
   });
 });
 
@@ -208,7 +208,7 @@ describe("parseTravelDetail", () => {
         ...detail,
         visits: [{ ...detail.visits[0], startTime: new Date() }],
       })
-    ).toThrow("여행 상세 응답 형식이 올바르지 않습니다");
+    ).toThrow("여행 상세 응답 형식이 올바르지 않아요");
   });
 });
 

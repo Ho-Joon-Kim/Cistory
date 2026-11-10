@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { EmptyState, ErrorState, LoadingState, PageContainer } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { Button } from "@/components/ui/button";
+import { userErrorMessage } from "@/lib/user-error";
 import { useAuth } from "@/modules/auth/hooks";
 import { TravelDetailView } from "@/modules/travel/components/TravelDetailView";
 import {
@@ -47,7 +48,7 @@ export default function TravelDetailPage() {
       refresh();
       return true;
     } catch (renameError) {
-      toast.error(renameError instanceof Error ? renameError.message : "이름을 바꾸지 못했어요");
+      toast.error(userErrorMessage(renameError, "이름을 바꾸지 못했어요."));
       return false;
     }
   };
@@ -58,7 +59,7 @@ export default function TravelDetailPage() {
       toast("여행에서 뺐어요. 이 장소는 다음 감지부터 여행으로 보지 않아요.");
       router.push("/travel");
     } catch (markError) {
-      toast.error(markError instanceof Error ? markError.message : "여행에서 빼지 못했어요");
+      toast.error(userErrorMessage(markError, "여행에서 빼지 못했어요."));
     }
   };
 

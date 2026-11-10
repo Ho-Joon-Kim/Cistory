@@ -57,8 +57,8 @@ describe("formatting helpers", () => {
     expect(destinationOf({ name: "대전 여행" })).toBe("대전");
     expect(destinationOf({ name: "여름 휴가" })).toBe("여름 휴가");
     expect(formatKm(null)).toBe("–");
-    expect(formatKm(298)).toBe("0.3 km");
-    expect(formatKm(3_338_000)).toBe("3,338 km");
+    expect(formatKm(298)).toBe("0.3km");
+    expect(formatKm(3_338_000)).toBe("3,338km");
   });
 
   it("treats trips that ended before the first Toss record as unrecorded, not 0원", () => {

@@ -33,7 +33,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .where(and(eq(trips.id, id), eq(trips.userId, user.id)))
       .limit(1);
     if (!trip) {
-      return NextResponse.json({ error: "여행을 찾을 수 없습니다" }, { status: 404 });
+      return NextResponse.json({ error: "여행을 찾을 수 없어요" }, { status: 404 });
     }
 
     const window = getKstDateWindow(trip.startDate, trip.endDate);
@@ -130,7 +130,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { error: "여행 경로를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { error: "여행 경로를 불러오지 못했어요. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
     );
   }

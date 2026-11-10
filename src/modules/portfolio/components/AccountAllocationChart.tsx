@@ -36,7 +36,7 @@ export function AccountAllocationChart({ accounts }: Props) {
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-8 text-center">데이터가 없습니다</div>
+          <div className="text-sm text-muted-foreground py-8 text-center">데이터가 없어요</div>
         ) : (
           <div className="flex items-center gap-4">
             <div className="flex-shrink-0">
