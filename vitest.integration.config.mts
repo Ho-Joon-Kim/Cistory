@@ -15,6 +15,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    server: { deps: { inline: [/@protontech\/crypto/] } },
     globals: false,
     include: ["src/**/*.integration.test.ts"],
     // DB round trips over an emulated (arm64 host -> amd64 container)

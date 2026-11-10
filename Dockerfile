@@ -6,6 +6,7 @@ WORKDIR /app
 # Stage 2: Install dependencies
 FROM base AS deps
 COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn/patches ./.yarn/patches
 RUN yarn install --immutable
 
 # Stage 3: Build the application
@@ -43,6 +44,7 @@ FROM node:24.22.2-bookworm AS browser-tester
 RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 WORKDIR /app
 COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn/patches ./.yarn/patches
 RUN yarn install --immutable && yarn exec playwright install --with-deps chromium
 COPY . .
 RUN BROWSER_TEST_PRODUCTION=true yarn test:browser

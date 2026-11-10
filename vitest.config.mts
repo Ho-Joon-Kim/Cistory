@@ -4,6 +4,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    server: { deps: { inline: [/@protontech\/crypto/] } },
     globals: false,
     include: ["src/**/*.{test,spec}.ts", "scripts/**/*.{test,spec}.ts"],
     // *.integration.test.ts still matches the glob above (it ends in

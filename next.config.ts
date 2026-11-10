@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // @protontech/crypto ships TypeScript source; it must be compiled by Next, never
+  // externalized (Node refuses to type-strip files under node_modules).
+  transpilePackages: ["@protontech/crypto"],
   outputFileTracingIncludes: {
     "/*": ["./prompts/*.txt"],
   },

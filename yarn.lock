@@ -281,6 +281,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@boltffi/runtime@npm:0.31.0":
+  version: 0.31.0
+  resolution: "@boltffi/runtime@npm:0.31.0"
+  checksum: 10c0/38d4af6a6fa47d7c4b74f55e48a5779d0573c3e9b6bbf731811c408b1134897692aadb38a1bee3c11ae799bf30c4c437e0216f0dbbeef4bc8536f90c3cd79a95
+  languageName: node
+  linkType: hard
+
 "@drizzle-team/brocli@npm:^0.10.2":
   version: 0.10.2
   resolution: "@drizzle-team/brocli@npm:0.10.2"
@@ -1217,6 +1224,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@noble/hashes@npm:^1.8.0":
+  version: 1.8.0
+  resolution: "@noble/hashes@npm:1.8.0"
+  checksum: 10c0/06a0b52c81a6fa7f04d67762e08b2c476a00285858150caeaaff4037356dd5e119f45b2a530f638b77a5eeca013168ec1b655db41bae3236cb2e9d511484fc77
+  languageName: node
+  linkType: hard
+
 "@noble/hashes@npm:^2.0.1":
   version: 2.0.1
   resolution: "@noble/hashes@npm:2.0.1"
@@ -1224,7 +1238,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@noble/hashes@npm:^2.2.0":
+"@noble/hashes@npm:^2.2.0, @noble/hashes@npm:^2.4.0":
   version: 2.4.0
   resolution: "@noble/hashes@npm:2.4.0"
   checksum: 10c0/f5820a38c52886073a69722a030688ad188bbacb822d01554545371259961c2b916266c57c013c2ce5a0d78aec977142fc68fd2a79be4c97b0644fcee9bb35f6
@@ -1257,6 +1271,21 @@ __metadata:
   dependencies:
     semver: "npm:^7.3.5"
   checksum: 10c0/26e376d780f60ff16e874a0ac9bc3399186846baae0b6e1352286385ac134d900cc5dafaded77f38d77f86898fc923ae1cee9d7399f0275b1aa24878915d722b
+  languageName: node
+  linkType: hard
+
+"@openpgp/web-stream-tools@npm:~0.3.1":
+  version: 0.3.1
+  resolution: "@openpgp/web-stream-tools@npm:0.3.1"
+  peerDependencies:
+    "@types/node": ">=18.0.0"
+    typescript: ">=4.7"
+  peerDependenciesMeta:
+    "@types/node":
+      optional: true
+    typescript:
+      optional: true
+  checksum: 10c0/8fb6913edf2326bc5bb162919ca9e9924d7ea8c03f890b7ce4d377a1a975af12b15ee13765ccdca3150451093e1e6c6f39f0cdceda92cd952764b5efadaf01af
   languageName: node
   linkType: hard
 
@@ -1429,6 +1458,55 @@ __metadata:
   bin:
     playwright: cli.js
   checksum: 10c0/137a641e1be8035686a165e69d86d242ee7ed5cbe71e5230f9195cb6e65be37a66ba697f16919b508d04c4d682fd4e167d1a755b64ceb545afac780de72b594b
+  languageName: node
+  linkType: hard
+
+"@protontech/crypto@npm:2.2.0":
+  version: 2.2.0
+  resolution: "@protontech/crypto@npm:2.2.0"
+  dependencies:
+    "@noble/hashes": "npm:^2.4.0"
+    "@openpgp/web-stream-tools": "npm:~0.3.1"
+    bcryptjs: "npm:^3.0.3"
+    comlink: "npm:^4.4.2"
+    core-js: "npm:^3.50.0"
+    openpgp: "npm:@protontech/openpgp@~6.3.1"
+  checksum: 10c0/eead4d8375a0c4493063c4651d90db0f2a817d9baca77510060b5da997993e72160aba4727f4d3c40da14eb2219203002fd3a259628d5130051f0a861b581f92
+  languageName: node
+  linkType: hard
+
+"@protontech/crypto@patch:@protontech/crypto@npm%3A2.2.0#~/.yarn/patches/@protontech-crypto-npm-2.2.0.patch":
+  version: 2.2.0
+  resolution: "@protontech/crypto@patch:@protontech/crypto@npm%3A2.2.0#~/.yarn/patches/@protontech-crypto-npm-2.2.0.patch::version=2.2.0&hash=ac6510"
+  dependencies:
+    "@noble/hashes": "npm:^2.4.0"
+    "@openpgp/web-stream-tools": "npm:~0.3.1"
+    bcryptjs: "npm:^3.0.3"
+    comlink: "npm:^4.4.2"
+    core-js: "npm:^3.50.0"
+    openpgp: "npm:@protontech/openpgp@~6.3.1"
+  checksum: 10c0/1a3a907d9d1196df9b280c02b864257f3d2282fbd7421da7862bf18766d0d085db0769dda8138bca3e1faf1482835ce32aaec2a034d1bfcb969319cee11fa09f
+  languageName: node
+  linkType: hard
+
+"@protontech/drive-sdk@npm:0.23.0":
+  version: 0.23.0
+  resolution: "@protontech/drive-sdk@npm:0.23.0"
+  dependencies:
+    "@boltffi/runtime": "npm:0.31.0"
+    "@noble/hashes": "npm:^1.8.0"
+    "@xmldom/xmldom": "npm:^0.9.12"
+    comlink: "npm:^4.4.2"
+    exifreader: "npm:^4.44.0"
+    ttag: "npm:^1.8.7"
+  peerDependencies:
+    "@protontech/crypto": ^2.0.0
+  dependenciesMeta:
+    "@xmldom/xmldom":
+      optional: true
+    exifreader:
+      optional: true
+  checksum: 10c0/b9834b6de58590d68746c6bbdac28e491e73ceff59a3dac3e8684db2d65b43c654905ba7d65b186bb3ab00538f2d365e4a917b5dad3ec879940d210e8146f986
   languageName: node
   linkType: hard
 
@@ -3328,6 +3406,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@xmldom/xmldom@npm:^0.9.12":
+  version: 0.9.12
+  resolution: "@xmldom/xmldom@npm:0.9.12"
+  checksum: 10c0/0a9ef38e203213717dde8d16c62743c26c37eb4195aeb4f286550a0aec2145c063a6c3633f253c29f75202f922d7c961d1acaad4dd93e5db1ef05c813354d178
+  languageName: node
+  linkType: hard
+
 "abbrev@npm:^4.0.0":
   version: 4.0.0
   resolution: "abbrev@npm:4.0.0"
@@ -3392,6 +3477,15 @@ __metadata:
   bin:
     baseline-browser-mapping: dist/cli.cjs
   checksum: 10c0/b0d248660ed8a09b0738fb9ca383668e8e445ad23b3efa8a5c41ee91fdf09399766513f97e5effd77e2e5027c1eec225f84bbfdf01586871e5ba2bb4cce8ea83
+  languageName: node
+  linkType: hard
+
+"bcryptjs@npm:^3.0.3":
+  version: 3.0.3
+  resolution: "bcryptjs@npm:3.0.3"
+  bin:
+    bcrypt: bin/bcrypt
+  checksum: 10c0/127c94699f07eab5fbbb89d600c3f0e36ae6fd001e028139740b41fffb62a23a2743523fb88f442ae3308a27d4843b97ccb9e436d78f5c5899be187d0972c6d5
   languageName: node
   linkType: hard
 
@@ -3585,6 +3679,8 @@ __metadata:
     "@biomejs/biome": "npm:^2.6.6"
     "@logtail/node": "npm:^0.6.1"
     "@playwright/test": "npm:^1.65.0"
+    "@protontech/crypto": "patch:@protontech/crypto@npm%3A2.2.0#~/.yarn/patches/@protontech-crypto-npm-2.2.0.patch"
+    "@protontech/drive-sdk": "npm:0.23.0"
     "@radix-ui/react-avatar": "npm:^1.3.1"
     "@radix-ui/react-dialog": "npm:^1.3.1"
     "@radix-ui/react-dropdown-menu": "npm:^2.2.1"
@@ -3609,10 +3705,12 @@ __metadata:
     busboy: "npm:^1.6.0"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
+    core-js: "npm:^3.51.0"
     dotenv: "npm:^18.0.10"
     drizzle-kit: "npm:^0.31.11"
     drizzle-orm: "npm:^0.45.4"
     fast-xml-parser: "npm:^5.12.0"
+    ky: "npm:^1.14.3"
     lucide-react: "npm:1.70.0"
     mapbox-gl: "npm:^3.34.2"
     next: "npm:16.4.5"
@@ -3662,10 +3760,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"comlink@npm:^4.4.2":
+  version: 4.4.2
+  resolution: "comlink@npm:4.4.2"
+  checksum: 10c0/38aa1f455cf08e94aaa8fc494fd203cc0ef02ece6c21404b7931ce17567e8a72deacddab98aa5650cfd78332ff24c34610586f6fb27fd19dc77e753ed1980deb
+  languageName: node
+  linkType: hard
+
 "commondir@npm:^1.0.1":
   version: 1.0.1
   resolution: "commondir@npm:1.0.1"
   checksum: 10c0/33a124960e471c25ee19280c9ce31ccc19574b566dc514fe4f4ca4c34fa8b0b57cf437671f5de380e11353ea9426213fca17687dd2ef03134fea2dbc53809fd6
+  languageName: node
+  linkType: hard
+
+"core-js@npm:^3.50.0, core-js@npm:^3.51.0":
+  version: 3.51.0
+  resolution: "core-js@npm:3.51.0"
+  checksum: 10c0/1c10402cb9e8748c17327a68ba7a69e535d125cc81b63261506400681bdd814c6267c55fbc51fafd71d3094dcb25f5f41cc1bc5caba6a15118c73aec9653dd3b
   languageName: node
   linkType: hard
 
@@ -3785,6 +3897,18 @@ __metadata:
   version: 2.5.1
   resolution: "decimal.js-light@npm:2.5.1"
   checksum: 10c0/4fd33f535aac9e5bd832796831b65d9ec7914ad129c7437b3ab991b0c2eaaa5a57e654e6174c4a17f1b3895ea366f0c1ab4955cdcdf7cfdcf3ad5a58b456c020
+  languageName: node
+  linkType: hard
+
+"dedent@npm:1.5.1":
+  version: 1.5.1
+  resolution: "dedent@npm:1.5.1"
+  peerDependencies:
+    babel-plugin-macros: ^3.1.0
+  peerDependenciesMeta:
+    babel-plugin-macros:
+      optional: true
+  checksum: 10c0/f8612cd5b00aab58b18bb95572dca08dc2d49720bfa7201a444c3dae430291e8a06d4928614a6ec8764d713927f44bce9c990d3b8238fca2f430990ddc17c070
   languageName: node
   linkType: hard
 
@@ -4192,6 +4316,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"exifreader@npm:^4.44.0":
+  version: 4.54.0
+  resolution: "exifreader@npm:4.54.0"
+  dependencies:
+    "@xmldom/xmldom": "npm:^0.9.12"
+  dependenciesMeta:
+    "@xmldom/xmldom":
+      optional: true
+  bin:
+    exifreader: bin/cli.js
+  checksum: 10c0/8913c431af4d83afbf4f10c9d2d9b97ff2cb0f578dc174005d7c80795f57e21a3c4bfb8f5f73841397e70b8a50242609fe623f62f08e2de8d9895f62e6eaa359
+  languageName: node
+  linkType: hard
+
 "expect-type@npm:^1.4.0":
   version: 1.4.0
   resolution: "expect-type@npm:1.4.0"
@@ -4506,6 +4644,13 @@ __metadata:
   version: 3.0.0
   resolution: "json-stringify-pretty-compact@npm:3.0.0"
   checksum: 10c0/fc522c25047bd96d72ded77af4002e7f12e9ba9f4b7e7e12a9316aee166f1b8f9c7b0d0d989a8494e3fdd804a23819f411479f68f2ef10b2f7a144581b2c68f4
+  languageName: node
+  linkType: hard
+
+"ky@npm:^1.14.3":
+  version: 1.14.3
+  resolution: "ky@npm:1.14.3"
+  checksum: 10c0/8e91c9512c8f1501201108ad58ed437eaf3f5b0a0da842bd846d785932426e84a31cf51d0fffce1921d4e70e26465a9b2b89ed2477822975568258a1fa68a740
   languageName: node
   linkType: hard
 
@@ -4963,6 +5108,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"openpgp@npm:@protontech/openpgp@~6.3.1":
+  version: 6.3.1
+  resolution: "@protontech/openpgp@npm:6.3.1"
+  peerDependencies:
+    "@openpgp/web-stream-tools": ~0.3.0
+  peerDependenciesMeta:
+    "@openpgp/web-stream-tools":
+      optional: true
+  checksum: 10c0/f6ed0767c1a88e0fb865b26c0f81ebba5e593ecb86292995c4141b15477d4e5283406814eae7ca64250b5b0f7c393a709dfe57ffc3778bb1c759c0ede59c2a3b
+  languageName: node
+  linkType: hard
+
 "oxc-parser@npm:^0.152.0":
   version: 0.152.0
   resolution: "oxc-parser@npm:0.152.0"
@@ -5183,6 +5340,13 @@ __metadata:
   bin:
     playwright: cli.js
   checksum: 10c0/a7d71f3ca5bcad0531b5f3c39ae1a9be0da8e74be6fee8510d99b9f5fc07fd5b3d889aa4ca487c70ca29aba8625f74e3c2c7473b4c8a784dc14fefff80474ac3
+  languageName: node
+  linkType: hard
+
+"plural-forms@npm:^0.5.3":
+  version: 0.5.5
+  resolution: "plural-forms@npm:0.5.5"
+  checksum: 10c0/2707a508924692290c14d277525f232d13ab90d2b0c9b52681e94140a2dd3264aba7066bc370629327a13e882fe57835fd38a805a8bdf554238c0043d0964782
   languageName: node
   linkType: hard
 
@@ -6093,6 +6257,16 @@ __metadata:
   bin:
     tsx: dist/cli.mjs
   checksum: 10c0/cdd7f03754021fb337c13839f25f5f5edee01ed12e1e176da50cc34bc5c5fc4e7b533aeba89127055be969d4ff292c6accdb6b9d977ed022c524349eca6ff841
+  languageName: node
+  linkType: hard
+
+"ttag@npm:^1.8.7":
+  version: 1.8.12
+  resolution: "ttag@npm:1.8.12"
+  dependencies:
+    dedent: "npm:1.5.1"
+    plural-forms: "npm:^0.5.3"
+  checksum: 10c0/6b8f6968174bf599e02a66bddcf3d8e6c478cee0e831044ec5a2518b73b8649b6584d94973cb248fdaa34b5f81636eafdc9513109138c512e3749d611691d7fa
   languageName: node
   linkType: hard
 
