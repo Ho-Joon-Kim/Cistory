@@ -10,6 +10,7 @@ import {
   keepPreviousOverviewData,
   loadNarrativeUntilSettled,
   loadOverviewUntilSettled,
+  OVERVIEW_MAX_POLLS,
   overviewErrorMessage,
   overviewPollDelay,
   recomputeResponseJson,
@@ -478,5 +479,19 @@ describe("auxiliary overview reads", () => {
     await expect(
       fetchCategoryPaymentCounts({ from: "2026-10-01", to: "2026-10-31" })
     ).resolves.toEqual({ food: 3, uncategorized: 1 });
+  });
+});
+
+describe("overviewPollDelay budget", () => {
+  it("caps the backoff at 30 s", () => {
+    expect(overviewPollDelay(10_000)).toBe(30_000);
+  });
+
+  it("still waits out the ten-minute window the 5-minute precompute cron is sized for", () => {
+    let total = 0;
+    for (let poll = 0; poll < OVERVIEW_MAX_POLLS; poll++) total += overviewPollDelay(poll);
+    expect(total).toBeGreaterThanOrEqual(10 * 60_000);
+    // …with far fewer requests than the old flat 3 s × 200.
+    expect(OVERVIEW_MAX_POLLS).toBeLessThanOrEqual(60);
   });
 });

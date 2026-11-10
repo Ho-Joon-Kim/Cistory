@@ -22,7 +22,11 @@ import {
 import { focusOverviewSection } from "@/modules/overview/section-focus";
 import { periodContext, periodMeta, periodTitle } from "@/modules/overview/view/labels";
 import { buildOverviewModel } from "@/modules/overview/view/model";
-import { shouldShowOverviewFailure } from "@/modules/overview/view-state";
+import {
+  HISTORY_GRACE_MS,
+  overviewBodyReady,
+  shouldShowOverviewFailure,
+} from "@/modules/overview/view-state";
 import { SyncStatusProvider } from "@/modules/sync/hooks";
 
 /**
@@ -80,12 +84,26 @@ function OverviewContent() {
   // replays no entrance — with a small note in the meta line.
   const ready = snapshot && "domains" in snapshot ? snapshot : null;
   const updating = isStaleOverviewSnapshot(snapshot);
-  const history = useOverviewHistory(
+  // Starts with the snapshot request, not after it: the hero needs both. A stale
+  // snapshot counts as unready here, so history is re-read once fresh data lands.
+  const { history, settled: historySettled } = useOverviewHistory(
     selection.periodType,
     selection.periodKey,
     isAuthenticated && !isComparison,
-    ready?.computedAt ?? null
+    snapshot ? { ready: ready != null && !updating, computedAt: ready?.computedAt ?? null } : null
   );
+  const requestKey = `${selection.periodType}:${selection.periodKey}`;
+  const [graceKey, setGraceKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ready || historySettled) return;
+    const timer = window.setTimeout(() => setGraceKey(requestKey), HISTORY_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [ready, historySettled, requestKey]);
+  const bodyReady = overviewBodyReady({
+    snapshotReady: ready != null,
+    historySettled,
+    graceElapsed: graceKey === requestKey,
+  });
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) router.replace("/login");
@@ -200,7 +218,7 @@ function OverviewContent() {
         <ComputingState status="failed" error={error} onRecompute={() => void recompute()} />
       </div>
     );
-  } else if (isLoading || !snapshot) {
+  } else if (isLoading || !snapshot || (ready && !bodyReady)) {
     body = (
       <div className="mt-10">
         <ComputingState status="loading" />

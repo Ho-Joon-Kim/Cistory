@@ -1,7 +1,14 @@
 "use client";
 
 import { type CSSProperties, type ReactNode, useMemo, useState } from "react";
-import { AiLine, EmptyState, ErrorState, EvidenceScope, useEvidence } from "@/components/ds";
+import {
+  AiLine,
+  EmptyState,
+  ErrorState,
+  EvidenceScope,
+  LoadingState,
+  useEvidence,
+} from "@/components/ds";
 import { evidenceMatches } from "@/lib/facts/evidence";
 import { formatDay, formatMonthDay, formatTime } from "@/lib/format";
 import { useAnimatedNumber } from "@/lib/hooks/useCountUp";
@@ -634,7 +641,9 @@ function WeightColumn({
                 </button>
               }
             />
-          ) : isLoading ? null : (
+          ) : isLoading ? (
+            <LoadingState label="체중 불러오는 중" />
+          ) : (
             <EmptyState
               title="체성분 측정 기록이 아직 없어요"
               description="Withings 체중계로 측정하면 체중 추이가 여기에 표시돼요."

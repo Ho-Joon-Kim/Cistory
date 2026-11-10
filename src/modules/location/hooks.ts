@@ -45,7 +45,10 @@ interface StayPointsResponse {
 
 export function useStayPoints(date: string) {
   const [stayPoints, setStayPoints] = useState<StayPointData[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // The key whose request has settled (data, error or cache hit). Loading is
+  // derived from it so the first render, a date change and an aborted request
+  // all read as loading — never as an empty day.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   const cache = useRef<Map<string, StayPointData[]>>(new Map());
   const visible = usePageVisible();
 
@@ -55,12 +58,10 @@ export function useStayPoints(date: string) {
         const cached = cache.current.get(targetDate);
         if (cached) {
           setStayPoints(cached);
-          setIsLoading(false);
+          setSettledKey(targetDate);
           return;
         }
       }
-
-      if (!silent) setIsLoading(true);
 
       try {
         const response = await fetch(`/api/timeline/locations/stay-points?date=${targetDate}`, {
@@ -88,7 +89,7 @@ export function useStayPoints(date: string) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         if (!silent) setStayPoints([]);
       } finally {
-        if (!silent) setIsLoading(false);
+        if (!silent && !signal.aborted) setSettledKey(targetDate);
       }
     },
     []
@@ -112,7 +113,7 @@ export function useStayPoints(date: string) {
     };
   }, [date, visible, fetchStayPoints]);
 
-  return { stayPoints, isLoading };
+  return { stayPoints, isLoading: settledKey !== date };
 }
 
 interface DailyDistancesResponse {
@@ -121,7 +122,10 @@ interface DailyDistancesResponse {
 
 export function useDailyDistances(dateFrom: string, dateTo: string) {
   const [distances, setDistances] = useState<Record<string, number>>({});
-  const [isLoading, setIsLoading] = useState(false);
+  // The key whose request has settled (data, error or cache hit). Loading is
+  // derived from it so the first render, a date change and an aborted request
+  // all read as loading — never as an empty day.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   const cache = useRef<Map<string, Record<string, number>>>(new Map());
   const visible = usePageVisible();
 
@@ -133,12 +137,10 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
         const cached = cache.current.get(cacheKey);
         if (cached) {
           setDistances(cached);
-          setIsLoading(false);
+          setSettledKey(cacheKey);
           return;
         }
       }
-
-      if (!silent) setIsLoading(true);
 
       try {
         const response = await fetch(`/api/timeline/locations/distances?from=${from}&to=${to}`, {
@@ -154,7 +156,7 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         if (!silent) setDistances({});
       } finally {
-        if (!silent) setIsLoading(false);
+        if (!silent && !signal.aborted) setSettledKey(cacheKey);
       }
     },
     []
@@ -184,12 +186,15 @@ export function useDailyDistances(dateFrom: string, dateTo: string) {
     return () => controller.abort();
   }, [dateFrom, dateTo, visible, fetchDistances]);
 
-  return { distances, isLoading };
+  return { distances, isLoading: settledKey !== `${dateFrom}:${dateTo}` };
 }
 
 export function useLocations(date: string) {
   const [locations, setLocations] = useState<LocationData[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // The key whose request has settled (data, error or cache hit). Loading is
+  // derived from it so the first render, a date change and an aborted request
+  // all read as loading — never as an empty day.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The thrown value itself, so callers can tell a network failure from a 500.
   const [failure, setFailure] = useState<unknown>(null);
@@ -204,7 +209,7 @@ export function useLocations(date: string) {
         const cached = cache.current.get(targetDate);
         if (cached) {
           setLocations(cached);
-          setIsLoading(false);
+          setSettledKey(targetDate);
           setError(null);
           setFailure(null);
           return;
@@ -212,7 +217,6 @@ export function useLocations(date: string) {
       }
 
       if (!silent) {
-        setIsLoading(true);
         setError(null);
         setFailure(null);
       }
@@ -248,9 +252,7 @@ export function useLocations(date: string) {
           setLocations([]);
         }
       } finally {
-        if (!silent) {
-          setIsLoading(false);
-        }
+        if (!silent && !signal.aborted) setSettledKey(targetDate);
       }
     },
     []
@@ -276,7 +278,7 @@ export function useLocations(date: string) {
     };
   }, [date, visible, fetchLocations, attempt]);
 
-  return { locations, isLoading, error, failure, refresh };
+  return { locations, isLoading: settledKey !== date, error, failure, refresh };
 }
 
 // ── Track Data ───────────────────────────────────────────────────────────────
@@ -327,7 +329,10 @@ interface TracksResponse {
 
 export function useTracks(date: string) {
   const [tracks, setTracks] = useState<TrackData[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // The key whose request has settled (data, error or cache hit). Loading is
+  // derived from it so the first render, a date change and an aborted request
+  // all read as loading — never as an empty day.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   const cache = useRef<Map<string, TrackData[]>>(new Map());
   const visible = usePageVisible();
 
@@ -337,12 +342,10 @@ export function useTracks(date: string) {
         const cached = cache.current.get(targetDate);
         if (cached) {
           setTracks(cached);
-          setIsLoading(false);
+          setSettledKey(targetDate);
           return;
         }
       }
-
-      if (!silent) setIsLoading(true);
 
       try {
         const response = await fetch(`/api/timeline/locations/tracks?date=${targetDate}`, {
@@ -369,7 +372,7 @@ export function useTracks(date: string) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         if (!silent) setTracks([]);
       } finally {
-        if (!silent) setIsLoading(false);
+        if (!silent && !signal.aborted) setSettledKey(targetDate);
       }
     },
     []
@@ -393,7 +396,7 @@ export function useTracks(date: string) {
     };
   }, [date, visible, fetchTracks]);
 
-  return { tracks, isLoading };
+  return { tracks, isLoading: settledKey !== date };
 }
 
 // ── Trip Data ────────────────────────────────────────────────────────────────

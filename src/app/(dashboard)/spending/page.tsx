@@ -340,7 +340,9 @@ export default function SpendingPage() {
               </button>
             }
           />
-        ) : !data || !hero ? (
+        ) : !data || !hero || !month.hasLoaded ? (
+          // The hero's counts come from the month ledger: wait for it rather than
+          // showing "0건" and swapping in the real count.
           <SpendingHeroSkeleton />
         ) : hasNoData ? (
           <EmptyState
@@ -421,7 +423,7 @@ export default function SpendingPage() {
                 돈의 흐름
               </BlockTitle>
               <span className="text-label">{formatDateRange(range.from, range.to)}</span>
-              <CashFlow summary={ledger.summary} />
+              <CashFlow summary={ledger.summary} loading={!ledger.hasLoaded} />
             </aside>
           ) : null}
 
@@ -432,12 +434,12 @@ export default function SpendingPage() {
                   {tab === "ledger" ? "거래 내역" : "원본 알림"}
                 </span>
                 {tab === "ledger" ? (
-                  ledger.isLoading && txCount === 0 ? null : (
+                  !ledger.hasLoaded ? null : (
                     <span className="num font-sans text-sm leading-[1.375rem] font-normal tracking-normal text-ink-2">
                       {formatCount(txCount)}건
                     </span>
                   )
-                ) : logs.total != null ? (
+                ) : logs.hasLoaded ? (
                   <span className="num font-sans text-sm leading-[1.375rem] font-normal tracking-normal text-ink-2">
                     {formatCount(logs.total)}건
                   </span>
@@ -485,7 +487,7 @@ export default function SpendingPage() {
                       </button>
                     }
                   />
-                ) : ledger.isLoading && ledger.transactions.length === 0 ? (
+                ) : !ledger.hasLoaded || (ledger.isLoading && ledger.transactions.length === 0) ? (
                   <LoadingState variant="rows" rows={6} />
                 ) : visibleDays.length === 0 ? (
                   <EmptyState
@@ -514,7 +516,7 @@ export default function SpendingPage() {
                   refreshAll();
                 }}
               />
-              {logs.isLoading && logs.logs.length === 0 ? (
+              {!logs.hasLoaded || (logs.isLoading && logs.logs.length === 0) ? (
                 <LoadingState variant="rows" rows={6} />
               ) : logs.logs.length === 0 ? (
                 <EmptyState

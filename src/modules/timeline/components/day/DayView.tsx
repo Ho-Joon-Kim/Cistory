@@ -11,7 +11,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AiLine, CountUp, EvidenceScope } from "@/components/ds";
+import { AiLine, CountUp, EvidenceScope, LoadingState } from "@/components/ds";
 import { shiftDateKey } from "@/lib/date-key";
 import { formatCount, formatDurationMinutes, formatTime, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,7 @@ import {
   useTracks,
 } from "@/modules/location/hooks";
 import { pickDayFact } from "../../day-facts";
+import { daySections } from "../../day-loading";
 import { buildDayModel, dedupeNights, minuteOfDay, routeLabel, sleepForDay } from "../../day-model";
 import { dayErrorMessage } from "../../error-copy";
 import { useDayCommits, useTransactionsForDate } from "../../hooks";
@@ -81,18 +82,35 @@ export function DayView({
   const desktop = useIsDesktop();
   const isToday = date === today;
 
-  const stayPointsData = useStayPoints(date).stayPoints;
-  const tracksData = useTracks(date).tracks;
+  const { stayPoints: stayPointsData, isLoading: stayPointsLoading } = useStayPoints(date);
+  const { tracks: tracksData, isLoading: tracksLoading } = useTracks(date);
   const {
     locations: locationsData,
+    isLoading: locationsLoading,
     failure: locationsFailure,
     refresh: refreshLocations,
   } = useLocations(date);
   // A malformed or partial response degrades to "no records", never a crash.
-  const stayPoints = useMemo(() => stayPointsData ?? [], [stayPointsData]);
-  const tracks = useMemo(() => tracksData ?? [], [tracksData]);
-  const locations = useMemo(() => locationsData ?? [], [locationsData]);
-  const { commits, error: commitsError, refresh: refreshCommits } = useDayCommits(date);
+  // While a new date loads the hooks still hold the previous day: show nothing
+  // of it rather than the wrong day's route under the new date.
+  const stayPoints = useMemo(
+    () => (stayPointsLoading ? [] : (stayPointsData ?? [])),
+    [stayPointsData, stayPointsLoading]
+  );
+  const tracks = useMemo(
+    () => (tracksLoading ? [] : (tracksData ?? [])),
+    [tracksData, tracksLoading]
+  );
+  const locations = useMemo(
+    () => (locationsLoading ? [] : (locationsData ?? [])),
+    [locationsData, locationsLoading]
+  );
+  const {
+    commits,
+    isLoading: commitsLoading,
+    error: commitsError,
+    refresh: refreshCommits,
+  } = useDayCommits(date);
   // A failed location request must never read as "이날 위치 기록이 없어요".
   const locationsError = useMemo(
     () =>
@@ -104,10 +122,15 @@ export function DayView({
         : null,
     [locationsFailure, refreshLocations]
   );
-  const { transactions, error: txError, refresh: refreshTx } = useTransactionsForDate(date);
-  const { summary } = useHealthSummary();
-  const { distances } = useDailyDistances(date, date);
-  const { data: stats } = useQuery<StatsResponse>({
+  const {
+    transactions,
+    isLoading: txLoading,
+    error: txError,
+    refresh: refreshTx,
+  } = useTransactionsForDate(date);
+  const { summary, isLoading: healthLoading } = useHealthSummary();
+  const { distances, isLoading: distancesLoading } = useDailyDistances(date, date);
+  const { data: stats, isPending: statsPending } = useQuery<StatsResponse>({
     queryKey: ["timeline", "stats"],
     queryFn: async () => {
       const response = await fetch("/api/timeline/stats");
@@ -159,6 +182,21 @@ export function DayView({
     if (prior[6] < earliest) return null;
     return prior.map((d) => byDay.get(d) ?? 0);
   }, [stats, date]);
+
+  const sections = daySections(
+    {
+      locations: locationsLoading,
+      stayPoints: stayPointsLoading,
+      tracks: tracksLoading,
+      commits: commitsLoading,
+      transactions: txLoading,
+      health: healthLoading,
+      distances: distancesLoading,
+    },
+    model.rows.length
+  );
+  // The AI fact also compares against the prior week's commit counts.
+  const factReady = sections.summaryReady && !statsPending;
 
   const dayFact = useMemo(
     () => pickDayFact({ date, model, recentSleeps, priorCommitCounts, isToday }),
@@ -246,7 +284,7 @@ export function DayView({
       </>
     );
   const metaLine =
-    meta.length > 0 ? (
+    sections.summaryReady && meta.length > 0 ? (
       // Each item carries its "·" in a ::before inside its own left padding; the
       // item that starts a line has that dot pushed into the negative margin the
       // overflow-hidden wrapper clips, so a wrap never leads with "·" (DotList pattern).
@@ -266,7 +304,14 @@ export function DayView({
       </p>
     ) : null;
 
-  const aiLine = dayFact ? <AiLine fact={dayFact.fact} rows={dayFact.rows} /> : null;
+  const aiLine = !factReady ? (
+    // Holds the line's height so the list doesn't jump when the fact lands.
+    <span aria-hidden="true" className="ds-delayed-in block h-5 py-1">
+      <span className="block h-3 w-[min(360px,70%)] rounded bg-track" />
+    </span>
+  ) : dayFact ? (
+    <AiLine fact={dayFact.fact} rows={dayFact.rows} />
+  ) : null;
 
   const chain =
     model.chain.length > 0 ? (
@@ -336,7 +381,7 @@ export function DayView({
   }, [summary, date, isToday]);
 
   const bodyRow =
-    body.length > 0 ? (
+    sections.summaryReady && body.length > 0 ? (
       <div className="grid grid-cols-2 border-t border-line">
         {body.map((b, i) => (
           <div
@@ -377,7 +422,9 @@ export function DayView({
     ) : null;
 
   const list =
-    model.rows.length > 0 ? (
+    sections.list === "loading" ? (
+      <LoadingState variant="rows" rows={6} label="하루 기록을 불러오는 중" />
+    ) : sections.list === "rows" ? (
       <DayList
         rows={model.rows}
         selectedId={selectedId}
@@ -402,6 +449,7 @@ export function DayView({
       onSelect={selectFromMap}
       initialCenter={initialCenter}
       loadError={locationsError}
+      isLoading={sections.mapLoading}
       padding={desktop ? 56 : 44}
       className={desktop ? "size-full" : "h-[330px] w-full border-b border-line"}
       topLeft={

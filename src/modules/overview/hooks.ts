@@ -16,6 +16,7 @@ import {
 } from "./period";
 import type { OverviewSnapshotResponse } from "./service";
 import type { StayFocus } from "./view/flow";
+import { historyRefreshToken } from "./view-state";
 
 /**
  * Snapshot polling backs off 3 s → 10 s → 30 s: a single recompute lands within
@@ -518,11 +519,26 @@ export function useOverviewHistory(
   periodType: PeriodType,
   periodKey: string,
   enabled: boolean,
-  refreshKey: string | null
-) {
-  const [history, setHistory] = useState<OverviewHistoryResponse | null>(null);
+  snapshot: { ready: boolean; computedAt: string | null } | null
+): { history: OverviewHistoryResponse | null; settled: boolean } {
+  const key = `${periodType}:${periodKey}`;
+  // The key whose snapshot was seen pending/computing in this page session.
+  const [unreadyKey, setUnreadyKey] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    key: string;
+    history: OverviewHistoryResponse | null;
+  } | null>(null);
+  const snapshotUnready = snapshot != null && !snapshot.ready;
   useEffect(() => {
-    void refreshKey;
+    if (snapshotUnready) setUnreadyKey(key);
+  }, [snapshotUnready, key]);
+  const refreshToken = historyRefreshToken(
+    unreadyKey === key,
+    snapshot?.ready ? snapshot.computedAt : null
+  );
+
+  useEffect(() => {
+    void refreshToken;
     if (!enabled || periodType === "recent") return;
     const controller = new AbortController();
     const params = new URLSearchParams({ periodType, periodKey });
@@ -531,15 +547,18 @@ export function useOverviewHistory(
         if (!response.ok) throw new Error("history unavailable");
         return (await response.json()) as OverviewHistoryResponse;
       })
-      .then((body) => setHistory(body))
+      .then((body) => setResult({ key, history: body }))
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
         // History only adds comparisons; the page renders without it.
-        setHistory(null);
+        setResult({ key, history: null });
       });
     return () => controller.abort();
-  }, [enabled, periodKey, periodType, refreshKey]);
-  return history;
+  }, [enabled, key, periodKey, periodType, refreshToken]);
+
+  // Another period's history never leaks into this one while it loads.
+  const current = result?.key === key ? result : null;
+  return { history: current?.history ?? null, settled: current != null };
 }
 
 /**
