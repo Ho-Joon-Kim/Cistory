@@ -24,11 +24,7 @@ describe("fillDateRange", () => {
   it("crosses month boundaries", () => {
     const now = new Date("2026-03-01T03:00:00Z");
     const entries = fillDateRange({ "2026-02-27": [] }, now);
-    expect(entries.map((e) => e.date)).toEqual([
-      "2026-03-01",
-      "2026-02-28",
-      "2026-02-27",
-    ]);
+    expect(entries.map((e) => e.date)).toEqual(["2026-03-01", "2026-02-28", "2026-02-27"]);
   });
 
   it("returns nothing when there are no keys", () => {

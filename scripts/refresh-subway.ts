@@ -12,8 +12,7 @@
 
 import { config as loadEnv } from "dotenv";
 import { eq } from "drizzle-orm";
-import { getDb, subwaySystems } from "../src/db";
-import { getPool } from "../src/db";
+import { getDb, getPool, subwaySystems } from "../src/db";
 import {
   fetchAndPersistSubwaySystem,
   refreshAllSubwaySystems,
