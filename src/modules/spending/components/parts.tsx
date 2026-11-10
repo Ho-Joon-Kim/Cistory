@@ -105,7 +105,7 @@ const VARIANTS: Record<Variant, string> = {
   secondary: "bg-surface text-ink shadow-ring [@media(hover:hover)]:hover:shadow-ring-hover",
   ghost: "bg-transparent text-ink-2 [@media(hover:hover)]:hover:bg-track",
   danger:
-    "bg-transparent text-gain shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--up)_38%,transparent)] [@media(hover:hover)]:hover:bg-gain-soft",
+    "bg-transparent text-danger shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--danger)_38%,transparent)] [@media(hover:hover)]:hover:bg-danger-soft",
 };
 
 /** Mockup `.btn`: 36 tall (44 on touch), 13px 600, scale on press. */

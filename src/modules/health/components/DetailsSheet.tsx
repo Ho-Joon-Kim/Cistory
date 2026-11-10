@@ -2,6 +2,7 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { type CSSProperties, useState } from "react";
+import { isQuantityText } from "@/lib/facts/face";
 import { formatDateTime, formatDay, MINUS } from "@/lib/format";
 import type { BodyMetricSummary, BodyResult } from "@/modules/insights/service";
 import { type DetailRow, fmtNum } from "../view-model";
@@ -59,21 +60,37 @@ function compRows(body: BodyResult): CompRow[] {
   ].filter((r) => r.m.latest != null);
 }
 
-function compDelta(r: CompRow): string {
+/** Change since the previous measurement: a signed quantity, "변화 없음", or null. */
+function compDelta(r: CompRow): string | null {
   const d = r.m.delta;
-  let text = "";
-  if (d != null) {
-    const shown = fmtNum(Math.abs(d), r.decimals);
-    text =
-      Number(shown.replace(/,/g, "")) === 0
-        ? "변화 없음"
-        : `${d > 0 ? "+" : MINUS}${shown}${r.unit === "%" ? "%p" : r.unit}`;
-  }
-  if (r.m.min != null && r.m.max != null && r.m.min !== r.m.max) {
-    const range = `범위 ${fmtNum(r.m.min, r.decimals)}–${fmtNum(r.m.max, r.decimals)}`;
-    text = text ? `${text} · ${range}` : range;
-  }
-  return text;
+  if (d == null) return null;
+  const shown = fmtNum(Math.abs(d), r.decimals);
+  return Number(shown.replace(/,/g, "")) === 0
+    ? "변화 없음"
+    : `${d > 0 ? "+" : MINUS}${shown}${r.unit === "%" ? "%p" : r.unit}`;
+}
+
+/** Min–max over the window, when it is a range at all. */
+function compRange(r: CompRow): string | null {
+  if (r.m.min == null || r.m.max == null || r.m.min === r.m.max) return null;
+  return `${fmtNum(r.m.min, r.decimals)}–${fmtNum(r.m.max, r.decimals)}`;
+}
+
+/** Delta in mono (when it is a quantity), the "범위" word in the surrounding face. */
+function CompMeta({ row }: { row: CompRow }) {
+  const delta = compDelta(row);
+  const range = compRange(row);
+  return (
+    <>
+      {delta ? <span className={isQuantityText(delta) ? "num" : undefined}>{delta}</span> : null}
+      {delta && range ? " · " : null}
+      {range ? (
+        <>
+          범위 <span className="num">{range}</span>
+        </>
+      ) : null}
+    </>
+  );
 }
 
 /** One-line summary shown on the disclosure. */
@@ -195,9 +212,11 @@ export function DetailsSheet({
                             {r.note}
                           </span>
                         ) : null}
-                        <span className="num text-[11px] leading-[14px] text-ink-3 lg:hidden">
-                          중앙값 {fmtNum(r.median, r.decimals)} · {fmtNum(r.min, r.decimals)}–
-                          {fmtNum(r.max, r.decimals)}
+                        <span className="text-[11px] leading-[14px] text-ink-3 lg:hidden">
+                          중앙값 <span className="num">{fmtNum(r.median, r.decimals)}</span> ·{" "}
+                          <span className="num">
+                            {fmtNum(r.min, r.decimals)}–{fmtNum(r.max, r.decimals)}
+                          </span>
                         </span>
                       </span>
                       <span className="order-last text-right lg:order-none lg:text-left">
@@ -210,9 +229,11 @@ export function DetailsSheet({
                         </span>
                       </span>
                       <Spark row={r} />
-                      <span className="num hidden text-right text-xs text-ink-3 lg:block">
-                        중앙값 {fmtNum(r.median, r.decimals)} · {fmtNum(r.min, r.decimals)}–
-                        {fmtNum(r.max, r.decimals)}
+                      <span className="hidden text-right text-xs text-ink-3 lg:block">
+                        중앙값 <span className="num">{fmtNum(r.median, r.decimals)}</span> ·{" "}
+                        <span className="num">
+                          {fmtNum(r.min, r.decimals)}–{fmtNum(r.max, r.decimals)}
+                        </span>
                       </span>
                     </div>
                   ))}
@@ -239,8 +260,8 @@ export function DetailsSheet({
                             <span className="text-xs font-medium text-ink-3"> {c.unit}</span>
                           ) : null}
                         </span>
-                        <span className="num text-[11px] text-ink-3 lg:text-xs">
-                          {compDelta(c)}
+                        <span className="text-[11px] text-ink-3 tabular-nums lg:text-xs">
+                          <CompMeta row={c} />
                         </span>
                       </div>
                     ))}

@@ -292,12 +292,19 @@ test("health auxiliary failures can retry into an honest empty state", async ({ 
     route.fulfill(fail ? { status: 503, json: { error: "unavailable" } } : { json: { data: null } })
   );
   await page.goto("/health");
+<<<<<<< ours
   await expect(page.locator("main [role=alert]")).toContainText(
     "건강 데이터를 불러오지 못했습니다"
   );
   fail = false;
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();
   await expect(page.getByText("체성분 측정 기록이 아직 없습니다")).toBeVisible();
+=======
+  await expect(page.locator("main [role=alert]")).toContainText("체성분 기록을 불러오지 못했어요");
+  fail = false;
+  await page.getByRole("button", { name: "다시 시도", exact: true }).click();
+  await expect(page.getByText("체성분 측정 기록이 아직 없어요")).toBeVisible();
+>>>>>>> theirs
   await expect(page.locator("main [role=alert]")).toHaveCount(0);
 });
 

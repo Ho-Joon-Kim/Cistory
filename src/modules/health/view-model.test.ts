@@ -98,7 +98,7 @@ describe("sleep", () => {
     expect(fact?.id).toBe("health.sleep.awake");
     expect(fact?.evidence).toEqual({ kind: "keys", keys: ["stage:awake"] });
     expect(renderTemplate(fact!).text).toBe(
-      "깨어 있던 시간이 72분으로 다른 4밤 중앙값 19분의 3.9배예요. 효율 81%가 낮은 이유입니다."
+      "깨어 있던 시간이 72분으로 다른 4밤 중앙값 19분의 3.9배예요. 효율 81%가 낮은 이유예요."
     );
     expect(sleepFact(nights, 2)).toBeNull();
   });
@@ -169,7 +169,7 @@ describe("weight", () => {
   it("compares the last 7 weigh-ins with the 7 before", () => {
     const fact = weightFact(view);
     expect(renderTemplate(fact!).text).toBe(
-      "최근 7회 평균 86.0kg, 그 전 7회보다 2.0kg 낮아요. 최고점 이후 2주째 감소 구간입니다."
+      "최근 7회 평균 86.0kg, 그 전 7회보다 2.0kg 낮아요. 최고점 이후 2주째 줄고 있어요."
     );
   });
 
@@ -218,7 +218,7 @@ describe("activity", () => {
       [...days, { day: "2026-11-09", steps: 1, visits: 99, codingMin: null }],
       "2026-11-09"
     );
-    expect(fact?.detail?.trigger).toBe("1.00");
+    expect(fact?.detail?.trigger).toBe("8,000걸음");
     expect(fact?.evidence).toEqual({ kind: "range", from: "2026-11-01", to: "2026-11-08" });
     expect(stepsVisitsFact(days.slice(0, 3), "2026-11-09")).toBeNull();
   });

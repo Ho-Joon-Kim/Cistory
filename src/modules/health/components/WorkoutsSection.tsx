@@ -199,7 +199,7 @@ export function WorkoutsSection({
             </h2>
             <EmptyState
               className="mt-3"
-              title="최근 30일 운동 기록이 없습니다"
+              title="최근 30일 운동 기록이 없어요"
               description="Fitbit에 기록된 운동이 생기면 여기에 표시돼요."
             />
           </>

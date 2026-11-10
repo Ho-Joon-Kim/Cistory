@@ -5,6 +5,7 @@ import { type CSSProperties, type ReactNode, useEffect, useMemo } from "react";
 import { EmptyState, ErrorState, LoadingState, PageContainer, PageTitle } from "@/components/ds";
 import { Header } from "@/components/Layout/Header";
 import { formatDateTime, formatDay, formatRelative } from "@/lib/format";
+import { GENERIC_ERROR_MESSAGE, sameErrorCopy } from "@/lib/user-error";
 import { useAuth } from "@/modules/auth/hooks";
 import { ActivitySection } from "@/modules/health/components/ActivitySection";
 import { DetailsSheet } from "@/modules/health/components/DetailsSheet";
@@ -75,7 +76,7 @@ function HealthBody({ summary, body }: { summary: HealthSummary; body: BodyQuery
     return (
       <EmptyState
         className="mt-8 border-t border-line pt-8"
-        title="아직 건강 데이터가 연결되지 않았습니다"
+        title="아직 건강 데이터가 연결되지 않았어요"
         description="Google Health (Fitbit)를 연결하면 수면·심박·걸음 추이를 볼 수 있어요."
         action={<Button onClick={goSettings}>설정에서 연결하기</Button>}
       />
@@ -90,7 +91,7 @@ function HealthBody({ summary, body }: { summary: HealthSummary; body: BodyQuery
       {summary.status === "needs_reauth" ? (
         <Notice
           tone="warn"
-          title="Google Health (Fitbit) 연결이 만료되었습니다"
+          title="Google Health (Fitbit) 다시 연결 필요"
           description="다시 연결해야 새 데이터를 가져올 수 있어요."
           action={<Button onClick={goSettings}>다시 연결</Button>}
         />
@@ -106,10 +107,10 @@ function HealthBody({ summary, body }: { summary: HealthSummary; body: BodyQuery
         <Notice
           title={
             summary.hasAnyHistory
-              ? "과거 데이터 처리가 아직 진행 중입니다"
+              ? "과거 데이터를 아직 처리하고 있어요"
               : "동기화 중 · 과거 데이터 처리 중"
           }
-          description="처음 연결 후 과거 기록을 가져오고 있어요. 잠시 후 추이가 채워집니다."
+          description="처음 연결 후 과거 기록을 가져오고 있어요. 잠시 후 추이가 채워져요."
         />
       ) : null}
 
@@ -171,6 +172,8 @@ function Meta({
   );
 }
 
+const LOAD_ERROR_TITLE = "건강 데이터를 불러오지 못했어요";
+
 export default function HealthPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -200,8 +203,8 @@ export default function HealthPage() {
         ) : summary ? (
           <>
             {error ? (
-              <p role="alert" className="mt-4 text-sm text-gain">
-                {error} 잠시 후 자동으로 다시 시도합니다.
+              <p role="alert" className="mt-4 text-sm text-danger">
+                새 데이터를 불러오지 못했어요. 잠시 후 자동으로 다시 시도해요.
               </p>
             ) : null}
             <HealthBody summary={summary} body={body} />
@@ -209,8 +212,10 @@ export default function HealthPage() {
         ) : (
           <ErrorState
             className="mt-8"
-            title="건강 데이터를 불러오지 못했습니다."
-            description={error ?? "잠시 후 다시 시도해 주세요."}
+            title={LOAD_ERROR_TITLE}
+            description={
+              error && !sameErrorCopy(error, LOAD_ERROR_TITLE) ? error : GENERIC_ERROR_MESSAGE
+            }
             actions={<Button onClick={refresh}>다시 시도</Button>}
           />
         )}

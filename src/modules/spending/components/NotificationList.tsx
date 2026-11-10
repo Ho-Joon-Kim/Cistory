@@ -38,7 +38,9 @@ function LogRow({
         onClick={() => setOpen((v) => !v)}
         className="grid min-h-11 w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border-0 bg-transparent px-0 py-3 text-left text-ink transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-brand sm:grid-cols-[52px_minmax(0,1fr)_auto] sm:gap-4 sm:px-2 [@media(hover:hover)]:hover:bg-sunken"
       >
-        <span className="num hidden text-[13px] text-ink-3 sm:block">{formatTime(at)}</span>
+        <span className="hidden text-[13px] text-ink-3 tabular-nums sm:block">
+          {formatTime(at)}
+        </span>
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-semibold">
             {displayNotificationTitle(log.title) || "(제목 없음)"}
@@ -119,8 +121,9 @@ export function NotificationList({
         <section key={key} aria-label={formatDay(key)}>
           <div className="flex items-baseline justify-between gap-3 border-b border-line pt-5 pb-2 sm:px-2">
             <h3 className="m-0 text-sm font-semibold">{formatDay(key)}</h3>
-            <span className="num text-[13px] text-ink-2">
-              알림 {items.length}건 · 거래 {items.filter((l) => l.parsed).length}건
+            <span className="text-[13px] text-ink-2">
+              알림 <span className="num">{items.length}건</span> · 거래{" "}
+              <span className="num">{items.filter((l) => l.parsed).length}건</span>
             </span>
           </div>
           {items.map((log) => (
