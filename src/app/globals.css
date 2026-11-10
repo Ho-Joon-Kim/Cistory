@@ -2291,10 +2291,13 @@
 }
 
 /* The design-system keyboard focus ring (2px brand, 2px offset). Sets the full
- * outline shorthand on :focus-visible, so it also works next to `outline-none`. */
+ * outline shorthand on :focus-visible, so it also works next to `outline-none`.
+ * The 2px offset is transparent, so a filled control (a brand button) keeps a
+ * visible gap of whatever surface it sits on between its fill and the ring.
+ * `--focus-color` overrides the ring colour (destructive buttons). */
 @utility focus-ring {
   &:focus-visible {
-    outline: 2px solid var(--brand);
+    outline: 2px solid var(--focus-color, var(--brand));
     outline-offset: 2px;
   }
 }
@@ -2462,15 +2465,20 @@
     .ds-nav-strip {
       --fl: 0px;
       --fr: 0px;
+      --flc: 0px;
       mask-image: linear-gradient(
         to right,
         transparent 0,
+        transparent var(--flc),
         #000 var(--fl),
         #000 calc(100% - var(--fr)),
         transparent 100%
       );
     }
-    .ds-nav-strip[data-fade-left] { --fl: var(--nav-fade, 20px); }
+    .ds-nav-strip[data-fade-left] {
+      --fl: var(--nav-fade-left, var(--nav-fade, 20px));
+      --flc: var(--nav-clear-left, 0px);
+    }
     .ds-nav-strip[data-fade-right] { --fr: var(--nav-fade, 20px); }
   }
 

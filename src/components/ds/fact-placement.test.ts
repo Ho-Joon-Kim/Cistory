@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { chooseFactPopoverPlacement, factPopoverBounds, pageGutter } from "./fact-placement";
+import {
+  chooseFactPopoverPlacement,
+  factPopoverBounds,
+  pageGutter,
+  scrollToFitPopover,
+} from "./fact-placement";
 
 const rect = (top: number, bottom: number, left = 0, right = 100) => ({ top, bottom, left, right });
 
@@ -114,5 +119,24 @@ describe("pageGutter", () => {
     expect(pageGutter(390)).toBe(16);
     expect(pageGutter(1024)).toBe(24);
     expect(pageGutter(1440)).toBe(96);
+  });
+});
+
+describe("scrollToFitPopover", () => {
+  const base = { sideOffset: 6, height: 200, viewportHeight: 1000 };
+  it("scrolls down so a below-popover fits instead of flipping onto the evidence", () => {
+    expect(scrollToFitPopover({ ...base, side: "bottom", trigger: rect(900, 918) })).toBe(140);
+  });
+  it("does nothing when it already fits", () => {
+    expect(scrollToFitPopover({ ...base, side: "bottom", trigger: rect(400, 418) })).toBe(0);
+    expect(scrollToFitPopover({ ...base, side: "top", trigger: rect(400, 418) })).toBe(0);
+  });
+  it("scrolls up for a top popover near the top edge", () => {
+    expect(scrollToFitPopover({ ...base, side: "top", trigger: rect(100, 118) })).toBe(-122);
+  });
+  it("never scrolls the trigger out of view", () => {
+    expect(
+      scrollToFitPopover({ ...base, height: 990, side: "bottom", trigger: rect(500, 518) })
+    ).toBe(0);
   });
 });

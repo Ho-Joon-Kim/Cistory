@@ -59,6 +59,8 @@ describe("numbers and ratios", () => {
 
   it("rounds shares to integers and keeps two decimals for returns", () => {
     expect(formatShare(0.4196)).toBe("42%");
+    expect(formatShare(0.003)).toBe("<1%");
+    expect(formatShare(0)).toBe("0%");
     expect(formatReturn(-0.0267)).toBe(`${MINUS}2.67%`);
     expect(formatReturn(0.1)).toBe("+10.00%");
     expect(formatDeltaPercent(0.058)).toBe("+6%");

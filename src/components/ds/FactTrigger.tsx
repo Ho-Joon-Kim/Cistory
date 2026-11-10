@@ -1,12 +1,18 @@
 "use client";
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { type CSSProperties, type ReactNode, useCallback, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type ReactNode, useCallback, useRef, useState } from "react";
 import type { FactEvidence, FactRow } from "@/lib/facts/types";
 import { cn } from "@/lib/utils";
 import { announceEvidenceOpen, useEvidencePopover } from "./evidence";
-import { chooseFactPopoverPlacement, factPopoverBounds, type Rect } from "./fact-placement";
-import { isMonoFactValue } from "./fact-text";
+import {
+  chooseFactPopoverPlacement,
+  estimateFactPopoverHeight,
+  factPopoverBounds,
+  type Rect,
+  scrollToFitPopover,
+} from "./fact-placement";
+import { factValueParts, isMonoFactValue } from "./fact-text";
 
 /**
  * The evidence list: "이 문장에 쓴 사실" + metric/period → value rows + optional
@@ -40,11 +46,11 @@ export function FactPopover({
             <dt className="max-w-[60%] shrink-0 text-ink-2 [overflow-wrap:normal]">{row.label}</dt>
             <dd
               className={cn(
-                "m-0 min-w-0 flex-1 text-right text-ink",
+                "m-0 min-w-0 flex-1 text-right text-ink tabular-nums",
                 isMonoFactValue(row.value) && "num"
               )}
             >
-              {row.value}
+              <FactValue value={row.value} />
             </dd>
           </div>
         ))}
@@ -52,6 +58,25 @@ export function FactPopover({
       {note ? <span className="mt-2.5 block text-ink-3">{note}</span> : null}
     </div>
   );
+}
+
+/** A value whose short list entries never break mid-entry ("11월 / 6일 16:51"). */
+function FactValue({ value }: { value: string }) {
+  const parts = factValueParts(value);
+  if (parts.length === 1 && !parts[0].keep) return <>{value}</>;
+  // Key each entry by where it starts in the value (entries can repeat).
+  let offset = 0;
+  const keyed = parts.map((part) => {
+    const at = value.indexOf(part.text, offset);
+    offset = at + part.text.length;
+    return { ...part, at };
+  });
+  return keyed.map((part) => (
+    <Fragment key={part.at}>
+      {part.at > 0 ? " " : null}
+      <span className={part.keep ? "whitespace-nowrap" : undefined}>{part.text}</span>
+    </Fragment>
+  ));
 }
 
 /** Facts set in mono: anything carrying a number ("6%", "72분", "+3건"). */
@@ -165,14 +190,24 @@ export function FactTrigger({
         // hypnogram, HR and weight plots): stay off the host's charts instead.
         // Annotations live inside their chart, so they rely on lit evidence only.
         const { host, charts } = own ? { host: null, charts: [] } : chartHost(trigger, sentence);
+        const chosen = chooseFactPopoverPlacement({
+          trigger: rectOf(trigger),
+          sentence: rectOf(sentence),
+          evidence: lit,
+          regions: charts,
+          preferred: side,
+        });
+        // A fact at the viewport edge: scroll so the popover fits on the chosen
+        // side rather than letting Radix flip it over the evidence.
+        const delta = scrollToFitPopover({
+          ...chosen,
+          trigger: rectOf(trigger),
+          height: estimateFactPopoverHeight(rows.length, note != null),
+          viewportHeight: window.innerHeight,
+        });
+        if (delta !== 0) window.scrollBy({ top: delta, behavior: "instant" });
         setPlacement({
-          ...chooseFactPopoverPlacement({
-            trigger: rectOf(trigger),
-            sentence: rectOf(sentence),
-            evidence: lit,
-            regions: charts,
-            preferred: side,
-          }),
+          ...chosen,
           ...factPopoverBounds({
             viewportWidth: document.documentElement.clientWidth,
             column: host ? rectOf(host) : null,
@@ -183,7 +218,7 @@ export function FactTrigger({
       setOpen(next);
       onEvidence(next);
     },
-    [side, onEvidence]
+    [side, onEvidence, rows.length, note]
   );
 
   return (

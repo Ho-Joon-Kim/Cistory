@@ -30,6 +30,8 @@ export function navScrollLeftFor({
   scrollWidth,
   scrollLeft = 0,
   margin = NAV_FADE_PX,
+  items = [],
+  pad = NAV_PILL_PAD_PX,
 }: {
   /** Item's left edge in scroll-content coordinates. */
   itemLeft: number;
@@ -38,6 +40,12 @@ export function navScrollLeftFor({
   scrollWidth: number;
   scrollLeft?: number;
   margin?: number;
+  /** Every pill in the strip (scroll-content coordinates), in order. With it, a
+   * pill left half-cut at the left edge — its label sliced by the edge rather
+   * than just its padding under the fade — is scrolled fully away instead. */
+  items?: ReadonlyArray<{ left: number; width: number }>;
+  /** A pill's horizontal padding (its label starts this far in). */
+  pad?: number;
 }): number {
   const max = Math.max(0, scrollWidth - viewportWidth);
   let next = scrollLeft;
@@ -48,8 +56,24 @@ export function navScrollLeftFor({
   // unless that would push the pill back under the opposite edge's fade.
   if (next < margin && itemLeft + itemWidth + margin <= viewportWidth) next = 0;
   else if (max - next < margin && itemLeft - margin >= max) next = max;
-  return Math.round(Math.min(max, Math.max(0, next)));
+  next = Math.min(max, Math.max(0, next));
+  if (next > 0 && next < max) {
+    // A label sliced by the left edge reads as a clipped word, not as "more
+    // this way": snap so that pill's label is gone and the next pill's label
+    // clears the fade.
+    const cut = items.findIndex(
+      (it) => it.left + pad < next + margin && it.left + it.width - pad > next
+    );
+    const after = cut >= 0 ? items[cut + 1] : undefined;
+    if (after && after.left - pad > next && after.left <= itemLeft) {
+      next = Math.min(max, after.left - pad);
+    }
+  }
+  return Math.round(next);
 }
+
+/** Horizontal padding of a nav pill (`px-3`). */
+export const NAV_PILL_PAD_PX = 12;
 
 /** Which edges of a horizontally scrolled strip have hidden content. */
 export function navEdges({
@@ -65,4 +89,33 @@ export function navEdges({
     left: scrollLeft > 1,
     right: scrollLeft + clientWidth < scrollWidth - 1,
   };
+}
+
+/** Widest the left fade grows to swallow a label sliced by the left edge. */
+export const NAV_FADE_MAX_PX = 48;
+
+/**
+ * The left edge fade: `clear` px fully transparent, then a ramp to opaque at
+ * `fade` px. Normally no clear zone and a {@link NAV_FADE_PX} ramp. When the
+ * strip is scrolled to its end and the pill at the left edge still shows part
+ * of its label (nothing further to scroll), that sliver is cleared and the ramp
+ * runs over the pill's trailing padding — a clipped word ("라인") never shows.
+ */
+export function navLeftFadeFor({
+  items,
+  scrollLeft,
+  pad = NAV_PILL_PAD_PX,
+}: {
+  /** Pills in scroll-content coordinates, in order. */
+  items: ReadonlyArray<{ left: number; width: number }>;
+  scrollLeft: number;
+  pad?: number;
+}): { clear: number; fade: number } {
+  const plain = { clear: 0, fade: NAV_FADE_PX };
+  const cut = items.find((it) => it.left < scrollLeft && it.left + it.width > scrollLeft);
+  if (!cut) return plain;
+  const labelEnd = Math.round(cut.left + cut.width - pad - scrollLeft);
+  if (labelEnd <= 0) return plain;
+  const clear = Math.min(NAV_FADE_MAX_PX - pad, labelEnd);
+  return { clear, fade: Math.max(NAV_FADE_PX, clear + pad) };
 }

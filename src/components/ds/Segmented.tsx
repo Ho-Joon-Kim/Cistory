@@ -45,6 +45,10 @@ export function Segmented<V extends string>({
       aria-label={ariaLabel}
       className={cn(
         "relative m-0 grid min-w-0 border-0 h-9 auto-cols-fr grid-flow-col rounded-lg bg-track p-[3px]",
+        // The items' 44px hit areas overhang the 36px track by 4px; keep that
+        // overhang inside the control's own space so a neighbour (a disclosure
+        // header right above) can't swallow it.
+        "max-sm:my-1 pointer-coarse:my-1",
         fullWidth === "always" && "w-full",
         fullWidth === "mobile" && "w-full sm:w-fit",
         fullWidth === "never" && "w-fit",

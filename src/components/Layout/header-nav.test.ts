@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { HEADER_NAV_ITEMS, isNavItemActive, navEdges, navScrollLeftFor } from "./header-nav";
+import {
+  HEADER_NAV_ITEMS,
+  isNavItemActive,
+  NAV_FADE_PX,
+  navEdges,
+  navLeftFadeFor,
+  navScrollLeftFor,
+} from "./header-nav";
 
 describe("header navigation", () => {
   it("lists the seven destinations in the app-bar order", () => {
@@ -69,6 +76,37 @@ describe("navScrollLeftFor", () => {
     expect(navScrollLeftFor({ ...strip, itemLeft: 60, itemWidth: 50, scrollLeft: 130 })).toBe(40);
   });
 
+  it("scrolls a half-cut first label fully away (QA: 320 /travel showed '타임라인' sliced)", () => {
+    // 320px strip, pills from x=16 with 2px gaps; 여행 must clear the right fade.
+    const widths = [72, 49, 48, 84, 49, 48, 48];
+    const items: { left: number; width: number }[] = [];
+    let x = 16;
+    for (const width of widths) {
+      items.push({ left: x, width });
+      x += width + 2;
+    }
+    const travel = items[4];
+    const s = navScrollLeftFor({
+      itemLeft: travel.left,
+      itemWidth: travel.width,
+      viewportWidth: 320,
+      scrollWidth: 442,
+      items,
+    });
+    // 개요's left edge 12px in: 타임라인's label is gone, 개요's clears the fade.
+    expect(s).toBe(items[1].left - 12);
+    expect(items[0].left + items[0].width - 12).toBeLessThanOrEqual(s);
+    expect(travel.left + travel.width + 20).toBeLessThanOrEqual(s + 320);
+  });
+
+  it("leaves a scroll that only hides padding alone", () => {
+    const items = [
+      { left: 16, width: 72 },
+      { left: 90, width: 49 },
+    ];
+    expect(navScrollLeftFor({ ...strip, itemLeft: 328, itemWidth: 48, items })).toBe(6);
+  });
+
   it("never scrolls a strip that fits", () => {
     expect(
       navScrollLeftFor({ itemLeft: 300, itemWidth: 60, viewportWidth: 600, scrollWidth: 520 })
@@ -90,5 +128,22 @@ describe("navEdges", () => {
       left: false,
       right: false,
     });
+  });
+});
+
+describe("navLeftFadeFor", () => {
+  const items = [
+    { left: 16, width: 72 },
+    { left: 90, width: 49 },
+  ];
+  it("keeps the normal fade when no label is sliced", () => {
+    const plain = { clear: 0, fade: NAV_FADE_PX };
+    expect(navLeftFadeFor({ items, scrollLeft: 0 })).toEqual(plain);
+    expect(navLeftFadeFor({ items, scrollLeft: 6 })).toEqual(plain);
+    expect(navLeftFadeFor({ items, scrollLeft: 78 })).toEqual(plain);
+  });
+  it("clears a label sliced at the end of the scroll range (390 /search: '라인')", () => {
+    // 타임라인 at −36…36 on screen: its label ends at 24 → clear 24, ramp to 36.
+    expect(navLeftFadeFor({ items, scrollLeft: 52 })).toEqual({ clear: 24, fade: 36 });
   });
 });

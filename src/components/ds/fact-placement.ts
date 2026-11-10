@@ -94,3 +94,42 @@ export function factPopoverBounds({
   }
   return { left, right: viewportWidth - right, maxWidth: null };
 }
+
+/** Rough evidence-popover height before it renders (title, rows, note, padding). */
+export function estimateFactPopoverHeight(rows: number, hasNote: boolean): number {
+  return 28 + 26 + rows * 24 + (hasNote ? 30 : 0) + 12;
+}
+
+/**
+ * How far to scroll the page (px, positive = down) so a popover of `height`
+ * fits on its chosen side. Without it, a fact near the viewport edge makes
+ * Radix flip the popover onto the very evidence the side was chosen to avoid.
+ * Never scrolls the trigger itself out of the viewport; 0 when it already fits
+ * or can't be made to.
+ */
+export function scrollToFitPopover({
+  side,
+  sideOffset,
+  trigger,
+  height,
+  viewportHeight,
+  margin = 16,
+}: {
+  side: "top" | "bottom";
+  sideOffset: number;
+  trigger: Rect;
+  height: number;
+  viewportHeight: number;
+  margin?: number;
+}): number {
+  if (side === "bottom") {
+    const need = trigger.bottom + sideOffset + height + margin - viewportHeight;
+    if (need <= 0) return 0;
+    const room = trigger.top - margin;
+    return need <= room ? Math.ceil(need) : 0;
+  }
+  const need = margin - (trigger.top - sideOffset - height);
+  if (need <= 0) return 0;
+  const room = viewportHeight - margin - trigger.bottom;
+  return need <= room ? -Math.ceil(need) : 0;
+}

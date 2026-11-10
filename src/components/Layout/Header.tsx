@@ -13,8 +13,18 @@ import {
   isNavItemActive,
   NAV_FADE_PX,
   navEdges,
+  navLeftFadeFor,
   navScrollLeftFor,
 } from "./header-nav";
+
+/** The strip's pills in scroll-content coordinates. */
+function navPills(nav: HTMLElement): Array<{ left: number; width: number }> {
+  const origin = nav.getBoundingClientRect().left - nav.scrollLeft;
+  return Array.from(nav.querySelectorAll<HTMLElement>("a")).map((a) => ({
+    left: a.getBoundingClientRect().left - origin,
+    width: a.offsetWidth,
+  }));
+}
 
 interface HeaderProps {
   /** Called after a manual sync was accepted (the timeline refreshes on it). */
@@ -42,6 +52,10 @@ export function Header({ onSyncStarted }: HeaderProps) {
     if (!nav) return;
     const next = navEdges(nav);
     setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+    // Written straight to the element: it changes on every scroll frame.
+    const left = navLeftFadeFor({ items: navPills(nav), scrollLeft: nav.scrollLeft });
+    nav.style.setProperty("--nav-fade-left", `${left.fade}px`);
+    nav.style.setProperty("--nav-clear-left", `${left.clear}px`);
   }, []);
 
   // Mobile: the pill strip scrolls horizontally; bring the current page's pill
@@ -59,6 +73,7 @@ export function Header({ onSyncStarted }: HeaderProps) {
         viewportWidth: nav.clientWidth,
         scrollWidth: nav.scrollWidth,
         scrollLeft: nav.scrollLeft,
+        items: navPills(nav),
       });
     }
     syncEdges();

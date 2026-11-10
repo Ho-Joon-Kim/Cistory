@@ -61,9 +61,12 @@ export function splitWonCompact(n: number): { value: string; unit: string } {
   return match ? { value: match[1], unit: match[2] } : { value: text, unit: "" };
 }
 
-/** Integer share of a ratio: `0.4196` → `42%`. */
+/** Integer share of a ratio: `0.4196` → `42%`; a non-zero sliver `0.003` → `<1%`
+ * (never a misleading `0%` next to a real amount). */
 export function formatShare(ratio: number): string {
-  return `${Math.round(ratio * 100)}%`;
+  const pct = Math.round(ratio * 100);
+  if (pct === 0 && ratio > 0) return "<1%";
+  return `${pct}%`;
 }
 
 /**
