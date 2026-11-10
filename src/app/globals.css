@@ -68,6 +68,12 @@
   --warn-soft: #FBF0DD;
   --place: #B4521A;
   --health: #6446CF;
+  /* Sleep stages, deepest to lightest. Every stage is ≥3:1 against --bg, --surface
+   * and --brand-soft (the picked night), and neighbours stay ~1.5:1 apart so the
+   * ramp still reads: deep 9.6:1 > REM 5.7:1 > light 3.7:1 on --surface. */
+  --sleep-deep: #483299;
+  --sleep-rem: #6A50D2;
+  --sleep-light: #8477DD;
   /* Neutral data marks, lightest to strongest: --bar (secondary/partial marks)
    * < --bar2 (the default mark) < --ink/--brand (hover/highlight). Both are
    * ≥3:1 non-text contrast against --bg and --surface in each theme. */
@@ -184,6 +190,10 @@
   --warn-soft: #2A2112;
   --place: #F59D5E;
   --health: #AA94FF;
+  /* deep 9.7:1 > REM 5.5:1 > light 3.7:1 on --surface; ≥3:1 on --brand-soft. */
+  --sleep-deep: #C2B5FF;
+  --sleep-rem: #9381DC;
+  --sleep-light: #7568AD;
   --bar: #68716B;
   --bar2: #8A938D;
   --bar-dim: #252B28;

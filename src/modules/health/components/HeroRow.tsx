@@ -28,10 +28,11 @@ import {
 /** A column of the hero row: a flex stack on phones, six subgrid rows from lg. */
 const COLUMN = "flex min-w-0 flex-col lg:row-span-6 lg:grid lg:grid-rows-subgrid";
 
+/** Stage marks: tokens in globals.css, each ≥3:1 against the page in both themes. */
 export const STAGE_BG: Record<SleepStageKey, string> = {
-  deep: "var(--health)",
-  rem: "color-mix(in oklab, var(--health) 62%, var(--bg))",
-  light: "color-mix(in oklab, var(--health) 32%, var(--bg))",
+  deep: "var(--sleep-deep)",
+  rem: "var(--sleep-rem)",
+  light: "var(--sleep-light)",
   awake: "var(--ink3)",
 };
 
@@ -47,7 +48,7 @@ function Label({ children, aside }: { children: ReactNode; aside?: ReactNode }) 
 
 function Hero({ children }: { children: ReactNode }) {
   return (
-    <span className="num block text-[36px] leading-10 font-medium tracking-[-0.03em] text-ink lg:text-[48px] lg:leading-[52px]">
+    <span className="num block text-[2.25rem] leading-10 font-medium tracking-[-0.03em] text-ink lg:text-[3rem] lg:leading-[3.25rem]">
       {children}
     </span>
   );
@@ -63,7 +64,7 @@ function HeroUnit({ children }: { children: ReactNode }) {
 
 function Cmp({ lead, sub }: { lead?: ReactNode; sub?: ReactNode }) {
   return (
-    <p className="m-0 text-sm leading-[22px] text-ink">
+    <p className="m-0 text-sm leading-[1.375rem] text-ink">
       {lead}
       {sub ? (
         // The comparison wraps as a unit ("중앙값 68보다 3 낮음"), never leaving
@@ -83,7 +84,7 @@ function Stat({ label, value }: { label: ReactNode; value: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col justify-between gap-0.5">
       <span className="text-label break-keep">{label}</span>
-      <span className="num text-[15px] leading-[22px] text-ink">{value}</span>
+      <span className="num text-[0.9375rem] leading-[1.375rem] text-ink">{value}</span>
     </div>
   );
 }
@@ -105,7 +106,10 @@ function Hypnogram({ night, compact }: { night: Night; compact?: boolean }) {
           : "grid-cols-[44px_minmax(0,1fr)] gap-x-2"
       )}
     >
-      <div className="grid grid-rows-4 text-[11px] leading-[14px] text-ink-3" style={{ height: h }}>
+      <div
+        className="grid grid-rows-4 text-[0.6875rem] leading-[0.875rem] text-ink-3"
+        style={{ height: h }}
+      >
         {STAGE_LANES.map((s) => (
           <span key={s} className="self-center">
             {STAGE_LABEL[s]}
@@ -150,7 +154,7 @@ function Hypnogram({ night, compact }: { night: Night; compact?: boolean }) {
           <span
             key={t.label}
             className={cn(
-              "absolute top-0 -translate-x-1/2 text-[11px] leading-[14px] tracking-normal whitespace-nowrap text-ink-3 tabular-nums",
+              "absolute top-0 -translate-x-1/2 text-[0.6875rem] leading-[0.875rem] tracking-normal whitespace-nowrap text-ink-3 tabular-nums",
               // Below ~360px hourly labels touch; keep every other hour.
               i % 2 === 1 && "max-[359px]:hidden"
             )}
@@ -218,20 +222,20 @@ function NightStrip({
               <>
                 <span
                   className={cn(
-                    "text-[11px] leading-[14px] whitespace-nowrap",
+                    "text-[0.6875rem] leading-[0.875rem] whitespace-nowrap",
                     on ? "font-semibold text-ink" : "text-ink-3"
                   )}
                 >
                   {d}일
                 </span>
-                <span className="min-h-[13px] text-[10px] leading-[13px] text-ink-3">
+                <span className="min-h-[0.8125rem] text-[0.625rem] leading-[0.8125rem] text-ink-3">
                   {monthLabel}
                 </span>
               </>
             ) : (
               <span
                 className={cn(
-                  "text-[11px] leading-[14px] whitespace-nowrap",
+                  "text-[0.6875rem] leading-[0.875rem] whitespace-nowrap",
                   on ? "font-semibold text-ink" : "text-ink-3"
                 )}
               >
@@ -259,7 +263,7 @@ function StageLegend({ night }: { night: Night }) {
             />
             {STAGE_LABEL[s]}
           </span>
-          <span className="num text-[15px] leading-[22px] text-ink">
+          <span className="num text-[0.9375rem] leading-[1.375rem] text-ink">
             {night.stages[s]}
             <span className="font-sans text-xs font-medium tracking-normal text-ink-3">분</span>
             <span className="ml-1.5 hidden text-xs text-ink-3 lg:inline">
@@ -386,7 +390,7 @@ function RhrPlot({ view, height, compact }: { view: RhrView; height: number; com
         style={{ top: pct(medTop) }}
       >
         {compact ? null : (
-          <span className="absolute left-0 translate-y-0.5 text-[11px] leading-[14px] tracking-normal text-ink-3">
+          <span className="absolute left-0 translate-y-0.5 text-[0.6875rem] leading-[0.875rem] tracking-normal text-ink-3">
             중앙값 <span className="num">{view.median}</span>
           </span>
         )}
@@ -482,7 +486,7 @@ function RhrColumn({ series, days }: { series: HealthMetricSeries | undefined; d
         </div>
         <div className="hidden pt-6 lg:block">
           <RhrPlot view={view} height={272} />
-          <div className="mt-1.5 flex justify-between text-[11px] leading-[14px] text-ink-3">
+          <div className="mt-1.5 flex justify-between text-[0.6875rem] leading-[0.875rem] text-ink-3">
             <span>{formatMonthDay(view.days[0])}</span>
             <span>{formatMonthDay(view.days[view.days.length - 1])}</span>
           </div>
@@ -564,7 +568,7 @@ function WeightPlot({ view, height }: { view: WeightView; height: number }) {
           style={{ left: pct(x(view.peak.date)), top: pct(y(view.peak.weight)) }}
         />
         <span
-          className="absolute -translate-x-1/2 -translate-y-[22px] text-[11px] leading-[14px] whitespace-nowrap text-ink-2"
+          className="absolute -translate-x-1/2 -translate-y-[22px] text-[0.6875rem] leading-[0.875rem] whitespace-nowrap text-ink-2"
           style={{ left: pct(x(view.peak.date)), top: pct(y(view.peak.weight)) }}
         >
           최고 <span className="num">{fmtNum(view.peak.weight, 1)}</span>
@@ -579,7 +583,7 @@ function WeightPlot({ view, height }: { view: WeightView; height: number }) {
         {months.map((m) => (
           <span
             key={m.label}
-            className="absolute top-0 -translate-x-1/2 text-[11px] leading-[14px] whitespace-nowrap text-ink-3"
+            className="absolute top-0 -translate-x-1/2 text-[0.6875rem] leading-[0.875rem] whitespace-nowrap text-ink-3"
             style={{ left: pct(m.left) }}
           >
             {m.label}
@@ -624,7 +628,7 @@ function WeightColumn({
                 <button
                   type="button"
                   onClick={onRetry}
-                  className="h-9 cursor-pointer rounded-[9px] border-0 bg-surface px-3.5 text-[13px] font-semibold text-ink shadow-ring hover:shadow-ring-hover active:scale-[.96]"
+                  className="h-9 cursor-pointer rounded-[9px] border-0 bg-surface px-3.5 text-[0.8125rem] font-semibold text-ink shadow-ring hover:shadow-ring-hover active:scale-[.96]"
                 >
                   다시 시도
                 </button>
@@ -654,7 +658,7 @@ function WeightColumn({
         </div>
         <div className="pt-1.5 lg:pt-2">
           {view.fromPeak < 0 ? (
-            <p className="m-0 text-sm leading-[22px] text-ink">
+            <p className="m-0 text-sm leading-[1.375rem] text-ink">
               {formatMonthDay(view.peak.date)} 최고 {fmtNum(view.peak.weight, 1)}kg보다{" "}
               <span className="num font-semibold">{fmtNum(view.fromPeak, 1)}kg</span>
             </p>

@@ -62,7 +62,7 @@ function CategoryRow({
       data-evidence={evidence}
       className={cn(
         "relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5",
-        compact ? "h-8 text-[13px]" : "h-9 text-sm"
+        compact ? "h-8 text-[0.8125rem]" : "h-9 text-sm"
       )}
     >
       {share >= MIN_BAR_SHARE ? (
@@ -147,12 +147,12 @@ export function CategoryPanel({
           ))}
         </div>
       ) : (
-        <p className="m-0 text-[13px] leading-5 text-ink-2">
+        <p className="m-0 text-[0.8125rem] leading-5 text-ink-2">
           {SPLIT_LABEL} 말고는 기록된 지출이 없어요.
         </p>
       )}
       {month.isCurrent && fact ? <AiLine fact={fact} rows={fact.rows} align="start" /> : null}
-      <span className="text-[13px] leading-5 text-ink-2">
+      <span className="text-[0.8125rem] leading-5 text-ink-2">
         {month.health > 0
           ? `${SPLIT_LABEL} ${formatWon(month.health)} 별도`
           : `이 달은 ${SPLIT_LABEL} 지출이 없었어요`}

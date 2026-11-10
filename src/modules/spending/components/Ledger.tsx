@@ -82,7 +82,7 @@ function classification(tx: TransactionItem): string {
 
 function KeyValues({ rows }: { rows: { k: string; v: string }[] }) {
   return (
-    <dl className="m-0 grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[13px] leading-5 sm:grid-cols-[72px_minmax(0,1fr)]">
+    <dl className="m-0 grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[0.8125rem] leading-5 sm:grid-cols-[72px_minmax(0,1fr)]">
       {rows.map((row) => (
         <div key={row.k} className="contents">
           <dt className="text-xs leading-5 text-ink-3">{row.k}</dt>
@@ -108,7 +108,7 @@ function TxActions({ tx, actions }: { tx: TransactionItem; actions: LedgerAction
   if (confirming) {
     return (
       <div className="ds-reveal flex flex-wrap items-center gap-2">
-        <span className="text-[13px] leading-5 text-ink">
+        <span className="text-[0.8125rem] leading-5 text-ink">
           이 거래를 삭제할까요? 소비 집계에서 바로 빠져요.
         </span>
         <span className="flex gap-2">
@@ -138,7 +138,7 @@ function TxActions({ tx, actions }: { tx: TransactionItem; actions: LedgerAction
         >
           <SelectTrigger
             aria-label="지출 카테고리"
-            className="h-11 min-w-[132px] gap-2 rounded-[9px] border-0 bg-surface px-3 text-[13px] font-semibold shadow-ring sm:h-9"
+            className="h-11 min-w-[132px] gap-2 rounded-[9px] border-0 bg-surface px-3 text-[0.8125rem] font-semibold shadow-ring sm:h-9"
           >
             <SelectValue placeholder="카테고리 선택" />
           </SelectTrigger>
@@ -216,7 +216,9 @@ function RowButton({
         ])}
         className={ROW_GRID}
       >
-        <span className="hidden text-[13px] text-ink-3 tabular-nums sm:block">{txTime(first)}</span>
+        <span className="hidden text-[0.8125rem] text-ink-3 tabular-nums sm:block">
+          {txTime(first)}
+        </span>
         <LedgerMark kind="refund" />
         <span className="flex min-w-0 flex-col">
           <span className={NAME_LINE}>
@@ -233,7 +235,7 @@ function RowButton({
           </span>
         </span>
         <span className="hidden text-xs text-ink-3 sm:block">환불</span>
-        <span className="num text-right text-[15px] font-medium">
+        <span className="num text-right text-[0.9375rem] font-medium">
           {formatWon(row.total, { sign: true })}
         </span>
       </button>
@@ -265,7 +267,7 @@ function RowButton({
       ])}
       className={ROW_GRID}
     >
-      <span className="hidden text-[13px] text-ink-3 tabular-nums sm:block">{txTime(tx)}</span>
+      <span className="hidden text-[0.8125rem] text-ink-3 tabular-nums sm:block">{txTime(tx)}</span>
       <Mark tx={tx} />
       <span className="flex min-w-0 flex-col">
         <span className={NAME_LINE}>
@@ -284,7 +286,7 @@ function RowButton({
       <span className="hidden text-xs text-ink-3 sm:block">{tag ?? ""}</span>
       <span
         className={cn(
-          "num text-right text-[15px]",
+          "num text-right text-[0.9375rem]",
           tx.amount >= 1_000_000 ? "font-semibold" : "font-medium",
           ignored ? "text-ink-3" : "text-ink"
         )}
@@ -372,7 +374,7 @@ export function Ledger({
         <section key={day.key} aria-label={formatDay(day.key)}>
           <div className="flex items-baseline justify-between gap-3 border-b border-line px-0 pt-5 pb-2 sm:px-2">
             <h3 className="m-0 text-sm font-semibold">{formatDay(day.key)}</h3>
-            <span className="flex flex-wrap justify-end gap-x-3 text-[13px] text-ink-2">
+            <span className="flex flex-wrap justify-end gap-x-3 text-[0.8125rem] text-ink-2">
               <span>
                 {day.spend > 0 ? (
                   <>

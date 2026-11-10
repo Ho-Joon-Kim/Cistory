@@ -70,12 +70,12 @@ function MetricTab({
     >
       <span className="text-label">{m.label}</span>
       <span>
-        <span className="num text-xl leading-[26px] font-medium text-ink lg:text-[22px] lg:leading-7">
+        <span className="num text-xl leading-[1.625rem] font-medium text-ink lg:text-[1.375rem] lg:leading-7">
           {m.latest != null ? fmtNum(m.latest, m.decimals) : "—"}
         </span>
-        <span className="text-xs font-medium text-ink-3 lg:text-[13px]"> {m.unit}</span>
+        <span className="text-xs font-medium text-ink-3 lg:text-[0.8125rem]"> {m.unit}</span>
       </span>
-      <span className="text-[11px] leading-[14px] whitespace-nowrap text-ink-3 lg:text-xs lg:leading-4">
+      <span className="text-[0.6875rem] leading-[0.875rem] whitespace-nowrap text-ink-3 lg:text-xs lg:leading-4">
         {win.fullDay === win.days[win.days.length - 2] ? "어제" : formatMonthDay(win.fullDay)} ·
         중앙값 <span className="num">{m.median != null ? fmtNum(m.median, m.decimals) : "—"}</span>
       </span>
@@ -323,7 +323,7 @@ function Bars({
             key={x.key}
             className={cn(
               // bg-page masks an annotation leader that drops through this row.
-              "absolute top-1.5 bg-page px-0.5 text-[11px] leading-[14px] whitespace-nowrap text-ink-3",
+              "absolute top-1.5 bg-page px-0.5 text-[0.6875rem] leading-[0.875rem] whitespace-nowrap text-ink-3",
               x.left > 96 ? "" : "-translate-x-1/2",
               x.narrowHide && "max-[359px]:hidden"
             )}
@@ -496,7 +496,7 @@ export function ActivitySection({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2
             id="h-act"
-            className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[22px] lg:leading-[30px]"
+            className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[1.375rem] lg:leading-[1.875rem]"
           >
             최근 {range}일 활동
           </h2>
@@ -532,8 +532,10 @@ export function ActivitySection({
         </div>
 
         <div className="mt-5 flex flex-col gap-1 lg:mt-7">
-          <p className="m-0 text-[15px] leading-[22px] font-semibold text-ink">{m.label}</p>
-          <p className="m-0 text-sm leading-[22px] text-ink">
+          <p className="m-0 text-[0.9375rem] leading-[1.375rem] font-semibold text-ink">
+            {m.label}
+          </p>
+          <p className="m-0 text-sm leading-[1.375rem] text-ink">
             {headLead}
             {headEm ? <span className="num font-semibold">{headEm}</span> : null}
             {headCmp ? (

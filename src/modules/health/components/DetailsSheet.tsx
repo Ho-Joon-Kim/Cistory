@@ -148,10 +148,10 @@ export function DetailsSheet({
             className="group -mx-3 flex w-[calc(100%+24px)] cursor-pointer items-center gap-4 rounded-xl border-0 bg-transparent px-3 py-3.5 text-left transition-colors duration-150 hover:bg-track focus-visible:outline-2 focus-visible:outline-brand lg:-mx-4 lg:w-[calc(100%+32px)] lg:px-4 lg:py-[18px]"
           >
             <span className="flex min-w-0 flex-col gap-0.5 lg:flex-row lg:items-center lg:gap-4">
-              <span className="font-serif text-[17px] leading-6 font-semibold tracking-[-0.02em] text-ink lg:text-lg lg:leading-[26px]">
+              <span className="font-serif text-[1.0625rem] leading-6 font-semibold tracking-[-0.02em] text-ink lg:text-lg lg:leading-[1.625rem]">
                 세부 지표
               </span>
-              <span className="text-xs leading-[18px] text-ink-2 tabular-nums lg:text-[13px]">
+              <span className="text-xs leading-[1.125rem] text-ink-2 tabular-nums lg:text-[0.8125rem]">
                 {summary}
               </span>
             </span>
@@ -183,7 +183,7 @@ export function DetailsSheet({
               className="mx-auto mt-1 mb-2 h-1 w-9 shrink-0 rounded-full bg-bar lg:hidden"
             />
             <div className="flex items-center justify-between">
-              <DialogPrimitive.Title className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[22px] lg:leading-[30px]">
+              <DialogPrimitive.Title className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[1.375rem] lg:leading-[1.875rem]">
                 세부 지표
               </DialogPrimitive.Title>
               <DialogPrimitive.Close
@@ -203,7 +203,7 @@ export function DetailsSheet({
                   {rows.map((r) => (
                     <div
                       key={r.key}
-                      className="grid grid-cols-[minmax(0,1fr)_80px_96px] items-center gap-3 border-b border-line py-3 text-sm leading-[22px] lg:grid-cols-[120px_120px_minmax(0,1fr)_150px]"
+                      className="grid grid-cols-[minmax(0,1fr)_80px_96px] items-center gap-3 border-b border-line py-3 text-sm leading-[1.375rem] lg:grid-cols-[120px_120px_minmax(0,1fr)_150px]"
                     >
                       <span className="flex min-w-0 flex-col">
                         <span className="text-ink">{r.label}</span>
@@ -212,7 +212,7 @@ export function DetailsSheet({
                             {r.note}
                           </span>
                         ) : null}
-                        <span className="text-[11px] leading-[14px] text-ink-3 lg:hidden">
+                        <span className="text-[0.6875rem] leading-[0.875rem] text-ink-3 lg:hidden">
                           중앙값 <span className="num">{fmtNum(r.median, r.decimals)}</span> ·{" "}
                           <span className="num">
                             {fmtNum(r.min, r.decimals)}–{fmtNum(r.max, r.decimals)}
@@ -223,7 +223,7 @@ export function DetailsSheet({
                         <span className="num text-base font-medium text-ink lg:text-lg">
                           {fmtNum(r.latest, r.decimals)}
                         </span>
-                        <span className="text-[11px] font-medium text-ink-3 lg:text-xs">
+                        <span className="text-[0.6875rem] font-medium text-ink-3 lg:text-xs">
                           {" "}
                           {r.unit}
                         </span>
@@ -253,14 +253,14 @@ export function DetailsSheet({
                       <div key={c.label} className="flex flex-col gap-1 border-b border-line py-3">
                         <span className="text-label">{c.label}</span>
                         <span>
-                          <span className="num text-[17px] font-medium text-ink lg:text-lg">
+                          <span className="num text-[1.0625rem] font-medium text-ink lg:text-lg">
                             {fmtNum(c.m.latest as number, c.decimals)}
                           </span>
                           {c.unit ? (
                             <span className="text-xs font-medium text-ink-3"> {c.unit}</span>
                           ) : null}
                         </span>
-                        <span className="text-[11px] text-ink-3 tabular-nums lg:text-xs">
+                        <span className="text-[0.6875rem] text-ink-3 tabular-nums lg:text-xs">
                           <CompMeta row={c} />
                         </span>
                       </div>

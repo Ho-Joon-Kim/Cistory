@@ -98,7 +98,7 @@ export function MonthlyChart({
               className="absolute inset-x-0 border-t border-line"
               style={{ bottom: `${pct(t)}%` }}
             >
-              <span className="num absolute right-0 -top-4 text-[10px] text-ink-3 sm:-top-[18px] sm:text-[11px]">
+              <span className="num absolute right-0 -top-4 text-[0.625rem] text-ink-3 sm:-top-[18px] sm:text-[0.6875rem]">
                 {tickLabel(t)}
               </span>
             </div>
@@ -142,7 +142,7 @@ export function MonthlyChart({
                 <span className={cn("relative w-full", PLOT)}>
                   <span
                     className={cn(
-                      "num absolute left-1/2 z-[2] hidden -translate-x-1/2 bg-page px-[3px] text-[11px] whitespace-nowrap sm:block",
+                      "num absolute left-1/2 z-[2] hidden -translate-x-1/2 bg-page px-[3px] text-[0.6875rem] whitespace-nowrap sm:block",
                       on ? "font-semibold text-ink" : "font-medium text-ink-3"
                     )}
                     style={{ bottom: `calc(${totalPct}% + 6px)` }}
@@ -274,14 +274,14 @@ export function MonthlyChart({
               onClick={() => onSelect(bars[selIndex + 1].key)}
             />
           </dt>
-          <dd className="num m-0 self-center text-right text-[15px] font-medium">
+          <dd className="num m-0 self-center text-right text-[0.9375rem] font-medium">
             {formatWon(selected.total)}
           </dd>
           <dt className="inline-flex items-center gap-1.5 text-xs text-ink-3">
             <CategoryMark category={SPLIT_CATEGORY} size="sm" />
             {SPLIT_LABEL}
           </dt>
-          <dd className="num m-0 text-right text-[13px] text-ink-2">
+          <dd className="num m-0 text-right text-[0.8125rem] text-ink-2">
             {formatWon(selected.health)}
           </dd>
           <dt className="inline-flex items-center gap-1.5 text-xs text-ink-3">
@@ -290,7 +290,9 @@ export function MonthlyChart({
             </span>
             나머지
           </dt>
-          <dd className="num m-0 text-right text-[13px] text-ink-2">{formatWon(selected.rest)}</dd>
+          <dd className="num m-0 text-right text-[0.8125rem] text-ink-2">
+            {formatWon(selected.rest)}
+          </dd>
           {average ? (
             <>
               <dt className="inline-flex items-center gap-1.5 text-xs text-ink-3">
@@ -299,7 +301,7 @@ export function MonthlyChart({
                 </span>
                 {average.label} 평균
               </dt>
-              <dd className="num m-0 text-right text-[13px] text-ink-2">
+              <dd className="num m-0 text-right text-[0.8125rem] text-ink-2">
                 {formatWon(average.total)}
               </dd>
             </>

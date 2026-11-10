@@ -27,7 +27,7 @@ function Button({ children, onClick }: { children: ReactNode; onClick: () => voi
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-9 cursor-pointer items-center rounded-[9px] border-0 bg-surface px-3.5 text-[13px] font-semibold text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[.96] focus-visible:outline-2 focus-visible:outline-brand"
+      className="inline-flex h-9 cursor-pointer items-center rounded-[9px] border-0 bg-surface px-3.5 text-[0.8125rem] font-semibold text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[.96] focus-visible:outline-2 focus-visible:outline-brand"
     >
       {children}
     </button>
@@ -50,7 +50,7 @@ function Notice({
       role={tone === "warn" ? "status" : undefined}
       className={`mt-6 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 ${tone === "warn" ? "bg-warn-soft" : "bg-sunken"}`}
     >
-      <div className="min-w-0 flex-1 text-sm leading-[22px]">
+      <div className="min-w-0 flex-1 text-sm leading-[1.375rem]">
         <p className={`m-0 font-semibold ${tone === "warn" ? "text-warn" : "text-ink"}`}>{title}</p>
         <p className="m-0 text-ink-2">{description}</p>
       </div>
@@ -158,12 +158,12 @@ function Meta({
 }) {
   return (
     <>
-      <span className="text-[13px] leading-5 sm:text-sm sm:leading-[22px]">
+      <span className="text-[0.8125rem] leading-5 sm:text-sm sm:leading-[1.375rem]">
         {formatDay(kstToday())}
         {summary?.lastSyncedAt ? ` · Fitbit ${formatRelative(summary.lastSyncedAt)} 동기화` : ""}
       </span>
       {measuredAt ? (
-        <span className="block text-[13px] leading-5 sm:inline sm:text-sm sm:leading-[22px]">
+        <span className="block text-[0.8125rem] leading-5 sm:inline sm:text-sm sm:leading-[1.375rem]">
           <span className="hidden sm:inline"> · </span>
           Withings {formatDateTime(new Date(measuredAt))} 측정
         </span>
