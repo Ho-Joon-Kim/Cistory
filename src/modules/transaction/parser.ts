@@ -25,6 +25,12 @@
  *   type "cancel" 행으로 저장하고, 같은 계좌·가맹점·금액의 원 결제를 소비에서 뺀다
  *   (택시 가승인처럼 실결제와 함께 두 번 잡히던 건). 금액 없는 "결제 취소"는 짝을
  *   특정할 수 없어 파싱하지 않는다.
+ *
+ * Pattern 3b – 지원금 잔액 초과 결제:
+ *   title "52,870원 결제",
+ *   text "가게 | 고유가 피해지원금 잔액을 초과한 36,300원은 토스뱅크 통장에서 출금됐어요. (토스뱅크 체크카드)"
+ *   순서가 Pattern 3과 반대(가맹점 | 안내 문장)다. 통장에서 실제로 나간 돈은 초과분뿐이라
+ *   금액은 초과분, 계좌는 괄호 안 카드(없으면 "…에서"의 출금 계좌)로 저장한다.
  */
 
 export interface ParsedTransaction {
@@ -58,6 +64,10 @@ const PAYMENT_CANCEL_PATTERN = /^([\d,]+)원\s+결제\s+취소$/;
 const AUTO_TRANSFER_TITLE_PATTERN = /^([\d,]+)원\s+자동이체$/;
 const AUTO_TRANSFER_TEXT_PATTERN = /^(.+?)님에게\s+[\d,]+원이\s+자동이체되었어요/;
 const AUTO_TRANSFER_ACCOUNT = "내 토스뱅크 통장";
+
+// Pattern 3b: "가게 | 고유가 피해지원금 잔액을 초과한 36,300원은 토스뱅크 통장에서 출금됐어요. (토스뱅크 체크카드)"
+const RELIEF_OVERFLOW_PATTERN =
+  /^\S.*?잔액을\s+초과한\s+([\d,]+)원은\s+(.+?)에서\s+출금됐어요\.?\s*(?:\((.+?)\))?\s*$/;
 
 // Card receipts end with the post-payment balance ("가게\n잔액 7,505원"). It is
 // account state, not part of the merchant name, and left in place it splits
@@ -111,6 +121,14 @@ function parsePayment(title: string, text: string): Parsed | null {
 
   const parts = text.split("|").map((s) => s.trim());
   if (parts.length !== 2) return null;
+  const overflow = parts[1]?.match(RELIEF_OVERFLOW_PATTERN);
+  if (overflow && !cancelMatch) {
+    const merchant = parts[0];
+    const accountName = (overflow[3] ?? overflow[2]).trim();
+    if (!merchant || !accountName) return null;
+    return { type: "withdrawal", amount: toAmount(overflow[1]), merchant, accountName };
+  }
+
   const [accountName, rawMerchant] = parts;
   const merchant = rawMerchant.replace(TRAILING_BALANCE_PATTERN, "").trim();
   if (!accountName || !merchant) return null;
