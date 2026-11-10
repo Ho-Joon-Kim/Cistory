@@ -61,11 +61,19 @@ function Notice({
 }
 
 type BodyQuery = ReturnType<typeof useBody>;
+type CorrelationQuery = ReturnType<typeof useActivityCorrelation>;
 
-function HealthBody({ summary, body }: { summary: HealthSummary; body: BodyQuery }) {
+function HealthBody({
+  summary,
+  body,
+  correlation,
+}: {
+  summary: HealthSummary;
+  body: BodyQuery;
+  correlation: CorrelationQuery;
+}) {
   const router = useRouter();
   const goSettings = () => router.push("/settings");
-  const correlation = useActivityCorrelation();
   const today = kstToday();
   const win = useMemo(
     () => activityWindow(today, summary.lastSyncedAt),
@@ -187,6 +195,9 @@ export default function HealthPage() {
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { summary, isLoading, error, refresh } = useHealthSummary();
   const body = useBody();
+  // Started with the summary rather than inside HealthBody, which only mounts once
+  // the summary has landed — that chained the two requests.
+  const correlation = useActivityCorrelation();
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) {
@@ -215,7 +226,7 @@ export default function HealthPage() {
                 새 데이터를 불러오지 못했어요. 잠시 후 자동으로 다시 시도해요.
               </p>
             ) : null}
-            <HealthBody summary={summary} body={body} />
+            <HealthBody summary={summary} body={body} correlation={correlation} />
           </>
         ) : (
           <ErrorState
