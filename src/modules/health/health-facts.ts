@@ -44,7 +44,7 @@ export function sleepFact(nights: readonly Night[], index: number): Fact | null 
       score: Math.min(1, 0.5 + ratio / 10),
       evidence: { kind: "keys", keys: ["stage:awake"] },
       template:
-        "깨어 있던 시간이 {fact}으로 다른 {others}밤 중앙값 {awakeMed}의 {ratio}배예요. 효율 {eff}가 낮은 이유입니다.",
+        "깨어 있던 시간이 {fact}으로 다른 {others}밤 중앙값 {awakeMed}의 {ratio}배예요. 효율 {eff}가 낮은 이유예요.",
       detail: {
         trigger: `${night.stages.awake}분`,
         others: String(others.length),
@@ -75,7 +75,7 @@ export function sleepFact(nights: readonly Night[], index: number): Fact | null 
       unit: "minutes",
       score: 0.7,
       evidence: { kind: "keys", keys: ["stage:deep"] },
-      template: "깊은잠이 {fact}뿐이에요. 다른 {others}밤 중앙값 {deepMed}의 {pct} 수준입니다.",
+      template: "깊은잠이 {fact}뿐이에요. 다른 {others}밤 중앙값 {deepMed}의 {pct} 수준이에요.",
       detail: {
         trigger: `${night.stages.deep}분`,
         others: String(others.length),
@@ -163,7 +163,7 @@ export function weightFact(view: WeightView | null): Fact | null {
     score: Math.min(1, 0.5 + Math.abs(d) / 4),
     evidence: { kind: "keys", keys: [...prev7, ...last7].map((p) => p.date) },
     template: falling
-      ? "최근 {n}회 평균 {fact}, 그 전 {n}회보다 {d} {word}. 최고점 이후 {weeks}주째 감소 구간입니다."
+      ? "최근 {n}회 평균 {fact}, 그 전 {n}회보다 {d} {word}. 최고점 이후 {weeks}주째 줄고 있어요."
       : "최근 {n}회 평균 {fact}, 그 전 {n}회보다 {d} {word}.",
     detail: {
       trigger: `${fmtNum(a, 1)}kg`,
@@ -216,16 +216,16 @@ export function stepsVisitsFact(
     score: r,
     evidence: { kind: "range", from, to },
     template:
-      "들른 장소가 많은 날 많이 걸었어요. 최근 {n}일 걸음과 장소 수의 상관 {fact}, 가장 많이 걸은 {top}엔 {topV}곳을 들렀습니다.",
+      "최근 {n}일 동안 많이 걸은 날일수록 들른 곳도 많았어요. 가장 많이 걸은 {top}엔 {fact}을 걷고 {topV}곳을 들렀어요.",
     detail: {
-      trigger: fmtNum(r, 2),
+      trigger: `${fmtNum(top.steps as number)}걸음`,
       n: String(rows.length),
       top: md(top.day),
       topV: String(top.visits),
     },
     rows: [
       { label: "기간", value: `${md(from)}–${md(to)} · ${rows.length}일 (오늘 제외)` },
-      { label: "걸음 × 들른 장소 수", value: `피어슨 상관 ${fmtNum(r, 2)}` },
+      { label: "걸음과 들른 장소 수", value: `함께 늘고 주는 정도 ${fmtNum(r, 2)} (최대 1)` },
       {
         label: "가장 많이 걸은 날",
         value: `${md(top.day)} · ${fmtNum(top.steps as number)}걸음 · 장소 ${top.visits}곳`,

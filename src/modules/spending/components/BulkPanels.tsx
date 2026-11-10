@@ -109,8 +109,11 @@ function ReparsePanel({ onChanged }: { onChanged: () => void }) {
     >
       {progress ? (
         <div className="flex flex-col gap-2">
-          <span className="num text-xs text-ink-2">
-            {formatCount(progress.processed)} / {formatCount(progress.total)}건 확인 중
+          <span className="text-xs text-ink-2">
+            <span className="num">
+              {formatCount(progress.processed)} / {formatCount(progress.total)}건
+            </span>{" "}
+            확인 중
           </span>
           <ProgressBar
             value={progress.total > 0 ? progress.processed / progress.total : 0}
@@ -143,7 +146,7 @@ function ReparsePanel({ onChanged }: { onChanged: () => void }) {
                   <span className="text-xs font-semibold">
                     {ACTION_LABEL[item.action]}
                     {item.parsed ? (
-                      <span className="num ml-2 font-normal text-ink-2">
+                      <span className="ml-2 font-normal text-ink-2 tabular-nums">
                         {TYPE_LABEL[item.parsed.type] ?? item.parsed.type}{" "}
                         {formatWon(item.parsed.amount)} · {item.parsed.merchant}
                       </span>
@@ -218,7 +221,7 @@ function CleanupPanel({ onChanged }: { onChanged: () => void }) {
     >
       {progress ? (
         <div className="flex flex-col gap-2">
-          <span className="num text-xs text-ink-2">
+          <span className="text-xs text-ink-2 tabular-nums">
             {progress.phase === "reparse"
               ? `1단계 · 다시 분석 ${formatCount(progress.reparseProcessed ?? 0)} / ${formatCount(progress.reparseTotal ?? 0)}건`
               : `2단계 · 삭제 ${formatCount(progress.deleted ?? 0)} / ${formatCount(progress.deletableTotal ?? 0)}건`}

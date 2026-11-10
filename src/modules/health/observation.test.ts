@@ -23,7 +23,7 @@ describe("health request states", () => {
     const markup = renderToStaticMarkup(createElement(BodyCard, { data: null, isLoading: false }));
     expect(markup).toContain("측정 기록이 아직 없습니다");
     expect(markup).not.toContain("animate-pulse");
-    expect(hero({ bodyError: null })).toContain("체성분 측정 기록이 아직 없습니다.");
+    expect(hero({ bodyError: null })).toContain("체성분 측정 기록이 아직 없어요");
   });
   it("distinguishes body request failures from empty data", () => {
     const body = renderToStaticMarkup(
@@ -33,11 +33,11 @@ describe("health request states", () => {
       expect(markup).toContain('role="alert"');
       expect(markup).toContain("다시 시도");
     }
-    expect(hero({ bodyError: "요청 실패" })).not.toContain("체성분 측정 기록이 아직 없습니다");
+    expect(hero({ bodyError: "요청 실패" })).not.toContain("체성분 측정 기록이 아직 없어요");
   });
   it("never draws missing sleep or heart-rate data as zero", () => {
     const markup = hero({ bodyError: null });
-    expect(markup).toContain("최근 수면 기록이 없습니다");
-    expect(markup).toContain("안정시 심박 기록이 없습니다");
+    expect(markup).toContain("최근 수면 기록이 없어요");
+    expect(markup).toContain("안정시 심박 기록이 없어요");
   });
 });

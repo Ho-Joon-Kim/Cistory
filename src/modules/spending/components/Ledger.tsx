@@ -40,6 +40,17 @@ export interface LedgerActions {
 const ROW_GRID =
   "grid min-h-11 w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border-0 bg-transparent px-0 py-3 text-left text-ink transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-brand sm:grid-cols-[52px_28px_minmax(0,1fr)_auto_140px] sm:gap-4 sm:px-2 [@media(hover:hover)]:hover:bg-sunken";
 
+/**
+ * Name line: the flag pill sits beside the name and wraps beneath it when both don't fit
+ * (320px), so the merchant keeps its width instead of collapsing to "한국철...".
+ */
+const NAME_LINE = "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1";
+
+/** The row button's accessible name: its parts in reading order, comma-separated. */
+function rowName(parts: (string | null | undefined)[]): string {
+  return parts.filter(Boolean).join(", ");
+}
+
 function Flag({ label }: { label: string }) {
   return (
     <span className="inline-flex h-[22px] flex-none items-center rounded-full px-2 text-xs font-medium whitespace-nowrap text-ink shadow-[inset_0_0_0_1px_var(--line)]">
@@ -196,13 +207,22 @@ function RowButton({
         aria-expanded={open}
         aria-controls={controls}
         onClick={onToggle}
+        aria-label={rowName([
+          txTime(first),
+          `${row.merchant} 환불 ${row.items.length}건`,
+          refundFlag(ctx).label,
+          first.accountName,
+          formatWon(row.total, { sign: true }),
+        ])}
         className={ROW_GRID}
       >
-        <span className="num hidden text-[13px] text-ink-3 sm:block">{txTime(first)}</span>
+        <span className="hidden text-[13px] text-ink-3 tabular-nums sm:block">{txTime(first)}</span>
         <LedgerMark kind="refund" />
         <span className="flex min-w-0 flex-col">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className={cn("text-sm font-semibold", open ? "break-words" : "truncate")}>
+          <span className={NAME_LINE}>
+            <span
+              className={cn("max-w-full text-sm font-semibold", open ? "break-words" : "truncate")}
+            >
               {row.merchant} 환불 {row.items.length}건
             </span>
             <Flag label={refundFlag(ctx).label} />
@@ -228,20 +248,31 @@ function RowButton({
     tx.bucket === "spending" && !tx.category ? "분류 중" : null,
     tx.accountName,
   ].filter(Boolean);
+  const name = tx.isRefund ? `${tx.merchant.split("_")[0]} 환불` : tx.merchant;
   return (
     <button
       type="button"
       aria-expanded={open}
       aria-controls={controls}
       onClick={onToggle}
+      aria-label={rowName([
+        txTime(tx),
+        name,
+        flag?.label,
+        meta.join(" · "),
+        tag,
+        formatWon(signedAmount(tx), { sign: true }),
+      ])}
       className={ROW_GRID}
     >
-      <span className="num hidden text-[13px] text-ink-3 sm:block">{txTime(tx)}</span>
+      <span className="hidden text-[13px] text-ink-3 tabular-nums sm:block">{txTime(tx)}</span>
       <Mark tx={tx} />
       <span className="flex min-w-0 flex-col">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className={cn("text-sm font-semibold", open ? "break-words" : "truncate")}>
-            {tx.isRefund ? `${tx.merchant.split("_")[0]} 환불` : tx.merchant}
+        <span className={NAME_LINE}>
+          <span
+            className={cn("max-w-full text-sm font-semibold", open ? "break-words" : "truncate")}
+          >
+            {name}
           </span>
           {flag ? <Flag label={flag.label} /> : null}
         </span>
@@ -342,11 +373,19 @@ export function Ledger({
           <div className="flex items-baseline justify-between gap-3 border-b border-line px-0 pt-5 pb-2 sm:px-2">
             <h3 className="m-0 text-sm font-semibold">{formatDay(day.key)}</h3>
             <span className="flex flex-wrap justify-end gap-x-3 text-[13px] text-ink-2">
-              <span className="num">
-                {day.spend > 0 ? `지출 ${formatWon(day.spend)}` : "지출 없음"}
+              <span>
+                {day.spend > 0 ? (
+                  <>
+                    지출 <span className="num">{formatWon(day.spend)}</span>
+                  </>
+                ) : (
+                  "지출 없음"
+                )}
               </span>
               {day.refund > 0 ? (
-                <span className="num">환불 {formatWon(day.refund, { sign: true })}</span>
+                <span>
+                  환불 <span className="num">{formatWon(day.refund, { sign: true })}</span>
+                </span>
               ) : null}
             </span>
           </div>

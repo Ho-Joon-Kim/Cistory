@@ -150,7 +150,7 @@ function Hypnogram({ night, compact }: { night: Night; compact?: boolean }) {
           <span
             key={t.label}
             className={cn(
-              "num absolute top-0 -translate-x-1/2 text-[11px] leading-[14px] tracking-normal whitespace-nowrap text-ink-3",
+              "absolute top-0 -translate-x-1/2 text-[11px] leading-[14px] tracking-normal whitespace-nowrap text-ink-3 tabular-nums",
               // Below ~360px hourly labels touch; keep every other hour.
               i % 2 === 1 && "max-[359px]:hidden"
             )}
@@ -287,7 +287,7 @@ function SleepColumn({ sessions, today }: { sessions: HealthSleepSession[]; toda
         <Label>수면</Label>
         <EmptyState
           className="mt-3 lg:row-span-5"
-          title="최근 수면 기록이 없습니다"
+          title="최근 수면 기록이 없어요"
           description="Fitbit이 수면 단계를 기록하면 지난밤 수면이 여기에 표시돼요."
         />
       </div>
@@ -386,8 +386,8 @@ function RhrPlot({ view, height, compact }: { view: RhrView; height: number; com
         style={{ top: pct(medTop) }}
       >
         {compact ? null : (
-          <span className="num absolute left-0 translate-y-0.5 text-[11px] leading-[14px] tracking-normal text-ink-3">
-            중앙값 {view.median}
+          <span className="absolute left-0 translate-y-0.5 text-[11px] leading-[14px] tracking-normal text-ink-3">
+            중앙값 <span className="num">{view.median}</span>
           </span>
         )}
       </span>
@@ -451,7 +451,7 @@ function RhrColumn({ series, days }: { series: HealthMetricSeries | undefined; d
         <Label>안정시 심박</Label>
         <EmptyState
           className="mt-3 lg:row-span-5"
-          title="안정시 심박 기록이 없습니다"
+          title="안정시 심박 기록이 없어요"
           description="최근 30일 동안 측정된 값이 없어요."
         />
       </div>
@@ -618,8 +618,8 @@ function WeightColumn({
         <div className="mt-3 lg:row-span-5">
           {error ? (
             <ErrorState
-              title="건강 데이터를 불러오지 못했습니다."
-              description="체성분 기록을 가져오지 못했어요."
+              title="체성분 기록을 불러오지 못했어요"
+              description="잠시 후 다시 시도해 주세요."
               actions={
                 <button
                   type="button"
@@ -632,7 +632,7 @@ function WeightColumn({
             />
           ) : isLoading ? null : (
             <EmptyState
-              title="체성분 측정 기록이 아직 없습니다."
+              title="체성분 측정 기록이 아직 없어요"
               description="Withings 체중계로 측정하면 체중 추이가 여기에 표시돼요."
             />
           )}

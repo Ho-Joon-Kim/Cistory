@@ -200,9 +200,14 @@ export function SpendingHero({
   return (
     <EvidenceScope>
       <section
-        aria-label={`${hero.monthLabel} 지출`}
+        aria-labelledby={`${forecastId}-title`}
         className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-6"
       >
+        {/* The visible label is a small caption; the outline still needs the section's h2 so the
+            aside's block title can step down to h3. */}
+        <h2 id={`${forecastId}-title`} className="sr-only">
+          {hero.monthLabel} 지출
+        </h2>
         <div {...enter(1)} className="ds-enter flex flex-col gap-5">
           <div className="flex flex-col gap-2">
             <span className="text-label">
@@ -272,7 +277,7 @@ export function SpendingHero({
 
         <div {...enter(2)} className="ds-enter flex flex-col gap-4 lg:pt-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <BlockTitle as="h2">같은 기준으로 비교</BlockTitle>
+            <BlockTitle>같은 기준으로 비교</BlockTitle>
             <Segmented
               items={MODES}
               value={mode}
