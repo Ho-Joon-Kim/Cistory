@@ -6,6 +6,10 @@ import { checkSameOrigin } from "@/lib/api-auth";
 import { auth } from "@/lib/auth";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
+import { ProtonConnectionService } from "@/modules/proton/connection";
+import { PROTON_ERRORS } from "@/modules/proton/types";
+
+const DELETED_MESSAGE = "GitHub 연결이 해제되고 모든 데이터가 삭제되었습니다.";
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -27,6 +31,19 @@ export async function DELETE(request: NextRequest) {
     if (authError) return authError;
     const db = getDb();
 
+    // Best-effort sign-out of the Proton session. Network, so it runs before
+    // (never inside) the deletion transaction; the tokens are read first because
+    // the cascade removes them. A failure never blocks deleting the account.
+    let protonRevoked = true;
+    try {
+      protonRevoked = await new ProtonConnectionService(db).revokeOnly(user.id);
+    } catch (error) {
+      protonRevoked = false;
+      logger.warn("[auth/disconnect] Proton revoke failed", {
+        error: error instanceof Error ? error.name : "unknown",
+      });
+    }
+
     await deleteAccount(db, user.id);
 
     const signOut = await auth.api.signOut({
@@ -36,7 +53,7 @@ export async function DELETE(request: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
-      message: "GitHub 연결이 해제되고 모든 데이터가 삭제되었습니다.",
+      message: protonRevoked ? DELETED_MESSAGE : `${DELETED_MESSAGE} ${PROTON_ERRORS.revokeFailed}`,
     });
     // Forward Better Auth's expirations (token, cached session and chunks),
     // including the configured secure prefix/path/domain attributes.
