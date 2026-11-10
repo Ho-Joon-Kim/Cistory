@@ -16,12 +16,12 @@ function Legend({ compact }: { compact?: boolean }) {
     { k: compact ? "목표" : "목표 비중", el: <span className="h-3 w-0.5 bg-ink lg:h-3.5" /> },
     {
       k: compact ? "초과분" : "목표보다 많은 부분",
-      el: <span className="h-2 w-3 rounded-sm bg-ink lg:h-2.5 lg:w-3.5" />,
+      el: <span className="h-2 w-3 rounded-[2px] bg-ink lg:h-2.5 lg:w-3.5" />,
     },
     {
       k: compact ? "모자란 부분" : "목표까지 모자란 부분",
       el: (
-        <span className="h-2 w-3 rounded-sm bg-brand-soft shadow-[inset_0_0_0_1px_var(--brand)] lg:h-2.5 lg:w-3.5" />
+        <span className="h-2 w-3 rounded-[2px] bg-brand-soft shadow-[inset_0_0_0_1px_var(--brand)] lg:h-2.5 lg:w-3.5" />
       ),
     },
   ];
@@ -29,7 +29,7 @@ function Legend({ compact }: { compact?: boolean }) {
     <>
       {items.map((it) => (
         <span key={it.k} className="flex items-center gap-1.5 lg:gap-2">
-          <span aria-hidden="true" className="flex w-3.5 justify-center">
+          <span aria-hidden="true" className="flex w-3.5 justify-start">
             {it.el}
           </span>
           {it.k}
@@ -221,7 +221,7 @@ export function TargetDrift({
           <button
             type="button"
             onClick={onEdit}
-            className="mt-2 inline-flex h-9 w-fit cursor-pointer items-center rounded-control border-0 bg-surface px-3.5 text-[13px] font-semibold text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
+            className="mt-2 inline-flex h-9 w-fit cursor-pointer items-center rounded-control border-0 bg-surface px-3.5 text-[13px] font-normal text-ink shadow-ring transition-[scale,box-shadow] duration-150 ease-out hover:shadow-ring-hover active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             목표 비중 수정
           </button>

@@ -18,6 +18,12 @@ export interface AssetPoint {
    * `value − deposit − invested` — the stock-only figure the hero reports.
    */
   deposit?: number;
+  /**
+   * KIS's own 평가손익 (evlu_pfls_smtl_amt) summed over accounts — the figure the
+   * hero shows. KIS rounds per holding, so it can differ by a won or two from
+   * `value − deposit − invested`; when present it is the one source of truth.
+   */
+  pnl?: number;
 }
 
 interface SnapshotLike {
@@ -26,6 +32,7 @@ interface SnapshotLike {
   totalEvalAmount: number;
   totalPurchaseAmount: number;
   deposit?: number;
+  totalPnl?: number | null;
 }
 
 /**
@@ -57,9 +64,25 @@ export function buildAssetSeries(
       invested += Number(s.totalPurchaseAmount);
       deposit += Number(s.deposit ?? 0);
     }
-    out.push({ date, value, invested, deposit });
+    const pnl = summedPnl(day.values());
+    out.push(
+      pnl === undefined
+        ? { date, value, invested, deposit }
+        : { date, value, invested, deposit, pnl }
+    );
   }
   return out;
+}
+
+/** KIS 평가손익 summed over a day's accounts; undefined when any account lacks it. */
+function summedPnl(snaps: Iterable<SnapshotLike>): number | undefined {
+  let sum = 0;
+  for (const s of snaps) {
+    const own = s.totalPnl == null ? Number.NaN : Number(s.totalPnl);
+    if (!Number.isFinite(own)) return undefined;
+    sum += own;
+  }
+  return sum;
 }
 
 function weekday(dateKey: string): number {
@@ -270,5 +293,5 @@ export function ordTime(ordTm: string | null): string {
 
 /** Unrealized P&L on the holdings alone (cash excluded), as the hero defines it. */
 export function pointPnl(p: AssetPoint): number {
-  return p.value - (p.deposit ?? 0) - p.invested;
+  return p.pnl ?? p.value - (p.deposit ?? 0) - p.invested;
 }

@@ -18,13 +18,21 @@ export function InsightLine({
   as?: "p" | "span" | "div";
 }) {
   if (!insight) return null;
+  const post = insight.post ?? "";
+  const cut = post.search(/\s/);
+  const lead = cut < 0 ? post : post.slice(0, cut);
+  const rest = cut < 0 ? "" : post.slice(cut);
   return (
     <AiLine evidence={insight.evidence} className={className} as={as}>
       {insight.pre}
-      <FactTrigger rows={insight.rows} note={insight.source} align={align}>
-        {insight.trigger}
-      </FactTrigger>
-      {insight.post}
+      {/* The fact and the particle glued to it ("46%가") never split across lines. */}
+      <span className="whitespace-nowrap">
+        <FactTrigger rows={insight.rows} note={insight.source} align={align}>
+          {insight.trigger}
+        </FactTrigger>
+        {lead}
+      </span>
+      {rest}
     </AiLine>
   );
 }
@@ -131,4 +139,33 @@ export function Fig({
 /** Staggered entrance: `ds-enter` with a 100ms step (reduced motion → fade). */
 export function enter(step: number): { className: string; style: { animationDelay: string } } {
   return { className: "ds-enter", style: { animationDelay: `${step * 100}ms` } };
+}
+
+/**
+ * Inline facts separated by "·" that never strand a separator: each item
+ * carries its "·" before it, and the item that starts a line has that "·"
+ * pushed into a negative margin the wrapper clips. So a wrap reads
+ * "경유 14곳" / "11,251걸음의 날" with no dangling dot at either end.
+ */
+export function DotList({
+  items,
+  className,
+}: {
+  items: ReadonlyArray<{ key: string; node: ReactNode }>;
+  className?: string;
+}) {
+  return (
+    <span className={cn("block overflow-hidden", className)}>
+      <span className="-ml-3 flex flex-wrap">
+        {items.map((item) => (
+          <span
+            key={item.key}
+            className="relative pl-3 whitespace-nowrap before:absolute before:left-[3px] before:content-['·']"
+          >
+            {item.node}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
 }

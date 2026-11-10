@@ -595,13 +595,17 @@ function metricValue(row: TravelTripDetail["health"][number], agg: "sum" | "avg"
   return agg === "sum" ? (row.valueSum ?? row.valueAvg) : (row.valueAvg ?? row.valueSum);
 }
 
+/** One fixed precision per row, so a column of days never mixes 2.9 / 5.68. */
 function formatMetric(value: number | null, decimals: number): string {
   if (value == null || !Number.isFinite(value)) return "–";
   return value.toLocaleString("ko-KR", {
-    minimumFractionDigits: decimals > 0 ? Math.min(decimals, 1) : 0,
+    minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
 }
+
+/** Day-level travel table precision: walking distance reads in tenths of a km. */
+const TABLE_DECIMALS: Record<string, number> = { distance: 1 };
 
 export function healthTable(detail: TravelTripDetail): {
   days: string[];
@@ -620,7 +624,7 @@ export function healthTable(detail: TravelTripDetail): {
     const rows = byMetric.get(key);
     if (!meta || !rows) return null;
     const scale = meta.scale ?? 1;
-    const decimals = meta.decimals ?? 1;
+    const decimals = TABLE_DECIMALS[key] ?? meta.decimals ?? 1;
     const cells = days.map((day) => {
       const row = rows.get(day);
       const raw = row ? metricValue(row, meta.agg) : null;

@@ -9,9 +9,9 @@ import { MoreIcon } from "./parts";
 type View = "menu" | "confirm" | "rename";
 
 const ITEM =
-  "flex w-full cursor-pointer items-center gap-2.5 rounded-[7px] border-0 bg-transparent px-2.5 py-2 text-left text-[13px] leading-5 text-ink transition-colors duration-150 hover:bg-track focus-visible:bg-track focus-visible:outline-none";
+  "flex w-full cursor-pointer items-center gap-2.5 rounded-[7px] border-0 bg-transparent px-2.5 py-2 text-left max-sm:min-h-11 [@media(pointer:coarse)]:min-h-11 text-[13px] leading-5 text-ink transition-colors duration-150 hover:bg-track focus-visible:bg-track focus-visible:outline-none";
 const SMALL_BTN =
-  "inline-flex h-[30px] cursor-pointer items-center rounded-control border px-3.5 text-[13px] font-semibold transition-[scale,box-shadow,background-color] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand";
+  "inline-flex h-[30px] max-sm:h-11 [@media(pointer:coarse)]:h-11 cursor-pointer items-center rounded-control border px-3.5 text-[13px] font-semibold transition-[scale,box-shadow,background-color] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand";
 
 /**
  * The "…" menu of a trip: 자세히 보기 · 이름 바꾸기 · 여행 아님으로 표시. Both edits
@@ -174,7 +174,7 @@ export function TripMenu({
                 value={name}
                 maxLength={60}
                 onChange={(event) => setName(event.target.value)}
-                className="h-9 rounded-control border-0 bg-page px-3 text-sm text-ink shadow-[inset_0_0_0_1px_var(--line)] outline-none focus-visible:shadow-[inset_0_0_0_1.5px_var(--brand)]"
+                className="h-9 max-sm:h-11 [@media(pointer:coarse)]:h-11 rounded-control border-0 bg-page px-3 text-sm text-ink shadow-[inset_0_0_0_1px_var(--line)] outline-none focus-visible:shadow-[inset_0_0_0_1.5px_var(--brand)]"
               />
               <span className="flex justify-end gap-2">
                 <button

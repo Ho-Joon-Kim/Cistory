@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { axisTickIndices, placeCallout, polylineHitsBox, segmentHitsBox } from "./chart-layout";
+import {
+  axisTickIndices,
+  placeAxisLabel,
+  placeCallout,
+  polylineHitsBox,
+  segmentHitsBox,
+} from "./chart-layout";
 
 describe("segmentHitsBox", () => {
   const box = { x0: 10, x1: 20, y0: 10, y1: 20 };
@@ -68,5 +74,33 @@ describe("axisTickIndices", () => {
     const gaps = seven.slice(1).map((t, i) => t - seven[i]);
     expect(new Set(gaps).size).toBe(1);
     expect(seven.at(-1)).toBe(7);
+  });
+});
+
+describe("placeAxisLabel", () => {
+  const flat = (y: number) => [
+    { x: 0, y },
+    { x: 400, y },
+  ];
+  it("keeps the label directly above its own grid line", () => {
+    const spot = placeAxisLabel({ y: 100, w: 60, width: 400, lines: [flat(160)] });
+    expect(spot).not.toBeNull();
+    expect(spot!.anchor).toBe("start");
+    expect(spot!.baseline).toBeLessThan(100);
+    expect(spot!.box.y1).toBeLessThanOrEqual(100);
+  });
+  it("moves to the right edge when a line crosses the left spot", () => {
+    const rising = [
+      { x: 0, y: 95 },
+      { x: 80, y: 95 },
+      { x: 100, y: 200 },
+      { x: 400, y: 200 },
+    ];
+    const spot = placeAxisLabel({ y: 100, w: 60, width: 400, lines: [rising] });
+    expect(spot?.anchor).toBe("end");
+    expect(spot?.box.y1).toBeLessThanOrEqual(100);
+  });
+  it("drops the label rather than drawing it over the data", () => {
+    expect(placeAxisLabel({ y: 100, w: 60, width: 400, lines: [flat(94)] })).toBeNull();
   });
 });

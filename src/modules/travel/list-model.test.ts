@@ -12,6 +12,7 @@ import {
   pickHighlights,
   rangeLabel,
   rangeWithWeekdays,
+  recurringPosition,
   ribbonSpans,
   stayLabel,
   summarizeYear,
@@ -93,6 +94,12 @@ describe("groupRecurring", () => {
     expect(groups[0].totalDays).toBe(3 + 3 + 3 + 6);
     expect(groups[0].spendRecordedCount).toBe(3);
     expect(rest.map((t) => t.name)).toEqual(["대구 여행", "대구 여행", "대구 여행"]);
+
+    const [latest, , third, first] = groups[0].trips;
+    expect(recurringPosition(groups, latest.id)).toBe("본가 4회 중 가장 최근");
+    expect(recurringPosition(groups, third.id)).toBe("본가 4회 중 2번째");
+    expect(recurringPosition(groups, first.id)).toBe("본가 4회 중 처음");
+    expect(recurringPosition(groups, rest[0].id)).toBeNull();
   });
 
   it("groups three trips only when they share a saved place, and never overseas trips", () => {
@@ -229,5 +236,11 @@ describe("cityLine", () => {
       "New Territories · Kowloon"
     );
     expect(cityLine(["대전", "서울"])).toBe("대전 · 서울");
+  });
+
+  it("drops whole names past a cap instead of cutting one mid-word", () => {
+    const hk = ["New Territories", "Kowloon", "Hong Kong Island"];
+    expect(cityLine(hk, 2)).toBe("New Territories · Kowloon 외 1곳");
+    expect(cityLine(hk, 3)).toBe(hk.join(" · "));
   });
 });

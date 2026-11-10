@@ -1,6 +1,7 @@
 "use client";
 
-import { AiLine, CountUp, HeroNumber } from "@/components/ds";
+import { AiLine, CountUp, FactTrigger, HeroNumber } from "@/components/ds";
+import { renderTemplate } from "@/lib/facts/template";
 import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatDay, formatReturn, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -182,7 +183,7 @@ export function PortfolioHero({
 
         {fact ? (
           <div className="mt-4 max-w-[640px] lg:mt-5">
-            <AiLine fact={fact} rows={fact.rows} className="max-lg:text-wrap" />
+            <HeroLine fact={fact} />
           </div>
         ) : null}
       </div>
@@ -219,5 +220,50 @@ export function PortfolioHero({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * The hero AI line. A second figure that the sentence leans on (the top
+ * holding's share of the gain, "96%") is set semibold like the mock — it is
+ * part of the same fact's evidence, so it is emphasis, not a second trigger.
+ */
+function HeroLine({ fact }: { fact: Fact }) {
+  const share = typeof fact.detail?.topShare === "string" ? fact.detail.topShare : "";
+  if (!share || fact.id !== "portfolio.hero.covered") {
+    return <AiLine fact={fact} rows={fact.rows} className="max-lg:text-wrap" />;
+  }
+  const rendered = renderTemplate(fact);
+  return (
+    <AiLine evidence={fact.evidence} className="max-lg:text-wrap">
+      {rendered.segments.map((segment, i) => {
+        if (segment.type === "fact") {
+          return (
+            <FactTrigger
+              // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+              key={i}
+              rows={fact.rows ?? []}
+              numeric={rendered.numeric}
+              evidence={fact.evidence}
+            >
+              {segment.text}
+            </FactTrigger>
+          );
+        }
+        const at = segment.text.indexOf(share);
+        if (at < 0) {
+          // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+          return <span key={i}>{segment.text}</span>;
+        }
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+          <span key={i}>
+            {segment.text.slice(0, at)}
+            <span className="font-sans font-semibold text-ink tabular-nums">{share}</span>
+            {segment.text.slice(at + share.length)}
+          </span>
+        );
+      })}
+    </AiLine>
   );
 }

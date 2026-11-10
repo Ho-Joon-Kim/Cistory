@@ -3,7 +3,6 @@
 import Link from "next/link";
 import {
   type FormEvent,
-  Fragment,
   type ReactNode,
   useCallback,
   useEffect,
@@ -46,7 +45,7 @@ import type { TravelRoute, TravelTripDetail } from "../hooks";
 import { dayCount, destinationOf, isSpendingRecorded, stayLabel } from "../list-model";
 import { REFERENCE_CITIES } from "../reference-cities";
 import { isRoutinePlace } from "../routine-places";
-import { Chevron, Collapse, enter, Fig, InsightLine, Pill } from "./parts";
+import { Chevron, Collapse, DotList, enter, Fig, InsightLine, Pill } from "./parts";
 import { TripMenu } from "./TripMenu";
 import { TripRouteSketch, WalkSketch } from "./TripRouteSketch";
 
@@ -109,11 +108,13 @@ function downloadGpx(name: string, route: TravelRoute) {
 function DetailHeader({
   detail,
   route,
+  series,
   onRename,
   onNotTrip,
 }: {
   detail: TravelTripDetail;
   route: TravelRoute;
+  series: string | null;
   onRename: (name: string) => Promise<boolean>;
   onNotTrip: () => void;
 }) {
@@ -122,7 +123,15 @@ function DetailHeader({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(trip.name);
   const [saving, setSaving] = useState(false);
+  const renameRef = useRef<HTMLButtonElement>(null);
   const cities = [...new Set(trip.visitedCities.map(shortCity))].slice(0, 3);
+
+  /** Close the rename field without saving; focus goes back to its button. */
+  const cancelEdit = () => {
+    setName(trip.name);
+    setEditing(false);
+    requestAnimationFrame(() => renameRef.current?.focus());
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -145,12 +154,13 @@ function DetailHeader({
         <span className="text-label">
           <Link
             href="/travel"
-            className="rounded-sm hover:text-ink focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-brand"
+            className="tap-target rounded-sm hover:text-ink focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-brand"
           >
             여행
           </Link>
           {cities.length ? ` · ${cities.join(" · ")}` : ""}
           {trip.isOverseas ? " · 해외" : ""}
+          {series ? ` · ${series}` : ""}
         </span>
         {editing ? (
           <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
@@ -164,17 +174,19 @@ function DetailHeader({
               value={name}
               maxLength={60}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  cancelEdit();
+                }
+              }}
               className="h-11 min-w-0 rounded-control border-0 bg-surface px-3 font-serif text-2xl font-bold text-ink shadow-[inset_0_0_0_1px_var(--line)] outline-none focus-visible:shadow-[inset_0_0_0_1.5px_var(--brand)]"
             />
             <Button type="submit" disabled={saving} className="max-sm:h-11">
               저장
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setEditing(false)}
-              className="max-sm:h-11"
-            >
+            <Button type="button" variant="ghost" onClick={cancelEdit} className="max-sm:h-11">
               취소
             </Button>
           </form>
@@ -209,7 +221,12 @@ function DetailHeader({
         </p>
       </div>
       <div className={cn("flex items-center gap-2", editing && "hidden")}>
-        <Button variant="outline" onClick={() => setEditing(true)} className="max-sm:h-11">
+        <Button
+          ref={renameRef}
+          variant="outline"
+          onClick={() => setEditing(true)}
+          className="max-sm:h-11"
+        >
           이름 바꾸기
         </Button>
         <TripMenu
@@ -419,35 +436,30 @@ function RunCard({ run, hero }: { run: DenseRun; hero: HeroDay | null }) {
         <span className="flex min-w-0 flex-col gap-1">
           <span className="flex flex-wrap items-baseline gap-x-2.5">
             <span className="text-[15px] leading-[22px] font-semibold">{run.label}</span>
-            <span className="num text-xs text-ink-2">
-              {hm(run.startAt)}–{hm(run.endAt)} ·{" "}
-              <span className="whitespace-nowrap">{formatDurationMinutes(run.minutes)}</span>
-            </span>
+            <DotList
+              className="num text-xs text-ink-2"
+              items={[
+                { key: "time", node: `${hm(run.startAt)}–${hm(run.endAt)}` },
+                { key: "dur", node: formatDurationMinutes(run.minutes) },
+              ]}
+            />
           </span>
-          {/* Each fact keeps its unit and trailing "·" together, so a wrap never
-              opens a line with the separator; the dot sits on the first line. */}
+          {/* Facts wrap whole, and a wrapped line never starts or ends on "·". */}
           <span className="flex items-start gap-1.5 text-xs leading-4 text-ink-2">
             <span
               aria-hidden="true"
               className="mt-[5px] size-1.5 shrink-0 rounded-full bg-health"
             />
-            <span>
-              {[
+            <DotList
+              className="min-w-0"
+              items={[
                 isHeroRun ? "이 여행에서 가장 길게 걸은 구간" : null,
                 `경유 ${run.stops.length}곳`,
                 isHeroRun && hero ? `${formatCount(hero.steps)}걸음의 날` : null,
               ]
                 .filter((part): part is string => part !== null)
-                .map((part, i, parts) => (
-                  <Fragment key={part}>
-                    <span className="whitespace-nowrap">
-                      {part}
-                      {i < parts.length - 1 ? " ·" : ""}
-                    </span>
-                    {i < parts.length - 1 ? " " : ""}
-                  </Fragment>
-                ))}
-            </span>
+                .map((part) => ({ key: part, node: part }))}
+            />
           </span>
         </span>
         <Chevron className="text-ink-2" />
@@ -815,15 +827,10 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
         건강
       </h2>
       <ScrollX label="건강 지표 표" minWidth={LABEL_COL_PX + table.days.length * DAY_COL_MIN_PX}>
-        {/* The hero-day tint spans only the rows on screen: the main rows while
-            "다른 지표" is closed, everything once it is open. */}
-        {open && table.more.length > 0 ? (
-          <HotColumn index={hotIndex} count={table.days.length} />
-        ) : null}
+        {/* The hero-day tint sits behind each grid of rows on its own, so it
+            breaks at the "다른 지표" toggle row instead of running behind it. */}
         <div className="relative">
-          {open && table.more.length > 0 ? null : (
-            <HotColumn index={hotIndex} count={table.days.length} />
-          )}
+          <HotColumn index={hotIndex} count={table.days.length} />
           <HealthGrid rows={table.primary} days={table.days} heroDay={heroDay} label="건강 지표" />
         </div>
         {table.more.length > 0 ? (
@@ -840,7 +847,8 @@ function HealthSection({ detail, hero }: { detail: TravelTripDetail; hero: HeroD
               </Button>
             </div>
             <Collapse open={open} id={id}>
-              <div className="mt-1.5">
+              <div className="relative mt-1.5">
+                <HotColumn index={hotIndex} count={table.days.length} />
                 <HealthGrid
                   rows={table.more}
                   days={table.days}
@@ -993,13 +1001,18 @@ function RoutineDisclosure({ detail, hero }: { detail: TravelTripDetail; hero: H
               />
               <span className="num">{formatCount(cmp.commitCount)}</span>
             </dd>
-            <dt className="text-ink-2">코딩 시간</dt>
-            <dd className="m-0">
-              <span className="num">{formatDurationMinutes(routine.codingSeconds / 60)}</span>{" "}
-              <span className="text-ink-3">
-                · 직전 {formatDurationMinutes(cmp.codingSeconds / 60)}
-              </span>
-            </dd>
+            {/* An all-zero comparison reads as a broken source, not a fact. */}
+            {routine.codingSeconds > 0 || cmp.codingSeconds > 0 ? (
+              <>
+                <dt className="text-ink-2">코딩 시간</dt>
+                <dd className="m-0">
+                  <span className="num">{formatDurationMinutes(routine.codingSeconds / 60)}</span>{" "}
+                  <span className="text-ink-3">
+                    · 직전 {formatDurationMinutes(cmp.codingSeconds / 60)}
+                  </span>
+                </dd>
+              </>
+            ) : null}
           </>
         ) : null}
         {hero ? (
@@ -1021,11 +1034,14 @@ function RoutineDisclosure({ detail, hero }: { detail: TravelTripDetail; hero: H
 export function TravelDetailView({
   detail,
   route,
+  series = null,
   onRename,
   onNotTrip,
 }: {
   detail: TravelTripDetail;
   route: TravelRoute;
+  /** Where the trip sits in its recurring destination ("본가 8회 중 가장 최근"). */
+  series?: string | null;
   onRename: (name: string) => Promise<boolean>;
   onNotTrip: () => void;
 }) {
@@ -1051,7 +1067,13 @@ export function TravelDetailView({
 
   return (
     <EvidenceScope>
-      <DetailHeader detail={detail} route={route} onRename={onRename} onNotTrip={onNotTrip} />
+      <DetailHeader
+        detail={detail}
+        route={route}
+        series={series}
+        onRename={onRename}
+        onNotTrip={onNotTrip}
+      />
       <Hero detail={detail} hero={hero} route={route} />
       <div
         className={cn(

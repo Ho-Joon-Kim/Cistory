@@ -24,6 +24,7 @@ import {
   type Box,
   boxesOverlap,
   labelWidth,
+  placeAxisLabel,
   placeCallout,
   polylineHitsBox,
 } from "../chart-layout";
@@ -166,23 +167,50 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
     const costPts = pts.map((p, j) => ({ x: xAt(j), y: yAt(p.invested) }));
     const lines = [valuePts, costPts];
 
-    // Y-axis labels: above their grid line, else below it, whichever no line
-    // crosses (a halo keeps them legible where both are crossed). Placed first
-    // so callouts treat them as soft obstacles.
-    const grid: Array<{ y: number; label: string; labelY: number; box: Box; show: boolean }> = [];
+    // Y-axis labels: always directly above their own grid line — at the left
+    // edge, else the right edge, else dropped. Never shifted below the line
+    // (it would read as the next line's value) and never haloed over the data.
+    // Placed first so callouts treat them as soft obstacles.
+    const grid: Array<{
+      y: number;
+      label: string;
+      labelX: number;
+      labelY: number;
+      anchor: "start" | "end";
+      box: Box;
+      show: boolean;
+    }> = [];
     for (let v = scale.min; v <= scale.max + 1; v += scale.step) {
       const y = yAt(v);
       const label = formatWonCompact(v);
-      const lw = labelWidth(label, AXIS_FONT) + 4;
-      const boxAt = (ly: number): Box => ({ x0: 0, x1: lw, y0: ly - 10, y1: ly + 2 });
-      const spots = [y - 6, y + 14].filter((ly) => ly - 10 >= 0 && ly + 2 < base);
-      const clear = spots.find((ly) => !lines.some((l) => polylineHitsBox(l, boxAt(ly), 1)));
-      const labelY = clear ?? spots[0];
-      if (labelY === undefined) {
-        grid.push({ y, label, labelY: y, box: { x0: 0, x1: 0, y0: y, y1: y }, show: false });
-        continue;
-      }
-      grid.push({ y, label, labelY, box: boxAt(labelY), show: true });
+      const spot = placeAxisLabel({
+        y,
+        w: labelWidth(label, AXIS_FONT) + 4,
+        width: W,
+        lines,
+        avoid: grid.filter((g) => g.show).map((g) => g.box),
+      });
+      grid.push(
+        spot
+          ? {
+              y,
+              label,
+              labelX: spot.x,
+              labelY: spot.baseline,
+              anchor: spot.anchor,
+              box: spot.box,
+              show: true,
+            }
+          : {
+              y,
+              label,
+              labelX: 0,
+              labelY: y,
+              anchor: "start",
+              box: { x0: 0, x1: 0, y0: y, y1: y },
+              show: false,
+            }
+      );
     }
 
     const ann: Annotation[] = [];
@@ -247,15 +275,19 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
     // An axis label a callout still covers gives way to the callout.
     for (const g of grid) g.show &&= !annBoxes.some((b) => boxesOverlap(b, g.box, 1));
 
-    // "매입금액" at the cost line's right end: below it, else above, clear of the
-    // value line and the callouts.
+    // "매입금액" at the cost line's right end: below it, else above, then a
+    // step further out — clear of both lines, the callouts and the axis labels.
     const invEnd = costPts[n - 1].y;
     const invW = labelWidth("매입금액");
     const invBox = (ly: number): Box => ({ x0: W - invW, x1: W, y0: ly - 12, y1: ly + 2 });
-    const invSpots = [invEnd + 16, invEnd - 6].filter((ly) => ly - 12 >= 0 && ly + 2 < base);
-    const invFree = (ly: number) => !annBoxes.some((b) => boxesOverlap(b, invBox(ly), 1));
+    const invSpots = [16, -6, 30, -20, 44, -34]
+      .map((d) => invEnd + d)
+      .filter((ly) => ly - 12 >= 0 && ly + 2 < base);
+    const shownAxis = grid.filter((g) => g.show).map((g) => g.box);
+    const invFree = (ly: number) =>
+      ![...annBoxes, ...shownAxis].some((b) => boxesOverlap(b, invBox(ly), 1));
     const invLabelY =
-      invSpots.find((ly) => invFree(ly) && !polylineHitsBox(valuePts, invBox(ly), 1)) ??
+      invSpots.find((ly) => invFree(ly) && !lines.some((l) => polylineHitsBox(l, invBox(ly), 1))) ??
       invSpots.find(invFree) ??
       null;
     const invLabelShow = invLabelY !== null;
@@ -439,20 +471,17 @@ export function AssetTrend({ series, cashflows }: { series: AssetPoint[]; cashfl
                     opacity={cfLit ? 0.5 : 1}
                     style={{ transition: "opacity 150ms ease-out" }}
                   />
-                  {/* Axis labels over the lines, with a page-colour halo where one crosses. */}
+                  {/* Axis labels sit on their grid lines, placed clear of the data (no halo). */}
                   {geo.grid.map((g) =>
                     g.show ? (
                       <text
                         key={`l-${g.y}`}
-                        x={0}
+                        x={g.labelX}
                         y={g.labelY}
+                        textAnchor={g.anchor}
                         fontSize={AXIS_FONT}
                         fill="var(--ink3)"
                         fontFamily="var(--font-mono)"
-                        stroke="var(--bg)"
-                        strokeWidth={4}
-                        strokeLinejoin="round"
-                        paintOrder="stroke"
                       >
                         {g.label}
                       </text>

@@ -53,6 +53,32 @@ describe("buildAssetSeries", () => {
     expect(pointPnl({ date: "2026-11-09", value: 1000, invested: 700, deposit: 100 })).toBe(200);
   });
 
+  it("carries KIS's own 평가손익 so the tooltip matches the hero to the won", () => {
+    const [p] = buildAssetSeries(
+      [
+        {
+          accountId: "a",
+          asOfDate: "2026-11-09",
+          totalEvalAmount: 1000,
+          totalPurchaseAmount: 700,
+          deposit: 100,
+          totalPnl: 199,
+        },
+        {
+          accountId: "b",
+          asOfDate: "2026-11-09",
+          totalEvalAmount: 50,
+          totalPurchaseAmount: 40,
+          deposit: 0,
+          totalPnl: 10,
+        },
+      ],
+      ["a", "b"]
+    );
+    expect(p.pnl).toBe(209);
+    expect(pointPnl(p)).toBe(209);
+  });
+
   it("returns nothing without accounts", () => {
     expect(buildAssetSeries([snap("a", "2026-11-01", 1)], [])).toEqual([]);
   });

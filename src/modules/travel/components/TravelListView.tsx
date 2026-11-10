@@ -264,13 +264,21 @@ function TripRow({
           </span>
           {trip.isOverseas ? <Pill className="h-[22px] font-medium">해외</Pill> : null}
         </Link>
+        {/* Narrow phones drop the stay length before the km would be cut. */}
         <span className="truncate text-xs leading-4 text-ink-3 lg:hidden">
           {yearPrefix}
-          {rangeLabel(trip.startDate, trip.endDate)} · {stayLabel(trip.startDate, trip.endDate)} ·{" "}
+          {rangeLabel(trip.startDate, trip.endDate)}
+          <span className="max-[359px]:hidden"> · {stayLabel(trip.startDate, trip.endDate)}</span>
+          {" · "}
           {formatKm(trip.totalDistanceMeters)}
         </span>
         {!nested ? (
-          <span className="hidden truncate text-xs leading-4 text-ink-3 lg:block">{cities}</span>
+          <>
+            <span className="hidden truncate text-xs leading-4 text-ink-3 lg:block xl:hidden">
+              {cityLine(trip.visitedCities, 2)}
+            </span>
+            <span className="hidden truncate text-xs leading-4 text-ink-3 xl:block">{cities}</span>
+          </>
         ) : null}
       </span>
       <span
@@ -356,7 +364,7 @@ function GroupRow({
             </span>
             올해 {thisYear}회
             {wd && wd.count >= 2 ? (
-              <span className="hidden lg:inline">
+              <span className="hidden xl:inline">
                 {" "}
                 · {wd.weekday}요일 출발 {wd.count}회
               </span>

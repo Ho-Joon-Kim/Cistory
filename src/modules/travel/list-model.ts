@@ -106,11 +106,19 @@ export function destinationOf(trip: Pick<TravelTripListItem, "name">): string {
  * Chinese, e.g. "新界") — the list reads Korean or English, never CJK leaks —
  * and repeats.
  */
-export function cityLine(cities: readonly string[]): string {
-  const keep = cities
-    .map((c) => c.trim())
-    .filter((c) => c && !(/\p{Script=Han}/u.test(c) && !/\p{Script=Hangul}/u.test(c)));
-  return [...new Set(keep)].join(" · ");
+export function cityLine(cities: readonly string[], max?: number): string {
+  const keep = [
+    ...new Set(
+      cities
+        .map((c) => c.trim())
+        .filter((c) => c && !(/\p{Script=Han}/u.test(c) && !/\p{Script=Hangul}/u.test(c)))
+    ),
+  ];
+  // With a cap, whole names drop ("… 외 1곳") instead of one being cut mid-word.
+  if (max !== undefined && keep.length > max) {
+    return `${keep.slice(0, max).join(" · ")} 외 ${keep.length - max}곳`;
+  }
+  return keep.join(" · ");
 }
 
 export function isSpendingRecorded(
@@ -215,6 +223,23 @@ export function groupRecurring(
 
   groups.sort((a, b) => b.trips.length - a.trips.length || b.lastEnd.localeCompare(a.lastEnd));
   return { groups, rest: trips.filter((trip) => !grouped.has(trip.id)) };
+}
+
+/**
+ * Where a trip sits in its recurring group, for the detail breadcrumb:
+ * "본가 8회 중 가장 최근", "본가 8회 중 3번째". Null when the trip doesn't recur.
+ */
+export function recurringPosition(
+  groups: readonly RecurringGroup[],
+  tripId: string
+): string | null {
+  const group = groups.find((g) => g.trips.some((t) => t.id === tripId));
+  if (!group) return null;
+  const oldestFirst = [...group.trips].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const index = oldestFirst.findIndex((t) => t.id === tripId);
+  const count = oldestFirst.length;
+  const position = index === count - 1 ? "가장 최근" : index === 0 ? "처음" : `${index + 1}번째`;
+  return `${group.anchor ? `${group.anchor} ` : ""}${count}회 중 ${position}`;
 }
 
 export function groupLabel(group: Pick<RecurringGroup, "destination" | "anchor">): string {

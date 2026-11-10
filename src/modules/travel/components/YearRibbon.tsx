@@ -89,9 +89,10 @@ export function YearRibbon({ summary, today }: { summary: TravelListSummary; tod
       >
         오늘
       </span>
+      {/* biome-ignore lint/a11y/useSemanticElements: a group of trip links, not form controls (no <fieldset>) */}
       <div
         ref={stripRef}
-        role="img"
+        role="group"
         aria-label={`${summary.year}년 여행 달력: ${spans.length}건`}
         className="relative h-10"
       >
