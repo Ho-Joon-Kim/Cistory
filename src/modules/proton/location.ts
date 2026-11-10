@@ -29,9 +29,38 @@ export function buildLocationFillSql(
   limit: number
 ): SQL {
   const day = sql.raw(localDayRawSql("p.captured_at"));
-  const pointDay = sql.raw(localDayRawSql("lp2.timestamp"));
   const nowParam = timestampParam(photos.locationCheckedAt, now);
+  // KST day start/end as UTC wall time, so the count can use (user_id, timestamp).
+  const dayStartUtc = sql.raw("(td.d::timestamp at time zone 'Asia/Seoul' at time zone 'UTC')");
+  const dayEndUtc = sql.raw("((td.d + 1)::timestamp at time zone 'Asia/Seoul' at time zone 'UTC')");
   return sql`
+    WITH targets AS (
+      SELECT p.id, p.captured_at, ${day} AS d
+      FROM photos p
+      WHERE p.user_id = ${userId}::uuid
+        AND p.details_synced_at IS NOT NULL
+        AND p.deleted_at IS NULL
+        AND p.location_checked_at IS NULL
+        AND p.location_source IS DISTINCT FROM 'exif'
+      ORDER BY p.captured_at
+      LIMIT ${limit}
+    ),
+    -- Today and yesterday are always re-processed by the pipeline's candidate scan, so
+    -- they never settle via (a); days past the window settle via (b) without a count.
+    day_counts AS (
+      SELECT td.d, c.n
+      FROM (
+        SELECT DISTINCT d FROM targets
+        WHERE d < ${todayKst}::date - 1
+          AND d >= ${todayKst}::date - (${LOCATION_PIPELINE_WINDOW_DAYS})::int
+      ) td
+      CROSS JOIN LATERAL (
+        SELECT count(*)::int AS n FROM location_points lp2
+        WHERE lp2.user_id = ${userId}::uuid
+          AND lp2.timestamp >= ${dayStartUtc}
+          AND lp2.timestamp < ${dayEndUtc}
+      ) c
+    )
     UPDATE photos AS ph
     SET lat = t.lat,
         lon = t.lon,
@@ -40,41 +69,36 @@ export function buildLocationFillSql(
         location_checked_at = CASE WHEN t.settled THEN ${nowParam}::timestamp END,
         updated_at = ${nowParam}::timestamp
     FROM (
-      SELECT p.id, n.lat, n.lon, n.gap_sec,
+      SELECT tg.id, n.lat, n.lon, n.gap_sec,
         (
-          EXISTS (
-            SELECT 1 FROM location_processing_days lpd
-            WHERE lpd.user_id = ${userId}::uuid
-              AND lpd.date = to_char(${day}, 'YYYY-MM-DD')
+          tg.d < ${todayKst}::date - (${LOCATION_PIPELINE_WINDOW_DAYS})::int
+          OR EXISTS (
+            SELECT 1 FROM day_counts dc
+            JOIN location_processing_days lpd
+              ON lpd.user_id = ${userId}::uuid
+             AND lpd.date = to_char(dc.d, 'YYYY-MM-DD')
+            WHERE dc.d = tg.d
               AND lpd.status = 'completed'
-              AND lpd.point_count = (
-                SELECT count(*) FROM location_points lp2
-                WHERE lp2.user_id = ${userId}::uuid AND ${pointDay} = ${day}
-              )
+              AND lpd.point_count = dc.n
           )
-          OR ${day} < ${todayKst}::date - (${LOCATION_PIPELINE_WINDOW_DAYS})::int
         ) AS settled
-      FROM photos p
+      FROM targets tg
       LEFT JOIN LATERAL (
         SELECT lp.lat, lp.lon,
-          round(abs(extract(epoch FROM lp.timestamp - p.captured_at)))::int AS gap_sec
+          round(abs(extract(epoch FROM lp.timestamp - tg.captured_at)))::int AS gap_sec
         FROM location_points lp
         WHERE lp.user_id = ${userId}::uuid
           AND lp.anomaly IS NOT TRUE
-          AND lp.timestamp BETWEEN p.captured_at - interval '15 minutes'
-                               AND p.captured_at + interval '15 minutes'
-        ORDER BY abs(extract(epoch FROM lp.timestamp - p.captured_at))
+          AND lp.timestamp BETWEEN tg.captured_at - interval '15 minutes'
+                               AND tg.captured_at + interval '15 minutes'
+        ORDER BY abs(extract(epoch FROM lp.timestamp - tg.captured_at))
         LIMIT 1
       ) n ON true
-      WHERE p.user_id = ${userId}::uuid
-        AND p.details_synced_at IS NOT NULL
-        AND p.deleted_at IS NULL
-        AND p.location_checked_at IS NULL
-        AND p.location_source IS DISTINCT FROM 'exif'
-      ORDER BY p.captured_at
-      LIMIT ${limit}
     ) t
     WHERE ph.id = t.id
+      AND ph.location_source IS DISTINCT FROM 'exif'
+      AND ph.details_synced_at IS NOT NULL
+      AND ph.location_checked_at IS NULL
     RETURNING (t.lat IS NOT NULL) AS filled, (t.settled) AS settled
   `;
 }

@@ -7,7 +7,7 @@ import { insertTestUser } from "@/db/testing/fixtures";
 import { useTransactionalDb } from "@/db/testing/transactional-db";
 import { fillPhotoLocations } from "./location";
 
-const NOW = new Date("2026-03-02T06:00:00Z");
+const NOW = new Date("2026-03-05T06:00:00Z");
 
 describe("fillPhotoLocations", () => {
   const ctx = useTransactionalDb();
@@ -158,6 +158,37 @@ describe("fillPhotoLocations", () => {
     // A UTC-day lookup would find only a mismatching row here.
     await addDay(u, "2026-03-01", 99);
     expect(await fillPhotoLocations(ctx.db(), u, NOW)).toEqual({ updated: 1, settled: 1 });
+  });
+
+  it("never settles today or yesterday via (a), even with a completed, matching lpd row", async () => {
+    const u = await insertTestUser(ctx.db());
+    // NOW = 2026-03-05 15:00 KST; today = 03-05, yesterday = 03-04.
+    await addPhoto(u, "today", "2026-03-05T03:00:00Z");
+    await addPhoto(u, "yesterday", "2026-03-04T03:00:00Z");
+    await addPoint(u, "2026-03-05T03:01:00Z");
+    await addPoint(u, "2026-03-04T03:01:00Z");
+    await addDay(u, "2026-03-05", 1);
+    await addDay(u, "2026-03-04", 1);
+    expect(await fillPhotoLocations(ctx.db(), u, NOW)).toEqual({ updated: 2, settled: 0 });
+    expect((await get(u, "today"))?.locationCheckedAt).toBeNull();
+    expect((await get(u, "yesterday"))?.locationCheckedAt).toBeNull();
+  });
+
+  it("counts a KST day by exact UTC bounds: points just outside the day do not count", async () => {
+    const u = await insertTestUser(ctx.db());
+    await addPhoto(u, "p", "2026-02-27T03:00:00Z"); // KST day 02-27
+    await addPoint(u, "2026-02-27T03:01:00Z");
+    await addPoint(u, "2026-02-26T14:59:59Z"); // 23:59:59 KST on 02-26: outside
+    await addPoint(u, "2026-02-27T15:00:00Z"); // 00:00:00 KST on 02-28: outside
+    await addDay(u, "2026-02-27", 1);
+    expect(await fillPhotoLocations(ctx.db(), u, NOW)).toEqual({ updated: 1, settled: 1 });
+
+    const v = await insertTestUser(ctx.db());
+    await addPhoto(v, "p", "2026-02-27T03:00:00Z");
+    await addPoint(v, "2026-02-27T03:01:00Z");
+    await addPoint(v, "2026-02-26T15:00:00Z"); // 00:00:00 KST on 02-27: inside
+    await addDay(v, "2026-02-27", 1); // stale count 1, real count 2
+    expect(await fillPhotoLocations(ctx.db(), v, NOW)).toEqual({ updated: 1, settled: 0 });
   });
 
   it("ignores rows without details and exif rows", async () => {
