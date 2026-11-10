@@ -9,10 +9,14 @@ import { SPENDING_CATEGORY_LABELS, type SpendingCategoryKey } from "../categorie
 import { categoryShares, type MonthBar, SPLIT_CATEGORY, SPLIT_LABEL } from "../view-model";
 import { BlockTitle, DisclosureButton } from "./parts";
 
-/** Share of the everyday base: one decimal below 10% so small categories never read "0%". */
+/**
+ * Share of the everyday base, as whole percents like the mock ("46% / 30% / 7%")
+ * so one list never mixes precisions. A non-zero share that would round to 0
+ * reads "<1%" rather than "0%".
+ */
 function formatCategoryShare(ratio: number): string {
   const pct = ratio * 100;
-  if (pct > 0 && pct < 10) return `${pct.toFixed(1)}%`;
+  if (pct > 0 && pct < 0.5) return "<1%";
   return `${Math.round(pct)}%`;
 }
 

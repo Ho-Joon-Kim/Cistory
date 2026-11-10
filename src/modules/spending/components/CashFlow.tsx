@@ -92,7 +92,10 @@ export function CashFlow({ summary }: { summary: TransactionSummary }) {
       ? {
           key: "ignored",
           label: "집계 제외",
-          sub: `내 계좌 간 이체 등 ${summary.ignoredCount}건`,
+          sub:
+            summary.ignoredCount === 1
+              ? "내 계좌 간 이체 1건"
+              : `내 계좌 간 이체 등 ${summary.ignoredCount}건`,
           value: formatWon(summary.totalIgnored),
           muted: true,
         }
