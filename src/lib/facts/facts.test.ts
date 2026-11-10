@@ -279,7 +279,7 @@ describe("templates", () => {
     expect(renderTemplate(fact).numeric).toBe(true);
   });
 
-  it("marks any trigger carrying a digit as numeric, words as voice", () => {
+  it("marks only pure number+unit triggers numeric; dates and phrases are voice", () => {
     const base = {
       metric: "m",
       metricLabel: "수면",
@@ -292,7 +292,14 @@ describe("templates", () => {
       ["72분", true],
       ["85.2kg", true],
       ["−3bpm", true],
-      ["3월 2일", true],
+      ["42%", true],
+      ["4.1kg", true],
+      ["65bpm", true],
+      ["12,363,000원", true],
+      ["3,330건", true],
+      ["3월 2일", false],
+      ["9월 6일 이후", false],
+      ["17:00", false],
       ["평소보다 짧게", false],
     ] as const) {
       const fact = diagnosis({ ...base, id: trigger, detail: { trigger } });

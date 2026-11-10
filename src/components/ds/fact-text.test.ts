@@ -10,13 +10,38 @@ describe("isMonoFactValue", () => {
     expect(isMonoFactValue("+835 −185")).toBe(true);
   });
 
+  it("gives same-shape QA rows one face (qa4-qa-b N2)", () => {
+    // Spending 851,670원: both count+amount rows are quantities ("10일" = ten days in).
+    expect(isMonoFactValue("1건 1,800,000원")).toBe(true);
+    expect(isMonoFactValue("17건 283,890원 · 10일")).toBe(true);
+    // Spending 111,680원: a pure quantity vs a row that carries a date range.
+    expect(isMonoFactValue("129,380원 · 8건")).toBe(true);
+    expect(isMonoFactValue("5건 111,680원 · 11월 5일–9일")).toBe(false);
+    // Health: bare durations are mono, the same value pinned to a night is sans.
+    expect(isMonoFactValue("53분")).toBe(true);
+    expect(isMonoFactValue("4회 · 53분")).toBe(true);
+    expect(isMonoFactValue("72분")).toBe(true);
+    expect(isMonoFactValue("59bpm")).toBe(true);
+    expect(isMonoFactValue("11월 9일 밤 · 72분")).toBe(false);
+    expect(isMonoFactValue("11월 9일 · 59bpm")).toBe(false);
+    expect(isMonoFactValue("하루 283,890원 × 31일")).toBe(false);
+    expect(isMonoFactValue("52–65bpm · 중앙값 59")).toBe(false);
+  });
+
+  it("treats durations as quantities but months and relative days as words", () => {
+    expect(isMonoFactValue("3개월")).toBe(true);
+    expect(isMonoFactValue("10월")).toBe(false);
+    expect(isMonoFactValue("64일 전")).toBe(false);
+    expect(isMonoFactValue("3 짧음")).toBe(false);
+    expect(isMonoFactValue("Fitbit 3")).toBe(false);
+  });
+
   it("sets dates and times in sans, so same-shape rows agree", () => {
     expect(isMonoFactValue("11월 9일 · 59bpm")).toBe(false);
     expect(isMonoFactValue("10월 29일 · 65bpm (30일 최고와 같음)")).toBe(false);
     expect(isMonoFactValue("9월 6일 (일) 17:00 · 64일 전")).toBe(false);
     expect(isMonoFactValue("90.5kg · 9월 6일 (9주 전)")).toBe(false);
     expect(isMonoFactValue("11월 9일 08:45, 11월 6일 16:51")).toBe(false);
-    expect(isMonoFactValue("17건 283,890원 · 10일")).toBe(false);
     expect(isMonoFactValue("5건 111,680원 · 11월 5일–9일")).toBe(false);
   });
 

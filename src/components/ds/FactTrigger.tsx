@@ -80,11 +80,6 @@ function FactValue({ value }: { value: string }) {
   ));
 }
 
-/** Facts set in mono: anything carrying a number ("6%", "72분", "+3건"). */
-function hasDigit(text: string): boolean {
-  return /\d/.test(text);
-}
-
 function rectOf(el: Element): Rect {
   const r = el.getBoundingClientRect();
   return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
@@ -148,8 +143,10 @@ export function FactTrigger({
   rows: FactRow[];
   title?: string;
   note?: ReactNode;
-  /** Render the trigger in Geist Mono. Default: when the text contains a digit
-   * (non-string children default to mono). */
+  /** Render the trigger in Geist Mono. Default: only when the text is a pure
+   * number+unit quantity ("42%", "65bpm", "12,363,000원"); dates and phrases
+   * ("9월 6일 이후") inherit the line's face with tabular figures. Non-string
+   * children without a `label` default to mono. */
   numeric?: boolean;
   align?: "start" | "center" | "end";
   /** Preferred side when no highlighted evidence decides it. */
@@ -161,7 +158,7 @@ export function FactTrigger({
   className?: string;
 }) {
   const text = label ?? (typeof children === "string" ? children : undefined);
-  const mono = numeric ?? (text === undefined || hasDigit(text));
+  const mono = numeric ?? (text === undefined || isMonoFactValue(text));
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<{

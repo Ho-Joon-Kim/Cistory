@@ -10,8 +10,8 @@ import { FactTrigger } from "./FactTrigger";
 /**
  * One line of interpretation attached to its host (6px under it): serif 500,
  * --ink2, 13/21 → 14/22. Exactly one fact inside is the dotted trigger, set in
- * mono when it contains a digit ("72분", "85.2kg") and in the serif voice
- * otherwise. Hover or focus anywhere on the line activates the fact's evidence
+ * mono only when it is a pure number+unit ("72분", "85.2kg") and in the serif
+ * voice otherwise — dates and phrases included ("9월 6일 이후"). Hover or focus anywhere on the line activates the fact's evidence
  * in the nearest EvidenceScope. Renders nothing when there is no notable fact —
  * never filler.
  *

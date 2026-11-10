@@ -140,7 +140,12 @@ describe("navLeftFadeFor", () => {
     const plain = { clear: 0, fade: NAV_FADE_PX };
     expect(navLeftFadeFor({ items, scrollLeft: 0 })).toEqual(plain);
     expect(navLeftFadeFor({ items, scrollLeft: 6 })).toEqual(plain);
-    expect(navLeftFadeFor({ items, scrollLeft: 78 })).toEqual(plain);
+  });
+  it("fades into the first visible label when a whole pill is scrolled away (320 /travel)", () => {
+    // 타임라인 off the left; 개요's label starts 24px in → ramp ends 18px into it.
+    expect(navLeftFadeFor({ items, scrollLeft: 78 })).toEqual({ clear: 0, fade: 42 });
+    // Past 타임라인 entirely (no pill cut): still at least the normal ramp.
+    expect(navLeftFadeFor({ items, scrollLeft: 89 })).toEqual({ clear: 0, fade: 31 });
   });
   it("clears a label sliced at the end of the scroll range (390 /search: '라인')", () => {
     // 타임라인 at −36…36 on screen: its label ends at 24 → clear 24, ramp to 36.

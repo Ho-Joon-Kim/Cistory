@@ -2333,6 +2333,8 @@
     padding: 0;
     margin: 0;
     font: inherit;
+    /* A date/phrase trigger keeps the line's face; its figures still align. */
+    font-variant-numeric: tabular-nums;
     letter-spacing: inherit;
     color: var(--ink);
     text-decoration: underline dotted;

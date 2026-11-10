@@ -1,7 +1,7 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -13,6 +13,11 @@ import { cn } from "@/lib/utils";
  *          description="고른 날짜의 세션과 일별 합계를 하루씩 다시 가져옵니다.">
  *     …controls…
  *   </Sheet>
+ *
+ * Focus returns to whatever opened it: the `trigger` when one is passed (Radix
+ * does that), otherwise the element that had focus when the sheet opened — a
+ * controlled sheet opened from a row button no longer drops focus to <body> on
+ * Esc/취소.
  */
 export function Sheet({
   open,
@@ -31,12 +36,26 @@ export function Sheet({
   trigger?: ReactNode;
   className?: string;
 }) {
+  const opener = useRef<HTMLElement | null>(null);
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger> : null}
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
+          onOpenAutoFocus={() => {
+            // Fires before focus moves into the sheet, so this is the opener.
+            const active = document.activeElement;
+            opener.current =
+              active instanceof HTMLElement && active !== document.body ? active : null;
+          }}
+          onCloseAutoFocus={(event) => {
+            const target = opener.current;
+            opener.current = null;
+            if (trigger || !target?.isConnected) return;
+            event.preventDefault();
+            target.focus({ preventScroll: true });
+          }}
           className={cn(
             "fixed inset-x-0 bottom-0 z-50 flex max-h-[calc(100dvh-48px)] flex-col gap-3.5 overflow-y-auto overscroll-contain rounded-t-sheet bg-surface px-4 pt-2 pb-[max(20px,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgb(0_0_0/0.12)] outline-none",
             "data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom-2 data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-2 data-[state=open]:fade-in-0",

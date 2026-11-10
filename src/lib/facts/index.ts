@@ -12,6 +12,7 @@
  */
 export * from "./chooser";
 export * from "./evidence";
+export * from "./face";
 export * from "./helpers";
 export * from "./pick";
 export * from "./template";

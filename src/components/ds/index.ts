@@ -23,6 +23,7 @@ export {
   useEvidenceTrigger,
 } from "./evidence";
 export { FactPopover, FactTrigger } from "./FactTrigger";
+export { isMonoFactValue } from "./fact-text";
 export { CountUp, HeroNumber, SecondaryNumber } from "./Numbers";
 export { MetaLine, PageContainer, PageTitle } from "./PageTitle";
 export { RowFlag, RowFlagReason } from "./RowFlag";

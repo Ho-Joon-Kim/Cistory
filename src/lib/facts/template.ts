@@ -5,6 +5,7 @@
  * reference them by name.
  */
 import { formatCount, formatDurationMinutes, formatShare, formatWon } from "@/lib/format";
+import { isQuantityText } from "./face";
 import type { Fact, FactRow, FactUnit, RenderedFact, TemplateSegment } from "./types";
 
 const PLACEHOLDER = /\{([a-zA-Z][a-zA-Z0-9]*)\}/g;
@@ -227,8 +228,9 @@ export function renderTemplate(fact: Fact, template?: string): RenderedFact {
     factId: fact.id,
     segments,
     text: segments.map((s) => s.text).join(""),
-    // Any trigger carrying a number is set in mono ("6%", "72분", "85.2kg").
-    numeric: /\d/.test(trigger),
+    // Only a pure number+unit trigger is set in mono ("6%", "72분", "85.2kg");
+    // dates and phrases ("9월 6일 이후") stay in the line's serif voice.
+    numeric: isQuantityText(trigger),
   };
 }
 

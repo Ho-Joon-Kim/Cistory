@@ -1,22 +1,15 @@
-/** Units glued to a number ("72분", "4시간", "0행", "3.2만원") count as numeric. */
-const NUMBER_WITH_UNIT = /\d[\d,.]*\s?[가-힣]*/g;
-const HANGUL = /[가-힣]/;
-/** Calendar furniture: "11월", "9일", "17:00", "(일)". A date is read, not measured. */
-const DATE_LIKE = /\d\s?월|\d\s?일(?![가-힣])|\d{1,2}:\d{2}|\([월화수목금토일]\)/;
+import { isQuantityText } from "@/lib/facts/face";
 
 /**
- * Whether an evidence-popover value is set in mono. The one rule every popover
- * follows: mono only for a pure quantity — numbers with their units and
- * nothing else ("72분", "4시간 59분", "1,680,000원 / 3,040,140원", "2.32 GB").
- * Anything that reads as words — a date or time ("11월 9일 · 59bpm",
- * "9월 6일 (일) 17:00 · 64일 전"), or free Korean ("커밋 요약 테이블 0행") — is
- * set in the sans face (with tabular figures), so rows of the same shape share
- * a face across health, spending and data-status.
+ * Whether an evidence-popover value is set in mono — the same rule as the AI
+ * line's trigger (`isQuantityText`): mono only for a pure quantity, number+unit
+ * tokens and nothing else ("72분", "4회 · 53분", "1건 1,800,000원",
+ * "17건 283,890원 · 10일"). A date or time ("11월 9일 · 59bpm",
+ * "5건 111,680원 · 11월 5일–9일") or a free word ("64일 전", "커밋 요약 테이블 0행")
+ * sets the value in sans with tabular figures.
  */
 export function isMonoFactValue(text: string): boolean {
-  if (!/\d/.test(text)) return false;
-  if (DATE_LIKE.test(text)) return false;
-  return !HANGUL.test(text.replace(NUMBER_WITH_UNIT, ""));
+  return isQuantityText(text);
 }
 
 /** Longest list entry kept on one line; longer ones may wrap inside. */

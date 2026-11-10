@@ -94,12 +94,20 @@ export function navEdges({
 /** Widest the left fade grows to swallow a label sliced by the left edge. */
 export const NAV_FADE_MAX_PX = 48;
 
+/** How far the left ramp reaches into the first visible label (about one glyph). */
+export const NAV_FADE_INTO_LABEL_PX = 18;
+
 /**
  * The left edge fade: `clear` px fully transparent, then a ramp to opaque at
  * `fade` px. Normally no clear zone and a {@link NAV_FADE_PX} ramp. When the
  * strip is scrolled to its end and the pill at the left edge still shows part
  * of its label (nothing further to scroll), that sliver is cleared and the ramp
  * runs over the pill's trailing padding — a clipped word ("라인") never shows.
+ *
+ * When a whole label is scrolled away (320 /travel: 타임라인 off the left), a
+ * ramp over empty padding would be invisible, so it reaches
+ * {@link NAV_FADE_INTO_LABEL_PX} into the first visible label instead — its
+ * first glyph fades, mirroring the right edge's "more this way" cue.
  */
 export function navLeftFadeFor({
   items,
@@ -113,9 +121,16 @@ export function navLeftFadeFor({
 }): { clear: number; fade: number } {
   const plain = { clear: 0, fade: NAV_FADE_PX };
   const cut = items.find((it) => it.left < scrollLeft && it.left + it.width > scrollLeft);
-  if (!cut) return plain;
-  const labelEnd = Math.round(cut.left + cut.width - pad - scrollLeft);
-  if (labelEnd <= 0) return plain;
+  const labelEnd = cut ? Math.round(cut.left + cut.width - pad - scrollLeft) : 0;
+  if (labelEnd <= 0) {
+    // Only padding (or nothing) of a hidden label shows: fade into the next one.
+    const hidden = items.some((it) => it.left + pad < scrollLeft);
+    const next = items.find((it) => it.left + pad >= scrollLeft);
+    if (!hidden || !next) return plain;
+    const labelStart = next.left + pad - scrollLeft;
+    const fade = Math.min(NAV_FADE_MAX_PX, Math.round(labelStart + NAV_FADE_INTO_LABEL_PX));
+    return { clear: 0, fade: Math.max(NAV_FADE_PX, fade) };
+  }
   const clear = Math.min(NAV_FADE_MAX_PX - pad, labelEnd);
   return { clear, fade: Math.max(NAV_FADE_PX, clear + pad) };
 }

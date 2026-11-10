@@ -264,6 +264,19 @@ test("portfolio donuts, asset areas and storage semicircle have real geometry", 
   await page.screenshot({ path: testInfo.outputPath("charts.png"), fullPage: true });
 });
 
+test("a sheet opened without a trigger returns focus to its opener", async ({ page }) => {
+  await page.goto("/browser-charts");
+  const opener = page.getByRole("button", { name: "목표 비중 편집" });
+  for (const close of ["Escape", "취소"]) {
+    await opener.click();
+    await expect(page.getByRole("dialog", { name: "목표 비중" })).toBeVisible();
+    if (close === "Escape") await page.keyboard.press("Escape");
+    else await page.getByRole("button", { name: "취소" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(opener).toBeFocused();
+  }
+});
+
 test("zero GitHub commits still shows the daily life timeline", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(
