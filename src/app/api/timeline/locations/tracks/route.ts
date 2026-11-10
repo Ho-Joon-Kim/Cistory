@@ -108,13 +108,23 @@ export async function GET(request: NextRequest) {
       // is valid).
       const segmentIdsLiteral = `{${segmentIds.join(",")}}`;
       const legRes = await db.execute(sql`
-        WITH numbered_lines AS (
+        WITH day_matches AS (
+          SELECT * FROM subway_trip_matches
+          WHERE transportation_segment_id = ANY(${segmentIdsLiteral}::uuid[])
+        ),
+        -- fallback_idx only depends on lines of the same system, so numbering just
+        -- the systems this day touched yields the same indexes. Sorting every
+        -- subway_lines row by name took ~170 ms on its own.
+        numbered_lines AS (
           SELECT id, system_id, name, name_en, ref, colour, network,
                  CASE WHEN colour IS NULL
                       THEN (ROW_NUMBER() OVER (PARTITION BY system_id, (colour IS NULL)
                                                 ORDER BY ref, name, id) - 1)
                       ELSE 0 END AS fallback_idx
           FROM subway_lines
+          WHERE system_id IN (
+            SELECT sl.system_id FROM day_matches dm JOIN subway_lines sl ON sl.id = dm.line_id
+          )
         )
         SELECT
           m.transportation_segment_id::text AS segment_id,
@@ -129,11 +139,10 @@ export async function GET(request: NextRequest) {
           m.session_id::text                 AS session_id,
           m.leg_order                        AS leg_order,
           m.total_confidence                 AS total_confidence
-        FROM subway_trip_matches m
+        FROM day_matches m
         JOIN numbered_lines l ON l.id = m.line_id
         LEFT JOIN subway_stations ss_start ON ss_start.id = m.start_station_id
         LEFT JOIN subway_stations ss_end ON ss_end.id = m.end_station_id
-        WHERE m.transportation_segment_id = ANY(${segmentIdsLiteral}::uuid[])
         ORDER BY m.transportation_segment_id, m.leg_order
       `);
       for (const row of legRes.rows as unknown as SubwayLegRow[]) {
