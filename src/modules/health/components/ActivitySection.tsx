@@ -367,6 +367,9 @@ export function ActivitySection({
   const fullLabel =
     win.fullDay === win.days[win.days.length - 2] ? "어제" : formatMonthDay(win.fullDay);
   const unit = (v: number) => withUnit(fmtNum(v, m.decimals), m.unit);
+  // Differences are taken between the values as displayed, so the sentence's
+  // arithmetic adds up ("3,683 … 2,594보다 1,089 많음", not 1,090 from 2,593.5).
+  const shown = (v: number) => Number(v.toFixed(m.decimals));
   let headLead = "";
   let headEm = "";
   // The comparison wraps as one unit and its "·" separator stays at the end of
@@ -378,7 +381,7 @@ export function ActivitySection({
       headLead = `${fullLabel} `;
       headEm = unit(m.latest);
       if (m.median != null) {
-        const d = m.latest - m.median;
+        const d = shown(m.latest) - shown(m.median);
         // The median right before carries the unit, so the delta drops it
         // ("…2,580걸음보다 2,389 많음"), as in the mock.
         headCmp = `30일 중앙값 ${unit(m.median)}보다 ${fmtNum(Math.abs(d), m.decimals)} ${d >= 0 ? "많음" : "적음"}`;
@@ -396,7 +399,7 @@ export function ActivitySection({
       headLead = "최근 7일 하루 평균 ";
       headEm = unit(a7);
       if (m.median != null) {
-        const d = a7 - m.median;
+        const d = shown(a7) - shown(m.median);
         headCmp = `30일 중앙값보다 ${unit(Math.abs(d))} ${d >= 0 ? "많음" : "적음"}`;
         headNote = `(오늘 제외 ${v7.length}일)`;
       }
