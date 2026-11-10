@@ -65,8 +65,9 @@ export interface OverviewComparisonMetric {
   format: "number" | "duration" | "distance" | "currency" | "percent";
 }
 
+/** Stored domains, including a stale snapshot's last computed ones while it recomputes. */
 function readyDomains(snapshot: OverviewSnapshotResponse) {
-  return snapshot.status === "ready" || snapshot.status === "failed" ? snapshot.domains : null;
+  return "domains" in snapshot ? snapshot.domains : null;
 }
 
 export function buildOverviewComparison(

@@ -53,4 +53,27 @@ describe("overview failure presentation", () => {
       )
     ).toBe(false);
   });
+
+  it("does not flag old failures on a stale snapshot that is already recomputing", () => {
+    expect(
+      shouldShowOverviewFailure({
+        status: "pending",
+        stale: true,
+        periodType: "month",
+        periodKey: "2026-07",
+        computedAt: "2026-07-22T00:00:00.000Z",
+        domains: {
+          coding: {
+            ...successfulDomain,
+            data: null,
+            status: "failed",
+          } as OverviewSnapshotDomains["coding"],
+          location: null,
+          health: null,
+          spending: null,
+          portfolio: null,
+        },
+      })
+    ).toBe(false);
+  });
 });
