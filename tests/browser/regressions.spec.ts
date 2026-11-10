@@ -293,11 +293,11 @@ test("health auxiliary failures can retry into an honest empty state", async ({ 
   );
   await page.goto("/health");
   await expect(page.locator("main [role=alert]")).toContainText(
-    "건강 데이터를 불러오지 못했습니다."
+    "건강 데이터를 불러오지 못했습니다"
   );
   fail = false;
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();
-  await expect(page.getByText("체성분 측정 기록이 아직 없습니다.")).toBeVisible();
+  await expect(page.getByText("체성분 측정 기록이 아직 없습니다")).toBeVisible();
   await expect(page.locator("main [role=alert]")).toHaveCount(0);
 });
 
@@ -375,7 +375,7 @@ test("collection status retries errors and retains a queued recovery on reload",
     return route.fulfill({ status: 202, json: { job: { id: "job-fixture" } } });
   });
   await page.goto("/data-status");
-  await expect(page.locator("main [role=alert]")).toContainText("수집 상태를 불러오지 못했습니다.");
+  await expect(page.locator("main [role=alert]")).toContainText("수집 상태를 불러오지 못했습니다");
   statusFails = false;
   await page.getByRole("button", { name: "새로고침", exact: true }).click();
   const calendar = page.getByRole("list", { name: "WakaTime 날짜별 기록" });
