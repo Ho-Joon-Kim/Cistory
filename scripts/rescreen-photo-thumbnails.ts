@@ -14,6 +14,10 @@
  * it is never blocked, since a decoder regression must not block photos forever. An unavailable classifier aborts the run (nothing is half-written;
  * earlier batches stay committed and a re-run is idempotent).
  *
+ * The run holds the same per-user session lock the cron sync takes
+ * (`pg_try_advisory_lock` on `proton-sync:<userId>`), so it never interleaves
+ * with a live sync tick for that user; it aborts if a tick holds it.
+ *
  * Thumbnail bytes, scores and node uids are never logged.
  *
  * Usage:
@@ -23,6 +27,7 @@
 import { argv } from "node:process";
 import { pathToFileURL } from "node:url";
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
+import type { Pool } from "pg";
 import { type Database, getDb, getPool, photos, photoThumbnails } from "../src/db";
 import { applyIngest, type IngestOutcome } from "../src/modules/proton/ingest";
 import {
@@ -55,6 +60,56 @@ export function parseRescreenArgs(rawArgs: string[]): RescreenArgs {
   if (unknown.length > 0) return { error: `Unknown flag ${unknown.join(", ")}. ${USAGE}` };
   if (positionals.length !== 1) return { error: USAGE };
   return { userId: positionals[0], apply: flags.includes("--apply") };
+}
+
+export class RescreenLockedError extends Error {
+  constructor() {
+    super(
+      "A Proton sync for this user is running (proton-sync lock held). Re-run once it finishes."
+    );
+    this.name = "RescreenLockedError";
+  }
+}
+
+/**
+ * Runs `fn` under the user's `proton-sync:<userId>` session lock, on a
+ * dedicated pool client, mirroring `syncProtonPhotosForUser`. Throws
+ * `RescreenLockedError` without running `fn` when the lock is held. The unlock
+ * runs on the same client; a client whose unlock (or lock query) failed is
+ * destroyed rather than returned to the pool still holding the lock.
+ */
+export async function withRescreenLock<T>(
+  pool: Pick<Pool, "connect">,
+  userId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const lockKey = `proton-sync:${userId}`;
+  const client = await pool.connect();
+  let locked = false;
+  let releaseError: Error | undefined;
+  try {
+    const { rows } = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked",
+      [lockKey]
+    );
+    locked = rows[0]?.locked === true;
+    if (!locked) throw new RescreenLockedError();
+    return await fn();
+  } catch (error) {
+    if (!locked && !(error instanceof RescreenLockedError)) {
+      releaseError = error instanceof Error ? error : new Error("advisory lock failed");
+    }
+    throw error;
+  } finally {
+    if (locked) {
+      try {
+        await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
+      } catch (error) {
+        releaseError = error instanceof Error ? error : new Error("advisory unlock failed");
+      }
+    }
+    client.release(releaseError);
+  }
 }
 
 async function verdict(
@@ -167,9 +222,9 @@ async function main() {
       dryRun ? "dry run, nothing written" : "APPLY"
     }) ...`
   );
-  const { scanned, blocked, hidden } = await rescreenUser(getDb(), parsed.userId, classifier, {
-    dryRun,
-  });
+  const { scanned, blocked, hidden } = await withRescreenLock(getPool(), parsed.userId, () =>
+    rescreenUser(getDb(), parsed.userId, classifier, { dryRun })
+  );
   console.log(
     `Done: scanned=${scanned}, ${dryRun ? "would block" : "blocked"}=${blocked}, ${
       dryRun ? "would hide" : "hidden"

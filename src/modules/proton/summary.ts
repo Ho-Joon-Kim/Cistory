@@ -13,9 +13,18 @@ export interface ProtonSummary {
   detailsFailedCount: number;
   blockedCount: number;
   lastError: string | null;
+  /**
+   * A sign-in fork is still open. A reconnect from `active`/`needs_reauth`
+   * writes only `pending_*`, so `status` alone cannot show it after a reload.
+   */
+  forkPending: boolean;
 }
 
-export async function getProtonSummary(db: Database, userId: string): Promise<ProtonSummary> {
+export async function getProtonSummary(
+  db: Database,
+  userId: string,
+  now: Date = new Date()
+): Promise<ProtonSummary> {
   const detailsFailed = and(
     gte(photos.detailsAttempts, PROTON_MAX_DETAILS_ATTEMPTS),
     isNull(photos.detailsSyncedAt),
@@ -28,6 +37,7 @@ export async function getProtonSummary(db: Database, userId: string): Promise<Pr
       lastSyncedAt: protonConnections.lastSyncedAt,
       backfillCompletedAt: protonConnections.backfillCompletedAt,
       lastError: protonConnections.lastError,
+      pendingForkExpiresAt: protonConnections.pendingForkExpiresAt,
     })
     .from(protonConnections)
     .where(eq(protonConnections.userId, userId))
@@ -54,5 +64,6 @@ export async function getProtonSummary(db: Database, userId: string): Promise<Pr
     detailsFailedCount: Number(photoCounts?.detailsFailed ?? 0),
     blockedCount: Number(blocks?.value ?? 0),
     lastError: connection?.lastError ?? null,
+    forkPending: (connection?.pendingForkExpiresAt?.getTime() ?? 0) > now.getTime(),
   };
 }

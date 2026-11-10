@@ -267,6 +267,35 @@ describe("ProtonConnectionService.checkConnect", () => {
     expect(state.deleted).toEqual([]);
     expect(state.photos).toBe(2);
     expect(state.blocks).toBe(1);
+  });
+
+  it("a same-volume reconnect with a new session revokes the superseded one and keeps photos", async () => {
+    const { db, state } = fakeDb(pending(activeRow()));
+    const d = deps(state);
+
+    expect(await new ProtonConnectionService(db, d).checkConnect("u")).toEqual({
+      status: "active",
+    });
+    // The old session can decrypt the whole account: it is signed out even on the same volume.
+    expect(d.revoke).toHaveBeenCalledTimes(1);
+    expect(d.revoke).toHaveBeenCalledWith({
+      uid: "U-old",
+      accessToken: "A-old",
+      refreshToken: "R-old",
+    });
+    expect(state.deleted).toEqual([]);
+    expect(state.photos).toBe(2);
+    expect(state.blocks).toBe(1);
+    expect(decryptSecret(state.row?.accessTokenEnc as string)).toBe("A-new");
+  });
+
+  it("a same-volume reconnect that lands the very session already stored revokes nothing", async () => {
+    const { db, state } = fakeDb(pending(activeRow({ uidEnc: encryptSecret("U-new") })));
+    const d = deps(state);
+
+    expect(await new ProtonConnectionService(db, d).checkConnect("u")).toEqual({
+      status: "active",
+    });
     expect(d.revoke).not.toHaveBeenCalled();
   });
 
@@ -376,6 +405,66 @@ describe("ProtonConnectionService.checkConnect", () => {
     await expect(new ProtonConnectionService(db, d).checkConnect("u")).rejects.toThrow();
     expect(d.revoke).toHaveBeenCalledWith(newTokens);
     expect(state.row).toBeNull();
+  });
+
+  it("revokes the fresh session when a concurrent disconnect removed the row before the volume failed", async () => {
+    const { db, state } = fakeDb(pending(activeRow()));
+    const d = deps(state, {
+      resolveVolumeId: vi.fn(async () => {
+        state.row = null; // disconnect landed meanwhile
+        throw new Error("volume lookup failed");
+      }),
+    });
+
+    await expect(new ProtonConnectionService(db, d).checkConnect("u")).rejects.toThrow();
+    expect(d.revoke).toHaveBeenCalledTimes(1);
+    expect(d.revoke).toHaveBeenCalledWith(newTokens);
+  });
+
+  it("revokes the fresh session when the fork was restarted before the volume failed", async () => {
+    const { db, state } = fakeDb(pending(activeRow()));
+    const d = deps(state, {
+      resolveVolumeId: vi.fn(async () => {
+        state.row = pending(activeRow(), "sel-2"); // a new fork replaced ours
+        throw new Error("volume lookup failed");
+      }),
+    });
+
+    await expect(new ProtonConnectionService(db, d).checkConnect("u")).rejects.toThrow();
+    expect(d.revoke).toHaveBeenCalledWith(newTokens);
+    // The restarted fork is not ours to clear.
+    expect(state.row?.pendingForkSelector).toBe("sel-2");
+  });
+
+  it("does not revoke on a failed volume lookup when the row already holds this very session", async () => {
+    const { db, state } = fakeDb(pending(activeRow()));
+    const d = deps(state, {
+      resolveVolumeId: vi.fn(async () => {
+        state.row = activeRow({ uidEnc: encryptSecret("U-new") });
+        throw new Error("volume lookup failed");
+      }),
+    });
+
+    await expect(new ProtonConnectionService(db, d).checkConnect("u")).rejects.toThrow();
+    expect(d.revoke).not.toHaveBeenCalled();
+  });
+
+  it("stale completion: an unreadable stored session counts as different, so the stray is revoked", async () => {
+    const { db, state } = fakeDb(
+      pending(activeRow({ status: "pending", uidEnc: null, volumeId: null }))
+    );
+    const d = deps(state, {
+      resolveVolumeId: vi.fn(async () => {
+        state.row = activeRow({ uidEnc: "not-a-valid-ciphertext" });
+        return "vol-1";
+      }),
+    });
+
+    expect(await new ProtonConnectionService(db, d).checkConnect("u")).toEqual({
+      status: "active",
+    });
+    expect(state.updates).toEqual([]);
+    expect(d.revoke).toHaveBeenCalledWith(newTokens);
   });
 });
 

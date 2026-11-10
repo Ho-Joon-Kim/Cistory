@@ -17,7 +17,8 @@
  *   cursor rejected (404/422)   → fresh baseline cursor + tree_refresh reset
  *
  * Auth failures and rate limits propagate untouched for the tick to handle;
- * an unavailable classifier stops before the failing batch (ruling C6).
+ * an unavailable classifier stops before the failing batch (ruling C6),
+ * after applying only that batch's deletions (no cursor move).
  */
 import { type DriveEvent, DriveEventType } from "@protontech/drive-sdk";
 import type { Database } from "@/db";
@@ -175,10 +176,16 @@ async function applyEventBatch(
   blocked: Set<string>
 ): Promise<void> {
   const { db, api, classifier, userId, fence, now } = ctx;
-  const outcomes =
-    plan.upsertUids.length > 0
-      ? await prepareIngest(api, classifier, plan.upsertUids, blocked)
-      : [];
+  let outcomes: Awaited<ReturnType<typeof prepareIngest>>;
+  try {
+    outcomes =
+      plan.upsertUids.length > 0
+        ? await prepareIngest(api, classifier, plan.upsertUids, blocked)
+        : [];
+  } catch (error) {
+    if (error instanceof ClassifierUnavailableError) await applyDeletesOnly(ctx, plan);
+    throw error;
+  }
 
   await db.transaction(async (tx) => {
     await assertConnectionUnchanged(tx, userId, fence);
@@ -199,6 +206,23 @@ async function applyEventBatch(
     blocked.add(o.nodeUid);
     for (const r of o.relatedUids) blocked.add(r);
   }
+}
+
+/**
+ * The classifier is down, so the batch's upserts cannot be prepared and its
+ * cursor must not move. Its deletions need no classifier, though, and a photo
+ * the user deleted in Proton must not stay exposed for the whole outage: they
+ * are written on their own, fenced, WITHOUT the cursor or listing state. The
+ * batch is re-read once the classifier is back, and replaying a soft delete is
+ * idempotent.
+ */
+async function applyDeletesOnly(ctx: EventContext, plan: EventPlan): Promise<void> {
+  if (plan.deleteUids.length === 0) return;
+  const { db, userId, fence, now } = ctx;
+  await db.transaction(async (tx) => {
+    await assertConnectionUnchanged(tx, userId, fence);
+    await markNodesDeleted(tx, userId, plan.deleteUids, now);
+  });
 }
 
 /**

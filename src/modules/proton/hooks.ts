@@ -16,6 +16,18 @@ export function nextPollDelay(status: ConnectStatus | undefined): number | false
   return status?.status === "pending" ? PROTON_STATUS_POLL_MS : false;
 }
 
+/**
+ * Whether a sign-in fork is open: started on this page load, a first connect
+ * (`pending` row), or a reconnect from `active`/`needs_reauth` that only the
+ * summary's `forkPending` reveals after a reload.
+ */
+export function isForkPending(
+  fork: StartConnectResult | null,
+  summary: Pick<ProtonSummary, "status" | "forkPending"> | null | undefined
+): boolean {
+  return fork !== null || summary?.status === "pending" || summary?.forkPending === true;
+}
+
 async function requestJson<T>(url: string, init: RequestInit, failure: string): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
@@ -46,8 +58,8 @@ export function useProtonConnection() {
     staleTime: 30_000,
   });
 
-  // A reload while the user is still on Proton's page leaves the summary "pending".
-  const forkPending = fork !== null || summaryQuery.data?.status === "pending";
+  // A reload while the user is still on Proton's page must keep polling.
+  const forkPending = isForkPending(fork, summaryQuery.data);
 
   const pollStatus = useQuery({
     queryKey: ["proton", sessionId, "connect-status"] as const,

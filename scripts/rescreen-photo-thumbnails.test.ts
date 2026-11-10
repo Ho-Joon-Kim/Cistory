@@ -7,7 +7,13 @@ import {
   type PhotoClassifier,
 } from "../src/modules/proton/nsfw/classifier";
 import { PROTON_ERRORS } from "../src/modules/proton/types";
-import { parseRescreenArgs, RESCREEN_BATCH, rescreenUser } from "./rescreen-photo-thumbnails";
+import {
+  parseRescreenArgs,
+  RESCREEN_BATCH,
+  RescreenLockedError,
+  rescreenUser,
+  withRescreenLock,
+} from "./rescreen-photo-thumbnails";
 
 const USER = "00000000-0000-0000-0000-0000000000aa";
 const SAFE = { drawing: 0, hentai: 0, neutral: 1, porn: 0, sexy: 0 };
@@ -157,5 +163,57 @@ describe("parseRescreenArgs", () => {
     for (const bad of [["u1", "--aply"], ["u1", "-apply"], [], ["--apply"], ["a", "b"]]) {
       expect(parseRescreenArgs(bad)).toHaveProperty("error");
     }
+  });
+});
+
+describe("withRescreenLock", () => {
+  function fakePool(locked: boolean) {
+    const queries: { text: string; values: unknown[] }[] = [];
+    const release = vi.fn();
+    const client = {
+      query: vi.fn(async (text: string, values: unknown[] = []) => {
+        queries.push({ text, values });
+        return { rows: /pg_try_advisory_lock/.test(text) ? [{ locked }] : [] };
+      }),
+      release,
+    };
+    const pool = { connect: vi.fn(async () => client) };
+    return { pool: pool as never, queries, release };
+  }
+
+  it("aborts with a clear message, without running, when a sync holds the user's lock", async () => {
+    const { pool, queries, release } = fakePool(false);
+    const fn = vi.fn(async () => "ran");
+
+    await expect(withRescreenLock(pool, USER, fn)).rejects.toBeInstanceOf(RescreenLockedError);
+    await expect(withRescreenLock(pool, USER, fn)).rejects.toThrow(/sync for this user is running/);
+    expect(fn).not.toHaveBeenCalled();
+    expect(queries[0].values).toEqual([`proton-sync:${USER}`]);
+    expect(queries.some((q) => /pg_advisory_unlock/.test(q.text))).toBe(false);
+    // A clean "held" answer returns the client to the pool, not destroyed.
+    expect(release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("runs under the sync's lock key and unlocks on the same client afterwards", async () => {
+    const { pool, queries, release } = fakePool(true);
+    const fn = vi.fn(async () => {
+      expect(queries.map((q) => q.text)).toHaveLength(1);
+      return "ran";
+    });
+
+    await expect(withRescreenLock(pool, USER, fn)).resolves.toBe("ran");
+    expect(queries.map((q) => q.values[0])).toEqual([`proton-sync:${USER}`, `proton-sync:${USER}`]);
+    expect(queries[1].text).toMatch(/pg_advisory_unlock/);
+    expect(release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("unlocks even when the run fails", async () => {
+    const { pool, queries } = fakePool(true);
+    await expect(
+      withRescreenLock(pool, USER, async () => {
+        throw new ClassifierUnavailableError();
+      })
+    ).rejects.toBeInstanceOf(ClassifierUnavailableError);
+    expect(queries[1].text).toMatch(/pg_advisory_unlock/);
   });
 });

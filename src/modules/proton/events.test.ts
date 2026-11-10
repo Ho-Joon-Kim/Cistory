@@ -366,7 +366,70 @@ describe("processEvents", () => {
       stopped: "classifier_unavailable",
       classifierUnavailable: true,
     });
-    // Nothing of the batch — not even its deletion — is written, and the cursor stays.
+    // Only the batch's deletion is written: no ingest, and the cursor stays.
+    expect(connectionUpdates(log)).toEqual([]);
+    expect(writes(log)).toHaveLength(1);
+    expect(writes(log)[0].text).toMatch(/^update "photos" set "deleted_at"/i);
+  });
+
+  it("classifier unavailable: still applies the batch's deletions, fenced, without moving the cursor", async () => {
+    const log: LogEntry[] = [];
+    const api = fakeApi(log, [[deleted("gone", "ev-1"), created("a", "ev-2")]], {
+      iterateNodes: async function* () {
+        yield photoNode("a");
+      },
+      iterateThumbnails: async function* () {
+        yield { nodeUid: "a", ok: true, thumbnail: new Uint8Array([0xd8, 1]) } as ThumbnailResult;
+      },
+    });
+    const broken: PhotoClassifier = {
+      modelVersion: "test",
+      classify: async () => {
+        throw new ClassifierUnavailableError();
+      },
+    };
+
+    await expect(processEvents(recordingDb(log), api, broken, CONN, FENCE, NOW)).resolves.toEqual({
+      applied: 0,
+      stopped: "classifier_unavailable",
+      classifierUnavailable: true,
+    });
+
+    const txs = transactions(log);
+    expect(txs).toHaveLength(1);
+    // (a) fence first, then the soft delete of the deleted node.
+    const fence = txs[0].findIndex((s) => /from "proton_connections".*for update/is.test(s.text));
+    const delAt = txs[0].findIndex((s) => /^update "photos" set "deleted_at"/i.test(s.text));
+    expect(fence).toBeGreaterThanOrEqual(0);
+    expect(delAt).toBeGreaterThan(fence);
+    const del = txs[0][delAt];
+    expect(del?.values).toContain("gone");
+    // (b) the cursor and listing state are untouched.
+    expect(connectionUpdates(log)).toEqual([]);
+    expect(txs[0].some((s) => /^insert into "photos"/i.test(s.text))).toBe(false);
+    expectNoNetworkInsideTransactions(log);
+  });
+
+  it("classifier unavailable with a changed connection: writes nothing", async () => {
+    const log: LogEntry[] = [];
+    const api = fakeApi(log, [[deleted("gone", "ev-1"), created("a", "ev-2")]], {
+      iterateNodes: async function* () {
+        yield photoNode("a");
+      },
+      iterateThumbnails: async function* () {
+        yield { nodeUid: "a", ok: true, thumbnail: new Uint8Array([0xd8, 1]) } as ThumbnailResult;
+      },
+    });
+    const broken: PhotoClassifier = {
+      modelVersion: "test",
+      classify: async () => {
+        throw new ClassifierUnavailableError();
+      },
+    };
+
+    await expect(
+      processEvents(recordingDb(log, { volumeId: "vol-other" }), api, broken, CONN, FENCE, NOW)
+    ).rejects.toBeInstanceOf(ProtonConnectionChangedError);
     expect(writes(log)).toEqual([]);
   });
 

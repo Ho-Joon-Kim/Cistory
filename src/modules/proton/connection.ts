@@ -72,6 +72,28 @@ function errorName(error: unknown): string {
   return error instanceof Error ? error.name : "unknown";
 }
 
+/** `storedTokens`, but an unreadable row (decrypt failure) is logged and read as no session. */
+function readableTokens(row: ProtonConnection | null): ProtonSessionTokens | null {
+  try {
+    return storedTokens(row);
+  } catch (error) {
+    logger.warn("[Proton] stored session unreadable on connect", {
+      userId: row?.userId,
+      error: errorName(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * Whether `row` holds the session `tokens` already. An unreadable row (decrypt
+ * failure) counts as a different session, so the caller signs `tokens` out
+ * rather than leave a stray session alive.
+ */
+function holdsSession(row: ProtonConnection | null, tokens: ProtonSessionTokens): boolean {
+  return readableTokens(row)?.uid === tokens.uid;
+}
+
 export class ProtonConnectionService {
   private readonly deps: ProtonConnectionDeps;
 
@@ -174,8 +196,10 @@ export class ProtonConnectionService {
       // The fork is consumed, so these tokens can never be stored: sign them out
       // rather than leave a session that can decrypt the whole account.
       logger.warn("[Proton] volume lookup failed on connect", { userId, error: errorName(error) });
-      const dropped = await this.dropFork(userId, selector);
-      if (dropped) await this.deps.revoke(tokens);
+      // Revoke unless the row already holds this very session: a concurrent
+      // disconnect (row gone) or restarted fork leaves these tokens stored nowhere.
+      const current = await this.dropFork(userId, selector);
+      if (!holdsSession(current, tokens)) await this.deps.revoke(tokens);
       throw error;
     }
 
@@ -187,7 +211,7 @@ export class ProtonConnectionService {
         return { kind: "stale" as const, current: row };
       }
 
-      const previous = storedTokens(row);
+      const previous = readableTokens(row);
       const switched = row.volumeId !== volumeId;
       if (switched) {
         // A different Proton account: none of the old library applies.
@@ -212,14 +236,18 @@ export class ProtonConnectionService {
           updatedAt: now,
         })
         .where(eq(protonConnections.userId, userId));
-      return { kind: "activated" as const, replaced: switched ? previous : null };
+      // Any superseded session is signed out, same volume or not: it can decrypt
+      // the whole Proton account (Mail included), not just this volume.
+      return {
+        kind: "activated" as const,
+        replaced: previous && previous.uid !== tokens.uid ? previous : null,
+      };
     });
 
     if (outcome.kind === "stale") {
       // Another poll already completed (or restarted) this fork. Its session is
       // the one to keep; sign out ours only if it is a different session.
-      const current = storedTokens(outcome.current);
-      if (current?.uid !== tokens.uid) await this.deps.revoke(tokens);
+      if (!holdsSession(outcome.current, tokens)) await this.deps.revoke(tokens);
       return this.statusOf(outcome.current);
     }
     if (outcome.replaced) await this.deps.revoke(outcome.replaced);
@@ -234,14 +262,17 @@ export class ProtonConnectionService {
     return row?.status === "active" ? { status: "active" } : { status: "none" };
   }
 
-  /** Clears `selector` if it is still the pending fork; true when it was. */
-  private async dropFork(userId: string, selector: string): Promise<boolean> {
+  /**
+   * Clears `selector` if it is still the pending fork. Returns the row as read
+   * under the lock (null when a concurrent disconnect removed it), so the
+   * caller can tell whether the row holds the session it is about to revoke.
+   */
+  private async dropFork(userId: string, selector: string): Promise<ProtonConnection | null> {
     return this.db.transaction(async (tx) => {
       await lockProtonTokens(tx, userId);
       const row = await this.readRow(tx, userId);
-      if (!row || row.pendingForkSelector !== selector) return false;
-      await this.clearFork(tx, row);
-      return true;
+      if (row && row.pendingForkSelector === selector) await this.clearFork(tx, row);
+      return row;
     });
   }
 

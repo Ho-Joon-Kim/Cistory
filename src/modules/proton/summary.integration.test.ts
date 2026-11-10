@@ -52,12 +52,55 @@ describe("getProtonSummary", () => {
       detailsFailedCount: 1,
       blockedCount: 1,
       lastError: null,
+      forkPending: false,
     });
     expect(await getProtonSummary(db, "00000000-0000-0000-0000-000000000000")).toMatchObject({
       connected: false,
       status: null,
       photoCount: 0,
       backfilling: false,
+      forkPending: false,
     });
+  });
+
+  it("reports an open reconnect fork on an active or needs_reauth row until it expires", async () => {
+    const db = ctx.db();
+    const now = new Date("2026-11-10T03:00:00Z");
+    const later = new Date(now.getTime() + 10 * 60_000);
+    const reauth = await insertTestUser(db);
+    const active = await insertTestUser(db);
+    const idle = await insertTestUser(db);
+    const base = { volumeId: "vol", createdAt: now, updatedAt: now };
+    await db.insert(protonConnections).values([
+      {
+        ...base,
+        userId: reauth,
+        status: "needs_reauth",
+        pendingForkSelector: "sel-r",
+        pendingForkKeyEnc: "k",
+        pendingForkExpiresAt: later,
+      },
+      {
+        ...base,
+        userId: active,
+        status: "active",
+        pendingForkSelector: "sel-a",
+        pendingForkKeyEnc: "k",
+        pendingForkExpiresAt: later,
+      },
+      { ...base, userId: idle, status: "active" },
+    ]);
+
+    expect(await getProtonSummary(db, reauth, now)).toMatchObject({
+      status: "needs_reauth",
+      forkPending: true,
+    });
+    expect(await getProtonSummary(db, active, now)).toMatchObject({
+      status: "active",
+      forkPending: true,
+    });
+    expect(await getProtonSummary(db, idle, now)).toMatchObject({ forkPending: false });
+    // An elapsed fork no longer counts, even before the poll clears it.
+    expect(await getProtonSummary(db, active, later)).toMatchObject({ forkPending: false });
   });
 });

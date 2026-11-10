@@ -130,6 +130,7 @@ describe("Proton routes", () => {
       detailsFailedCount: 0,
       blockedCount: 1,
       lastError: null,
+      forkPending: false,
     };
     mocks.summary.mockResolvedValue(summary);
     const response = await GET(req("/api/proton", "GET"), undefined);
