@@ -1,5 +1,5 @@
-import jpeg from "jpeg-js";
-import { describe, expect, it } from "vitest";
+import sharp from "sharp";
+import { beforeAll, describe, expect, it } from "vitest";
 import { ClassifierUnavailableError, ClassifyInputError, type NsfwScores } from "./classifier";
 import type { RgbImage } from "./decode";
 import {
@@ -8,6 +8,34 @@ import {
   type LoadedNsfwModel,
   type NsfwPrediction,
 } from "./nsfwjs";
+
+function gray(width: number, height: number) {
+  return sharp({
+    create: { width, height, channels: 3, background: { r: 128, g: 128, b: 128 } },
+  });
+}
+
+/** Gray JPEG fixtures, encoded once with sharp so call sites stay synchronous. */
+const JPEGS = new Map<string, Uint8Array>();
+async function encodeGrayJpeg(width: number, height = width): Promise<Uint8Array> {
+  return new Uint8Array(await gray(width, height).jpeg({ quality: 90 }).toBuffer());
+}
+function grayJpeg(width: number, height = width): Uint8Array {
+  const jpeg = JPEGS.get(`${width}x${height}`);
+  if (!jpeg) throw new Error(`fixture ${width}x${height} not prepared`);
+  return jpeg;
+}
+beforeAll(async () => {
+  for (const [w, h] of [
+    [8, 8],
+    [16, 16],
+    [32, 32],
+    [224, 224],
+    [160, 120],
+  ]) {
+    JPEGS.set(`${w}x${h}`, await encodeGrayJpeg(w, h));
+  }
+});
 
 const NEUTRAL: NsfwScores = { drawing: 0, hentai: 0, neutral: 1, porn: 0, sexy: 0 };
 const NEUTRAL_ROWS: NsfwPrediction[] = [
@@ -243,11 +271,6 @@ describe("buildNsfwjsClassifier malformed model output fails closed", () => {
 // wasm backend (or the cpu fallback) under Node 24 — including the Alpine/musl
 // `tester` Docker stage, which runs this same file.
 
-function grayJpeg(width: number, height = width): Uint8Array {
-  const data = Buffer.alloc(width * height * 4, 128);
-  return new Uint8Array(jpeg.encode({ width, height, data }, 90).data);
-}
-
 describe("createNsfwjsClassifier", () => {
   it("loads the bundled MobileNetV2 and returns five probabilities summing to ~1", async () => {
     const classifier = createNsfwjsClassifier();
@@ -283,10 +306,30 @@ describe("createNsfwjsClassifier", () => {
     expect(Object.values(scores).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 2);
   }, 120_000);
 
-  it("wraps non-JPEG input in ClassifyInputError, not ClassifierUnavailableError", async () => {
-    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  it("classifies an extended (VP8X) WebP thumbnail with alpha end to end", async () => {
+    // The format of the Proton Type1 thumbnails that used to fail as unclassifiable.
+    const webp = new Uint8Array(
+      await sharp({
+        create: {
+          width: 192,
+          height: 256,
+          channels: 4,
+          background: { r: 90, g: 120, b: 150, alpha: 0.8 },
+        },
+      })
+        .webp({ quality: 80 })
+        .toBuffer()
+    );
+    expect(String.fromCharCode(...webp.subarray(8, 16))).toBe("WEBPVP8X");
+    const scores = await createNsfwjsClassifier().classify(webp);
+    expect(Object.keys(scores).sort()).toEqual(["drawing", "hentai", "neutral", "porn", "sexy"]);
+    expect(Object.values(scores).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 2);
+  }, 120_000);
+
+  it("wraps a non-allowlisted format in ClassifyInputError, not ClassifierUnavailableError", async () => {
+    const gif = new Uint8Array(await gray(8, 8).gif().toBuffer());
     const err = await createNsfwjsClassifier()
-      .classify(png)
+      .classify(gif)
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ClassifyInputError);
     expect(err).not.toBeInstanceOf(ClassifierUnavailableError);

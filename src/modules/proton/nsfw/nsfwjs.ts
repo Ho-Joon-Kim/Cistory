@@ -21,7 +21,7 @@ import {
   type NsfwScores,
   type PhotoClassifier,
 } from "./classifier";
-import { decodeJpegToRgb, type RgbImage } from "./decode";
+import { decodeToRgb, type RgbImage } from "./decode";
 
 /** One raw model output row, exactly as nsfwjs reports it. */
 export interface NsfwPrediction {
@@ -149,7 +149,8 @@ async function loadNsfwjsModel(): Promise<LoadedNsfwModel> {
  *
  * Failure split (Review Focus 1 — an infrastructure fault must never burn
  * per-photo attempts across the library):
- * - undecodable bytes → `ClassifyInputError`, without touching the model;
+ * - undecodable bytes → `ClassifyInputError`, without touching the model
+ *   (a decoder, i.e. sharp, that fails to load is `ClassifierUnavailableError`);
  * - load failure or malformed model output → `ClassifierUnavailableError`;
  * - `predict` throwing on an already-validated image → drop the model, reload,
  *   and classify a fixed canary. If the canary fails too the runtime is broken
@@ -224,10 +225,10 @@ export function buildNsfwjsClassifier(load: NsfwModelLoader): NsfwjsClassifier {
     async load() {
       return (await getModel()).backend;
     },
-    async classify(jpeg) {
+    async classify(thumbnail) {
       // Decode first: a bad image is a per-photo failure even when the model
       // is down, and it never needs the model to be loaded.
-      const image = decodeJpegToRgb(jpeg);
+      const image = await decodeToRgb(thumbnail);
       const loaded = await getModel();
       let rows: NsfwPrediction[];
       try {

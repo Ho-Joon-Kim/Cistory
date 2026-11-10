@@ -3955,7 +3955,6 @@ __metadata:
     drizzle-kit: "npm:^0.31.11"
     drizzle-orm: "npm:^0.45.4"
     fast-xml-parser: "npm:^5.12.0"
-    jpeg-js: "npm:0.4.4"
     ky: "npm:^1.14.3"
     lucide-react: "npm:1.70.0"
     mapbox-gl: "npm:^3.34.2"
@@ -3970,6 +3969,7 @@ __metadata:
     react-is: "npm:^19.3.1"
     react-map-gl: "npm:^8.1.3"
     recharts: "npm:3.10.1"
+    sharp: "npm:0.35.5"
     sonner: "npm:^2.0.8"
     stream-chain: "npm:^4.4.1"
     stream-json: "npm:^3.8.0"
@@ -5095,13 +5095,6 @@ __metadata:
   version: 6.2.12
   resolution: "jose@npm:6.2.12"
   checksum: 10c0/e8582b946fabcae228819982dda4849908c353e9cb098f02f773635aa0d2f4917f17484c7441b8d526e564013b4cf96951455c94f81d0a39ee765bad44ce293d
-  languageName: node
-  linkType: hard
-
-"jpeg-js@npm:0.4.4":
-  version: 0.4.4
-  resolution: "jpeg-js@npm:0.4.4"
-  checksum: 10c0/4d0d5097f8e55d8bbce6f1dc32ffaf3f43f321f6222e4e6490734fdc6d005322e3bd6fb992c2df7f5b587343b1441a1c333281dc3285bc9116e369fd2a2b43a7
   languageName: node
   linkType: hard
 
@@ -6399,7 +6392,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sharp@npm:^0.35.5":
+"sharp@npm:0.35.5, sharp@npm:^0.35.5":
   version: 0.35.5
   resolution: "sharp@npm:0.35.5"
   dependencies:

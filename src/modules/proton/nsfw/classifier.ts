@@ -17,8 +17,8 @@ export interface NsfwScores {
 
 export interface PhotoClassifier {
   readonly modelVersion: string;
-  /** Classifies one JPEG thumbnail. Never logs or retains the bytes. */
-  classify(jpeg: Uint8Array): Promise<NsfwScores>;
+  /** Classifies one thumbnail (JPEG, WebP or PNG). Never logs or retains the bytes. */
+  classify(thumbnail: Uint8Array): Promise<NsfwScores>;
 }
 
 /**
@@ -32,7 +32,7 @@ export class ClassifierUnavailableError extends Error {
   }
 }
 
-/** Per-image failure: missing, non-JPEG, truncated, or over the decode cap. */
+/** Per-image failure: missing, unsupported format, animated, truncated, or over the decode cap. */
 export class ClassifyInputError extends Error {
   constructor(message = "Image could not be classified", options?: ErrorOptions) {
     super(message, options);

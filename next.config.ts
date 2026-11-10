@@ -15,7 +15,9 @@ const nextConfig: NextConfig = {
     "@tensorflow/tfjs-core",
     "@tensorflow/tfjs-backend-cpu",
     "@tensorflow/tfjs-backend-wasm",
-    "jpeg-js",
+    // Native libvips binding that decodes thumbnails for the classifier. Standalone
+    // tracing copies it with the build platform's @img/* package (linuxmusl in Docker).
+    "sharp",
   ],
   outputFileTracingIncludes: {
     // The .wasm binaries are read with fs at runtime, which file tracing can't see.
