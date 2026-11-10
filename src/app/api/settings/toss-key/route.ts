@@ -13,4 +13,4 @@ const { POST, DELETE } = createApiKeyRoute({
   label: "Toss",
 });
 
-export { POST, DELETE };
+export { DELETE, POST };

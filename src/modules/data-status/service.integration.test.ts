@@ -381,6 +381,14 @@ describe("data collection status and recovery against PostgreSQL", () => {
       .mockImplementation(async (_connection, config) => ({
         dataPoints: config.key === "heart_rate" ? points : [],
       }));
+    // Rollup-only metrics (total_calories, floors) recover through dailyRollUp,
+    // not `list`; an empty provider answer must leave history untouched.
+    vi.spyOn(
+      service as unknown as {
+        fetchRollupPages: () => Promise<{ pages: ListResult[]; truncated: boolean }>;
+      },
+      "fetchRollupPages"
+    ).mockResolvedValue({ pages: [{ dataPoints: [] }], truncated: false });
     return { id, service, inner, upstream, points };
   }
 

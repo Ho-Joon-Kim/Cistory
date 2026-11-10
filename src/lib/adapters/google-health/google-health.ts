@@ -19,6 +19,36 @@ export const GOOGLE_HEALTH_DEFAULT_SCOPE = [
   "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
 ].join(" ");
 
+/**
+ * Optional, incremental scopes (design §5): NOT part of the default connect set.
+ * Requested only by the settings card's "ECG/불규칙 심박 연결" action, which
+ * re-runs OAuth with the default set plus these (include_granted_scopes keeps
+ * what was already granted). Google's granular consent lets the user untick
+ * either one, so features key off the scope string actually stored on the
+ * connection, never off having asked.
+ */
+export const GOOGLE_HEALTH_OPTIONAL_SCOPES = {
+  ecg: "https://www.googleapis.com/auth/googlehealth.ecg.readonly",
+  irn: "https://www.googleapis.com/auth/googlehealth.irn.readonly",
+} as const;
+export type GoogleHealthOptionalScope = keyof typeof GOOGLE_HEALTH_OPTIONAL_SCOPES;
+
+/** Default scope set plus the requested optional scopes (unknown keys ignored). */
+export function buildHealthScope(extra: readonly string[] = []): string {
+  const extras = Object.entries(GOOGLE_HEALTH_OPTIONAL_SCOPES)
+    .filter(([key]) => extra.includes(key))
+    .map(([, scope]) => scope);
+  return [GOOGLE_HEALTH_DEFAULT_SCOPE, ...extras].join(" ");
+}
+
+/** Whether a stored space-separated `scope` string grants an optional scope. */
+export function hasHealthScope(
+  stored: string | null | undefined,
+  key: GoogleHealthOptionalScope
+): boolean {
+  return (stored ?? "").split(/\s+/).includes(GOOGLE_HEALTH_OPTIONAL_SCOPES[key]);
+}
+
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RETRIES = 5;
 // Google Health quotas are per-minute but far looser than Withings'. A small
@@ -243,8 +273,10 @@ export class GoogleHealthAdapter {
 
   /**
    * Daily rollup (server-aggregated) for a metric over a civil-date range. The body
-   * uses `range: { start, end }` (closed-open CivilDate interval) + `windowSizeDays`
-   * — NOT `localDateRange`. `start` must be aligned to the aggregation window.
+   * uses `range: { start: { date }, end: { date } }` (closed-open CivilDate
+   * interval) + `windowSizeDays` — NOT `localDateRange`. Callers pass bare
+   * CivilDates; the `date` wrapping happens here. The civil day matched the KST day
+   * for this account (2026-11-09 spike: ours / google-wearables = 1.000 on steps).
    */
   async dailyRollUp(opts: {
     accessToken: string;
@@ -255,24 +287,55 @@ export class GoogleHealthAdapter {
     };
     windowSizeDays?: number;
     pageToken?: string;
+    /**
+     * Short family name (`google-wearables`, `google-sources`, `self-sources`,
+     * `all-sources`). Sent as the full resource name
+     * `users/me/dataSourceFamilies/<family>` in the JSON body — the short form is
+     * rejected 400 (live spike 2026-11-09). Omitted = the API default
+     * `all-sources`, which SUMS overlapping sources and double-counts.
+     */
+    dataSourceFamily?: string;
   }): Promise<RollUpResult> {
     const url = `${HEALTH_API_BASE}/users/me/dataTypes/${encodeURIComponent(
       opts.dataType
     )}/dataPoints:dailyRollUp`;
-    const body: Record<string, unknown> = { range: opts.range };
+    // Live-verified body (2026-11-09): each bound wraps its CivilDate in `date`.
+    const body: Record<string, unknown> = {
+      range: { start: { date: opts.range.start }, end: { date: opts.range.end } },
+    };
     if (opts.windowSizeDays != null) body.windowSizeDays = opts.windowSizeDays;
     if (opts.pageToken) body.pageToken = opts.pageToken;
+    if (opts.dataSourceFamily) {
+      body.dataSourceFamily = `users/me/dataSourceFamilies/${opts.dataSourceFamily}`;
+    }
 
-    // Response key not yet confirmed against a 200 — tolerate rollupDataPoints or dataPoints.
+    // Response key `rollupDataPoints` confirmed by a live 200 (2026-11-09 spike).
+    // A range with no data returns `{}`; a long range pages (14 days/page).
     const data = await this.apiRequest<{
       rollupDataPoints?: GoogleHealthDataPoint[];
-      dataPoints?: GoogleHealthDataPoint[];
       nextPageToken?: string;
     }>("POST", url, opts.accessToken, `dailyRollUp/${opts.dataType}`, body);
     return {
-      rollupDataPoints: data.rollupDataPoints ?? data.dataPoints ?? [],
+      rollupDataPoints: data.rollupDataPoints ?? [],
       nextPageToken: data.nextPageToken,
     };
+  }
+
+  /**
+   * The caller's Google Health identity. `healthUserId` is what webhook
+   * notifications carry, so it is the key that maps a notification to a user.
+   * Readable with any one of the base data scopes (spike: 200). `legacyUserId` is
+   * deliberately not surfaced — Google limits it to migration mapping.
+   */
+  async getIdentity(accessToken: string): Promise<{ healthUserId: string | null }> {
+    const data = await this.apiRequest<{ healthUserId?: unknown }>(
+      "GET",
+      `${HEALTH_API_BASE}/users/me/identity`,
+      accessToken,
+      "identity"
+    );
+    const id = data.healthUserId;
+    return { healthUserId: typeof id === "string" && id !== "" ? id : null };
   }
 
   /**

@@ -225,7 +225,7 @@ function mergeShortSegments(segments: TransportSegment[]): TransportSegment[] {
 
 // ── Merge consecutive same-mode segments ──────────────────────────────────────
 
-function mergeSameMode(segments: TransportSegment[]): TransportSegment[] {
+export function mergeSameMode(segments: TransportSegment[]): TransportSegment[] {
   if (segments.length <= 1) return segments;
 
   const merged: TransportSegment[] = [segments[0]];

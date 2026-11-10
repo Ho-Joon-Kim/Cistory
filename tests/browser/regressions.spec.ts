@@ -299,6 +299,128 @@ test("health auxiliary failures can retry into an honest empty state", async ({ 
   await expect(page.locator("main [role=alert]")).toHaveCount(0);
 });
 
+test("health shows the total-calories card and the merged VO₂max series", async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  // KST day keys for the last three days, computed in the browser-independent test
+  // process so the fixture always falls inside the card's 30-day window.
+  const kstDay = (offset: number) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(
+      new Date(Date.now() - offset * 86_400_000)
+    );
+  const point = (day: string, value: number, sum: boolean) => ({
+    day,
+    avg: sum ? null : value,
+    min: sum ? null : value,
+    max: sum ? null : value,
+    sum: sum ? value : null,
+    count: 1,
+  });
+  await page.route("**/api/fitbit/summary", (route) =>
+    route.fulfill({
+      json: {
+        hasConnection: true,
+        status: "active",
+        backfillCompletedAt: "2026-08-01",
+        lastSyncedAt: null,
+        hasAnyHistory: true,
+        metrics: [
+          {
+            key: "total_calories",
+            label: "총 소모 칼로리",
+            unit: "kcal",
+            agg: "sum",
+            scale: null,
+            decimals: 0,
+            points: [point(kstDay(2), 2210, true), point(kstDay(1), 2345, true)],
+          },
+          {
+            key: "vo2_max",
+            label: "VO₂max",
+            unit: "mL/kg·min",
+            agg: "avg",
+            scale: null,
+            decimals: 1,
+            points: [point(kstDay(3), 44.2, false), point(kstDay(1), 45.1, false)],
+          },
+        ],
+        workouts: [],
+        sleepSessions: [],
+      },
+    })
+  );
+  await page.goto("/health");
+  // Total calories is one of the 30-day activity tabs; its tab shows yesterday's value.
+  const caloriesTab = page.getByRole("tab", { name: /총 소모 칼로리/ });
+  await expect(caloriesTab).toBeVisible();
+  await expect(caloriesTab).toContainText("2,345");
+  // VO₂max lives in the details sheet; the merged series' latest value is 45.1.
+  await page.locator("button[aria-haspopup=dialog]").first().click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet).toContainText("VO₂max");
+  await expect(sheet).toContainText("45.1");
+  await page.screenshot({ path: testInfo.outputPath("health-new-metrics.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("health shows ECG / irregular-rhythm results only when the summary carries them", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const base = {
+    hasConnection: true,
+    status: "active",
+    backfillCompletedAt: "2026-08-01",
+    lastSyncedAt: null,
+    hasAnyHistory: true,
+    metrics: [],
+    workouts: [],
+    sleepSessions: [],
+  };
+  let withRhythm = false;
+  await page.route("**/api/fitbit/summary", (route) =>
+    route.fulfill({
+      json: withRhythm
+        ? {
+            ...base,
+            rhythm: {
+              ecg: [
+                {
+                  start: "2026-11-09T01:00:00.000Z",
+                  classification: "NORMAL_SINUS_RHYTHM",
+                  bpm: 71.6,
+                },
+              ],
+              irn: [
+                {
+                  start: "2026-11-08T15:00:00.000Z",
+                  end: "2026-11-08T21:00:00.000Z",
+                  positiveWindows: 0,
+                  windows: 4,
+                },
+              ],
+            },
+          }
+        : { ...base, rhythm: null },
+    })
+  );
+  await page.goto("/health");
+  await expect(page.getByRole("heading", { name: /최근 30일 활동/ })).toBeVisible();
+  await expect(page.getByText("심전도 · 불규칙 심박")).toHaveCount(0);
+
+  withRhythm = true;
+  await page.reload();
+  await expect(page.getByText("심전도 · 불규칙 심박")).toBeVisible();
+  await expect(page.getByText("정상 동리듬")).toBeVisible();
+  await expect(page.getByText("72 bpm")).toBeVisible();
+  await expect(page.getByText("감지 없음")).toBeVisible();
+  await expect(page.getByText("의료 진단이 아니에요", { exact: false })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("collection status retries errors and retains a queued recovery on reload", async ({
   page,
 }, testInfo) => {

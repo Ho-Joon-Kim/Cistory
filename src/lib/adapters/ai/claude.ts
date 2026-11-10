@@ -3,29 +3,45 @@ import { logger } from "@/lib/logger";
 
 /** 워크로드별 모델. 문자열에 날짜 접미사를 붙이지 않는다. */
 export const CLAUDE_MODELS = {
-  COMMIT_SUMMARY: "claude-sonnet-5",
-  NARRATIVE: "claude-opus-5",
-  EXPENSE_CLASSIFIER: "claude-haiku-4-5",
+  COMMIT_SUMMARY: "claude-sonnet-5-5",
+  NARRATIVE: "claude-opus-5-5",
+  EXPENSE_CLASSIFIER: "claude-haiku-5-5",
 } as const;
 
 export type ClaudeModel = (typeof CLAUDE_MODELS)[keyof typeof CLAUDE_MODELS];
 
 export const DEFAULT_CLAUDE_MODEL: ClaudeModel = CLAUDE_MODELS.COMMIT_SUMMARY;
 
+/**
+ * 호출부가 고르는 thinking 모드. "off"는 모델마다 철자가 달라 어댑터가
+ * 아래 표로 번역한다 — 호출부는 와이어 값을 몰라도 된다.
+ */
+export type ThinkingMode = "adaptive" | "off";
+
+// 세 모델 모두 adaptive thinking과 output_config.effort(low~max)를 받는다.
+// 기본 effort는 Opus 5.5·Haiku 5.5가 medium, Sonnet 5.5가 high라 호출부가
+// 명시하는 편이 안전하다. budget_tokens는 셋 다 400이라 옵션 자체가 없다.
+// temperature/top_p/top_k도 없다: SDK 1.x가 보내는 API 버전 2026-10-21은
+// 모든 모델에서 이 셋을 400으로 거부하고, SDK 타입에서도 빠졌다.
 interface ModelCapabilities {
-  /** temperature/top_p/top_k. Sonnet 5·Opus 5는 400으로 거부한다. */
-  sampling: boolean;
-  /** thinking 파라미터. */
-  thinking: boolean;
-  /** output_config.effort. Haiku 4.5는 오류를 낸다. */
-  effort: boolean;
+  /**
+   * thinking을 끄는 와이어 값. 모델마다 다르다.
+   * - Sonnet 5.5: `{type:"disabled"}`는 400. 대신 `between_tools`(다른 필드
+   *   없이, effort high 이하에서만).
+   * - Haiku 5.5: `disabled`를 effort high 이하에서만 받는다.
+   * - Opus 5.5: 끌 수 없다(`disabled`는 모든 effort에서 400) — null이면
+   *   옵션을 빼고 경고하며, 모델 기본값(adaptive)으로 돈다.
+   * AIGenerateOptions.effort는 low|medium|high뿐이라 "high 이하" 제약은 타입이
+   * 보장한다. xhigh/max를 추가할 때 이 제약을 다시 확인할 것.
+   */
+  thinkingOff: "disabled" | "between_tools" | null;
 }
 
 // Record<ClaudeModel, …>라 모델을 추가하면 컴파일러가 항목 누락을 잡는다.
 const MODEL_CAPABILITIES: Record<ClaudeModel, ModelCapabilities> = {
-  "claude-sonnet-5": { sampling: false, thinking: true, effort: true },
-  "claude-opus-5": { sampling: false, thinking: true, effort: true },
-  "claude-haiku-4-5": { sampling: true, thinking: false, effort: false },
+  "claude-sonnet-5-5": { thinkingOff: "between_tools" },
+  "claude-opus-5-5": { thinkingOff: null },
+  "claude-haiku-5-5": { thinkingOff: "disabled" },
 };
 
 export interface AIGenerateOptions {
@@ -37,9 +53,7 @@ export interface AIGenerateOptions {
   maxTokens?: number;
   /** Stop sequences */
   stopSequences?: string[];
-  /** 구세대 모델(Haiku 4.5)만 수용. Sonnet 5 / Opus 5에 보내면 400이므로 제외된다. */
-  temperature?: number;
-  thinking?: "adaptive" | "disabled";
+  thinking?: ThinkingMode;
   effort?: "low" | "medium" | "high";
   /** JSON Schema. 지정하면 응답이 그 스키마를 따르도록 API가 강제한다. */
   outputSchema?: Record<string, unknown>;
@@ -54,7 +68,7 @@ export interface AICountTokensOptions {
    * generateText와 같은 capability 표를 통과한다 — 계수 요청이 실제 생성
    * 요청과 다른 파라미터 조합으로 나가면 세는 값이 실제와 어긋난다.
    */
-  thinking?: "adaptive" | "disabled";
+  thinking?: ThinkingMode;
 }
 
 export interface AIGenerateResult {
@@ -85,7 +99,7 @@ export class ClaudeAdapter {
 
   /**
    * 지원하지 않는 파라미터는 요청에서 빼되 조용히 버리지 않는다. 호출부의
-   * 의도(예: temperature 0의 결정성)가 사라진 것을 운영자가 알아야 한다.
+   * 의도(예: effort low로 비용 상한을 둔 것)가 사라진 것을 운영자가 알아야 한다.
    * generateText와 countTokens가 같은 표를 보므로 경고도 한 곳에서 낸다.
    */
   private dropOption(name: string) {
@@ -95,10 +109,20 @@ export class ClaudeAdapter {
     });
   }
 
+  /** ThinkingMode를 이 모델의 와이어 값으로 바꾼다. 못 바꾸면 경고 후 undefined. */
+  private thinkingParam(mode: ThinkingMode | undefined): Anthropic.ThinkingConfigParam | undefined {
+    if (mode === undefined) return undefined;
+    if (mode === "adaptive") return { type: "adaptive" };
+    const off = MODEL_CAPABILITIES[this.model].thinkingOff;
+    if (off === null) {
+      this.dropOption("thinking");
+      return undefined;
+    }
+    return { type: off };
+  }
+
   async generateText(options: AIGenerateOptions): Promise<AIGenerateResult> {
     const { system, prompt, maxTokens = 1024, stopSequences } = options;
-    const caps = MODEL_CAPABILITIES[this.model];
-    const drop = (name: string) => this.dropOption(name);
 
     const body: Anthropic.MessageCreateParamsNonStreaming = {
       model: this.model,
@@ -108,22 +132,13 @@ export class ClaudeAdapter {
     };
     if (stopSequences?.length) body.stop_sequences = stopSequences;
 
-    if (options.temperature !== undefined) {
-      if (caps.sampling) body.temperature = options.temperature;
-      else drop("temperature");
-    }
-    if (options.thinking !== undefined) {
-      if (caps.thinking) body.thinking = { type: options.thinking };
-      else drop("thinking");
-    }
+    const thinking = this.thinkingParam(options.thinking);
+    if (thinking) body.thinking = thinking;
     // effort와 outputSchema는 둘 다 output_config 아래 들어간다. 따로
     // `body.output_config = {...}`로 대입하면 서로를 덮어쓰므로 하나의
     // 객체에 모아 한 번만 대입한다.
     const outputConfig: Anthropic.OutputConfig = {};
-    if (options.effort !== undefined) {
-      if (caps.effort) outputConfig.effort = options.effort;
-      else drop("effort");
-    }
+    if (options.effort !== undefined) outputConfig.effort = options.effort;
     if (options.outputSchema !== undefined) {
       outputConfig.format = { type: "json_schema", schema: options.outputSchema };
     }
@@ -167,17 +182,14 @@ export class ClaudeAdapter {
    */
   async countTokens(options: AICountTokensOptions): Promise<number> {
     const { system, prompt } = options;
-    const caps = MODEL_CAPABILITIES[this.model];
 
     const body: Anthropic.MessageCountTokensParams = {
       model: this.model,
       system: system ?? undefined,
       messages: [{ role: "user", content: prompt }],
     };
-    if (options.thinking !== undefined) {
-      if (caps.thinking) body.thinking = { type: options.thinking };
-      else this.dropOption("thinking");
-    }
+    const thinking = this.thinkingParam(options.thinking);
+    if (thinking) body.thinking = thinking;
 
     try {
       const response = await this.client.messages.countTokens(body);

@@ -7,7 +7,14 @@ import type { HealthAggregate, HealthMetricAggregate, PeriodAggregateInput } fro
 import type { LocationReadExecutor } from "./location";
 import { resultRows as rows } from "./query-values";
 
-const metricNames = ["steps", "sleep", "heart_rate", "vo2_max"] as const;
+/**
+ * The ONLY health metrics that reach an /overview snapshot — and through it the
+ * Anthropic narrative input. An explicit allowlist on purpose: ECG and
+ * irregular-rhythm results (`ecg` / `irn`, optional scopes) must never be sent
+ * to the AI narrative (decision 9); a test pins that.
+ */
+export const OVERVIEW_HEALTH_METRICS = ["steps", "sleep", "heart_rate", "vo2_max"] as const;
+const metricNames = OVERVIEW_HEALTH_METRICS;
 
 /** A night that starts this long before the period can still wake inside it. */
 const SLEEP_LOOKBACK_MS = 24 * 60 * 60 * 1000;

@@ -9,6 +9,7 @@ import { GENERIC_ERROR_MESSAGE, sameErrorCopy } from "@/lib/user-error";
 import { useAuth } from "@/modules/auth/hooks";
 import { ActivitySection } from "@/modules/health/components/ActivitySection";
 import { DetailsSheet } from "@/modules/health/components/DetailsSheet";
+import { HeartRhythmCard } from "@/modules/health/components/HeartRhythmCard";
 import { HeroRow } from "@/modules/health/components/HeroRow";
 import { WorkoutsSection } from "@/modules/health/components/WorkoutsSection";
 import {
@@ -139,6 +140,13 @@ function HealthBody({ summary, body }: { summary: HealthSummary; body: BodyQuery
         style={delay(3)}
         workouts={summary.workouts}
       />
+      {summary.rhythm ? (
+        <HeartRhythmCard
+          className="ds-enter mt-11 lg:mt-[72px]"
+          style={delay(4)}
+          rhythm={summary.rhythm}
+        />
+      ) : null}
       <DetailsSheet
         className="ds-enter mt-8 border-t border-line pt-1 lg:mt-14 lg:pt-2"
         style={delay(4)}

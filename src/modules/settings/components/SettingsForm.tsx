@@ -869,7 +869,10 @@ function buildConnections(
         <HealthSettings
           hasConnection={settings.hasHealthConnection}
           lastSyncedAt={settings.healthLastSyncedAt}
+          lastWebhookAt={settings.healthLastWebhookAt}
           needsReauth={settings.healthNeedsReauth}
+          ecgGranted={settings.healthEcgGranted}
+          irnGranted={settings.healthIrnGranted}
         />
       ),
     },

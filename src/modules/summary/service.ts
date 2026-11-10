@@ -149,8 +149,10 @@ export class SummaryService {
         maxTokens: 300,
         // 짧은 정형 출력이라 사고가 필요 없어 thinking을 껐다. 그 덕에
         // maxTokens 300 전부가 응답 몫으로 남는다. effort low는 (thinking과
-        // 별개로) 추론에 쓰는 연산량 자체의 상한이다.
-        thinking: "disabled",
+        // 별개로) 추론에 쓰는 연산량 자체의 상한이다. Sonnet 5.5는
+        // `disabled`를 400으로 거부하므로 어댑터가 "off"를 `between_tools`로
+        // 번역한다(effort high 이하에서만 허용 — low라 문제없다).
+        thinking: "off",
         effort: "low",
       });
 

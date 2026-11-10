@@ -57,7 +57,9 @@ export const DAY_ANCHORED_HEALTH_METRICS = [
   "daily_spo2",
   "respiratory_rate",
   "skin_temperature",
+  "daily_vo2_max",
   "total_calories",
+  "floors",
 ] as const;
 
 /**

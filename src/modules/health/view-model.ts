@@ -309,6 +309,8 @@ export const ACTIVITY_METRICS: ActivityMetricDef[] = [
   { key: "steps", label: "걸음", unit: "걸음", decimals: 0 },
   { key: "exercise", label: "운동 시간", unit: "분", decimals: 0 },
   { key: "active_energy", label: "활동 칼로리", unit: "kcal", decimals: 0 },
+  // Google's wearable-only daily rollup (BMR + activity), not a sum over sources.
+  { key: "total_calories", label: "총 소모 칼로리", unit: "kcal", decimals: 0 },
   { key: "distance", label: "이동 거리", unit: "km", decimals: 1 },
   { key: "active_zone_minutes", label: "활동 존 시간", unit: "분", decimals: 0 },
 ];

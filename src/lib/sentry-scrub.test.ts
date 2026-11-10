@@ -68,6 +68,53 @@ describe("scrubHealthData", () => {
     expect(event.extra?.userId).toBe("user-1");
   });
 
+  it("redacts the 2026 rollup / blood-glucose payload keys", () => {
+    const event: ScrubbableEvent = {
+      extra: { rollupPage: [{}], kcalSum: 2100, bloodGlucose: { mg: 100 }, metric: "x" },
+    };
+    scrubHealthData(event);
+    expect(event.extra?.rollupPage).toBe("[scrubbed:health]");
+    expect(event.extra?.kcalSum).toBe("[scrubbed:health]");
+    expect(event.extra?.bloodGlucose).toBe("[scrubbed:health]");
+    expect(event.extra?.metric).toBe("x");
+  });
+
+  it("redacts ECG and irregular-rhythm payload keys", () => {
+    const event: ScrubbableEvent = {
+      extra: {
+        electrocardiogram: {},
+        waveformSamples: [1, 2],
+        resultClassification: "ATRIAL_FIBRILLATION",
+        irregularRhythmNotification: {},
+        alertWindows: [],
+        heartBeats: [],
+        metric: "ecg",
+      },
+    };
+    scrubHealthData(event);
+    for (const key of [
+      "electrocardiogram",
+      "waveformSamples",
+      "resultClassification",
+      "irregularRhythmNotification",
+      "alertWindows",
+      "heartBeats",
+    ]) {
+      expect(event.extra?.[key], key).toBe("[scrubbed:health]");
+    }
+    expect(event.extra?.metric).toBe("ecg");
+  });
+
+  it("redacts webhook user ids and interval payloads", () => {
+    const event: ScrubbableEvent = {
+      extra: { healthUserId: "123", intervals: [{}], dataType: "steps" },
+    };
+    scrubHealthData(event);
+    expect(event.extra?.healthUserId).toBe("[scrubbed:health]");
+    expect(event.extra?.intervals).toBe("[scrubbed:health]");
+    expect(event.extra?.dataType).toBe("steps");
+  });
+
   it("is a no-op on an event with no health data", () => {
     const event: ScrubbableEvent = {
       breadcrumbs: [{ message: "navigation", data: { from: "/", to: "/settings" } }],
@@ -124,6 +171,30 @@ describe("scrubHealthSpan (Sentry v11 streamed spans)", () => {
     expect(result.attributes).toEqual({
       "url.query": "periodType=week",
       "app.rawJson": "[scrubbed:health]",
+    });
+  });
+
+  it("replaces ECG and irregular-rhythm attribute keys on streamed spans", () => {
+    const result = scrubHealthSpan({
+      name: "health.sync",
+      attributes: {
+        "app.electrocardiogram": "{}",
+        "app.waveformSamples": "1,2",
+        "app.resultClassification": "ATRIAL_FIBRILLATION",
+        "app.irregularRhythmNotification": "{}",
+        "app.alertWindows": "[]",
+        "app.heartBeats": "[]",
+        "app.metric": "ecg",
+      },
+    });
+    expect(result.attributes).toEqual({
+      "app.electrocardiogram": "[scrubbed:health]",
+      "app.waveformSamples": "[scrubbed:health]",
+      "app.resultClassification": "[scrubbed:health]",
+      "app.irregularRhythmNotification": "[scrubbed:health]",
+      "app.alertWindows": "[scrubbed:health]",
+      "app.heartBeats": "[scrubbed:health]",
+      "app.metric": "ecg",
     });
   });
 });

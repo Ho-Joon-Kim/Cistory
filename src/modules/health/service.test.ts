@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CURATED_METRICS } from "./metrics-meta";
+import {
+  CURATED_METRIC_KEYS,
+  CURATED_METRICS,
+  mergeDailySeries,
+  metricSourceKeys,
+} from "./metrics-meta";
 import {
   buildTimeFilter,
   durationToMinutes,
@@ -7,8 +12,11 @@ import {
   isHealthTokenFresh,
   type MetricConfig,
   parseExerciseWorkout,
+  parsePoint,
+  parseRollupPoint,
   parseSample,
   parseSleepSession,
+  rollupDayRange,
   SESSION_CONFIGS,
   SYNCED_METRICS,
 } from "./service";
@@ -32,6 +40,11 @@ describe("HEALTH_METRICS config", () => {
       date: ".date",
     } as const;
     for (const m of HEALTH_METRICS) {
+      // Rollup-only types never build a `list` filter (list → 400 for them).
+      if (m.fetch === "dailyRollUp") {
+        expect(m.filterField, m.key).toBe("");
+        continue;
+      }
       expect(m.filterField, m.key).toContain(suffix[m.timeShape]);
       // filter fields are snake_case only (spike: camelCase / hyphen → 400)
       expect(m.filterField).not.toMatch(/[A-Z]/);
@@ -46,6 +59,37 @@ describe("HEALTH_METRICS config", () => {
     for (const m of HEALTH_METRICS) {
       expect(!!m.revisable, m.key).toBe(m.timeShape === "date");
     }
+  });
+
+  // Design §2b/§Risks: the API default `all-sources` SUMS overlapping sources, so a
+  // rollup metric without an explicit family silently ~doubles. Pin the family.
+  it("every rollup metric pins the google-wearables family and a value key", () => {
+    const rollups = HEALTH_METRICS.filter((m) => m.fetch === "dailyRollUp");
+    expect(rollups.map((m) => m.key).sort()).toEqual(["floors", "total_calories"]);
+    for (const m of rollups) {
+      expect(m.rollupFamily, m.key).toBe("google-wearables");
+      expect(m.valueKey, m.key).toBeTruthy();
+      expect(m.timeShape, m.key).toBe("date");
+      expect(m.agg, m.key).toBe("sum");
+    }
+  });
+
+  it("includes the 2026 list-based types with verified wrappers and value keys", () => {
+    expect(byKey("daily_vo2_max")).toMatchObject({
+      dataType: "daily-vo2-max",
+      wrapper: "dailyVo2Max",
+      valueKey: "vo2Max",
+      timeShape: "date",
+    });
+    expect(byKey("run_vo2_max").filterField).toBe("run_vo2_max.sample_time.physical_time");
+    expect(byKey("core_body_temperature").valueKey).toBe("temperatureCelsius");
+    expect(byKey("blood_glucose").valueKey).toBe("bloodGlucoseMilligramsPerDeciliter");
+  });
+
+  // Decision §6/§12: Withings owns body composition — never sync these from Google.
+  it("does not sync weight, body-fat or height", () => {
+    const types = HEALTH_METRICS.map((m) => m.dataType);
+    for (const t of ["weight", "body-fat", "height"]) expect(types).not.toContain(t);
   });
 
   it("marks accumulating metrics as sum and instantaneous ones as avg", () => {
@@ -63,10 +107,37 @@ describe("HEALTH_METRICS config", () => {
   // a mismatch would make the trend read the wrong summary column (sum vs avg).
   it("every curated metric exists in HEALTH_METRICS with a matching agg", () => {
     for (const m of CURATED_METRICS) {
-      const config = HEALTH_METRICS.find((h) => h.key === m.key);
-      expect(config, `curated metric ${m.key} must exist in HEALTH_METRICS`).toBeDefined();
-      expect(m.agg).toBe(config?.agg);
+      for (const key of metricSourceKeys(m)) {
+        const config = HEALTH_METRICS.find((h) => h.key === key);
+        expect(config, `curated metric ${m.key} source ${key} must exist`).toBeDefined();
+        expect(m.agg, key).toBe(config?.agg);
+      }
     }
+  });
+
+  it("mergeDailySeries takes each day from the first series that has it, never blending", () => {
+    const merged = mergeDailySeries([
+      [
+        { day: "2026-11-02", v: 45 },
+        { day: "2026-11-03", v: 46 },
+      ],
+      [
+        { day: "2026-11-01", v: 40 },
+        { day: "2026-11-02", v: 41 },
+      ],
+    ]);
+    expect(merged).toEqual([
+      { day: "2026-11-01", v: 40 },
+      { day: "2026-11-02", v: 45 },
+      { day: "2026-11-03", v: 46 },
+    ]);
+  });
+
+  it("merges Fitbit daily-vo2-max into the VO₂max card ahead of the Samsung series", () => {
+    const vo2 = CURATED_METRICS.find((m) => m.key === "vo2_max");
+    expect(vo2 && metricSourceKeys(vo2)).toEqual(["daily_vo2_max", "vo2_max"]);
+    expect(CURATED_METRIC_KEYS).toContain("daily_vo2_max");
+    expect(CURATED_METRIC_KEYS).toContain("total_calories");
   });
 });
 
@@ -564,5 +635,91 @@ describe("parseSample — defensive / edge cases", () => {
     expect(a?.sampleAt.toISOString()).toBe(b?.sampleAt.toISOString());
     expect(a?.source).toBe(b?.source);
     expect(a?.value).toBe(b?.value);
+  });
+});
+
+describe("parseRollupPoint (dailyRollUp shape, live-verified 2026-11-09)", () => {
+  const totalCalories = byKey("total_calories");
+  const point = (kcal: unknown) => ({
+    civilStartTime: { date: { year: 2026, month: 11, day: 9 }, time: {} },
+    civilEndTime: { date: { year: 2026, month: 11, day: 10 }, time: {} },
+    totalCalories: { kcalSum: kcal },
+  });
+
+  it("reads a numeric kcalSum and anchors the civil day at 12:00 KST", () => {
+    const s = parseRollupPoint(totalCalories, point(2104.5));
+    expect(s?.value).toBe(2104.5);
+    expect(s?.sampleAt.toISOString()).toBe("2026-11-09T03:00:00.000Z");
+    // Rollups carry no dataSource; the source names the family instead.
+    expect(s?.source).toBe("rollup:google-wearables");
+    expect(s?.valueJson).toBeNull();
+  });
+
+  it("accepts a numeric-string sum (steps.countSum arrives as a string)", () => {
+    const steps = { ...totalCalories, key: "x", wrapper: "steps", valueKey: "countSum" };
+    const s = parseRollupPoint(steps, {
+      civilStartTime: { date: { year: 2026, month: 1, day: 2 } },
+      steps: { countSum: "8123" },
+    });
+    expect(s?.value).toBe(8123);
+  });
+
+  it("drops a point with no civil date or no value (a 0 is kept)", () => {
+    expect(parseRollupPoint(totalCalories, { totalCalories: { kcalSum: 1 } })).toBeNull();
+    expect(parseRollupPoint(totalCalories, point(undefined))).toBeNull();
+    expect(parseRollupPoint(totalCalories, point("NaN"))).toBeNull();
+    expect(parseRollupPoint(totalCalories, point(0))?.value).toBe(0);
+  });
+
+  it("parsePoint dispatches by fetch mode", () => {
+    expect(parsePoint(totalCalories, point(10))?.source).toBe("rollup:google-wearables");
+    expect(
+      parsePoint(byKey("heart_rate"), {
+        dataSource: { platform: "FITBIT" },
+        heartRate: { sampleTime: { physicalTime: "2026-11-09T00:00:00Z" }, beatsPerMinute: 61 },
+      })?.value
+    ).toBe(61);
+  });
+});
+
+describe("parseSample — new list types", () => {
+  it("reads daily-vo2-max by civil date", () => {
+    const s = parseSample(byKey("daily_vo2_max"), {
+      dataSource: { platform: "FITBIT" },
+      dailyVo2Max: {
+        date: { year: 2026, month: 11, day: 1 },
+        vo2Max: 44.2,
+        cardioFitnessLevel: "GOOD",
+      },
+    });
+    expect(s?.value).toBe(44.2);
+    expect(s?.sampleAt.toISOString()).toBe("2026-11-01T03:00:00.000Z");
+  });
+
+  it("reads blood glucose from its sample time", () => {
+    const s = parseSample(byKey("blood_glucose"), {
+      dataSource: { platform: "HEALTH_CONNECT", application: { packageName: "com.cgm" } },
+      bloodGlucose: {
+        sampleTime: { physicalTime: "2026-11-01T01:02:03Z" },
+        bloodGlucoseMilligramsPerDeciliter: 101,
+        mealType: "BREAKFAST",
+      },
+    });
+    expect(s).toMatchObject({ value: 101, source: "com.cgm" });
+  });
+});
+
+describe("rollupDayRange", () => {
+  it("floors the start and ceils a partial end day (KST)", () => {
+    // 2026-11-02T15:30Z = 11-03 00:30 KST; 2026-11-05T03:00Z = 11-05 12:00 KST
+    expect(
+      rollupDayRange(new Date("2026-11-02T15:30:00Z"), new Date("2026-11-05T03:00:00Z"))
+    ).toEqual({ startKey: "2026-11-03", endKeyExclusive: "2026-11-06" });
+  });
+
+  it("keeps an end exactly at KST midnight exclusive", () => {
+    expect(
+      rollupDayRange(new Date("2026-11-02T15:00:00Z"), new Date("2026-11-04T15:00:00Z"))
+    ).toEqual({ startKey: "2026-11-03", endKeyExclusive: "2026-11-05" });
   });
 });

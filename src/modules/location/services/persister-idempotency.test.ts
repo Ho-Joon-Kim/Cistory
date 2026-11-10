@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
   }[],
   trackIds: [] as string[],
   segmentCount: 0,
+  segments: [] as { mode: string; confidence: string }[],
+  healthRows: [] as unknown[],
   visitCount: 0,
 }));
 
@@ -29,6 +31,7 @@ vi.mock("@/db", async (importOriginal) => {
         const name = nameOf(table);
         if (name === "location_points") return query([...state.points]);
         if (name === "tracks") return query(state.trackIds.map((id) => ({ id })));
+        if (name === "health_samples") return query([...state.healthRows]);
         return query([]);
       },
     }),
@@ -48,7 +51,10 @@ vi.mock("@/db", async (importOriginal) => {
         state.trackIds = values.map((_, index) => `track-${index}`);
         return { returning: async () => state.trackIds.map((id) => ({ id })) };
       }
-      if (name === "transportation_segments") state.segmentCount = values.length;
+      if (name === "transportation_segments") {
+        state.segmentCount = values.length;
+        state.segments = values as { mode: string; confidence: string }[];
+      }
       return Promise.resolve();
     },
   });
@@ -69,6 +75,8 @@ beforeEach(() => {
   state.points = [];
   state.trackIds = [];
   state.segmentCount = 0;
+  state.segments = [];
+  state.healthRows = [];
   state.visitCount = 0;
 });
 
@@ -115,5 +123,36 @@ describe("daily persister idempotency", () => {
     expect({ tracks: state.trackIds.length, segments: state.segmentCount }).toEqual(firstState);
     expect(first.trackCount).toBe(1);
     expect(first.segmentCount).toBeGreaterThan(0);
+  });
+
+  it("labels a ride from the day's exercise session (one batched health lookup)", async () => {
+    // 15 minutes at ~13 km/h, one point every 10 s, starting 08:51 KST.
+    const start = new Date("2026-11-09T23:51:00.000Z").getTime();
+    state.points = Array.from({ length: 91 }, (_, i) => ({
+      lat: 37.5,
+      lon: 127 + i * 0.00041,
+      altitude: null,
+      velocity: null,
+      timestamp: new Date(start + i * 10_000),
+    }));
+    state.healthRows = [
+      {
+        sampleAt: new Date("2026-11-09T23:50:45.600Z"),
+        source: "FITBIT",
+        value: 14.4,
+        valueJson: {
+          exerciseType: "ELECTRIC_BIKE",
+          interval: {
+            startTime: "2026-11-09T23:50:45.600Z",
+            endTime: "2026-11-10T00:07:10.600Z",
+          },
+        },
+      },
+    ];
+
+    await detectAndPersistTracks("user-1", "2026-11-10");
+
+    expect(state.segments).toHaveLength(1);
+    expect(state.segments[0]).toMatchObject({ mode: "cycling", confidence: "high" });
   });
 });

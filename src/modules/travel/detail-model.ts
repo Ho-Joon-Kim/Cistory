@@ -8,7 +8,7 @@ import { toKstCalendarDate } from "@/lib/date-key";
 import type { FactRow } from "@/lib/facts";
 import { formatCount, formatDurationMinutes, formatTime, formatWon } from "@/lib/format";
 import { distanceM } from "@/lib/geo";
-import { CURATED_METRICS } from "@/modules/health/metrics-meta";
+import { CURATED_METRICS, metricSourceKeys } from "@/modules/health/metrics-meta";
 import { categoryLabel } from "./categories";
 import type {
   TravelRoutePoint,
@@ -607,6 +607,25 @@ function formatMetric(value: number | null, decimals: number): string {
 /** Day-level travel table precision: walking distance reads in tenths of a km. */
 const TABLE_DECIMALS: Record<string, number> = { distance: 1 };
 
+type HealthDayRow = TravelTripDetail["health"][number];
+
+/**
+ * A card may merge several stored keys (VO₂max reads daily_vo2_max, then
+ * vo2_max): each day takes the first key that has a row, never a blend.
+ */
+function mergedRows(
+  byMetric: Map<string, Map<string, HealthDayRow>>,
+  sourceKeys: string[]
+): Map<string, HealthDayRow> {
+  const rows = new Map<string, HealthDayRow>();
+  for (const sourceKey of sourceKeys) {
+    for (const [day, row] of byMetric.get(sourceKey) ?? []) {
+      if (!rows.has(day)) rows.set(day, row);
+    }
+  }
+  return rows;
+}
+
 export function healthTable(detail: TravelTripDetail): {
   days: string[];
   primary: HealthRow[];
@@ -621,8 +640,9 @@ export function healthTable(detail: TravelTripDetail): {
   }
   const build = (key: string, label: string, unit: string): HealthRow | null => {
     const meta = CURATED_METRICS.find((m) => m.key === key);
-    const rows = byMetric.get(key);
-    if (!meta || !rows) return null;
+    if (!meta) return null;
+    const rows = mergedRows(byMetric, metricSourceKeys(meta));
+    if (rows.size === 0) return null;
     const scale = meta.scale ?? 1;
     const decimals = TABLE_DECIMALS[key] ?? meta.decimals ?? 1;
     const cells = days.map((day) => {

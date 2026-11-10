@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -1087,6 +1088,13 @@ export const healthConnections = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     // Google account subject (sub claim) — stable per-user id, for reference only.
     googleSub: text("google_sub"),
+    // Google Health's own user id (`GET /v4/users/me/identity` → healthUserId). A
+    // different value from googleSub; it is what webhook notifications carry, so it
+    // maps a notification back to this row. Stored at OAuth callback time and
+    // lazily backfilled by the cron sync for connections made before 0045.
+    // `legacyUserId` is deliberately NOT stored (Google policy limits it to
+    // migration mapping).
+    healthUserId: text("health_user_id"),
     accessTokenEnc: text("access_token_enc").notNull(),
     refreshTokenEnc: text("refresh_token_enc").notNull(),
     accessTokenExpiresAt: timestamp("access_token_expires_at"),
@@ -1104,7 +1112,12 @@ export const healthConnections = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("idx_health_conn_user").on(t.userId)]
+  (t) => [
+    uniqueIndex("idx_health_conn_user").on(t.userId),
+    uniqueIndex("idx_health_conn_health_user_id")
+      .on(t.healthUserId)
+      .where(sql`${t.healthUserId} IS NOT NULL`),
+  ]
 );
 
 // Per-metric sync watermarks (KIS-watermark analog). `syncedThrough` is the
@@ -1218,6 +1231,59 @@ export type HealthDailySummary = typeof healthDailySummaries.$inferSelect;
 export type NewHealthDailySummary = typeof healthDailySummaries.$inferInsert;
 export type HealthRawPage = typeof healthRawPages.$inferSelect;
 export type NewHealthRawPage = typeof healthRawPages.$inferInsert;
+
+// Google Health webhook queue (0046). The web container's /api/fitbit/webhook
+// only verifies a notification and enqueues one row per (user, dataType,
+// operation, interval); the cron container claims rows with SKIP LOCKED + a
+// lease token and re-reads just that window from the API. Notifications carry
+// IDs and time ranges only — never health values.
+//
+// The unique key absorbs Google's re-deliveries (at-least-once, up to 7 days).
+// A repeat of an already-processed interval is NOT dropped: the enqueue's
+// ON CONFLICT re-arms a done/failed row to `pending`, because a daily interval
+// (steps for "today") is re-notified as the day's data grows. A repeat that
+// lands while the row is `processing` bumps `receivedAt` past `claimedAt`, and
+// the consumer re-queues instead of completing. `recordId` is '' (not NULL)
+// when absent so it can sit in a plain unique index.
+//
+// Every timestamp is UTC wall time written through the query builder (no raw
+// `now()` — see src/db/sql.ts).
+export const healthWebhookEvents = pgTable(
+  "health_webhook_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    dataType: text("data_type").notNull(), // Google kebab-case, e.g. "heart-rate"
+    operation: text("operation").notNull(), // "UPSERT" (DELETE is logged, never queued)
+    rangeStart: timestamp("range_start").notNull(),
+    rangeEnd: timestamp("range_end").notNull(),
+    recordId: text("record_id").notNull().default(""),
+    receivedAt: timestamp("received_at").notNull(),
+    status: text("status").notNull().default("pending"), // pending|processing|done|failed
+    attempts: integer("attempts").notNull().default(0),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    claimedAt: timestamp("claimed_at"),
+    processedAt: timestamp("processed_at"),
+    lastError: text("last_error"),
+  },
+  (t) => [
+    uniqueIndex("idx_health_webhook_events_unique").on(
+      t.userId,
+      t.dataType,
+      t.operation,
+      t.rangeStart,
+      t.rangeEnd,
+      t.recordId
+    ),
+    index("idx_health_webhook_events_queue").on(t.status, t.receivedAt),
+  ]
+);
+
+export type HealthWebhookEvent = typeof healthWebhookEvents.$inferSelect;
+export type NewHealthWebhookEvent = typeof healthWebhookEvents.$inferInsert;
 
 // Recovery requests are durable and processed one KST day at a time by cron.
 export const dataRecoveryJobs = pgTable(

@@ -90,13 +90,19 @@ export async function enqueueRecovery(
 
 type RecoveryTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-/** Also fence in-flight computations and revive exhausted retries after partial writes. */
-async function invalidateRecoveredPeriods(
-  tx: RecoveryTransaction,
+/**
+ * Also fence in-flight computations and revive exhausted retries after partial writes.
+ * Exported for the Google Health webhook consumer, which passes
+ * `{ narratives: false }`: a stream of late data must not keep discarding and
+ * regenerating AI narratives (an Opus call each) — only the snapshots recompute.
+ */
+export async function invalidateRecoveredPeriods(
+  tx: RecoveryTransaction | Pick<Database, "update">,
   userId: string,
   fromDate: string,
   toDate: string,
-  now: Date
+  now: Date,
+  opts: { narratives?: boolean } = {}
 ) {
   const firstWeek = getPeriodKey("week", new Date(`${fromDate}T12:00:00+09:00`));
   const lastWeek = getPeriodKey("week", new Date(`${toDate}T12:00:00+09:00`));
@@ -116,6 +122,7 @@ async function invalidateRecoveredPeriods(
       updatedAt: now,
     })
     .where(and(eq(periodSnapshots.userId, userId), affected));
+  if (opts.narratives === false) return;
   await tx
     .update(periodNarratives)
     .set({

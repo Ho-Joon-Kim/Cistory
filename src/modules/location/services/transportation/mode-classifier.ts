@@ -30,8 +30,14 @@ export interface ClassificationResult {
 // ── Speed thresholds (km/h) — Dawarich defaults ──────────────────────────────
 
 const STATIONARY_MAX = 1;
-const WALKING_MAX = 7;
+// Dawarich uses 7. Calibrated to 9 by scripts/calibrate-mode-vs-health.ts on the
+// owner's exercise-session-labelled segments (2026-11-10, train split, whole
+// pipeline re-run per value): 7 → 82.0%, 8 → 84.0%, 9 → 85.1%, 10 → 83.1%.
+// GPS jitter routinely pushes real walks to 7–9 km/h.
+const WALKING_MAX = 9;
 const RUNNING_MAX = 20;
+/** Upper edge of the 7–20 km/h band where speed alone cannot tell running from cycling. */
+export const RUNNING_MAX_KMH = RUNNING_MAX;
 const CYCLING_MAX = 45;
 const _DRIVING_MAX = 220;
 const TRAIN_MIN = 80;
@@ -42,7 +48,6 @@ const CYCLING_MAX_LIKELY = 35;
 
 // ── Acceleration thresholds (m/s²) ──────────────────────────────────────────
 
-const RUNNING_VS_CYCLING_ACCEL = 0.25;
 const CYCLING_VS_DRIVING_ACCEL = 0.4;
 const TRAIN_ACCEL = 0.2;
 const MOTORCYCLE_ACCEL = 0.6;
@@ -84,11 +89,14 @@ export function classifyMode(
     return { mode: "walking", confidence: "high" };
   }
 
-  // Running vs Cycling (7-20 km/h)
+  // Running vs Cycling (9-20 km/h). Speed alone cannot split this band, and the old
+  // Dawarich split (avg acceleration > 0.25 m/s² ⇒ running) mostly measured GPS
+  // jitter: it labelled ~76% of watch-recorded bike rides running. On the labelled
+  // band segments no acceleration threshold beats "always cycling" (77.8% vs 16.0%
+  // for 0.25), and the owner has no on-road running at all. Running is now decided
+  // only from health evidence (exercise sessions / step cadence) in
+  // health-evidence.ts, which also overrides this low-confidence default.
   if (avgSpeedKmh > WALKING_MAX && avgSpeedKmh <= RUNNING_MAX) {
-    if (avgAcceleration > RUNNING_VS_CYCLING_ACCEL) {
-      return { mode: "running", confidence: "medium" };
-    }
     return { mode: "cycling", confidence: "low" };
   }
 

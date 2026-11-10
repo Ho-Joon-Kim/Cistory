@@ -28,6 +28,21 @@ const HEALTH_EXTRA_KEY_DENYLIST = [
   "samples",
   "dailysummaries",
   "healthdata",
+  // 2026 data types (design §6): rollup payloads and their sums, blood glucose.
+  "rollup",
+  "kcalsum",
+  "bloodglucose",
+  // Webhook payloads (design §6): no values, but the user id and activity times
+  // themselves are personal data.
+  "healthuserid",
+  "intervals",
+  // ECG / irregular-rhythm payloads (decision 9): medical-grade data.
+  "electrocardiogram",
+  "waveform",
+  "resultclassification",
+  "irregularrhythm",
+  "alertwindows",
+  "heartbeats",
 ];
 
 /** Structural subset of a Sentry event — only the fields we scrub. */

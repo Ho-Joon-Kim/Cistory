@@ -3,7 +3,7 @@ process.env.TZ = "Asia/Seoul";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
-import { aggregateHealth } from "./health";
+import { aggregateHealth, OVERVIEW_HEALTH_METRICS } from "./health";
 import type { LocationReadExecutor } from "./location";
 
 const dialect = new PgDialect();
@@ -287,5 +287,24 @@ describe("aggregateHealth — month snapshot regressions", () => {
     expect(statements[1].params).toContain("2026-09-30T15:00:00.000Z");
     expect(statements[1].params).toContain("2026-10-31T15:00:00.000Z");
     expect(statements[1].params).not.toContainEqual(month.from);
+  });
+
+  // Decision 9: ECG / irregular-rhythm results never reach the AI narrative. The
+  // snapshot (the narrative's only health input) reads an explicit allowlist.
+  it("never selects ECG or irregular-rhythm metrics into the snapshot", async () => {
+    expect(OVERVIEW_HEALTH_METRICS as readonly string[]).not.toContain("ecg");
+    expect(OVERVIEW_HEALTH_METRICS as readonly string[]).not.toContain("irn");
+    const { executor, queries } = createExecutor([
+      [
+        { day: "2026-07-20", metric: "ecg", average: 70, min: 70, max: 70, total: null },
+        { day: "2026-07-20", metric: "irn", average: 1, min: 1, max: 1, total: 1 },
+      ],
+      [],
+    ]);
+    const result = await aggregateHealth(executor, input);
+    const sqlText = dialect.sqlToQuery(queries[0]).sql;
+    expect(sqlText).not.toMatch(/'ecg'|'irn'/);
+    expect(result.metrics.map((m) => m.metric)).toEqual([...OVERVIEW_HEALTH_METRICS]);
+    expect(JSON.stringify(result)).not.toMatch(/"ecg"|"irn"/);
   });
 });

@@ -192,6 +192,33 @@ describe("parseTossNotification", () => {
     });
   });
 
+  it("parses a relief-fund overflow payment as the card withdrawal of the overflow amount", () => {
+    // 지원금 잔액을 넘긴 결제: 본문이 "가맹점 | 안내 문장 (카드)" 순서로 와서,
+    // 앞쪽을 계좌로 읽으면 가맹점이 계좌 목록에 들어간다. 통장에서 실제로 나간
+    // 금액은 초과분뿐이고 나머지는 지원금이 냈다.
+    expect(
+      parseTossNotification(
+        "52,870원 결제",
+        "더 더치 치즈앤모어 강남구청점 | 고유가 피해지원금 잔액을 초과한 36,300원은 토스뱅크 통장에서 출금됐어요. (토스뱅크 체크카드)"
+      )
+    ).toEqual({
+      type: "withdrawal",
+      amount: 36300,
+      merchant: "더 더치 치즈앤모어 강남구청점",
+      accountName: "토스뱅크 체크카드",
+      isSelfTransfer: false,
+    });
+  });
+
+  it("does not read a relief-fund notice sentence as a merchant", () => {
+    const parsed = parseTossNotification(
+      "10,000원 결제",
+      "가게 | 지원금 잔액을 초과한 2,000원은 토스뱅크 통장에서 출금됐어요."
+    );
+    expect(parsed?.accountName).not.toBe("가게");
+    expect(parsed?.merchant ?? "").not.toContain("출금됐어요");
+  });
+
   it("does not parse an amount-less 결제 취소 that cannot be matched to a payment", () => {
     expect(parseTossNotification("결제 취소", "계좌 | 한국철도공사_토스 원클릭결제")).toBeNull();
   });

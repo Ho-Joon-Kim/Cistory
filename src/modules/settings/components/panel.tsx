@@ -330,6 +330,7 @@ export function OAuthPanel({
   extraActions,
   isDisconnecting,
   onDisconnect,
+  children,
 }: {
   description: ReactNode;
   connected: boolean;
@@ -340,6 +341,8 @@ export function OAuthPanel({
   extraActions?: ReactNode;
   isDisconnecting: boolean;
   onDisconnect: () => void;
+  /** Extra connected-state content (e.g. optional scopes), shown under the stats. */
+  children?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -367,6 +370,7 @@ export function OAuthPanel({
             </PanelNote>
           ) : null}
           {stats ? <PanelStats items={stats} /> : null}
+          {children}
           <PanelActions>
             {extraActions}
             <Button

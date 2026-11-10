@@ -109,8 +109,12 @@ export async function classifyExpenses(
   const result = await ai.generateText({
     system: "당신은 한국 소비 거래 분류기입니다. 설명 없이 유효한 JSON만 출력하세요.",
     prompt: buildExpenseClassificationPrompt(items),
-    maxTokens: Math.max(500, items.length * 60),
-    temperature: 0,
+    // Haiku 5.5는 adaptive thinking이 기본으로 켜져 있고 thinking도
+    // max_tokens를 쓴다. 건당 60토큰(실측 ~20)에 thinking 몫 1024를 더해,
+    // thinking이 예산을 다 써서 JSON이 잘리는 일을 막는다. 짧은 분류라
+    // effort는 low — 실측에서 thinking 없이 답했고 정확도는 Haiku 4.5와 같았다.
+    maxTokens: items.length * 60 + 1024,
+    effort: "low",
     outputSchema: OUTPUT_JSON_SCHEMA,
   });
   const parsed = responseSchema.parse(extractJson(result.content));

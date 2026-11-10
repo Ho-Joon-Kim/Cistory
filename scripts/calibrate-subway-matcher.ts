@@ -26,6 +26,7 @@
 import { readFileSync } from "node:fs";
 import { argv, exit } from "node:process";
 import { config as loadEnv } from "dotenv";
+
 loadEnv({ path: ".env.local" });
 
 import { eq } from "drizzle-orm";
@@ -35,8 +36,8 @@ import {
   fetchCandidateLines,
   fetchSegmentPoints,
   pointsToWkt,
-  scoreCandidate,
   type ScoredCandidate,
+  scoreCandidate,
 } from "../src/modules/location/services/subway-match/matcher";
 
 interface Label {
@@ -182,8 +183,7 @@ function evaluate(
         weights.speed * s.best.speed +
         weights.gap * s.best.gap +
         weights.station * s.best.station;
-      predicted =
-        s.best.coverage >= thresholds.minCoverage && total >= thresholds.minTotal;
+      predicted = s.best.coverage >= thresholds.minCoverage && total >= thresholds.minTotal;
     }
     if (predicted && s.truthIsSubway) tp++;
     else if (predicted && !s.truthIsSubway) fp++;
@@ -234,19 +234,17 @@ async function main() {
   });
 
   console.log(`Evaluated ${results.length} configurations. Top 10 by F1:\n`);
-  console.log(
-    "rank | weights (cov/sp/gap/st)        | thresh (cov, tot) | TP/FP/FN/TN  | P/R/F1"
-  );
-  console.log(
-    "-----+-------------------------------+-------------------+--------------+--------"
-  );
+  console.log("rank | weights (cov/sp/gap/st)        | thresh (cov, tot) | TP/FP/FN/TN  | P/R/F1");
+  console.log("-----+-------------------------------+-------------------+--------------+--------");
   for (let k = 0; k < Math.min(10, results.length); k++) {
     const r = results[k];
     const w = `${r.weights.coverage.toFixed(2)}/${r.weights.speed.toFixed(2)}/${r.weights.gap.toFixed(2)}/${r.weights.station.toFixed(2)}`;
     const t = `${r.thresholds.minCoverage.toFixed(2)}, ${r.thresholds.minTotal.toFixed(2)}`;
     const cm = `${r.tp}/${r.fp}/${r.fn}/${r.tn}`;
     const stats = `${r.precision.toFixed(2)}/${r.recall.toFixed(2)}/${r.f1.toFixed(2)}`;
-    console.log(`${String(k + 1).padStart(4)} | ${w.padEnd(29)} | ${t.padEnd(17)} | ${cm.padEnd(12)} | ${stats}`);
+    console.log(
+      `${String(k + 1).padStart(4)} | ${w.padEnd(29)} | ${t.padEnd(17)} | ${cm.padEnd(12)} | ${stats}`
+    );
   }
 
   console.log(

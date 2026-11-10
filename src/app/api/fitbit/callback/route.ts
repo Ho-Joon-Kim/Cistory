@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, healthConnections } from "@/db";
 import { createGoogleHealthAdapter } from "@/lib/adapters/google-health/interface";
@@ -54,7 +55,8 @@ export async function GET(request: NextRequest) {
   if (!clientId || !clientSecret) return fail(request, "exchange_failed");
 
   try {
-    const tokens = await createGoogleHealthAdapter(clientId, clientSecret).exchangeCode({
+    const adapter = createGoogleHealthAdapter(clientId, clientSecret);
+    const tokens = await adapter.exchangeCode({
       code,
       redirectUri: fitbitCallbackUrl(request),
     });
@@ -91,6 +93,24 @@ export async function GET(request: NextRequest) {
           updatedAt: now,
         },
       });
+
+    // Webhook mapping (design §1): Google Health's own user id, stored separately
+    // and best effort — the connection must never fail on it. A lookup failure (or
+    // a unique-index clash) is retried lazily by the cron sync's ensureHealthUserId.
+    try {
+      const { healthUserId } = await adapter.getIdentity(tokens.accessToken);
+      if (healthUserId) {
+        await db
+          .update(healthConnections)
+          .set({ healthUserId, updatedAt: new Date() })
+          .where(eq(healthConnections.userId, user.id));
+      }
+    } catch (e) {
+      logger.warn("[Health] identity lookup after OAuth failed (cron will retry)", {
+        userId: user.id,
+        ...describeError(e),
+      });
+    }
 
     return settingsRedirect(request, "health=connected");
   } catch (e) {

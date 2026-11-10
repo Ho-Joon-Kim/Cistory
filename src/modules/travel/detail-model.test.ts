@@ -224,6 +224,29 @@ describe("health, hero day and route", () => {
     expect(table.more[0].cells[1].sub).toBe("47–176");
   });
 
+  it("reads the VO₂max row from daily_vo2_max first, falling back to vo2_max per day", () => {
+    const vo2 = (day: string, metric: string, v: number) => ({
+      day,
+      metric,
+      valueAvg: v,
+      valueMin: null,
+      valueMax: null,
+      valueSum: null,
+      count: 1,
+    });
+    const table = healthTable(
+      detail([], {
+        health: [
+          vo2("2026-09-23", "daily_vo2_max", 44.2),
+          vo2("2026-09-23", "vo2_max", 40),
+          vo2("2026-09-24", "vo2_max", 41.5),
+        ],
+      })
+    );
+    const row = table.more.find((r) => r.key === "vo2_max");
+    expect(row?.cells.map((c) => c.text)).toEqual(["44.2", "41.5", "–"]);
+  });
+
   it("picks the day with by far the most steps and ties it to that day's dense run", () => {
     const d = detail(fullTrip(), { health });
     const { runs } = buildItinerary(d);
