@@ -57,6 +57,7 @@ export default function PrivacyPolicyPage() {
             <li>코딩 활동(WakaTime 세션·언어·프로젝트 통계)</li>
             <li>체성분(Withings 체중·체지방 등)</li>
             <li>증권 포트폴리오(한국투자증권 API 보유종목·체결·손익)</li>
+            <li>Proton Drive 사진 메타데이터(촬영 시각·위치·기기)와 썸네일(선택 연동)</li>
             <li>
               건강·피트니스 데이터(Fitbit, Google Health API): 수면, 활동량, 심박수, 산소포화도,
               호흡수, 심박변이도, 체온 관련 등 사용자가 승인한 범위의 데이터
@@ -68,6 +69,10 @@ export default function PrivacyPolicyPage() {
               보관됩니다. 이 데이터는 AI 회고 생성에 사용하지 않습니다
             </li>
           </ul>
+          <p>
+            민감한 이미지는 서버 안의 로컬 모델로 자동 판별하여 저장하지 않으며, 사진을 외부 분석
+            서비스로 보내지 않습니다.
+          </p>
         </Section>
 
         <Section title="2. Google 사용자 데이터의 사용">
@@ -120,8 +125,8 @@ export default function PrivacyPolicyPage() {
 
         <Section title="3. 저장·보안">
           <p>
-            Withings·Google Health·KIS의 액세스·리프레시 토큰은 AES-256-GCM으로 암호화하여 서비스
-            데이터베이스에 저장합니다. GitHub OAuth 토큰은 Better Auth 계정 저장소에서 별도로
+            Withings·Google Health·KIS·Proton의 액세스·리프레시 토큰은 AES-256-GCM으로 암호화하여
+            서비스 데이터베이스에 저장합니다. GitHub OAuth 토큰은 Better Auth 계정 저장소에서 별도로
             관리합니다. 원본 건강 데이터 페이로드는 애플리케이션 로그나 오류 추적(Sentry)에 남기지
             않습니다. 데이터는 운영자가 관리하는 인프라에 저장됩니다.
           </p>

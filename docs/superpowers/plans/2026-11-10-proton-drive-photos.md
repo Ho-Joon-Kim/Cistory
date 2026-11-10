@@ -120,12 +120,14 @@ scripts/rescreen-photo-thumbnails.ts
 ### Task 1: Proton dependencies, crypto patch, bundling and runtime entry
 
 **Files:**
+
 - Create: `.yarn/patches/@protontech-crypto-npm-2.2.0.patch` (copied verbatim from the SDK clone `config/js/patches/@protontech%2Fcrypto@2.2.0.patch`)
 - Modify: `package.json`, `yarn.lock`, `next.config.ts`, `vitest.config.mts`, `vitest.integration.config.mts`, `Dockerfile:7-9,42-46`
 - Create: `src/lib/adapters/proton/constants.ts`, `src/lib/adapters/proton/polyfill.ts`, `src/lib/adapters/proton/runtime.ts`
 - Test: `src/lib/adapters/proton/runtime.test.ts`, `src/lib/adapters/proton/import-guard.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `PROTON_APP_VERSION = "external-drive-cistory@1.0.0-stable"`, `PROTON_AUTH_CLIENT_ID = "external-drive"`, `PROTON_API_BASE_URL = "drive-api.proton.me"`, `PROTON_ACCOUNT_URL = "account.proton.me"`, `PROTON_CLIENT_UID = "cistory"`.
   - `initProtonRuntime(): Promise<ProtonRuntime>`, memoized, where `interface ProtonRuntime { cryptoProxy: CryptoApiInterface; srpApi: { getSrp; computeKeyPassword; generateKeySalt; getRandomSrpVerifier } }`.
@@ -159,7 +161,7 @@ it("is memoized", async () => {
 });
 ```
 
-  If a method or option name differs in the 2.2.0 `CryptoApiInterface`, use its exact name. The assertion stays a passphrase round-trip.
+If a method or option name differs in the 2.2.0 `CryptoApiInterface`, use its exact name. The assertion stays a passphrase round-trip.
 
 - [ ] **Step 3: Write the failing import guard** in `src/lib/adapters/proton/import-guard.test.ts`. It globs `src/**/*.{ts,tsx}` and asserts that no file other than `runtime.ts` contains a non-`import type` static import of `@protontech/crypto` (except `@protontech/crypto/constants` in `account/addresses.ts`).
 
@@ -203,6 +205,7 @@ it("is memoized", async () => {
 ### Task 2: Vendored account module with fork split and refresh seam
 
 **Files:**
+
 - Create: `src/lib/adapters/proton/account/*`, copied from `incubating/account/js/src` at SDK commit `05c9115955589d9f6ab7392a36f8f0cb39327133`. Exclude `*.test.ts`. Each file gets the header: `// Vendored from ProtonDriveApps/sdk incubating/account/js/src @ 05c9115 — MIT, Copyright (c) 2025-2026 Proton AG. Local changes marked "CISTORY:".`
 - Create: `src/lib/adapters/proton/account/LICENSE` (the MIT text from the SDK's `LICENSE.md`)
 - Modify: `biome.json` (`files.includes` += `"!src/lib/adapters/proton/account"`)
@@ -210,6 +213,7 @@ it("is memoized", async () => {
 - Test: `src/lib/adapters/proton/account/apiClient.cistory.test.ts`, `src/lib/adapters/proton/fork.test.ts`, `src/lib/adapters/proton/http.test.ts`, `src/lib/adapters/proton/errors.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PROTON_*` constants (Task 1).
 - Produces:
   - `ApiClientOptions.refreshSession?: (rejectedAccessToken: string | undefined) => Promise<SessionInfo | null>` (CISTORY change 2).
@@ -229,8 +233,13 @@ it("is memoized", async () => {
 it("delegates a 401 refresh to the injected refreshSession and never signs out on 4xx", async () => {
   const credentials = fakeCredentials({ accessToken: "old" }); // signOut = vi.fn()
   const refreshSession = vi.fn(async () => null);
-  const client = new ApiClient({ baseUrl: "https://api.test", appVersion: PROTON_APP_VERSION,
-    credentials, logger: quiet, refreshSession });
+  const client = new ApiClient({
+    baseUrl: "https://api.test",
+    appVersion: PROTON_APP_VERSION,
+    credentials,
+    logger: quiet,
+    refreshSession,
+  });
   expect(await client.refreshSessionIfPossible("old")).toBe(false);
   expect(refreshSession).toHaveBeenCalledWith("old");
   expect(credentials.signOut).not.toHaveBeenCalled();
@@ -238,7 +247,11 @@ it("delegates a 401 refresh to the injected refreshSession and never signs out o
 it("applies the refreshed session to credentials and reports success", async () => {
   const refreshSession = vi.fn(async () => ({ uid: "u", accessToken: "new", refreshToken: "r2" }));
   /* … */ expect(await client.refreshSessionIfPossible("old")).toBe(true);
-  expect(credentials.setSessionInfo).toHaveBeenCalledWith({ uid: "u", accessToken: "new", refreshToken: "r2" });
+  expect(credentials.setSessionInfo).toHaveBeenCalledWith({
+    uid: "u",
+    accessToken: "new",
+    refreshToken: "r2",
+  });
 });
 ```
 
@@ -303,10 +316,12 @@ it("revoke returns false (never throws) when both attempts fail", …);
 ### Task 3: Schema and migration
 
 **Files:**
+
 - Modify: `src/db/schema.ts` (add a `bytea` customType and four tables after `wakatimeConnections`)
 - Create: `drizzle/0047_proton_photos.sql` + `drizzle/meta/*` (generated)
 
 **Interfaces:**
+
 - Produces: `protonConnections`, `photos`, `photoBlocks`, `photoThumbnails` and their types `ProtonConnection`, `Photo`, `PhotoBlock`.
   - **`proton_connections`:**
     - `id` uuid PK; `user_id` → `users` (cascade), unique.
@@ -352,10 +367,12 @@ it("revoke returns false (never throws) when both attempts fail", …);
 ### Task 4: Session credentials and the advisory-lock refresher
 
 **Files:**
+
 - Create: `src/modules/proton/types.ts`, `src/modules/proton/credentials.ts`, `src/modules/proton/token.ts`
 - Test: `src/modules/proton/token.test.ts`, `src/modules/proton/credentials.test.ts`
 
 **Interfaces:**
+
 - Consumes: `SessionCredentials`, `SessionInfo` (account), `postProtonRefresh`, `RefreshHttpResult` (Task 2), `protonConnections` (Task 3).
 - Produces:
   - `PROTON_ERRORS` (fixed Korean strings):
@@ -391,7 +408,7 @@ it("never flips needs_reauth on rate_limited or transient", …); // returns nul
 it("takes the proton-token advisory lock inside the transaction", …); // execute called with SQL containing "proton-token:u"
 ```
 
-  `credentials.test.ts`:
+`credentials.test.ts`:
 
 ```ts
 it("decrypts uid/access/refresh/keyPassword from the row", …);
@@ -427,17 +444,21 @@ it("signOut clears memory only", …);
 ### Task 5: Photos client factory
 
 **Files:**
+
 - Create: `src/lib/adapters/proton/client.ts`, `src/modules/proton/session.ts`
 - Test: `src/lib/adapters/proton/client.test.ts`
 
 **Interfaces:**
+
 - Consumes: `initProtonRuntime` (Task 1), `ApiClient`/`initAccount` (Task 2), `DbSessionCredentials`, `refreshProtonSession` (Task 4).
 - Produces:
 
 ```ts
 export interface ProtonPhotosApi {
-  getPhotosVolumeId(): Promise<string>;                      // getMyPhotosRootFolder().treeEventScopeId
-  iterateTimeline(signal?: AbortSignal): AsyncIterable<{ nodeUid: string; captureTime: Date; tags: number[] }>;
+  getPhotosVolumeId(): Promise<string>; // getMyPhotosRootFolder().treeEventScopeId
+  iterateTimeline(
+    signal?: AbortSignal
+  ): AsyncIterable<{ nodeUid: string; captureTime: Date; tags: number[] }>;
   iterateNodes(uids: string[], signal?: AbortSignal): AsyncIterable<MaybeMissingPhotoNode>;
   iterateThumbnails(uids: string[], signal?: AbortSignal): AsyncIterable<ThumbnailResult>; // ThumbnailType.Type1
   iterateEvents(scopeId: string, cursor?: string, signal?: AbortSignal): AsyncIterable<DriveEvent>;
@@ -449,7 +470,10 @@ export function createProtonPhotosClient(opts: {
 export function buildSdkHttpClient(apiClient: ApiClient): { fetchJson; fetchBlob }; // exported for test
 export function driveRequirementsHook(log: (value: string) => void): AfterResponseHook;
 // in src/modules/proton/session.ts:
-export function openProtonPhotos(db: Database, connection: ProtonConnection): Promise<ProtonPhotosApi>;
+export function openProtonPhotos(
+  db: Database,
+  connection: ProtonConnection
+): Promise<ProtonPhotosApi>;
 ```
 
 - [ ] **Step 1: Write the failing tests.**
@@ -492,35 +516,48 @@ it("logs x-pm-drive-requirements once per value without failing the response", �
 ### Task 6: Connection lifecycle service and routes
 
 **Files:**
+
 - Create: `src/modules/proton/connection.ts`, `src/modules/proton/summary.ts`
 - Create: `src/app/api/proton/route.ts` (GET summary, DELETE), `src/app/api/proton/connect/route.ts` (POST), `src/app/api/proton/connect/status/route.ts` (GET)
 - Test: `src/modules/proton/connection.test.ts`, `src/app/api/proton/route.test.ts`
 
 **Interfaces:**
+
 - Consumes: `startProtonFork`, `pollProtonFork`, `revokeProtonSession` (Task 2); `lockProtonTokens` (Task 4); `openProtonPhotos` (Task 5).
 - Produces:
 
 ```ts
 export type ConnectStatus =
-  | { status: "none" } | { status: "pending"; expiresAt: string }
-  | { status: "active" } | { status: "expired" };
+  | { status: "none" }
+  | { status: "pending"; expiresAt: string }
+  | { status: "active" }
+  | { status: "expired" };
 export interface ProtonConnectionDeps {
-  startFork: typeof startProtonFork; pollFork: typeof pollProtonFork;
+  startFork: typeof startProtonFork;
+  pollFork: typeof pollProtonFork;
   resolveVolumeId: (tokens: ProtonSessionTokens, keyPassword: string) => Promise<string>;
-  revoke: typeof revokeProtonSession; now: () => Date;
+  revoke: typeof revokeProtonSession;
+  now: () => Date;
 }
 export class ProtonConnectionService {
   constructor(db: Database, deps?: Partial<ProtonConnectionDeps>);
   getConnection(userId: string): Promise<ProtonConnection | null>;
   startConnect(userId: string): Promise<{ signInUrl: string; expiresAt: string }>;
   checkConnect(userId: string): Promise<ConnectStatus>;
-  clearExpiredFork(userId: string): Promise<void>;              // also called by cron
+  clearExpiredFork(userId: string): Promise<void>; // also called by cron
   disconnect(userId: string): Promise<{ revoked: boolean }>;
-  revokeOnly(userId: string): Promise<boolean>;                 // used by account deletion
+  revokeOnly(userId: string): Promise<boolean>; // used by account deletion
 }
-export interface ProtonSummary { connected: boolean; status: "pending" | "active" | "needs_reauth" | null;
-  photoCount: number; lastSyncedAt: string | null; backfilling: boolean;
-  detailsFailedCount: number; blockedCount: number; lastError: string | null }
+export interface ProtonSummary {
+  connected: boolean;
+  status: "pending" | "active" | "needs_reauth" | null;
+  photoCount: number;
+  lastSyncedAt: string | null;
+  backfilling: boolean;
+  detailsFailedCount: number;
+  blockedCount: number;
+  lastError: string | null;
+}
 export function getProtonSummary(db: Database, userId: string): Promise<ProtonSummary>;
 ```
 
@@ -571,6 +608,7 @@ it("GET /api/proton/connect/status is session-authenticated and never echoes Pro
 ### Task 7: NSFW classifier
 
 **Files:**
+
 - Modify: `package.json`, `yarn.lock`, `next.config.ts`
   - Packages: `"nsfwjs": "4.4.0"`, `"@tensorflow/tfjs": "4.22.0"`, `"@tensorflow/tfjs-backend-wasm": "4.22.0"`, `"jpeg-js": "0.4.4"`, `"buffer": "^6.0.3"` (nsfwjs peer).
   - Add `serverExternalPackages: ["nsfwjs", "@tensorflow/tfjs", "@tensorflow/tfjs-core", "@tensorflow/tfjs-backend-cpu", "@tensorflow/tfjs-backend-wasm", "jpeg-js"]`.
@@ -579,19 +617,33 @@ it("GET /api/proton/connect/status is session-authenticated and never echoes Pro
 - Test: `src/modules/proton/nsfw/classifier.test.ts`, `src/modules/proton/nsfw/decode.test.ts`, `src/modules/proton/nsfw/nsfwjs.test.ts`
 
 **Interfaces:**
+
 - Produces:
 
 ```ts
-export interface NsfwScores { drawing: number; hentai: number; neutral: number; porn: number; sexy: number }
-export interface PhotoClassifier { readonly modelVersion: string; classify(jpeg: Uint8Array): Promise<NsfwScores> }
-export class ClassifierUnavailableError extends Error {}   // model/backend could not load — infrastructure
-export class ClassifyInputError extends Error {}          // per-image: missing, non-JPEG, undecodable
+export interface NsfwScores {
+  drawing: number;
+  hentai: number;
+  neutral: number;
+  porn: number;
+  sexy: number;
+}
+export interface PhotoClassifier {
+  readonly modelVersion: string;
+  classify(jpeg: Uint8Array): Promise<NsfwScores>;
+}
+export class ClassifierUnavailableError extends Error {} // model/backend could not load — infrastructure
+export class ClassifyInputError extends Error {} // per-image: missing, non-JPEG, undecodable
 export const NSFW_MODEL_VERSION = "nsfwjs@4.4.0/MobileNetV2";
 export const NSFW_BLOCK_PORN_PLUS_HENTAI = 0.5;
 export const NSFW_BLOCK_SEXY = 0.8;
 export function isBlocked(s: NsfwScores): boolean;
-export function decodeJpegToRgb(bytes: Uint8Array): { width: number; height: number; data: Uint8Array }; // RGB, 3 ch
-export function createNsfwjsClassifier(): PhotoClassifier;  // lazy, memoized load; reset memo on load failure
+export function decodeJpegToRgb(bytes: Uint8Array): {
+  width: number;
+  height: number;
+  data: Uint8Array;
+}; // RGB, 3 ch
+export function createNsfwjsClassifier(): PhotoClassifier; // lazy, memoized load; reset memo on load failure
 ```
 
 - [ ] **Step 1: Install.**
@@ -658,22 +710,36 @@ it("wraps non-JPEG input in ClassifyInputError, not ClassifierUnavailableError",
 ### Task 8: Node metadata mapper
 
 **Files:**
+
 - Create: `src/modules/proton/mapper.ts`
 - Test: `src/modules/proton/mapper.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PhotoNode`, `NodeType` from `@protontech/drive-sdk`; `parseAdditionalNodeMetadata` from `@protontech/drive-sdk/dist/additionalNodeMetadata/index.js`.
 - Produces:
 
 ```ts
 export interface MappedPhoto {
-  nodeUid: string; capturedAt: Date; mainPhotoNodeUid: string | null; relatedPhotoNodeUids: string[];
-  contentHash: string | null; mediaType: string | null; width: number | null; height: number | null;
-  durationSec: number | null; lat: number | null; lon: number | null; device: string | null;
-  tags: number[]; claimedMetadata: { Location?: unknown; Camera?: unknown; Media?: unknown } | null;
+  nodeUid: string;
+  capturedAt: Date;
+  mainPhotoNodeUid: string | null;
+  relatedPhotoNodeUids: string[];
+  contentHash: string | null;
+  mediaType: string | null;
+  width: number | null;
+  height: number | null;
+  durationSec: number | null;
+  lat: number | null;
+  lon: number | null;
+  device: string | null;
+  tags: number[];
+  claimedMetadata: { Location?: unknown; Camera?: unknown; Media?: unknown } | null;
   trashedAt: Date | null;
 }
-export type MapResult = { ok: true; photo: MappedPhoto } | { ok: false; reason: "not_photo" | "degraded" | "invalid" };
+export type MapResult =
+  | { ok: true; photo: MappedPhoto }
+  | { ok: false; reason: "not_photo" | "degraded" | "invalid" };
 export function mapPhotoNode(node: PhotoNode): MapResult;
 export function isValidCoordinate(lat: unknown, lon: unknown): lat is number;
 ```
@@ -711,10 +777,12 @@ it("returns not_photo for NodeType.Folder/Album and degraded when node.errors is
 ### Task 9: Ingest pipeline (details + thumbnail + NSFW, fail-closed)
 
 **Files:**
+
 - Create: `src/modules/proton/repository.ts`, `src/modules/proton/ingest.ts`
 - Test: `src/modules/proton/ingest.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ProtonPhotosApi` (Task 5), `PhotoClassifier`, `isBlocked`, `ClassifierUnavailableError`, `ClassifyInputError` (Task 7), `mapPhotoNode` (Task 8).
 - Produces:
 
@@ -723,37 +791,57 @@ export type IngestOutcome =
   | { kind: "pass"; photo: MappedPhoto; thumbnail: Uint8Array }
   | { kind: "block"; nodeUid: string; relatedUids: string[] }
   | { kind: "missing"; nodeUid: string }
-  | { kind: "skip"; nodeUid: string }                                 // not a photo
+  | { kind: "skip"; nodeUid: string } // not a photo
   | { kind: "fail"; nodeUid: string; error: string; thumbnailFailed: boolean };
 export const INGEST_CHUNK = 50;
-export function prepareIngest(api: ProtonPhotosApi, classifier: PhotoClassifier, uids: string[],
-  blocked: ReadonlySet<string>): Promise<IngestOutcome[]>;     // throws ClassifierUnavailableError
-export function applyIngest(tx: Database, userId: string, outcomes: IngestOutcome[],
-  modelVersion: string, now: Date): Promise<void>;
+export function prepareIngest(
+  api: ProtonPhotosApi,
+  classifier: PhotoClassifier,
+  uids: string[],
+  blocked: ReadonlySet<string>
+): Promise<IngestOutcome[]>; // throws ClassifierUnavailableError
+export function applyIngest(
+  tx: Database,
+  userId: string,
+  outcomes: IngestOutcome[],
+  modelVersion: string,
+  now: Date
+): Promise<void>;
 // repository.ts
 export function loadBlockedUids(db: Database, userId: string): Promise<Set<string>>;
 export function selectDetailsBatch(db: Database, userId: string, limit: number): Promise<string[]>;
-  // details_synced_at IS NULL AND details_attempts < 3 AND deleted_at IS NULL ORDER BY captured_at DESC
-export function upsertTimelineItems(db: Database, userId: string,
-  items: { nodeUid: string; captureTime: Date; tags: number[] }[], blocked: ReadonlySet<string>): Promise<void>;
-export function markNodesDeleted(tx: Database, userId: string, uids: string[], now: Date): Promise<void>; // + rows whose main is in uids
+// details_synced_at IS NULL AND details_attempts < 3 AND deleted_at IS NULL ORDER BY captured_at DESC
+export function upsertTimelineItems(
+  db: Database,
+  userId: string,
+  items: { nodeUid: string; captureTime: Date; tags: number[] }[],
+  blocked: ReadonlySet<string>
+): Promise<void>;
+export function markNodesDeleted(
+  tx: Database,
+  userId: string,
+  uids: string[],
+  now: Date
+): Promise<void>; // + rows whose main is in uids
 export function resetForReingest(tx: Database, userId: string, uids: string[]): Promise<void>;
-  // upsert placeholder rows (captured_at from node later), set details_synced_at=NULL, details_attempts=0
+// upsert placeholder rows (captured_at from node later), set details_synced_at=NULL, details_attempts=0
 ```
 
-  Per-outcome writes in `applyIngest`, all in the caller's transaction:
-  - **pass:** upsert the `photos` row with mapped fields, `details_synced_at = now`, `details_error = null`. EXIF coords → `location_source = 'exif'` and `location_checked_at = now`. Upsert `photo_thumbnails(photo_id, bytes, fetched_at = now)`.
-  - **block:** delete the `photos` rows where `node_uid` ∈ {uid, …relatedUids} or `main_photo_node_uid = uid`. Insert `photo_blocks` for uid and each related uid with `ON CONFLICT DO NOTHING` and `model_version`.
-  - **missing:** `markNodesDeleted`.
-  - **skip:** delete the row.
-  - **fail:** `details_attempts += 1`, `details_error = error`, and `thumbnail_attempts += 1` when `thumbnailFailed`. The thumbnail is never written.
+Per-outcome writes in `applyIngest`, all in the caller's transaction:
 
-  Fixed `details_error` strings:
-  - `"세부 정보를 복호화하지 못했습니다"` (degraded/invalid)
-  - `"썸네일을 받지 못했습니다"`
-  - `"썸네일 형식을 분류할 수 없습니다"`
+- **pass:** upsert the `photos` row with mapped fields, `details_synced_at = now`, `details_error = null`. EXIF coords → `location_source = 'exif'` and `location_checked_at = now`. Upsert `photo_thumbnails(photo_id, bytes, fetched_at = now)`.
+- **block:** delete the `photos` rows where `node_uid` ∈ {uid, …relatedUids} or `main_photo_node_uid = uid`. Insert `photo_blocks` for uid and each related uid with `ON CONFLICT DO NOTHING` and `model_version`.
+- **missing:** `markNodesDeleted`.
+- **skip:** delete the row.
+- **fail:** `details_attempts += 1`, `details_error = error`, and `thumbnail_attempts += 1` when `thumbnailFailed`. The thumbnail is never written.
 
-  **Spec reconciliation (3.2 vs 3.4a):** a thumbnail fetch failure must bump `details_attempts` too, because no thumbnail means no verdict, and 3.4a fail-closed supersedes 3.2's "thumbnail-only failure doesn't fail the row". `thumbnail_attempts` stays as a diagnostic counter.
+Fixed `details_error` strings:
+
+- `"세부 정보를 복호화하지 못했습니다"` (degraded/invalid)
+- `"썸네일을 받지 못했습니다"`
+- `"썸네일 형식을 분류할 수 없습니다"`
+
+**Spec reconciliation (3.2 vs 3.4a):** a thumbnail fetch failure must bump `details_attempts` too, because no thumbnail means no verdict, and 3.4a fail-closed supersedes 3.2's "thumbnail-only failure doesn't fail the row". `thumbnail_attempts` stays as a diagnostic counter.
 
 - [ ] **Step 1: Write the failing tests.** Use a fake `ProtonPhotosApi`, a fake classifier (`{ modelVersion: "test", classify: vi.fn() }`) and a recording fake tx.
 
@@ -794,21 +882,36 @@ it("yields to the event loop between classifications", …); // spy on setImmedi
 ### Task 10: Backfill stages
 
 **Files:**
+
 - Create: `src/modules/proton/backfill.ts`
 - Test: `src/modules/proton/backfill.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ProtonPhotosApi`, repository and ingest functions (Task 9).
 - Produces:
 
 ```ts
 export type BackfillStep = "baseline" | "list" | "details" | "complete" | "done";
-export function nextBackfillStep(c: Pick<ProtonConnection,
-  "eventCursor" | "timelineListedAt" | "backfillCompletedAt">, pendingDetails: number): BackfillStep;
+export function nextBackfillStep(
+  c: Pick<ProtonConnection, "eventCursor" | "timelineListedAt" | "backfillCompletedAt">,
+  pendingDetails: number
+): BackfillStep;
 export function captureBaselineCursor(api: ProtonPhotosApi, volumeId: string): Promise<string>; // first fast_forward eventId
-export function runTimelineListing(db: Database, api: ProtonPhotosApi, userId: string, now: Date): Promise<number>;
-export function runDetailsStage(db: Database, api: ProtonPhotosApi, classifier: PhotoClassifier,
-  userId: string, now: Date, limit?: number /* 500 */): Promise<{ processed: number }>;
+export function runTimelineListing(
+  db: Database,
+  api: ProtonPhotosApi,
+  userId: string,
+  now: Date
+): Promise<number>;
+export function runDetailsStage(
+  db: Database,
+  api: ProtonPhotosApi,
+  classifier: PhotoClassifier,
+  userId: string,
+  now: Date,
+  limit?: number /* 500 */
+): Promise<{ processed: number }>;
 export const DETAILS_BATCH_LIMIT = 500;
 ```
 
@@ -850,20 +953,36 @@ it("baseline takes the fast_forward eventId from iterateEvents(volumeId) without
 ### Task 11: Event processing
 
 **Files:**
+
 - Create: `src/modules/proton/events.ts`
 - Test: `src/modules/proton/events.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ProtonPhotosApi`, `prepareIngest`/`applyIngest`/`markNodesDeleted`/`resetForReingest` (Task 9), `isCursorRejection` (Task 2), `captureBaselineCursor` (Task 10).
 - Produces:
 
 ```ts
-export interface EventPlan { upsertUids: string[]; deleteUids: string[]; treeRefresh: boolean;
-  treeRemoved: boolean; lastEventId: string | null }
+export interface EventPlan {
+  upsertUids: string[];
+  deleteUids: string[];
+  treeRefresh: boolean;
+  treeRemoved: boolean;
+  lastEventId: string | null;
+}
 export const EVENT_BATCH = 100;
-export function planEventBatch(events: DriveEvent[], volumeId: string, blocked: ReadonlySet<string>): EventPlan;
-export function processEvents(db: Database, api: ProtonPhotosApi, classifier: PhotoClassifier,
-  conn: ProtonConnection, now: Date): Promise<{ applied: number; stopped: "end" | "tree_removed" }>;
+export function planEventBatch(
+  events: DriveEvent[],
+  volumeId: string,
+  blocked: ReadonlySet<string>
+): EventPlan;
+export function processEvents(
+  db: Database,
+  api: ProtonPhotosApi,
+  classifier: PhotoClassifier,
+  conn: ProtonConnection,
+  now: Date
+): Promise<{ applied: number; stopped: "end" | "tree_removed" }>;
 ```
 
 - [ ] **Step 1: Write the failing tests.**
@@ -905,10 +1024,12 @@ it("node_updated resets the row to hidden (details_synced_at NULL) before re-ing
 ### Task 12: OwnTracks location fill with settlement rules
 
 **Files:**
+
 - Create: `src/modules/proton/location.ts`
 - Test: `src/modules/proton/location.test.ts`, `src/modules/proton/location.integration.test.ts`
 
 **Interfaces:**
+
 - Consumes: `photos`, `locationPoints`, `locationProcessingDays`; `localDaySql`, `timestampParam` (`src/db/sql.ts`); `toLocalDateString` (`src/lib/utils.ts`).
 - Produces:
   - `export const PHOTO_LOCATION_WINDOW_SEC = 900`
@@ -964,10 +1085,12 @@ it("ignores rows without details (details_synced_at NULL) and exif rows", …);
 ### Task 13: `/data-status` source
 
 **Files:**
+
 - Modify: `src/modules/data-status/types.ts` (add `"proton"` to `SOURCE_IDS`; `SourceStatus.notes?: string[]`), `src/modules/data-status/service.ts` (LABELS, HELP, connections, reauth, success, observations union, notes), `src/app/data-status/page.tsx` (render `source.notes` under the timestamps)
 - Test: `src/modules/data-status/service.integration.test.ts` (add one `describe` block for proton)
 
 **Interfaces:**
+
 - Consumes: `getProtonSummary` counts (Task 6).
 - Produces:
   - `LABELS.proton = "Proton Drive 사진"`
@@ -1005,10 +1128,12 @@ it("adds count-only notes for failed details and blocked photos", …);
 ### Task 14: Thumbnail API
 
 **Files:**
+
 - Create: `src/app/api/photos/[photoId]/thumbnail/route.ts`
 - Test: `src/app/api/photos/[photoId]/thumbnail/route.test.ts`
 
 **Interfaces:**
+
 - Consumes: `photos`, `photoThumbnails`, `withAuth<RouteParams>` (pattern: `src/app/api/portfolio/accounts/[accountId]/targets/route.ts:7-24`).
 - Produces: `GET`. It returns 200 with bytes only for the owner's row with `details_synced_at IS NOT NULL AND deleted_at IS NULL` and a thumbnail. It returns 404 otherwise, including a non-UUID id. It never calls Proton.
 
@@ -1042,11 +1167,13 @@ it("does not import the Proton adapter", …); // module graph: vi.mock("@/lib/a
 ### Task 15: Settings card
 
 **Files:**
+
 - Create: `src/modules/proton/hooks.ts`, `src/modules/proton/components/ProtonSettings.tsx`
 - Modify: `src/modules/settings/components/SettingsForm.tsx` (render `<ProtonSettings />` after `WakaTimeSettings`, line ~288)
 - Test: `src/modules/proton/hooks.test.ts`
 
 **Interfaces:**
+
 - Consumes: `GET /api/proton` → `ProtonSummary`, `POST /api/proton/connect`, `GET /api/proton/connect/status`, `DELETE /api/proton` (Task 6).
 - Produces:
   - `useProtonConnection()`, a TanStack Query hook: `{ summary, start(): Promise<{signInUrl, expiresAt}>, disconnect(): Promise<{notice?: string}>, pollStatus }`. Status polling runs every 5000 ms only while a fork is pending and stops at `active`/`expired`/`none`.
@@ -1082,45 +1209,55 @@ it("does not import the Proton adapter", …); // module graph: vi.mock("@/lib/a
 ### Task 16: Sync orchestrator and cron registration
 
 **Files:**
+
 - Create: `src/modules/proton/sync.ts`, `src/modules/proton/cron.ts`
 - Modify: `src/lib/cron.ts` (register in `initializeCron` beside `registerDataRecoveryTask`; stop in `stopCron`)
 - Test: `src/modules/proton/sync.test.ts`, `src/modules/proton/cron.test.ts`
 
 **Interfaces:**
+
 - Consumes: everything from Tasks 4–12; `"proton"` in `SOURCE_IDS` (Task 13); `trackSourceSync(db, userId, "proton", run)` (`src/modules/data-status/telemetry.ts`); `getPool()`.
 - Produces:
 
 ```ts
-export interface ProtonSyncDeps { open: (db: Database, c: ProtonConnection) => Promise<ProtonPhotosApi>;
-  classifier: PhotoClassifier; now: () => Date }
-export function syncProtonPhotosForUser(db: Database, userId: string, deps: ProtonSyncDeps):
-  Promise<"skipped_locked" | "synced" | "rate_limited" | "needs_reauth">;
+export interface ProtonSyncDeps {
+  open: (db: Database, c: ProtonConnection) => Promise<ProtonPhotosApi>;
+  classifier: PhotoClassifier;
+  now: () => Date;
+}
+export function syncProtonPhotosForUser(
+  db: Database,
+  userId: string,
+  deps: ProtonSyncDeps
+): Promise<"skipped_locked" | "synced" | "rate_limited" | "needs_reauth">;
 export function syncAllProtonPhotos(db: Database, deps?: Partial<ProtonSyncDeps>): Promise<void>;
 export function registerProtonPhotosTask(schedule: ScheduleFn, timezone: string): ScheduledTask; // "*/10 * * * *", name "proton-photos"
 export function warmUpProtonRuntime(): Promise<void>; // initProtonRuntime + classifier load; logs "[Proton] runtime ready" / error
 ```
 
-  Tick per user (status `active` only; `pending` rows go through `clearExpiredFork`):
-  1. Take `pg_try_advisory_lock(hashtextextended('proton-sync:'||userId,0))` on `await getPool().connect()`. If not acquired → `skipped_locked`.
-  2. `trackSourceSync(db, userId, "proton", async () => { … })`:
-     - events (if `event_cursor`);
-     - then the backfill step (`baseline` / `list` / `details` / `complete`, where `complete` writes `backfill_completed_at`);
-     - **then** the details stage again only if the step was not already `details`, because event-reset rows also need it;
-     - then `fillPhotoLocations`;
-     - then `last_synced_at = now`, `last_error = null`.
-  3. Errors inside the run:
-     - `ClassifierUnavailableError` → set `last_error = PROTON_ERRORS.classifierUnavailable`. The details stage is skipped for this tick only. The run still completes events and location, and is reported as success.
-     - `isRateLimited` → rethrow so telemetry records an attempt without success. Outer result `rate_limited`, logged at warn.
-     - `isAuthFailure` → `needs_reauth` (the refresher already wrote it, or set it here with `authExpired`).
-     - Otherwise set `last_error = PROTON_ERRORS.syncFailed` and rethrow.
-  4. In `finally`: `pg_advisory_unlock` on the same client, then `client.release()`.
+Tick per user (status `active` only; `pending` rows go through `clearExpiredFork`):
 
-  `registerProtonPhotosTask` mirrors `src/modules/health/webhook-cron.ts`:
-  - closure `running` guard;
-  - lazy `import("./sync")` inside the tick;
-  - `warmUpProtonRuntime()` fired once at registration (catch → `logger.error`, never throws).
+1. Take `pg_try_advisory_lock(hashtextextended('proton-sync:'||userId,0))` on `await getPool().connect()`. If not acquired → `skipped_locked`.
+2. `trackSourceSync(db, userId, "proton", async () => { … })`:
+   - events (if `event_cursor`);
+   - then the backfill step (`baseline` / `list` / `details` / `complete`, where `complete` writes `backfill_completed_at`);
+   - **then** the details stage again only if the step was not already `details`, because event-reset rows also need it;
+   - then `fillPhotoLocations`;
+   - then `last_synced_at = now`, `last_error = null`.
+3. Errors inside the run:
+   - `ClassifierUnavailableError` → set `last_error = PROTON_ERRORS.classifierUnavailable`. The details stage is skipped for this tick only. The run still completes events and location, and is reported as success.
+   - `isRateLimited` → rethrow so telemetry records an attempt without success. Outer result `rate_limited`, logged at warn.
+   - `isAuthFailure` → `needs_reauth` (the refresher already wrote it, or set it here with `authExpired`).
+   - Otherwise set `last_error = PROTON_ERRORS.syncFailed` and rethrow.
+4. In `finally`: `pg_advisory_unlock` on the same client, then `client.release()`.
 
-- [ ] **Step 1: Write the failing tests.**
+`registerProtonPhotosTask` mirrors `src/modules/health/webhook-cron.ts`:
+
+- closure `running` guard;
+- lazy `import("./sync")` inside the tick;
+- `warmUpProtonRuntime()` fired once at registration (catch → `logger.error`, never throws).
+
+* [ ] **Step 1: Write the failing tests.**
 
 ```ts
 // cron.test.ts (style of src/modules/health/webhook-cron.test.ts)
@@ -1163,6 +1300,7 @@ it("only active connections sync; pending rows get clearExpiredFork", …);
 ### Task 17: Data usage and Sentry scrubbing
 
 **Files:**
+
 - Modify: `src/lib/data-usage.ts` (`CATEGORY_LABELS.photos = "사진"`; `TABLE_DEFS` += `{ category: "photos", table: "photos" }`, `{ category: "photos", table: "photo_thumbnails", ownedVia: { parent: "photos", fk: "photo_id" } }`), `src/modules/settings/components/DataUsageCard.tsx` (`CATEGORY_COLORS.photos = "#0ea5e9"`)
 - Modify: `src/lib/sentry-scrub.ts`:
   - `HEALTH_URL_MARKERS` += `"proton.me"`, `"/api/proton"`, `"/api/photos"`.
@@ -1202,6 +1340,7 @@ it("strips the response body of /api/photos/<id>/thumbnail breadcrumbs", …);
 ### Task 18: Account deletion
 
 **Files:**
+
 - Modify: `src/app/api/auth/disconnect/route.ts` (call `new ProtonConnectionService(db).revokeOnly(user.id)` before `deleteAccount`, inside try/catch; append `PROTON_ERRORS.revokeFailed` to `message` when it returns false)
 - Test: `src/app/api/auth/disconnect/route.test.ts`, `src/modules/proton/cascade.integration.test.ts`
 
@@ -1234,9 +1373,11 @@ it("deleting the users row cascades proton_connections, photos, photo_thumbnails
 ### Task 19: Rescreen script for model changes
 
 **Files:**
+
 - Create: `scripts/rescreen-photo-thumbnails.ts`, `scripts/rescreen-photo-thumbnails.test.ts`
 
 **Interfaces:**
+
 - Consumes: `createNsfwjsClassifier`, `isBlocked` (Task 7); the `applyIngest` block outcome (Task 9).
 - Produces: `rescreenUser(db: Database, userId: string, classifier: PhotoClassifier, opts: { dryRun: boolean }): Promise<{ scanned: number; blocked: number }>`. The CLI is `npx tsx scripts/rescreen-photo-thumbnails.ts <userId> [--apply]` and defaults to a dry run.
 
@@ -1268,6 +1409,7 @@ it("--apply blocks via the same delete-row + photo_blocks path and never logs by
 ### Task 20: Docs, privacy and final gates
 
 **Files:**
+
 - Modify: `src/app/privacy/page.tsx`:
   - Collected-items list (line ~54-66): add `<li>Proton Drive 사진 메타데이터(촬영 시각·위치·기기)와 썸네일(선택 연동)</li>`.
   - Add a sentence: `"민감한 이미지는 서버 안의 로컬 모델로 자동 판별하여 저장하지 않으며, 사진을 외부 분석 서비스로 보내지 않습니다."`

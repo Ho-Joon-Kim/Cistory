@@ -4,7 +4,12 @@ import { Auth, type ForkPollResult, type ProtonSessionTokens } from "./account/a
 import type { Logger } from "./account/logger";
 import type { SessionCredentials } from "./account/sessionCredentials";
 import { Srp, type SrpApiInterface } from "./account/srp";
-import { PROTON_ACCOUNT_URL, PROTON_API_BASE_URL, PROTON_APP_VERSION, PROTON_AUTH_CLIENT_ID } from "./constants";
+import {
+  PROTON_ACCOUNT_URL,
+  PROTON_API_BASE_URL,
+  PROTON_APP_VERSION,
+  PROTON_AUTH_CLIENT_ID,
+} from "./constants";
 
 export type { ForkPollResult, ProtonSessionTokens };
 

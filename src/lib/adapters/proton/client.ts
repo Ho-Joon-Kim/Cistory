@@ -1,8 +1,7 @@
-import type { AfterResponseHook } from "ky";
 import {
   type DriveEvent,
-  MemoryCache,
   type MaybeMissingPhotoNode,
+  MemoryCache,
   NullFeatureFlagProvider,
   OpenPGPCryptoWithCryptoProxy,
   type ProtonDriveHTTPClient,
@@ -10,6 +9,7 @@ import {
   ThumbnailType,
 } from "@protontech/drive-sdk";
 import { ProtonDrivePhotosClient } from "@protontech/drive-sdk/dist/protonDrivePhotosClient.js";
+import type { AfterResponseHook } from "ky";
 import { logger } from "@/lib/logger";
 import {
   ApiClient,

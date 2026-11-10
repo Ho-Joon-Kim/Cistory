@@ -85,10 +85,7 @@ export async function revokeProtonSession(tokens: ProtonSessionTokens): Promise<
 
     const refreshed = await postProtonRefresh(tokens);
     if (refreshed.kind !== "ok") return false;
-    const retry = await deleteSession(
-      { ...tokens, uid: refreshed.uid },
-      refreshed.accessToken
-    );
+    const retry = await deleteSession({ ...tokens, uid: refreshed.uid }, refreshed.accessToken);
     return retry >= 200 && retry < 300;
   } catch {
     return false;

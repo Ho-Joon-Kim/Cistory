@@ -50,7 +50,10 @@ describe("driveRequirementsHook", () => {
     const log = vi.fn();
     const hook = driveRequirementsHook(log);
     const call = (value?: string) => {
-      const response = new Response("ok", value ? { headers: { "x-pm-drive-requirements": value } } : {});
+      const response = new Response(
+        "ok",
+        value ? { headers: { "x-pm-drive-requirements": value } } : {}
+      );
       return (hook as (...a: unknown[]) => unknown)(new Request("https://x"), {}, response);
     };
     expect(call("min=2")).toBeUndefined();

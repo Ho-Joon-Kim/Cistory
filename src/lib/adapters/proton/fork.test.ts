@@ -77,7 +77,9 @@ describe("startProtonFork", () => {
   it("builds a sign-in URL carrying external-drive and a 10-minute expiry", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-10T00:00:00.000Z"));
-    const fetchFn = vi.fn(async () => json(200, { Code: 1000, Selector: "sel-1", UserCode: "uc-1" }));
+    const fetchFn = vi.fn(async () =>
+      json(200, { Code: 1000, Selector: "sel-1", UserCode: "uc-1" })
+    );
     vi.stubGlobal("fetch", fetchFn);
 
     const fork = await startProtonFork();
