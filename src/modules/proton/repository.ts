@@ -15,7 +15,7 @@ import type { Database } from "@/db";
 import { type ProtonConnection, photoBlocks, photos, protonConnections } from "@/db/schema";
 import { decryptSecret } from "@/lib/crypto";
 import { lockProtonTokens } from "./token";
-import { PROTON_MAX_DETAILS_ATTEMPTS } from "./types";
+import { PROTON_ERRORS, PROTON_MAX_DETAILS_ATTEMPTS } from "./types";
 
 /**
  * Anything that can run Drizzle statements: the root db or a transaction.
@@ -235,6 +235,41 @@ export async function markTimelineListed(
   await tx
     .update(protonConnections)
     .set({ timelineListedAt: now, updatedAt: now })
+    .where(eq(protonConnections.userId, userId));
+}
+
+/** What one applied event batch changes on the connection row. */
+export interface EventBatchState {
+  /** New event cursor; null keeps the stored one. */
+  cursor: string | null;
+  /** Forget the listing and completion so the backfill re-lists and reconciles. */
+  resetListing: boolean;
+  /** The photos volume is gone: the user has to reconnect. */
+  treeRemoved: boolean;
+}
+
+/**
+ * Writes an event batch's connection state. Called in the same transaction
+ * as the batch's photo writes, so the cursor never moves past changes that
+ * were not applied (spec 3.4).
+ */
+export async function saveEventBatchState(
+  tx: ProtonDbExecutor,
+  userId: string,
+  state: EventBatchState,
+  now: Date
+): Promise<void> {
+  if (!state.cursor && !state.resetListing && !state.treeRemoved) return;
+  await tx
+    .update(protonConnections)
+    .set({
+      ...(state.cursor ? { eventCursor: state.cursor } : {}),
+      ...(state.resetListing ? { timelineListedAt: null, backfillCompletedAt: null } : {}),
+      ...(state.treeRemoved
+        ? { status: "needs_reauth" as const, lastError: PROTON_ERRORS.treeRemoved }
+        : {}),
+      updatedAt: now,
+    })
     .where(eq(protonConnections.userId, userId));
 }
 
