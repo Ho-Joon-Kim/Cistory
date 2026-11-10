@@ -7,9 +7,11 @@ import {
   fetchCategoryPaymentCounts,
   fetchStayDays,
   isCurrentOverviewRequest,
+  keepPreviousOverviewData,
   loadNarrativeUntilSettled,
   loadOverviewUntilSettled,
   overviewErrorMessage,
+  overviewPollDelay,
   recomputeResponseJson,
   resolveOverviewPeriod,
 } from "./hooks";
@@ -215,6 +217,71 @@ describe("overview polling controller", () => {
     ).rejects.toThrow("계산 대기 시간이 초과");
 
     expect(get).toHaveBeenCalledTimes(4);
+  });
+
+  it("backs off 3s → 10s → 30s between polls", () => {
+    expect([0, 4, 5, 14, 15, 100].map(overviewPollDelay)).toEqual([
+      3_000, 3_000, 10_000, 10_000, 30_000, 30_000,
+    ]);
+  });
+
+  it("keeps polling a stale snapshot past the empty-state limit until it is ready", async () => {
+    const stale = {
+      status: "pending" as const,
+      stale: true as const,
+      periodType: "month" as const,
+      periodKey: "2026-11",
+      computedAt: "2026-11-09T00:00:00.000Z",
+      domains: { coding: null, location: null, health: null, spending: null, portfolio: null },
+    };
+    const ready = { ...stale, status: "ready" as const, stale: undefined };
+    const get = vi.fn().mockResolvedValue(stale);
+    for (let index = 0; index < 6; index++) get.mockResolvedValueOnce(stale);
+    get.mockResolvedValueOnce(ready);
+    const wait = vi.fn(async () => undefined);
+    const onUpdate = vi.fn();
+
+    const result = await loadOverviewUntilSettled({
+      get,
+      enqueue: vi.fn(),
+      wait,
+      isVisible: () => true,
+      enqueued: new Set(),
+      periodType: "month",
+      periodKey: "2026-11",
+      maxPolls: 3,
+      signal: new AbortController().signal,
+      onUpdate,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(get).toHaveBeenCalledTimes(7);
+    expect(wait.mock.calls.map((call) => (call as unknown[])[1])).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(onUpdate).toHaveBeenLastCalledWith(ready);
+  });
+
+  it("keeps the data on screen when a recompute request replies with a bare pending", () => {
+    const previous = {
+      status: "ready" as const,
+      periodType: "month" as const,
+      periodKey: "2026-11",
+      computedAt: "2026-11-09T00:00:00.000Z",
+      domains: { coding: null, location: null, health: null, spending: null, portfolio: null },
+    };
+    const pending = {
+      status: "pending" as const,
+      periodType: "month" as const,
+      periodKey: "2026-11",
+    };
+
+    expect(keepPreviousOverviewData(pending, previous)).toEqual({
+      ...pending,
+      stale: true,
+      computedAt: previous.computedAt,
+      domains: previous.domains,
+    });
+    expect(keepPreviousOverviewData(pending, null)).toBe(pending);
+    expect(keepPreviousOverviewData(pending, { ...previous, periodKey: "2026-10" })).toBe(pending);
   });
 
   it("does not remember a failed enqueue as successful", async () => {

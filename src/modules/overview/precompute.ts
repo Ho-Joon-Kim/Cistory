@@ -27,7 +27,17 @@ import type { PeriodAggregateInput, PeriodAggregatePayload } from "./types";
 // Postgres read 9h late against the UTC-wall columns — every snapshot dropped
 // 00:00-09:00 KST of its first day and took 00:00-09:00 KST of the day after it.
 export const OVERVIEW_COMPUTE_VERSION = 5;
+/** Rows claimed per lease batch. Small, so a batch finishes far inside its lease. */
 export const PRECOMPUTE_CLAIM_LIMIT = 5;
+/**
+ * Wall-clock budget for one run: keep claiming batches until it is spent or the
+ * queue is empty. One compute measured 0.5 s (week/month) to 2 s (year) against
+ * the dev DB over Tailscale, so a 3-minute budget clears ~100+ snapshots per run
+ * — a bulk invalidation (a whole history recovery marks ~40 pending) drains in
+ * one tick instead of eight. It stays well under the 5-minute schedule, and the
+ * in-process single-flight guard plus DB leases keep runs from overlapping.
+ */
+export const PRECOMPUTE_TIME_BUDGET_MS = 3 * 60 * 1000;
 export const PRECOMPUTE_MAX_ATTEMPTS = 3;
 export const PRECOMPUTE_USER_BATCH_LIMIT = 250;
 const LEASE_DURATION_MS = 10 * 60 * 1000;
@@ -77,6 +87,8 @@ export interface PrecomputeStore {
     computeVersion: number;
     maxAttempts: number;
     limit: number;
+    /** Rows already claimed earlier in this run, never reclaimed by it. */
+    excludeIds?: string[];
   }): Promise<PrecomputeSnapshot[]>;
   publishSnapshot(snapshot: PrecomputeSnapshot, publication: SnapshotPublication): Promise<boolean>;
   releaseSnapshot(snapshot: PrecomputeSnapshot): Promise<boolean>;
@@ -100,6 +112,9 @@ export interface PrecomputeRunResult {
 export interface OverviewPrecomputeDependencies {
   store: PrecomputeStore;
   aggregate(input: PeriodAggregateInput): Promise<PeriodAggregatePayload>;
+  /** Monotonic-enough ms clock for the run's time budget. Default `Date.now`. */
+  clock?: () => number;
+  timeBudgetMs?: number;
 }
 
 export function toSnapshotDomainColumns(payload: PeriodAggregatePayload) {
@@ -119,23 +134,47 @@ function activePeriodsAt(now: Date) {
   }));
 }
 
+function isActiveSnapshot(
+  snapshot: Pick<PrecomputeSnapshot, "periodType" | "periodKey">,
+  activePeriods: Pick<ActivePeriodSeed, "periodType" | "periodKey">[]
+) {
+  return activePeriods.some(
+    (active) => active.periodType === snapshot.periodType && active.periodKey === snapshot.periodKey
+  );
+}
+
+/**
+ * Claim tier, lowest first — mirrors the `ORDER BY` CASE in `claimSnapshots`:
+ *   0  a current period that needs work (pending/failed/old version) — what the
+ *      page shows by default, so it never waits behind a backlog
+ *   1  any other pending/failed period the page can show (week/month/year)
+ *   2  an ended period awaiting finalization (an active one is never finalized)
+ *   3  an old compute version
+ *   4  routine refresh of an already-ready current period
+ *   5  everything else (old rolling `recent` keys, which no page renders)
+ * Within a tier rows go round-robin across users, then most recent period first.
+ */
 export function getClaimPriority(
   snapshot: PrecomputeSnapshot,
   activePeriods: Pick<ActivePeriodSeed, "periodType" | "periodKey">[],
   computeVersion: number
 ): number {
-  if (snapshot.status === "pending") return 0;
-  if (
-    activePeriods.some(
-      (active) =>
-        active.periodType === snapshot.periodType && active.periodKey === snapshot.periodKey
-    )
-  ) {
-    return 1;
-  }
-  if (snapshot.periodType !== "recent" && snapshot.finalizedAt === null) return 2;
-  if (snapshot.computeVersion < computeVersion) return 3;
-  return 4;
+  const active = isActiveSnapshot(snapshot, activePeriods);
+  const needsWork = snapshot.status === "pending" || snapshot.status === "failed";
+  const oldVersion = snapshot.computeVersion < computeVersion;
+  if (active && (needsWork || oldVersion)) return 0;
+  const viewable = snapshot.periodType !== "recent";
+  if (viewable && needsWork) return 1;
+  if (active) return 4;
+  if (viewable && snapshot.finalizedAt === null) return 2;
+  if (viewable && oldVersion) return 3;
+  return 5;
+}
+
+/** Last KST day of a period as `YYYY-MM-DD` — the recency key claims sort on (descending). */
+export function periodEndKey(periodType: PeriodType, periodKey: string): string {
+  const range = getPeriodRange(periodType, periodKey);
+  return toLocalDateString(new Date(range.toExclusive.getTime() - 1));
 }
 
 function isCompletedLocationWindow(
@@ -231,21 +270,16 @@ async function processClaimedSnapshot(
   }
 }
 
-export async function runPrecomputeTick(
-  dependencies: OverviewPrecomputeDependencies,
-  options: PrecomputeRunOptions = {}
-): Promise<PrecomputeRunResult> {
-  const now = options.now ?? new Date();
-  const activePeriods = activePeriodsAt(now);
-  const recovered = await dependencies.store.recoverExpiredLeases(now, PRECOMPUTE_MAX_ATTEMPTS);
+async function seedAllActivePeriods(
+  store: PrecomputeStore,
+  activePeriods: Pick<ActivePeriodSeed, "periodType" | "periodKey">[],
+  now: Date
+) {
   let afterUserId: string | null = null;
   while (true) {
-    const userIds = await dependencies.store.listUserIdsPage(
-      afterUserId,
-      PRECOMPUTE_USER_BATCH_LIMIT
-    );
+    const userIds = await store.listUserIdsPage(afterUserId, PRECOMPUTE_USER_BATCH_LIMIT);
     if (userIds.length === 0) break;
-    await dependencies.store.seedActivePeriods(
+    await store.seedActivePeriods(
       userIds.flatMap((userId) =>
         activePeriods.map((period) => ({
           userId,
@@ -258,39 +292,69 @@ export async function runPrecomputeTick(
     afterUserId = userIds.at(-1) ?? null;
     if (userIds.length < PRECOMPUTE_USER_BATCH_LIMIT) break;
   }
+}
 
-  const claimed = await dependencies.store.claimSnapshots({
-    now,
-    leaseExpiresAt: new Date(now.getTime() + LEASE_DURATION_MS),
-    activePeriods,
-    computeVersion: OVERVIEW_COMPUTE_VERSION,
-    maxAttempts: PRECOMPUTE_MAX_ATTEMPTS,
-    limit: PRECOMPUTE_CLAIM_LIMIT,
-  });
+/**
+ * Claims and computes lease batches until the time budget is spent or nothing is
+ * claimable. Each row is claimed at most once per run (`excludeIds`): an active
+ * period stays claimable after publishing and a deferred one goes back to
+ * pending, so without the exclusion one run would spin on them.
+ */
+async function drainClaims(
+  dependencies: OverviewPrecomputeDependencies,
+  activePeriods: Pick<ActivePeriodSeed, "periodType" | "periodKey">[],
+  options: PrecomputeRunOptions
+) {
   const completed = new Map(
     (options.completedLocationWindows ?? []).map((window) => [
       window.userId,
       window.completedThrough,
     ])
   );
-  let published = 0;
-  let failed = 0;
-  let deferredForLocation = 0;
+  const clock = dependencies.clock ?? Date.now;
+  const deadline = clock() + (dependencies.timeBudgetMs ?? PRECOMPUTE_TIME_BUDGET_MS);
+  const claimedIds: string[] = [];
+  const outcomes: SnapshotOutcome[] = [];
 
-  for (const snapshot of claimed) {
-    const outcome = await processClaimedSnapshot(dependencies, snapshot, now, completed);
-    if (outcome === "published") published += 1;
-    if (outcome === "failed") failed += 1;
-    if (outcome === "deferred") deferredForLocation += 1;
-  }
+  do {
+    const batchNow = options.now ?? new Date();
+    const claimed = await dependencies.store.claimSnapshots({
+      now: batchNow,
+      leaseExpiresAt: new Date(batchNow.getTime() + LEASE_DURATION_MS),
+      activePeriods,
+      computeVersion: OVERVIEW_COMPUTE_VERSION,
+      maxAttempts: PRECOMPUTE_MAX_ATTEMPTS,
+      limit: PRECOMPUTE_CLAIM_LIMIT,
+      excludeIds: [...claimedIds],
+    });
+    if (claimed.length === 0) break;
+    for (const snapshot of claimed) {
+      claimedIds.push(snapshot.id);
+      outcomes.push(await processClaimedSnapshot(dependencies, snapshot, batchNow, completed));
+    }
+  } while (clock() < deadline);
 
+  const count = (outcome: SnapshotOutcome) => outcomes.filter((item) => item === outcome).length;
+  return {
+    claimed: claimedIds.length,
+    published: count("published"),
+    failed: count("failed"),
+    deferredForLocation: count("deferred"),
+  };
+}
+
+export async function runPrecomputeTick(
+  dependencies: OverviewPrecomputeDependencies,
+  options: PrecomputeRunOptions = {}
+): Promise<PrecomputeRunResult> {
+  const now = options.now ?? new Date();
+  const activePeriods = activePeriodsAt(now);
+  const recovered = await dependencies.store.recoverExpiredLeases(now, PRECOMPUTE_MAX_ATTEMPTS);
+  await seedAllActivePeriods(dependencies.store, activePeriods, now);
   return {
     skipped: false,
     recovered,
-    claimed: claimed.length,
-    published,
-    failed,
-    deferredForLocation,
+    ...(await drainClaims(dependencies, activePeriods, options)),
   };
 }
 
@@ -355,31 +419,71 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
         ),
         sql` OR `
       );
+      const excluded =
+        options.excludeIds && options.excludeIds.length > 0
+          ? sql`AND ${periodSnapshots.id} NOT IN (${sql.join(
+              options.excludeIds.map((id) => sql`${id}::uuid`),
+              sql`, `
+            )})`
+          : sql``;
+      const needsWork = sql`${periodSnapshots.status} IN ('pending', 'failed')`;
+      const oldVersion = sql`${periodSnapshots.computeVersion} < ${options.computeVersion}`;
+      const viewable = sql`${periodSnapshots.periodType} <> 'recent'`;
+      // Last KST day of the period, for "most recent period first". Keys are
+      // canonical (validated on every write path), so the casts cannot fail.
+      const periodEnd = sql`CASE ${periodSnapshots.periodType}
+            WHEN 'recent' THEN ${periodSnapshots.periodKey}::date
+            WHEN 'week' THEN to_date(${periodSnapshots.periodKey}, 'IYYY-"W"IW') + 6
+            WHEN 'month' THEN (to_date(${periodSnapshots.periodKey}, 'YYYY-MM') + interval '1 month' - interval '1 day')::date
+            ELSE to_date(${periodSnapshots.periodKey} || '-12-31', 'YYYY-MM-DD')
+          END`;
+      // Tiers mirror getClaimPriority. The window function can't share a query
+      // level with FOR UPDATE, so ranking happens in its own CTE and the lock is
+      // taken (re-checking status under SKIP LOCKED) in the next one.
       const result = await db.execute(sql`
-        WITH candidates AS (
-          SELECT ${periodSnapshots.id}
+        WITH ranked AS (
+          SELECT ${periodSnapshots.id} AS id, tiered.tier, tiered.period_end,
+            row_number() OVER (
+              PARTITION BY ${periodSnapshots.userId}, tiered.tier
+              ORDER BY tiered.period_end DESC, ${periodSnapshots.updatedAt} ASC, ${periodSnapshots.id}
+            ) AS user_rank,
+            ${periodSnapshots.updatedAt} AS updated_at
           FROM ${periodSnapshots}
+          CROSS JOIN LATERAL (
+            SELECT
+              CASE
+                WHEN (${activePredicate}) AND (${needsWork} OR ${oldVersion}) THEN 0
+                WHEN ${viewable} AND ${needsWork} THEN 1
+                WHEN (${activePredicate}) THEN 4
+                WHEN ${viewable} AND ${periodSnapshots.finalizedAt} IS NULL THEN 2
+                WHEN ${viewable} AND ${oldVersion} THEN 3
+                ELSE 5
+              END AS tier,
+              ${periodEnd} AS period_end
+          ) tiered
           WHERE ${periodSnapshots.status} <> 'computing'
             AND ${periodSnapshots.attemptCount} < ${options.maxAttempts}
             AND (
               (${activePredicate})
-              OR ${periodSnapshots.status} IN ('pending', 'failed')
-              OR (${periodSnapshots.periodType} <> 'recent' AND ${periodSnapshots.finalizedAt} IS NULL)
-              OR ${periodSnapshots.computeVersion} < ${options.computeVersion}
+              OR ${needsWork}
+              OR (${viewable} AND ${periodSnapshots.finalizedAt} IS NULL)
+              OR ${oldVersion}
             )
-          ORDER BY
-            CASE
-              WHEN ${periodSnapshots.status} = 'pending' THEN 0
-              WHEN (${activePredicate}) THEN 1
-              WHEN ${periodSnapshots.periodType} <> 'recent' AND ${periodSnapshots.finalizedAt} IS NULL THEN 2
-              WHEN ${periodSnapshots.computeVersion} < ${options.computeVersion} THEN 3
-              ELSE 4
-            END,
-            ${periodSnapshots.updatedAt} ASC,
-            ${periodSnapshots.id}
-          FOR UPDATE SKIP LOCKED
+            ${excluded}
+        ),
+        candidates AS (
+          SELECT ${periodSnapshots.id}, ranked.tier, ranked.user_rank, ranked.period_end,
+            ranked.updated_at
+          FROM ${periodSnapshots}
+          JOIN ranked ON ranked.id = ${periodSnapshots.id}
+          WHERE ${periodSnapshots.status} <> 'computing'
+            AND ${periodSnapshots.attemptCount} < ${options.maxAttempts}
+          ORDER BY ranked.tier, ranked.user_rank, ranked.period_end DESC,
+            ranked.updated_at ASC, ${periodSnapshots.id}
+          FOR UPDATE OF ${periodSnapshots} SKIP LOCKED
           LIMIT ${options.limit}
-        )
+        ),
+        claimed AS (
         UPDATE ${periodSnapshots}
         SET ${setTarget(periodSnapshots.status)} = 'computing',
           ${setTarget(periodSnapshots.computeStartedAt)} = ${timestampParam(periodSnapshots.computeStartedAt, options.now)},
@@ -395,7 +499,14 @@ export function createDatabasePrecomputeStore(db: Database): PrecomputeStore {
           ${periodSnapshots.attemptCount} AS "attemptCount",
           ${periodSnapshots.computeVersion} AS "computeVersion",
           ${periodSnapshots.finalizedAt} AS "finalizedAt",
-          ${periodSnapshots.computeStartedAt} AS "computeStartedAt"
+          ${periodSnapshots.computeStartedAt} AS "computeStartedAt",
+          candidates.tier, candidates.user_rank, candidates.period_end,
+          candidates.updated_at AS previous_updated_at
+        )
+        -- UPDATE ... RETURNING has no defined order; hand rows back in claim order
+        -- so the runner computes the most-wanted snapshot first.
+        SELECT * FROM claimed
+        ORDER BY tier, user_rank, period_end DESC, previous_updated_at ASC, id
       `);
       return resultRows(result).map((row) => ({
         id: String(row.id),

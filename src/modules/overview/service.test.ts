@@ -90,6 +90,63 @@ describe("overview service", () => {
     });
   });
 
+  it.each(["pending", "computing"] as const)(
+    "serves a %s row's last computed envelopes as stale data",
+    async (status) => {
+      const envelope = (computedAt: string) =>
+        ({
+          data: { totalCommits: 4 },
+          status: "ready" as const,
+          computedAt,
+          computeVersion: 5,
+          errorCode: null,
+        }) as never;
+      const coding = envelope("2026-07-22T01:59:00.000Z");
+      const health = envelope("2026-07-22T02:01:00.000Z");
+      const repository = store({
+        findSnapshot: vi.fn(async () => ({
+          status,
+          // Re-marked pending later: the invalidation time, not when data was computed.
+          updatedAt: new Date("2026-07-22T05:00:00.000Z"),
+          coding,
+          location: null,
+          health,
+          spending: null,
+          assets: null,
+        })),
+      });
+
+      await expect(
+        createOverviewService(repository).getSnapshot("user-1", "month", "2026-07")
+      ).resolves.toEqual({
+        status,
+        stale: true,
+        periodType: "month",
+        periodKey: "2026-07",
+        computedAt: "2026-07-22T02:01:00.000Z",
+        domains: { coding, location: null, health, spending: null, portfolio: null },
+      });
+    }
+  );
+
+  it("returns a bare pending status when the row has never been computed", async () => {
+    const repository = store({
+      findSnapshot: vi.fn(async () => ({
+        status: "pending",
+        updatedAt: NOW,
+        coding: null,
+        location: null,
+        health: null,
+        spending: null,
+        assets: null,
+      })),
+    });
+
+    await expect(
+      createOverviewService(repository).getSnapshot("user-1", "month", "2026-07")
+    ).resolves.toEqual({ status: "pending", periodType: "month", periodKey: "2026-07" });
+  });
+
   it("detects retryable partial failures in otherwise ready snapshots", () => {
     expect(
       hasFailedOverviewDomains({

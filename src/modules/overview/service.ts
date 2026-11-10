@@ -69,12 +69,46 @@ export type OverviewSnapshotResponse =
   | { status: "missing"; periodType: PeriodType; periodKey: string }
   | { status: "pending" | "computing"; periodType: PeriodType; periodKey: string }
   | {
+      /**
+       * Queued for recompute but still holding the last computed envelopes
+       * (invalidation and recompute requests never clear them): served
+       * stale-while-revalidate so the page keeps showing numbers.
+       */
+      status: "pending" | "computing";
+      stale: true;
+      periodType: PeriodType;
+      periodKey: string;
+      computedAt: string;
+      domains: OverviewSnapshotDomains;
+    }
+  | {
       status: "ready" | "failed";
       periodType: PeriodType;
       periodKey: string;
       computedAt: string;
       domains: OverviewSnapshotDomains;
     };
+
+function snapshotDomains(snapshot: OverviewStoredSnapshot): OverviewSnapshotDomains {
+  return {
+    coding: snapshot.coding,
+    location: snapshot.location,
+    health: snapshot.health,
+    spending: snapshot.spending,
+    portfolio: snapshot.assets,
+  };
+}
+
+/**
+ * When the stored envelopes were computed. A pending row's `updatedAt` is the
+ * invalidation time, not the computation time, so read the envelopes' own stamps.
+ */
+function envelopesComputedAt(domains: OverviewSnapshotDomains, fallback: Date): string {
+  const stamps = Object.values(domains)
+    .map((domain) => (domain ? Date.parse(domain.computedAt) : Number.NaN))
+    .filter((stamp) => Number.isFinite(stamp));
+  return new Date(stamps.length > 0 ? Math.max(...stamps) : fallback.getTime()).toISOString();
+}
 
 function parseCanonicalPeriod(periodType: string, periodKey: string): PeriodType {
   if (!periodTypes.includes(periodType as PeriodType)) {
@@ -131,8 +165,19 @@ export function createOverviewService(store: OverviewStore) {
       const snapshot = await store.findSnapshot(userId, periodType, periodKey);
 
       if (!snapshot) return { status: "missing", periodType, periodKey };
+      const domains = snapshotDomains(snapshot);
       if (snapshot.status === "pending" || snapshot.status === "computing") {
-        return { status: snapshot.status, periodType, periodKey };
+        if (Object.values(domains).every((domain) => domain == null)) {
+          return { status: snapshot.status, periodType, periodKey };
+        }
+        return {
+          status: snapshot.status,
+          stale: true,
+          periodType,
+          periodKey,
+          computedAt: envelopesComputedAt(domains, snapshot.updatedAt),
+          domains,
+        };
       }
 
       return {
@@ -140,13 +185,7 @@ export function createOverviewService(store: OverviewStore) {
         periodType,
         periodKey,
         computedAt: snapshot.updatedAt.toISOString(),
-        domains: {
-          coding: snapshot.coding,
-          location: snapshot.location,
-          health: snapshot.health,
-          spending: snapshot.spending,
-          portfolio: snapshot.assets,
-        },
+        domains,
       };
     },
 

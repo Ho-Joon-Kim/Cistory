@@ -7,12 +7,13 @@ import { Header } from "@/components/Layout/Header";
 import { toKstCalendarDate } from "@/lib/date-key";
 import { useAuth } from "@/modules/auth/hooks";
 import { resolveComparisonYears } from "@/modules/overview/comparison";
-import { ComputingState } from "@/modules/overview/components/ComputingState";
+import { ComputingState, UpdatingNote } from "@/modules/overview/components/ComputingState";
 import { OverviewComparison } from "@/modules/overview/components/OverviewComparison";
 import { OverviewView } from "@/modules/overview/components/view/OverviewView";
 import { PeriodControls } from "@/modules/overview/components/view/PeriodControls";
 import type { HistoryPeriodType } from "@/modules/overview/history";
 import {
+  isStaleOverviewSnapshot,
   type OverviewPeriodSelection,
   resolveOverviewPeriod,
   useOverviewHistory,
@@ -38,6 +39,20 @@ function resolveSelection(
   return selection as { periodType: HistoryPeriodType; periodKey: string };
 }
 
+/** Period meta line; while a stale snapshot recomputes it adds the updating note. */
+function OverviewMeta({ text, updating }: { text: string; updating: boolean }) {
+  if (!updating) return text;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5">
+      <span>{text}</span>
+      <span aria-hidden="true" className="hidden sm:inline">
+        ·
+      </span>
+      <UpdatingNote className="basis-full sm:basis-auto" />
+    </span>
+  );
+}
+
 function OverviewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -60,7 +75,11 @@ function OverviewContent() {
     selection.periodKey,
     isAuthenticated && !isComparison
   );
+  // A stale snapshot (queued for recompute, still holding its last computed data)
+  // renders exactly like a ready one — same tree, so the swap to fresh numbers
+  // replays no entrance — with a small note in the meta line.
   const ready = snapshot && "domains" in snapshot ? snapshot : null;
+  const updating = isStaleOverviewSnapshot(snapshot);
   const history = useOverviewHistory(
     selection.periodType,
     selection.periodKey,
@@ -218,7 +237,14 @@ function OverviewContent() {
           <PageTitle
             className="ds-enter"
             title={isComparison ? "연간 비교" : periodTitle(ctx)}
-            meta={isComparison ? null : periodMeta(ctx, ready?.computedAt ?? null)}
+            meta={
+              isComparison ? null : (
+                <OverviewMeta
+                  text={periodMeta(ctx, ready?.computedAt ?? null)}
+                  updating={updating}
+                />
+              )
+            }
             actions={
               isComparison ? null : (
                 <PeriodControls
