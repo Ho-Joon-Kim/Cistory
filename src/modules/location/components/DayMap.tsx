@@ -20,6 +20,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 const LIGHT_STYLE = "mapbox://styles/mapbox/light-v11";
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11";
+const MAP_LOCALE = { "Map.Title": "지도" };
 const SEOUL = { longitude: 126.978, latitude: 37.5665 };
 
 export interface MapStay {
@@ -168,21 +169,40 @@ export function DayMap({
   const [palette, setPalette] = useState<Palette | null>(null);
   const { stateOf, isActive } = useEvidence();
 
+  // The palette is read from the CSS tokens, and those only change once the theme
+  // class lands on <html> — which next-themes applies in ITS effect, after this
+  // component's effects have run. Reading on `resolvedTheme` alone therefore kept
+  // the previous theme's colors after a runtime toggle (light routes and halos on
+  // the dark basemap), so re-read whenever <html>'s theme attributes change.
   useEffect(() => {
-    if (resolvedTheme) setPalette(readPalette());
+    if (!resolvedTheme) return;
+    const sync = () =>
+      setPalette((prev) => {
+        const next = readPalette();
+        return prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+      });
+    sync();
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme", "style"],
+    });
+    return () => observer.disconnect();
   }, [resolvedTheme]);
 
   // Calm every style the map loads (the theme swaps light ↔ dark styles).
   useEffect(() => {
     const map = mapRef.current?.getMap();
     if (!map || !loaded) return;
-    const apply = () => calmStyle(map, readPalette());
+    // `palette` re-runs this once the new theme's tokens are readable.
+    const apply = () => calmStyle(map, palette ?? readPalette());
     if (map.isStyleLoaded()) apply();
     map.on("style.load", apply);
     return () => {
       map.off("style.load", apply);
     };
-  }, [loaded]);
+  }, [loaded, palette]);
 
   const routes = useMemo(
     () =>
@@ -481,6 +501,8 @@ export function DayMap({
         attributionControl={false}
         style={{ width: "100%", height: "100%" }}
         language="ko"
+        // The canvas's accessible name (Mapbox defaults to English "Map").
+        locale={MAP_LOCALE}
         {...MAPBOX_PRIVACY_OPTIONS}
         onLoad={(e) => {
           // Calm (and localize) the first style before it paints its English labels.

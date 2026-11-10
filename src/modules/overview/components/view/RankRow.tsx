@@ -43,11 +43,17 @@ export function RankRow({
     <>
       {shortName && shortName !== name ? (
         <>
-          <span className="truncate sm:hidden">{shortName}</span>
-          <span className="hidden truncate sm:inline">{name}</span>
+          <span title={name} className="max-w-full truncate sm:hidden">
+            {shortName}
+          </span>
+          <span title={name} className="hidden max-w-full truncate sm:inline">
+            {name}
+          </span>
         </>
       ) : (
-        <span className="truncate">{name}</span>
+        <span title={name} className="max-w-full truncate">
+          {name}
+        </span>
       )}
       {sub ? <span className="shrink-0 truncate text-xs text-ink-3">{sub}</span> : null}
       {flag ? <Flag tone={flagTone}>{flag}</Flag> : null}
@@ -92,12 +98,14 @@ export function RankRow({
           >
             <path d="M9 18l6-6-6-6" />
           </svg>
-          <span className="flex min-w-0 items-center gap-2 group-hover:[&>span:first-child]:underline group-hover:[&>span:first-child]:underline-offset-3">
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 group-hover:[&>span:first-child]:underline group-hover:[&>span:first-child]:underline-offset-3">
             {content}
           </span>
         </button>
       ) : (
-        <span className="relative flex min-h-10 min-w-0 items-center gap-2 pl-2.5">{content}</span>
+        <span className="relative flex min-h-10 min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 pl-2.5">
+          {content}
+        </span>
       )}
       <span className="num relative text-right">{value}</span>
       <span className="num relative text-right text-[13px] text-ink-3">{trailing}</span>
@@ -111,8 +119,10 @@ export function RankRow({
               key={m.name}
               className="flex justify-between gap-3 py-1 pl-3.5 text-[13px] leading-5 text-ink-2"
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="truncate">{m.name}</span>
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2">
+                <span title={m.name} className="max-w-full truncate">
+                  {m.name}
+                </span>
                 {m.flag ? <Flag>{m.flag}</Flag> : null}
               </span>
               <span className="num shrink-0">{m.value}</span>

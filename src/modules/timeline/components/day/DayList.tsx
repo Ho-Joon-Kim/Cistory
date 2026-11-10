@@ -411,7 +411,11 @@ function CommitBody({
               {/[.!?…]$/.test(row.summary.trim()) ? " 이 밖에 " : ". 이 밖에 "}
               <FactTrigger
                 rows={[
-                  { label: "AI 요약", value: `${row.summarized}건` },
+                  // The trigger's own number first, then where the sentence comes from.
+                  { label: "그 밖의 커밋", value: `${rest}건` },
+                  ...(row.summarized > 0
+                    ? [{ label: "요약된 커밋", value: `${row.summarized}건` }]
+                    : []),
                   ...(row.count > row.summarized
                     ? [{ label: "요약 없음", value: `${row.count - row.summarized}건` }]
                     : []),

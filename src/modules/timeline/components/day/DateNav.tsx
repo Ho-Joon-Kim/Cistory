@@ -77,7 +77,10 @@ export function DateNav({
       >
         <ChevronLeft className="size-3.5" strokeWidth={2.2} aria-hidden="true" />
       </button>
+      {/* Modal: a click that only dismisses the calendar must not also land on
+          whatever sits under it (it used to expand a timeline row). */}
       <PopoverPrimitive.Root
+        modal
         open={open}
         onOpenChange={(next) => {
           if (next) setView(monthOf(date));

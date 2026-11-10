@@ -88,7 +88,7 @@ export function OverviewHero({ hero, ctx }: { hero: HeroModel; ctx: PeriodContex
       </div>
       <div className={cell(0, "pt-1.5")}>{commits ? <AiLine fact={commits.fact} /> : null}</div>
       <div className={cell(0, "h-24 pt-5 lg:h-auto")}>
-        {commits ? <MiniBars bars={commits.bars} label="기간별 커밋" /> : null}
+        {commits ? <MiniBars bars={commits.bars} label="기간별 커밋" tag="commits" /> : null}
       </div>
       <div className={cell(0, "pt-4 lg:pt-6")}>{commits ? <Foot foot={commits.foot} /> : null}</div>
 
@@ -181,6 +181,7 @@ export function OverviewHero({ hero, ctx }: { hero: HeroModel; ctx: PeriodContex
               <MiniBars
                 bars={body.steps.bars}
                 label="기간별 하루 평균 걸음"
+                tag="steps"
                 showLabels={false}
                 gap={3}
               />

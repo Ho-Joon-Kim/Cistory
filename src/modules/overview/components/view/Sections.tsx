@@ -16,6 +16,7 @@ import {
 } from "@/modules/overview/view/sections";
 import { RankRow } from "./RankRow";
 import { useMeasuredWidth } from "./useMeasuredWidth";
+import { useTaggedEvidence } from "./useTaggedEvidence";
 
 /** `-2.7%` — the period return at the precision the section reads at. */
 function returnOneDecimal(ratio: number): string {
@@ -81,7 +82,7 @@ export function MoveSection({ move }: { move: MoveModel }) {
 
 export function AssetSection({ asset, ctx }: { asset: AssetModel; ctx: PeriodContext }) {
   const [ref, width] = useMeasuredWidth<HTMLDivElement>();
-  const { stateOf } = useEvidence();
+  const { stateOf } = useTaggedEvidence("evaluation");
   const W = Math.min(width, 520);
   const H = 110;
   const pts = asset.points;

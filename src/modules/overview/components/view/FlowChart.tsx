@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChartAnnotation, Segmented, useDismissOnEvidence, useEvidence } from "@/components/ds";
+import { ChartAnnotation, Segmented, useDismissOnEvidence } from "@/components/ds";
+import { evidenceMatches } from "@/lib/facts/evidence";
 import { formatCount, formatWon, formatWonCompact } from "@/lib/format";
 import { useStayDays } from "@/modules/overview/hooks";
+import { tagEvidence, tagFamily } from "@/modules/overview/view/evidence-tag";
 import type { FlowAnnotation, FlowMetric, FlowModel, FlowUnit } from "@/modules/overview/view/flow";
 import { average, stayAnnotation } from "@/modules/overview/view/flow";
 import { useGrowClock } from "./useGrow";
 import { useMeasuredWidth } from "./useMeasuredWidth";
+import { useTaggedEvidence } from "./useTaggedEvidence";
 
 const METRICS: { value: FlowMetric; label: string }[] = [
   { value: "commits", label: "커밋" },
@@ -24,13 +27,36 @@ interface Geometry {
   x: (i: number) => number;
 }
 
-function geometry(W: number, n: number): Geometry {
+/** Width of the left gutter holding the cash view's 입금/지출 axis labels. */
+const CASH_GUTTER = 32;
+
+function geometry(W: number, n: number, gutter = 0): Geometry {
   const wide = W >= 700;
   const top = wide ? 52 : 44;
   const plot = wide ? 190 : 150;
   const gap = n > 20 ? (wide ? 8 : 3) : n > 8 ? (wide ? 20 : 6) : wide ? 40 : 8;
-  const barWidth = Math.max(1, (W - gap * (n - 1)) / n);
-  return { W, top, plot, barWidth, gap, x: (i) => i * (barWidth + gap) };
+  const barWidth = Math.max(1, (W - gutter - gap * (n - 1)) / n);
+  return { W, top, plot, barWidth, gap, x: (i) => gutter + i * (barWidth + gap) };
+}
+
+/**
+ * Cash flow: income up, spending down from a zero line, both on ONE scale. The
+ * zero line sits where the two maxima split the plot, so neither side leaves an
+ * empty band (each side keeps at least a fifth of the plot).
+ */
+interface CashScale {
+  mid: number;
+  k: number;
+}
+
+function cashScale(units: FlowUnit[], g: Geometry, reserveBelow: number): CashScale {
+  const inMax = Math.max(0, ...units.map((u) => u.income ?? 0));
+  const outMax = Math.max(0, ...units.map((u) => u.spending ?? 0));
+  const share = Math.min(0.8, Math.max(0.2, inMax / Math.max(1, inMax + outMax)));
+  const plot = g.plot - reserveBelow;
+  const upper = plot * share;
+  const k = Math.min(upper / Math.max(1, inMax), (plot - upper) / Math.max(1, outMax));
+  return { mid: g.top + upper, k };
 }
 
 function value(u: FlowUnit, metric: FlowMetric) {
@@ -79,18 +105,17 @@ function annotationGeometry(
   units: FlowUnit[],
   metric: FlowMetric,
   max: number,
-  cashMax: number
+  cash: CashScale
 ) {
   const x0 = g.x(a.from);
   const x1 = g.x(a.to) + g.barWidth;
   const cx = (x0 + x1) / 2;
-  const half = g.plot / 2;
   let barTop: number;
   if (metric === "cash") {
     const u = units[a.from];
     barTop = a.low
-      ? g.top + half + Math.max(1.5, ((u.spending ?? 0) / cashMax) * half)
-      : g.top + half - Math.max(1.5, ((u.income ?? 0) / cashMax) * half);
+      ? cash.mid + Math.max(1.5, (u.spending ?? 0) * cash.k)
+      : cash.mid - Math.max(1.5, (u.income ?? 0) * cash.k);
   } else {
     let m = 0;
     for (let k = a.from; k <= a.to; k++) m = Math.max(m, value(units[k], metric) ?? 0);
@@ -110,21 +135,33 @@ function annotationGeometry(
 export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
   const metrics = METRICS.filter((m) => flow.available[m.value]);
   const [picked, setPicked] = useState<FlowMetric>(metrics[0]?.value ?? "commits");
-  const metric = flow.available[picked] ? picked : (metrics[0]?.value ?? "commits");
+  const chosen = flow.available[picked] ? picked : (metrics[0]?.value ?? "commits");
   const [hover, setHover] = useState<number | null>(null);
   // A popover/annotation taking over clears the day tooltip (QA N3: it reappeared after Esc).
   useDismissOnEvidence(() => setHover(null));
   const [ref, width] = useMeasuredWidth<HTMLDivElement>();
-  const { stateOf, isActive } = useEvidence();
   const units = flow.units;
+  // Evidence for one of this chart's series (a cash fact about one day …) shows
+  // that series while it is lit, so the highlight lands on the bars it is about.
+  const { active, activeTag } = useTaggedEvidence(chosen);
+  const family = activeTag ? tagFamily(activeTag) : null;
+  const metric: FlowMetric =
+    family !== null &&
+    family !== chosen &&
+    (family === "commits" || family === "steps" || family === "cash") &&
+    flow.available[family] &&
+    units.some((u) => evidenceMatches(active, u.key))
+      ? family
+      : chosen;
+  const { stateOf, isActive } = useTaggedEvidence(metric);
   const n = Math.max(1, units.length);
   const grow = useGrowClock(600 + n * 20);
-  const g = geometry(width, n);
+  const g = geometry(width, n, metric === "cash" ? CASH_GUTTER : 0);
   const yearly = units.length > 0 && units[0].key.length === 7;
 
   const max = Math.max(1, ...units.map((u) => value(u, metric) ?? 0));
-  const cashMax = Math.max(1, ...units.map((u) => Math.max(u.income ?? 0, u.spending ?? 0)));
-  const half = g.plot / 2;
+  // A label hung under the deepest charge needs room above the day labels.
+  const cash = cashScale(units, g, (flow.annotations.cash ?? []).some((a) => a.low) ? 22 : 0);
   const base = g.top + g.plot;
   const height = base + 26;
   const avg =
@@ -200,7 +237,13 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
             >
               <line x1="0" x2={width} y1={base} y2={base} stroke="var(--line)" />
               {metric === "cash" ? (
-                <line x1="0" x2={width} y1={g.top + half} y2={g.top + half} stroke="var(--line)" />
+                <line
+                  x1={CASH_GUTTER}
+                  x2={width}
+                  y1={cash.mid}
+                  y2={cash.mid}
+                  stroke="var(--line)"
+                />
               ) : null}
               {units.map((u, i) => {
                 const x = g.x(i);
@@ -259,13 +302,9 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                         {u.income ? (
                           <rect
                             x={x}
-                            y={
-                              g.top +
-                              half -
-                              Math.max(1.5, (u.income / cashMax) * half) * grow(i * 20)
-                            }
+                            y={cash.mid - Math.max(1.5, u.income * cash.k) * grow(i * 20)}
                             width={g.barWidth}
-                            height={Math.max(1.5, (u.income / cashMax) * half) * grow(i * 20)}
+                            height={Math.max(1.5, u.income * cash.k) * grow(i * 20)}
                             rx={Math.min(1.5, g.barWidth / 3)}
                             fill={hov ? "var(--ink)" : lit ? "var(--brand)" : "var(--bar2)"}
                           />
@@ -273,9 +312,9 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                         {u.spending ? (
                           <rect
                             x={x}
-                            y={g.top + half}
+                            y={cash.mid}
                             width={g.barWidth}
-                            height={Math.max(1.5, (u.spending / cashMax) * half) * grow(i * 20)}
+                            height={Math.max(1.5, u.spending * cash.k) * grow(i * 20)}
                             rx={Math.min(1.5, g.barWidth / 3)}
                             fill={hov ? "var(--ink)" : lit ? "var(--brand)" : "var(--ink2)"}
                           />
@@ -310,17 +349,18 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                 </g>
               ) : null}
               {metric === "cash" ? (
+                // Axis labels live in their own left gutter, clear of the first day's bars.
                 <g pointerEvents="none" fontSize="11" fill="var(--ink3)">
-                  <text x="0" y={g.top + half} dy="-8">
+                  <text x="0" y={cash.mid} dy="-5">
                     입금
                   </text>
-                  <text x="0" y={g.top + half} dy="16">
+                  <text x="0" y={cash.mid} dy="13">
                     지출
                   </text>
                 </g>
               ) : null}
               {annotations.map((a) => {
-                const ag = annotationGeometry(a, g, units, metric, max, cashMax);
+                const ag = annotationGeometry(a, g, units, metric, max, cash);
                 if (a.low) return null;
                 return (
                   <g key={a.id} pointerEvents="none" stroke="var(--ink3)" fill="none">
@@ -341,7 +381,7 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
             {/* biome-ignore lint/a11y/noStaticElementInteractions: clears the hover tooltip; the labels inside are the controls */}
             <div className="contents" onPointerEnter={() => setHover(null)}>
               {annotations.map((a) => {
-                const ag = annotationGeometry(a, g, units, metric, max, cashMax);
+                const ag = annotationGeometry(a, g, units, metric, max, cash);
                 const right = ag.cx > width * 0.62;
                 const top = a.low ? Math.min(base + 2, ag.barTop + 8) : ag.labelTop;
                 return (
@@ -353,11 +393,12 @@ export function FlowChart({ flow, label }: { flow: FlowModel; label: string }) {
                     side={right ? "left" : "right"}
                     label={width < 700 && a.shortLabel ? a.shortLabel : a.label}
                     rows={a.rows}
-                    evidence={
+                    evidence={tagEvidence(
                       a.from === a.to
                         ? { kind: "keys", keys: [units[a.from].key] }
-                        : { kind: "range", from: units[a.from].key, to: units[a.to].key }
-                    }
+                        : { kind: "range", from: units[a.from].key, to: units[a.to].key },
+                      metric
+                    )}
                   />
                 );
               })}
