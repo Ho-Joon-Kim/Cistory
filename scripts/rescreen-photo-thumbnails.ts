@@ -114,10 +114,10 @@ export async function withRescreenLock<T>(
 
 async function verdict(
   classifier: PhotoClassifier,
-  jpeg: Uint8Array
+  image: Uint8Array
 ): Promise<"pass" | "block" | "hide"> {
   try {
-    return isBlocked(await classifier.classify(jpeg)) ? "block" : "pass";
+    return isBlocked(await classifier.classify(image)) ? "block" : "pass";
   } catch (error) {
     if (error instanceof ClassifyInputError) return "hide";
     throw error; // ClassifierUnavailableError or a runtime fault: abort, do not block.

@@ -42,7 +42,7 @@ beforeEach(() => {
 });
 
 describe("GET /api/photos/[photoId]/thumbnail", () => {
-  it("serves the owner's thumbnail with private cache, image/jpeg and nosniff headers", async () => {
+  it("serves the owner's JPEG thumbnail with private cache, image/jpeg and nosniff headers", async () => {
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x01, 0x02]);
     mocks.rows = [{ bytes: jpeg }];
 
@@ -53,6 +53,24 @@ describe("GET /api/photos/[photoId]/thumbnail", () => {
     expect(response.headers.get("Content-Type")).toBe("image/jpeg");
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(Buffer.from(await response.arrayBuffer())).toEqual(jpeg);
+  });
+
+  it.each([
+    ["extended WebP", "image/webp", Buffer.from("RIFF\x10\0\0\0WEBPVP8X\x0a\0\0\0", "latin1")],
+    ["simple WebP", "image/webp", Buffer.from("RIFF\x10\0\0\0WEBPVP8 \0\0\0\0", "latin1")],
+    ["PNG", "image/png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0])],
+    ["AVIF", "image/avif", Buffer.from("\0\0\0\x1cftypavif\0\0\0\0mif1avifmiaf", "latin1")],
+    ["unknown bytes", "application/octet-stream", Buffer.from("GIF89a\0\0", "latin1")],
+    ["a RIFF that is not WebP", "application/octet-stream", Buffer.from("RIFF\0\0\0\0WAVEfmt ")],
+  ])("serves %s as %s, bytes unchanged", async (_name, contentType, bytes) => {
+    mocks.rows = [{ bytes }];
+
+    const response = await call(PHOTO_ID);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe(contentType);
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
   });
 
   it("scopes the lookup to the caller and to exposed rows, and 404s when nothing matches", async () => {

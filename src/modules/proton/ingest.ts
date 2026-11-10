@@ -75,10 +75,10 @@ function fail(
 /** Classifies one thumbnail; anything but a per-image input error is an infrastructure fault. */
 async function classifyOrThrow(
   classifier: PhotoClassifier,
-  jpeg: Uint8Array
+  image: Uint8Array
 ): Promise<NsfwScores | "unclassifiable"> {
   try {
-    return await classifier.classify(jpeg);
+    return await classifier.classify(image);
   } catch (error) {
     if (error instanceof ClassifyInputError) return "unclassifiable";
     if (error instanceof ClassifierUnavailableError) throw error;
@@ -144,15 +144,15 @@ async function fetchThumbnails(
 async function screen(
   classifier: PhotoClassifier,
   photo: MappedPhoto,
-  jpeg: Uint8Array,
+  image: Uint8Array,
   known: Set<string>
 ): Promise<IngestOutcome> {
   const uid = photo.nodeUid;
-  const verdict = await classifyOrThrow(classifier, jpeg);
+  const verdict = await classifyOrThrow(classifier, image);
   if (verdict === "unclassifiable") {
     return fail(uid, PROTON_ERRORS.thumbnailUnclassifiable, true, photo.capturedAt);
   }
-  if (!isBlocked(verdict)) return { kind: "pass", photo, thumbnail: jpeg };
+  if (!isBlocked(verdict)) return { kind: "pass", photo, thumbnail: image };
   const relatedUids = [...new Set(photo.relatedPhotoNodeUids)].filter((r) => r !== uid);
   known.add(uid);
   for (const r of relatedUids) known.add(r);
@@ -185,17 +185,17 @@ async function prepareChunk(
   let classified = 0;
   for (const photo of candidates) {
     const uid = photo.nodeUid;
-    const jpeg = thumbnails.get(uid);
+    const image = thumbnails.get(uid);
     if (mainBlocked(photo)) {
       known.add(uid);
       outcomes.push({ kind: "block", nodeUid: uid, relatedUids: [] });
-    } else if (!jpeg) {
+    } else if (!image) {
       outcomes.push(fail(uid, PROTON_ERRORS.thumbnailMissing, true, photo.capturedAt));
     } else {
       // Inference is synchronous CPU work; let queued I/O run between images.
       if (classified > 0) await yieldToEventLoop();
       classified += 1;
-      outcomes.push(await screen(classifier, photo, jpeg, known));
+      outcomes.push(await screen(classifier, photo, image, known));
     }
   }
   return outcomes;
