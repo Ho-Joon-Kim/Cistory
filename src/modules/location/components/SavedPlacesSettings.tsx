@@ -1,6 +1,7 @@
 "use client";
 
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { toast } from "sonner";
 import { LoadingState } from "@/components/ds";
@@ -15,7 +16,15 @@ import {
   PanelText,
 } from "@/modules/settings/components/panel";
 import { type SavedPlaceData, useSavedPlaces } from "../hooks";
-import { SavedPlaceDialog } from "./SavedPlaceDialog";
+
+// The dialog embeds a Mapbox picker (react-map-gl + mapbox-gl); load it only when
+// the settings panel that hosts it is actually rendered, not with the page.
+const SavedPlaceDialog = dynamic(
+  () => import("./SavedPlaceDialog").then((m) => m.SavedPlaceDialog),
+  {
+    ssr: false,
+  }
+);
 
 export function SavedPlacesSettings() {
   const { places, isLoading, isSaving, createPlace, updatePlace, deletePlace } = useSavedPlaces();

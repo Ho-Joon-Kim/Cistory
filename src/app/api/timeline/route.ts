@@ -6,6 +6,9 @@ import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { parseDateLocal, parseDateLocalEnd } from "@/lib/utils";
 
+/** One busy day fits in a single page, so the dashboard never chains requests. */
+const MAX_PER_PAGE = 200;
+
 export async function GET(request: NextRequest) {
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
@@ -15,7 +18,7 @@ export async function GET(request: NextRequest) {
     // Query parameters
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") ?? "1", 10);
-    const perPage = Math.min(parseInt(searchParams.get("per_page") ?? "20", 10), 50);
+    const perPage = Math.min(parseInt(searchParams.get("per_page") ?? "20", 10), MAX_PER_PAGE);
     const reposParam = searchParams.get("repos"); // Filter by multiple repos (comma-separated)
     const afterDate = searchParams.get("after");
     const fromDate = searchParams.get("from");
@@ -63,17 +66,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Get total count
-    const countResult = await db
+    const countQuery = db
       .select({ count: sql<number>`count(*)` })
       .from(commits)
       .where(and(...conditions));
 
-    const total = countResult[0]?.count ?? 0;
-    const totalPages = Math.ceil(total / perPage);
     const offset = (page - 1) * perPage;
 
-    // Get commits with summaries
-    const timelineCommits = await db
+    // Get commits with summaries (independent of the count — run both at once)
+    const pageQuery = db
       .select({
         id: commits.id,
         sha: commits.sha,
@@ -98,6 +99,10 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(commits.committedAt))
       .limit(perPage)
       .offset(offset);
+
+    const [countResult, timelineCommits] = await Promise.all([countQuery, pageQuery]);
+    const total = countResult[0]?.count ?? 0;
+    const totalPages = Math.ceil(total / perPage);
 
     // Format response
     const formattedCommits = timelineCommits.map((c) => ({

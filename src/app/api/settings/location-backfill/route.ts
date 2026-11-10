@@ -7,7 +7,7 @@
 
 import { eq, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, locationPoints, transportationSegments, visits } from "@/db";
+import { getDb, locationPoints } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 
@@ -29,26 +29,18 @@ export async function GET(request: NextRequest) {
     const db = getDb();
 
     // All date arithmetic uses KST so "today" lines up with the daily 01:00 cron window.
-    const [dateRange] = await db
+    // The three scans below are independent full passes over the user's
+    // location_points (millions of rows), so they run concurrently instead of
+    // back to back. Range, totals and anomaly counts share one pass.
+    const statsQuery = db
       .select({
         earliest: sql<string>`min(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date::text`,
         latest: sql<string>`max(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date::text`,
         totalDays: sql<number>`((max(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date - min(timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date) + 1)::int`,
-        totalPoints: sql<number>`count(*)::int`,
         today: sql<string>`(now() at time zone 'Asia/Seoul')::date::text`,
-      })
-      .from(locationPoints)
-      .where(eq(locationPoints.userId, user.id));
-
-    if (!dateRange.earliest) {
-      return NextResponse.json({ hasData: false });
-    }
-
-    // `anomaly` no longer records whether a point was scanned — a clean point simply
-    // stays NULL now, and `location_processing_days` owns "has this day been
-    // processed?". So only the totals are point-level; progress is counted in days.
-    const [anomalyStats] = await db
-      .select({
+        // `anomaly` no longer records whether a point was scanned — a clean point
+        // simply stays NULL now, and `location_processing_days` owns "has this day
+        // been processed?". So only the totals are point-level; progress is in days.
         total: sql<number>`count(*)::int`,
         anomalies: sql<number>`count(*) filter (where anomaly = true)::int`,
         todayPoints: sql<number>`count(*) filter (where (timestamp at time zone 'UTC' at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date)::int`,
@@ -61,7 +53,7 @@ export async function GET(request: NextRequest) {
     // planner use, so this card can never disagree with what they will actually do.
     // Today is excluded from "past" so the daily 01:00 KST cron isn't mistaken for a
     // backlog the user has to clear manually.
-    const scannedDaysResult = await db.execute<{
+    const scannedDaysQuery = db.execute<{
       past_total_days: number;
       past_scanned_days: number;
       past_unscanned_days: number;
@@ -92,24 +84,8 @@ export async function GET(request: NextRequest) {
         coalesce(bool_or(d = (now() at time zone 'Asia/Seoul')::date AND NOT done), false) AS today_pending
       FROM status
     `);
-    const pastTotalDays = scannedDaysResult.rows[0]?.past_total_days ?? 0;
-    const pastScannedDays = scannedDaysResult.rows[0]?.past_scanned_days ?? 0;
-    const pastDaysRemaining = scannedDaysResult.rows[0]?.past_unscanned_days ?? 0;
-    const todayHasUnscanned = scannedDaysResult.rows[0]?.today_pending ?? false;
 
-    const [_visitStats] = await db
-      .select({
-        daysWithVisits: sql<number>`count(distinct (start_time at time zone 'UTC' at time zone 'Asia/Seoul')::date)::int`,
-      })
-      .from(visits)
-      .where(eq(visits.userId, user.id));
-
-    const [_transportStats] = await db
-      .select({ daysWithSegments: sql<number>`count(distinct date)::int` })
-      .from(transportationSegments)
-      .where(eq(transportationSegments.userId, user.id));
-
-    const geocodeEstimate = await db.execute<{
+    const geocodeQuery = db.execute<{
       uncached_total: number;
       uncached_korea: number;
       uncached_overseas: number;
@@ -127,6 +103,21 @@ export async function GET(request: NextRequest) {
         SELECT 1 FROM place_cache pc WHERE pc.lat_key = grids.lat AND pc.lon_key = grids.lon
       )
     `);
+
+    const [[dateRange], scannedDaysResult, geocodeEstimate] = await Promise.all([
+      statsQuery,
+      scannedDaysQuery,
+      geocodeQuery,
+    ]);
+
+    if (!dateRange?.earliest) {
+      return NextResponse.json({ hasData: false });
+    }
+
+    const pastTotalDays = scannedDaysResult.rows[0]?.past_total_days ?? 0;
+    const pastScannedDays = scannedDaysResult.rows[0]?.past_scanned_days ?? 0;
+    const pastDaysRemaining = scannedDaysResult.rows[0]?.past_unscanned_days ?? 0;
+    const todayHasUnscanned = scannedDaysResult.rows[0]?.today_pending ?? false;
 
     const row = geocodeEstimate.rows[0];
     const uncachedOverseas = row?.uncached_overseas ?? 0;
@@ -175,12 +166,12 @@ export async function GET(request: NextRequest) {
         date: dateRange.today,
         // Today's whole point count while the day is still pending — the card reports
         // what the 01:00 cron will pick up, and none of it is processed until it runs.
-        unscannedPoints: todayHasUnscanned ? (anomalyStats.todayPoints ?? 0) : 0,
+        unscannedPoints: todayHasUnscanned ? (dateRange.todayPoints ?? 0) : 0,
         pending: todayHasUnscanned,
       },
       anomaly: {
-        totalPoints: anomalyStats.total,
-        anomaliesFound: anomalyStats.anomalies,
+        totalPoints: dateRange.total,
+        anomaliesFound: dateRange.anomalies,
       },
       geocoding: {
         uncachedTotal,
