@@ -16,7 +16,7 @@ export function SectionTitle({
   return (
     <Tag
       className={cn(
-        "m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink sm:text-[22px] sm:leading-[30px]",
+        "m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink sm:text-[1.375rem] sm:leading-[1.875rem]",
         className
       )}
     >
@@ -36,7 +36,9 @@ export function BlockTitle({
   as?: "h2" | "h3";
 }) {
   return (
-    <Tag className={cn("m-0 text-[15px] leading-[22px] font-semibold text-ink", className)}>
+    <Tag
+      className={cn("m-0 text-[0.9375rem] leading-[1.375rem] font-semibold text-ink", className)}
+    >
       {children}
     </Tag>
   );
@@ -120,7 +122,7 @@ export function ActionButton({
       type="button"
       {...rest}
       className={cn(
-        "inline-flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] border-0 px-3.5 text-[13px] font-semibold whitespace-nowrap transition-[scale,box-shadow,background-color] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 [&:not(:disabled)]:active:scale-[0.96]",
+        "inline-flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] border-0 px-3.5 text-[0.8125rem] font-semibold whitespace-nowrap transition-[scale,box-shadow,background-color] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 [&:not(:disabled)]:active:scale-[0.96]",
         VARIANTS[variant],
         className
       )}

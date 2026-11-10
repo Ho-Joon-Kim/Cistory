@@ -39,7 +39,7 @@ function Row({
       <span
         className={cn(
           "num text-right",
-          strong ? "text-[22px] leading-7 font-medium" : "text-[15px] leading-[22px]",
+          strong ? "text-[1.375rem] leading-7 font-medium" : "text-[0.9375rem] leading-[1.375rem]",
           muted ? "text-ink-2" : "text-ink"
         )}
       >

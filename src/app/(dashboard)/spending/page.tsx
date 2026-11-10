@@ -94,7 +94,7 @@ function ViewToggle({
       aria-controls={raw ? "spending-panel-raw" : "spending-panel-ledger"}
       onClick={onToggle}
       className={cn(
-        "inline-flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] border-0 bg-transparent px-2.5 text-[13px] font-semibold text-ink-2 transition-[scale,background-color,color] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-brand active:scale-[.96] sm:h-9 [@media(hover:hover)]:hover:bg-track [@media(hover:hover)]:hover:text-ink",
+        "inline-flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] border-0 bg-transparent px-2.5 text-[0.8125rem] font-semibold text-ink-2 transition-[scale,background-color,color] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-brand active:scale-[.96] sm:h-9 [@media(hover:hover)]:hover:bg-track [@media(hover:hover)]:hover:text-ink",
         className
       )}
     >
@@ -328,7 +328,7 @@ export default function SpendingPage() {
               <button
                 type="button"
                 onClick={trend.refresh}
-                className="h-9 cursor-pointer rounded-[9px] border-0 bg-surface px-3.5 text-[13px] font-semibold shadow-ring"
+                className="h-9 cursor-pointer rounded-[9px] border-0 bg-surface px-3.5 text-[0.8125rem] font-semibold shadow-ring"
               >
                 다시 시도
               </button>
@@ -343,7 +343,7 @@ export default function SpendingPage() {
             action={
               <Link
                 href="/settings"
-                className="inline-flex h-9 items-center rounded-[9px] bg-surface px-3.5 text-[13px] font-semibold text-ink shadow-ring"
+                className="inline-flex h-9 items-center rounded-[9px] bg-surface px-3.5 text-[0.8125rem] font-semibold text-ink shadow-ring"
               >
                 Toss 알림 연결 확인
               </Link>
@@ -427,12 +427,12 @@ export default function SpendingPage() {
                 </span>
                 {tab === "ledger" ? (
                   ledger.isLoading && txCount === 0 ? null : (
-                    <span className="num font-sans text-sm leading-[22px] font-normal tracking-normal text-ink-2">
+                    <span className="num font-sans text-sm leading-[1.375rem] font-normal tracking-normal text-ink-2">
                       {formatCount(txCount)}건
                     </span>
                   )
                 ) : logs.total != null ? (
-                  <span className="num font-sans text-sm leading-[22px] font-normal tracking-normal text-ink-2">
+                  <span className="num font-sans text-sm leading-[1.375rem] font-normal tracking-normal text-ink-2">
                     {formatCount(logs.total)}건
                   </span>
                 ) : null}
@@ -473,7 +473,7 @@ export default function SpendingPage() {
                       <button
                         type="button"
                         onClick={ledger.refresh}
-                        className="h-9 cursor-pointer rounded-[9px] border-0 bg-surface px-3.5 text-[13px] font-semibold shadow-ring"
+                        className="h-9 cursor-pointer rounded-[9px] border-0 bg-surface px-3.5 text-[0.8125rem] font-semibold shadow-ring"
                       >
                         다시 시도
                       </button>

@@ -77,23 +77,23 @@ function Body({ workouts }: { workouts: HealthWorkout[] }) {
         <div className="flex items-baseline justify-between lg:flex-col lg:items-start lg:gap-1">
           <h2
             id="h-wo"
-            className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[22px] lg:leading-[30px]"
+            className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[1.375rem] lg:leading-[1.875rem]"
           >
             운동
           </h2>
-          <span className="text-[13px] leading-5 text-ink-2 lg:text-sm lg:leading-[22px]">
+          <span className="text-[0.8125rem] leading-5 text-ink-2 lg:text-sm lg:leading-[1.375rem]">
             {range}
           </span>
         </div>
         <p className="m-0 mt-2 lg:mt-4">
-          <span className="num text-[22px] leading-7 font-medium tracking-[-0.03em] text-ink">
+          <span className="num text-[1.375rem] leading-7 font-medium tracking-[-0.03em] text-ink">
             {workouts.length}회
           </span>
-          <span className="text-[15px] font-medium text-ink-3"> · </span>
-          <span className="num text-[22px] leading-7 font-medium tracking-[-0.03em] text-ink">
+          <span className="text-[0.9375rem] font-medium text-ink-3"> · </span>
+          <span className="num text-[1.375rem] leading-7 font-medium tracking-[-0.03em] text-ink">
             {Math.round(shownTotal)}
           </span>
-          <span className="text-[15px] font-medium text-ink-3">분</span>
+          <span className="text-[0.9375rem] font-medium text-ink-3">분</span>
         </p>
         <div className="mt-1.5 lg:mt-2">
           <AiLine fact={fact} rows={fact?.rows} title="운동 기록 해석" tint />
@@ -121,7 +121,7 @@ function Body({ workouts }: { workouts: HealthWorkout[] }) {
           {groups.map((g, i) => (
             <li
               key={g.name}
-              className="grid grid-cols-[10px_minmax(0,1fr)_36px_48px_40px] items-center gap-2.5 border-b border-line py-2 text-[13px] leading-[22px] lg:grid-cols-[10px_minmax(0,1fr)_44px_52px_44px] lg:py-2.5 lg:text-sm"
+              className="grid grid-cols-[10px_minmax(0,1fr)_36px_48px_40px] items-center gap-2.5 border-b border-line py-2 text-[0.8125rem] leading-[1.375rem] lg:grid-cols-[10px_minmax(0,1fr)_44px_52px_44px] lg:py-2.5 lg:text-sm"
             >
               <span
                 aria-hidden="true"
@@ -134,7 +134,7 @@ function Body({ workouts }: { workouts: HealthWorkout[] }) {
                 {g.minutes}
                 <span className="font-sans text-xs font-medium tracking-normal text-ink-3">분</span>
               </span>
-              <span className="num text-right text-xs text-ink-3 lg:text-[13px]">
+              <span className="num text-right text-xs text-ink-3 lg:text-[0.8125rem]">
                 {Math.round(g.share * 100)}%
               </span>
             </li>
@@ -156,7 +156,7 @@ function Body({ workouts }: { workouts: HealthWorkout[] }) {
             >
               <Icon kind={workoutIcon(w.type)} />
               <span className="flex min-w-0 flex-col">
-                <span className="truncate text-sm leading-[22px] font-medium text-ink">
+                <span className="truncate text-sm leading-[1.375rem] font-medium text-ink">
                   {workoutName(w)}
                 </span>
                 <span className="text-xs leading-4 text-ink-3 tabular-nums">
@@ -164,7 +164,7 @@ function Body({ workouts }: { workouts: HealthWorkout[] }) {
                 </span>
               </span>
               <span>
-                <span className="num text-[15px] text-ink">{w.minutes}</span>
+                <span className="num text-[0.9375rem] text-ink">{w.minutes}</span>
                 <span className="text-xs font-medium text-ink-3">분</span>
               </span>
             </li>
@@ -193,7 +193,7 @@ export function WorkoutsSection({
           <>
             <h2
               id="h-wo"
-              className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[22px] lg:leading-[30px]"
+              className="m-0 font-serif text-xl leading-7 font-semibold tracking-[-0.02em] text-ink lg:text-[1.375rem] lg:leading-[1.875rem]"
             >
               운동
             </h2>

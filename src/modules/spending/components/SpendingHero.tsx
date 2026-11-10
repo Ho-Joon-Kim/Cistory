@@ -113,7 +113,7 @@ function Ladder({ hero, mode }: { hero: HeroModel; mode: CompareMode }) {
             </div>
             <span
               className={cn(
-                "num text-right text-[15px] leading-[22px]",
+                "num text-right text-[0.9375rem] leading-[1.375rem]",
                 row.current ? "font-semibold" : "font-medium"
               )}
             >
@@ -135,8 +135,10 @@ function Forecast({ trend, monthLabel }: { trend: SpendingTrendResponse; monthLa
   return (
     <div className="ds-reveal flex flex-col gap-3.5 pt-1">
       <div className="flex items-baseline gap-3">
-        <span className="num text-[22px] leading-7 font-medium">{formatWon(f.predictedTotal)}</span>
-        <span className="text-sm leading-[22px] text-ink-2">
+        <span className="num text-[1.375rem] leading-7 font-medium">
+          {formatWon(f.predictedTotal)}
+        </span>
+        <span className="text-sm leading-[1.375rem] text-ink-2">
           {monthLabel} {f.daysInMonth}일까지
         </span>
       </div>
@@ -163,7 +165,7 @@ function Forecast({ trend, monthLabel }: { trend: SpendingTrendResponse; monthLa
         lower={f.lowerBound}
         monthLabel={monthLabel}
       />
-      <span className="text-xs leading-[18px] text-ink-3">
+      <span className="text-xs leading-[1.125rem] text-ink-3">
         점선 범위{" "}
         <span className="num">
           {formatWon(f.lowerBound)}–{formatWon(f.upperBound)}
@@ -214,7 +216,7 @@ export function SpendingHero({
               {hero.monthLabel} 지출 · {hero.day}일째
             </span>
             <HeroNumber value={hero.total} countUp format={formatCount} unit="원" unitSize="full" />
-            <p className="m-0 max-w-[600px] text-[15px] leading-6 text-ink-2 sm:text-base">
+            <p className="m-0 max-w-[600px] text-[0.9375rem] leading-6 text-ink-2 sm:text-base">
               {heroSentence(hero, mode)}
             </p>
           </div>

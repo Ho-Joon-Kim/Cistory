@@ -35,7 +35,7 @@ function Panel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <BlockTitle>{title}</BlockTitle>
-          <p className="m-0 text-[13px] leading-5 text-ink-2">{description}</p>
+          <p className="m-0 text-[0.8125rem] leading-5 text-ink-2">{description}</p>
         </div>
         <div className="flex flex-none items-center gap-2">{action}</div>
       </div>
@@ -47,7 +47,7 @@ function Panel({
 function Preview({ title, text }: { title: string | null; text: string | null }) {
   const full = `${displayNotificationTitle(title) || "(제목 없음)"} — ${text || "(내용 없음)"}`;
   return (
-    <p className="m-0 line-clamp-2 text-xs leading-[18px] break-words text-ink-3" title={full}>
+    <p className="m-0 line-clamp-2 text-xs leading-[1.125rem] break-words text-ink-3" title={full}>
       {full}
     </p>
   );
