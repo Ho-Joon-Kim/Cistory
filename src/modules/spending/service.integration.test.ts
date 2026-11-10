@@ -70,5 +70,12 @@ describe("SpendingTrendService KST day grouping against PostgreSQL", () => {
 
     const bars = Object.fromEntries(trend.monthlyBars.map((b) => [b.month, b.total]));
     expect(bars).toEqual({ "10": 7_000, "11": 6_940 });
+
+    // The reference line is October by KST day: 10/31 23:00 KST is day 31, past
+    // November's 30 days, so it never shows up on the same-day comparison.
+    expect(trend.references?.previous?.months).toEqual(["2026-10"]);
+    expect(trend.references?.previous?.total).toHaveLength(30);
+    expect(trend.references?.previous?.total[29]).toBe(0);
+    expect(trend.references?.average).toBeNull();
   });
 });

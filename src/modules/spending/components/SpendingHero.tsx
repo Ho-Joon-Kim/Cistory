@@ -1,21 +1,14 @@
 "use client";
 
-import { useId, useState } from "react";
-import {
-  AiLine,
-  CategoryMark,
-  EvidenceScope,
-  HeroNumber,
-  Segmented,
-  useEvidence,
-} from "@/components/ds";
+import { useId } from "react";
+import { CategoryMark, EvidenceScope, HeroNumber, Segmented, useEvidence } from "@/components/ds";
 import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatMonthDay, formatShare, formatWon } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { SpendingTrendResponse } from "../types";
 import { type HeroModel, heroSentence, SPLIT_CATEGORY, SPLIT_LABEL } from "../view-model";
-import { ForecastChart } from "./ForecastChart";
-import { BlockTitle, DisclosureButton, enter } from "./parts";
+import { BlockTitle, enter } from "./parts";
+import { SpendingTrend } from "./SpendingTrend";
 
 /** The split color: 의료·건강 hue washed into the page so ink stays the lead. */
 export const SPLIT_FILL = "color-mix(in oklab, var(--cat-health) 62%, var(--bg))";
@@ -126,60 +119,12 @@ function Ladder({ hero, mode }: { hero: HeroModel; mode: CompareMode }) {
   );
 }
 
-function Forecast({ trend, monthLabel }: { trend: SpendingTrendResponse; monthLabel: string }) {
-  const f = trend.forecast;
-  const oneOff = f.oneOffTotal ?? 0;
-  const day = Math.max(1, f.todayDayNumber);
-  const perDay = Math.round(Math.max(0, f.currentMonthActualTotal - oneOff) / day);
-  const restProjection = Math.max(0, f.predictedTotal - oneOff);
-  return (
-    <div className="ds-reveal flex flex-col gap-3.5 pt-1">
-      <div className="flex items-baseline gap-3">
-        <span className="num text-[1.375rem] leading-7 font-medium">
-          {formatWon(f.predictedTotal)}
-        </span>
-        <span className="text-sm leading-[1.375rem] text-ink-2">
-          {monthLabel} {f.daysInMonth}일까지
-        </span>
-      </div>
-      <p className="ai-voice m-0">
-        {oneOff > 0 ? (
-          <>
-            1회성 결제 <span className="num">{formatWon(oneOff)}</span>은 한 번만 더하고, 나머지는
-            하루 <span className="num">{formatWon(perDay)}</span> 속도로 {f.daysInMonth}일을 채워{" "}
-            <span className="num">{formatWon(restProjection)}</span>으로 봤어요.
-          </>
-        ) : (
-          <>
-            하루 <span className="num">{formatWon(perDay)}</span> 속도로 {f.daysInMonth}일을 채워
-            봤어요.
-          </>
-        )}
-      </p>
-      <ForecastChart
-        curve={trend.cumulativeCurve}
-        today={f.todayDayNumber}
-        daysInMonth={f.daysInMonth}
-        predicted={f.predictedTotal}
-        upper={f.upperBound}
-        lower={f.lowerBound}
-        monthLabel={monthLabel}
-      />
-      <span className="text-xs leading-[1.125rem] text-ink-3">
-        점선 범위{" "}
-        <span className="num">
-          {formatWon(f.lowerBound)}–{formatWon(f.upperBound)}
-        </span>{" "}
-        · 지난 달들이 오르내린 폭만큼 열어 둔 구간이에요
-      </span>
-    </div>
-  );
-}
-
 /**
- * The month-to-date hero: total, the 의료·건강 split, a plain comparison
- * sentence, the pace line, and (closed) the month-end forecast. Beside it on
- * PC — below on phones — the same-basis comparison ladder.
+ * The month-to-date hero: total, a same-day change sentence, and the 의료·건강
+ * split; then — always open, full width — the cumulative trend against last
+ * month and the recent average with the month-end projection. Beside the hero
+ * on PC (after the trend on phones) the same-basis comparison ladder. The 전체 /
+ * 의료·건강 제외 switch sits on the trend and drives all three.
  */
 export function SpendingHero({
   hero,
@@ -194,16 +139,14 @@ export function SpendingHero({
   mode: CompareMode;
   onModeChange: (mode: CompareMode) => void;
 }) {
-  const [forecastOpen, setForecastOpen] = useState(false);
   const forecastId = useId();
-  const showForecast = trend.forecast.todayDayNumber < trend.forecast.daysInMonth;
   const healthShare = hero.total > 0 ? hero.health / hero.total : 0;
 
   return (
     <EvidenceScope>
       <section
         aria-labelledby={`${forecastId}-title`}
-        className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-6"
+        className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-12"
       >
         {/* The visible label is a small caption; the outline still needs the section's h2 so the
             aside's block title can step down to h3. */}
@@ -255,57 +198,100 @@ export function SpendingHero({
               </div>
             </div>
           ) : null}
-
-          {paceFact ? (
-            <AiLine fact={paceFact} rows={paceFact.rows} className="max-w-[600px]" />
-          ) : null}
-
-          {showForecast ? (
-            <div className="hidden max-w-[640px] flex-col gap-3 border-t border-line pt-1 lg:flex">
-              <DisclosureButton
-                open={forecastOpen}
-                onToggle={() => setForecastOpen((v) => !v)}
-                controls={`${forecastId}-pc`}
-                className="self-start"
-              >
-                월말 예상
-              </DisclosureButton>
-              <div id={`${forecastId}-pc`}>
-                {forecastOpen ? <Forecast trend={trend} monthLabel={hero.monthLabel} /> : null}
-              </div>
-            </div>
-          ) : null}
         </div>
 
-        <div {...enter(2)} className="ds-enter flex flex-col gap-4 lg:pt-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div {...enter(2)} className="ds-enter min-w-0 lg:col-span-2 lg:row-start-2">
+          <SpendingTrend
+            trend={trend}
+            hero={hero}
+            mode={mode}
+            paceFact={paceFact}
+            headerAction={
+              <Segmented
+                items={MODES}
+                value={mode}
+                onChange={onModeChange}
+                ariaLabel="비교 기준"
+                className="sm:w-[242px]"
+              />
+            }
+          />
+        </div>
+
+        <div
+          {...enter(3)}
+          className="ds-enter flex flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:pt-5"
+        >
+          <div className="flex min-h-9 items-center">
             <BlockTitle>같은 기준으로 비교</BlockTitle>
-            <Segmented
-              items={MODES}
-              value={mode}
-              onChange={onModeChange}
-              ariaLabel="비교 기준"
-              className="sm:w-[242px]"
-            />
           </div>
           <Ladder hero={hero} mode={mode} />
-          {showForecast ? (
-            <div className="flex flex-col gap-3 lg:hidden">
-              <DisclosureButton
-                open={forecastOpen}
-                onToggle={() => setForecastOpen((v) => !v)}
-                controls={`${forecastId}-m`}
-                className="self-start"
-              >
-                월말 예상
-              </DisclosureButton>
-              <div id={`${forecastId}-m`}>
-                {forecastOpen ? <Forecast trend={trend} monthLabel={hero.monthLabel} /> : null}
-              </div>
-            </div>
-          ) : null}
         </div>
       </section>
     </EvidenceScope>
+  );
+}
+
+/** One skeleton line. */
+function Bone({ className }: { className: string }) {
+  return <span className={cn("block rounded bg-track", className)} />;
+}
+
+/**
+ * Loading shape of {@link SpendingHero}: the same grid, the hero number's
+ * height, the trend chart's measured height (184 phone / 232 PC) and the
+ * readout's rows, so nothing below jumps when the data lands — and nothing says
+ * "no records" before the request has answered.
+ */
+export function SpendingHeroSkeleton() {
+  const rows = (n: number, key: string) =>
+    Array.from({ length: n }, (_, i) => (
+      <span
+        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
+        key={`${key}-${i}`}
+        className="grid h-[57px] grid-cols-[64px_minmax(0,1fr)_96px] items-center gap-3 border-b border-line"
+      >
+        <Bone className="h-3.5 w-10" />
+        <Bone className="h-2 w-3/4" />
+        <Bone className="h-3.5 w-full" />
+      </span>
+    ));
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="이번 달 지출 불러오는 중"
+      className="ds-delayed-in -mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-x-6 lg:gap-y-12"
+    >
+      <div className="flex flex-col gap-2">
+        <Bone className="h-3 w-28" />
+        <Bone className="mt-1 h-11 w-64 rounded-md sm:h-14 sm:w-80" />
+        <Bone className="mt-2 h-4 w-full max-w-[600px]" />
+        <Bone className="h-4 w-2/3 max-w-[400px]" />
+        <Bone className="mt-4 h-2.5 w-full max-w-[600px] rounded-full" />
+        <span className="mt-2 flex max-w-[600px] flex-col gap-3 sm:flex-row sm:gap-6">
+          <Bone className="h-9 w-full sm:w-1/2" />
+          <Bone className="h-9 w-full sm:w-[220px]" />
+        </span>
+      </div>
+      <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 lg:row-start-2">
+        <div className="flex flex-col gap-1.5">
+          <Bone className="h-4 w-20" />
+          <Bone className="h-3 w-56" />
+          {/* The 전체 / 의료·건강 제외 switch stacks under the title on phones. */}
+          <Bone className="mt-1.5 h-11 w-full rounded-[10px] sm:hidden" />
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,718fr)_minmax(0,506fr)] lg:gap-6">
+          <div className="pt-5 pb-6">
+            <span className="block h-[184px] rounded-md bg-track/60 sm:h-[232px]" />
+          </div>
+          <div className="flex flex-col border-t border-line lg:mt-9">{rows(4, "trend")}</div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:pt-5">
+        <Bone className="h-4 w-28" />
+        <div className="flex flex-col border-t border-line">{rows(3, "ladder")}</div>
+      </div>
+    </div>
   );
 }

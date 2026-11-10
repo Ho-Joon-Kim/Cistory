@@ -6,6 +6,7 @@ import { toKstCalendarDate } from "@/lib/date-key";
 import type { CategoryTotals, SpendingCategoryKey } from "./categories";
 import { accountRolesJoinOn, bucketSql } from "./classify";
 import { forecastMonthEnd } from "./forecast";
+import { buildReferenceCurves, REFERENCE_AVERAGE_MONTHS } from "./reference";
 import type {
   CumulativeDataPoint,
   DailySpending,
@@ -38,11 +39,19 @@ export class SpendingTrendService {
     // along with the Tier 3/4 forecast tiers in commit 8.2.
     const monthStart = kstMidnight(year, month, 1);
     const nextMonthStart = kstMidnight(year, month + 1, 1);
-    const [monthlyTotals, currentMonthDaily, currentMonthAmounts] = await Promise.all([
-      this._getMonthlyTotals(userId, tossMyName, kstMidnight(year, month - 12, 1)),
-      this._getCurrentMonthDaily(userId, tossMyName, monthStart, nextMonthStart),
-      this._getCurrentMonthAmounts(userId, tossMyName, monthStart, nextMonthStart),
-    ]);
+    const [monthlyTotals, currentMonthDaily, currentMonthAmounts, referenceDaily] =
+      await Promise.all([
+        this._getMonthlyTotals(userId, tossMyName, kstMidnight(year, month - 12, 1)),
+        this._getCurrentMonthDaily(userId, tossMyName, monthStart, nextMonthStart),
+        this._getCurrentMonthAmounts(userId, tossMyName, monthStart, nextMonthStart),
+        // Same daily grouping over the settled months the chart's reference lines use.
+        this._getCurrentMonthDaily(
+          userId,
+          tossMyName,
+          kstMidnight(year, month - REFERENCE_AVERAGE_MONTHS, 1),
+          monthStart
+        ),
+      ]);
 
     // Separate current month from history for forecast
     const historyOnly = monthlyTotals.filter((m) => m.month !== currentMonthKey);
@@ -89,6 +98,7 @@ export class SpendingTrendService {
 
     return {
       cumulativeCurve,
+      references: buildReferenceCurves(referenceDaily, currentMonthKey, daysInMonth),
       monthlyBars,
       forecast: {
         predictedTotal: forecastResult.predictedTotal,

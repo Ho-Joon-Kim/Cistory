@@ -13,6 +13,14 @@ const trend = {
     lower: i >= 14 ? (i + 1) * 35000 : null,
     categories: { food: (i + 1) * 24000, shopping: (i + 1) * 16000 },
   })),
+  references: {
+    previous: {
+      months: ["2026-07"],
+      total: Array.from({ length: 30 }, (_, i) => (i + 1) * 30000),
+      split: Array.from({ length: 30 }, () => 0),
+    },
+    average: null,
+  },
   monthlyBars: [
     {
       month: "07",
@@ -219,13 +227,25 @@ test("spending month bars and forecast keep real geometry", async ({ page }, tes
   await page.getByRole("button", { name: /2026년 7월/ }).click();
   await expect(page.getByRole("heading", { name: "7월 상위 카테고리" })).toBeVisible();
 
-  await page.getByRole("button", { name: "월말 예상" }).filter({ visible: true }).click();
+  // The cumulative trend is always open (no disclosure) right under the hero.
   const forecast = page.getByRole("img", { name: /누적 지출과 월말 예상/ });
   await expect(forecast).toBeVisible();
   for (const path of await forecast.locator("path").all())
     await expect
       .poll(() => path.evaluate((el) => (el as SVGGraphicsElement).getBBox().width))
       .toBeGreaterThan(30);
+  const series = (name: string) =>
+    forecast
+      .locator(`[data-series="${name}"]`)
+      .evaluate((el) => (el as SVGGraphicsElement).getBBox());
+  // Day 1 → 15 of 30 against the full-month reference: 14/29 of its width, and
+  // the projection covers the remaining 15/29.
+  const actualBox = await series("actual");
+  const previousBox = await series("previous");
+  const forecastBox = await series("forecast");
+  expect(actualBox.width / previousBox.width).toBeCloseTo(14 / 29, 2);
+  expect(forecastBox.width / previousBox.width).toBeCloseTo(15 / 29, 2);
+  expect(forecastBox.x).toBeCloseTo(actualBox.x + actualBox.width, 0);
   await page.screenshot({ path: testInfo.outputPath("spending.png"), fullPage: true });
   expect(errors).toEqual([]);
 });

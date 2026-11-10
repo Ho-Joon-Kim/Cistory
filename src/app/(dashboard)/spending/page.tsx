@@ -31,7 +31,11 @@ import { Ledger, type LedgerActions } from "@/modules/spending/components/Ledger
 import { MonthlyChart } from "@/modules/spending/components/MonthlyChart";
 import { NotificationList } from "@/modules/spending/components/NotificationList";
 import { BlockTitle, enter, SectionTitle } from "@/modules/spending/components/parts";
-import { type CompareMode, SpendingHero } from "@/modules/spending/components/SpendingHero";
+import {
+  type CompareMode,
+  SpendingHero,
+  SpendingHeroSkeleton,
+} from "@/modules/spending/components/SpendingHero";
 import {
   useDeleteTransaction,
   useNotificationLogs,
@@ -54,6 +58,7 @@ import {
   periodRange,
   previousMonth,
   SPLIT_CATEGORY,
+  sameDayRefs,
   toMonthBars,
   topMerchantFact,
   txDayKey,
@@ -184,6 +189,7 @@ export default function SpendingPage() {
       perDay: Math.round(rest / day),
       previous: previousMonth(bars, current),
       average,
+      sameDay: sameDayRefs(data.references, day),
     };
   }, [data, current, bars, average, month.summary, month.transactions, today]);
 
@@ -335,7 +341,7 @@ export default function SpendingPage() {
             }
           />
         ) : !data || !hero ? (
-          <LoadingState />
+          <SpendingHeroSkeleton />
         ) : hasNoData ? (
           <EmptyState
             title="아직 기록된 소비가 없어요"

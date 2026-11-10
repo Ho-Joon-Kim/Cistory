@@ -68,8 +68,26 @@ export interface MonthlyBarDataPoint {
   categories: CategoryTotals;
 }
 
+/**
+ * A settled month's (or months' average) cumulative spending, indexed day-1
+ * over the CURRENT month's length. `split` is the 의료·건강 part of `total`.
+ */
+export interface ReferenceCurve {
+  /** "YYYY-MM" — one month, or the months averaged (ascending). */
+  months: string[];
+  total: number[];
+  split: number[];
+}
+
+export interface SpendingReferences {
+  previous: ReferenceCurve | null;
+  average: ReferenceCurve | null;
+}
+
 export interface SpendingTrendResponse {
   cumulativeCurve: CumulativeDataPoint[];
+  /** Reference lines for the cumulative chart (absent from older responses). */
+  references?: SpendingReferences;
   monthlyBars: MonthlyBarDataPoint[];
   forecast: {
     predictedTotal: number;

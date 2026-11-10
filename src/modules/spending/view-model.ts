@@ -18,7 +18,12 @@ import type { CategoryTotals, SpendingCategoryKey } from "./categories";
 import { SPENDING_CATEGORY_LABELS } from "./categories";
 import type { TransactionItem } from "./hooks";
 import { merchantBase } from "./refund";
-import type { MonthlyBarDataPoint, SpendingTrendResponse } from "./types";
+import type {
+  MonthlyBarDataPoint,
+  ReferenceCurve,
+  SpendingReferences,
+  SpendingTrendResponse,
+} from "./types";
 
 /** The category the page splits out: large, rare, and not a run-rate. */
 export const SPLIT_CATEGORY: SpendingCategoryKey = "health";
@@ -433,17 +438,93 @@ export interface HeroModel {
   perDay: number;
   previous: MonthBar | null;
   average: Baseline | null;
+  /** Cumulative reference values on this same day — what the trend chart's lines show. */
+  sameDay: SameDayRefs;
 }
 
+// ── same-day references (the cumulative chart's lines) ──────────────────────
+
+export interface SameDayRef {
+  /** "10월" / "8–10월 평균" */
+  label: string;
+  total: number;
+  health: number;
+  rest: number;
+}
+
+export interface SameDayRefs {
+  previous: SameDayRef | null;
+  average: SameDayRef | null;
+}
+
+/** "10월", "8–10월 평균", or "최근 3개월 평균" across a year boundary. */
+export function referenceLabel(curve: Pick<ReferenceCurve, "months">): string {
+  const months = curve.months;
+  const m = (key: string) => Number(key.slice(5, 7));
+  if (months.length === 1) return `${m(months[0])}월`;
+  const first = months[0];
+  const last = months[months.length - 1];
+  if (first.slice(0, 4) !== last.slice(0, 4)) return `최근 ${months.length}개월 평균`;
+  return `${m(first)}–${m(last)}월 평균`;
+}
+
+/** A reference curve's cumulative value through `day` (1-based, clamped). */
+export function referenceAt(curve: ReferenceCurve, day: number, mode: "all" | "ex"): number {
+  if (curve.total.length === 0) return 0;
+  const i = Math.min(Math.max(day, 1), curve.total.length) - 1;
+  return mode === "ex" ? Math.max(0, curve.total[i] - (curve.split[i] ?? 0)) : curve.total[i];
+}
+
+export function sameDayRefs(refs: SpendingReferences | undefined, day: number): SameDayRefs {
+  const at = (curve: ReferenceCurve | null | undefined): SameDayRef | null => {
+    if (!curve) return null;
+    const total = referenceAt(curve, day, "all");
+    const rest = referenceAt(curve, day, "ex");
+    return { label: referenceLabel(curve), total, health: total - rest, rest };
+  };
+  return { previous: at(refs?.previous), average: at(refs?.average) };
+}
+
+/** Within ±3% of the reference reads as "비슷하게" rather than a tiny won delta. */
+const SAME_DAY_FLAT = 0.03;
+
+/** "10월 같은 날보다 120,000원 더" / "… 덜" / "10월 같은 날과 비슷하게". */
+function vsSameDay(label: string, now: number, ref: number): string {
+  if (ref > 0 && Math.abs(now / ref - 1) < SAME_DAY_FLAT) return `${label} 같은 날과 비슷하게`;
+  const diff = now - ref;
+  return `${label} 같은 날보다 ${formatWon(Math.abs(diff))} ${diff >= 0 ? "더" : "덜"}`;
+}
+
+function sameDayClause(hero: HeroModel, mode: "all" | "ex"): string | null {
+  const pick = (r: SameDayRef) => (mode === "ex" ? r.rest : r.total);
+  const now = mode === "ex" ? hero.rest : hero.total;
+  const parts = [hero.sameDay.previous, hero.sameDay.average]
+    .filter((r): r is SameDayRef => r !== null)
+    .map((r) => vsSameDay(r.label, now, pick(r)));
+  return parts.length > 0 ? `${parts.join(", ")} 썼어요.` : null;
+}
+
+/**
+ * The hero's change sentence. With reference curves it leads with the same-day
+ * comparison the cumulative chart draws (last month and the recent average on
+ * this day of the month); without them it falls back to full-month shares.
+ */
 export function heroSentence(hero: HeroModel, mode: "all" | "ex"): string {
   const { day, average, previous } = hero;
+  const sameDay = sameDayClause(hero, mode);
   if (mode === "ex") {
     const base = `${SPLIT_LABEL}을 빼면 ${day}일 동안 ${formatWon(hero.rest)}, 하루 ${formatWon(
       hero.perDay
     )}이에요.`;
+    if (sameDay) return `${base} ${sameDay}`;
     return average
       ? `${base} 같은 기준 ${average.label} 월평균은 ${formatWon(average.rest)}이에요.`
       : base;
+  }
+  if (sameDay) {
+    if (hero.health <= 0) return sameDay;
+    const n = hero.healthCount === 1 ? "한 건" : `${hero.healthCount}건`;
+    return `${sameDay} 그중 ${formatWon(hero.health)}은 ${SPLIT_LABEL} ${n}이에요.`;
   }
   const parts: string[] = [];
   if (average && average.total > 0) {
@@ -691,4 +772,126 @@ export function displayNotificationTitle(title: string | null | undefined): stri
     .replace(/\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{FE0F}|\u{200D}|\u{20E3}/gu, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+// ── cumulative trend (this month vs references, with the month-end forecast) ──
+
+export interface TrendLine {
+  key: "previous" | "average";
+  label: string;
+  /** Cumulative per day, index day-1, over the current month's length. */
+  values: number[];
+}
+
+export interface TrendModel {
+  mode: "all" | "ex";
+  daysInMonth: number;
+  today: number;
+  /** This month's cumulative through today, index day-1. */
+  actual: number[];
+  now: number;
+  references: TrendLine[];
+  /**
+   * Month-end projection from today; null on the month's last day or before any
+   * spending. `range` is null when there is no honest band for this basis.
+   */
+  forecast: { mid: number; range: { lower: number; upper: number } | null } | null;
+}
+
+/**
+ * The cumulative chart's data on one basis. "전체" uses the server forecast
+ * (one-offs added once, a band from past months' spread). "의료·건강 제외"
+ * projects the remaining pace alone — the same 하루 × 일수 the hero's pace
+ * line uses — and draws no band: the server's band was measured on totals that
+ * include 의료·건강 spikes, so stretching it onto the rest would be invented.
+ */
+export function trendModel(trend: SpendingTrendResponse, mode: "all" | "ex"): TrendModel {
+  const f = trend.forecast;
+  const today = Math.max(1, Math.min(f.todayDayNumber, f.daysInMonth));
+  const actual: number[] = [];
+  for (const p of trend.cumulativeCurve) {
+    if (p.day > today || p.actual === null) continue;
+    const split = p.categories?.[SPLIT_CATEGORY] ?? 0;
+    actual[p.day - 1] = mode === "ex" ? Math.max(0, p.actual - split) : p.actual;
+  }
+  // Fill gaps (days without a curve point) with the running value.
+  for (let i = 0; i < today; i++) actual[i] = actual[i] ?? (i > 0 ? actual[i - 1] : 0);
+  const now = actual[today - 1] ?? 0;
+
+  const references: TrendLine[] = [];
+  for (const key of ["previous", "average"] as const) {
+    const curve = trend.references?.[key];
+    if (!curve) continue;
+    references.push({
+      key,
+      label: referenceLabel(curve),
+      values: Array.from({ length: f.daysInMonth }, (_, i) => referenceAt(curve, i + 1, mode)),
+    });
+  }
+
+  let forecast: TrendModel["forecast"] = null;
+  if (today < f.daysInMonth && now > 0) {
+    forecast =
+      mode === "all"
+        ? {
+            mid: f.predictedTotal,
+            range:
+              f.upperBound > f.lowerBound ? { lower: f.lowerBound, upper: f.upperBound } : null,
+          }
+        : { mid: Math.round((now / today) * f.daysInMonth), range: null };
+  }
+  return { mode, daysInMonth: f.daysInMonth, today, actual, now, references, forecast };
+}
+
+/** The value a line shows on `day`: actual through today, the straight projection after. */
+export function trendValueAt(model: TrendModel, day: number): number | null {
+  if (day <= model.today) return model.actual[day - 1] ?? null;
+  if (!model.forecast) return null;
+  const span = model.daysInMonth - model.today;
+  return Math.round(model.now + ((model.forecast.mid - model.now) * (day - model.today)) / span);
+}
+
+/**
+ * Evidence rows for the month-end line: how the projection is built, the
+ * band, and what drives the month so far (top everyday categories to date).
+ */
+export function forecastRows(trend: SpendingTrendResponse, model: TrendModel): FactRow[] {
+  const f = trend.forecast;
+  const rows: FactRow[] = [
+    { label: "지금까지", value: `${model.today}일 ${formatWon(model.now)}` },
+  ];
+  const remaining = model.daysInMonth - model.today;
+  if (model.mode === "all") {
+    const oneOff = f.oneOffTotal ?? 0;
+    const perDay = Math.round(Math.max(0, model.now - oneOff) / model.today);
+    if (oneOff > 0) {
+      rows.push({
+        label: "1회성 결제",
+        value: `${f.oneOffCount}건 ${formatWon(oneOff)} · 한 번만 더함`,
+      });
+    }
+    rows.push({ label: "하루 속도", value: `${formatWon(perDay)} × 남은 ${remaining}일` });
+    if (model.forecast?.range) {
+      rows.push({
+        label: "예상 범위",
+        value: `${formatWon(model.forecast.range.lower)}–${formatWon(model.forecast.range.upper)}`,
+      });
+      rows.push({ label: "범위 근거", value: "지난 달들의 월별 변동폭, 월말에 가까울수록 좁아짐" });
+    }
+  } else {
+    rows.push({
+      label: "하루 속도",
+      value: `${formatWon(Math.round(model.now / model.today))} × ${model.daysInMonth}일`,
+    });
+  }
+  const today = trend.cumulativeCurve.find((p) => p.day === model.today);
+  const drivers = Object.entries(today?.categories ?? {})
+    .filter(([key, v]) => key !== SPLIT_CATEGORY && key !== "uncategorized" && (v ?? 0) > 0)
+    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+    .slice(0, 2)
+    .map(
+      ([key, v]) => `${SPENDING_CATEGORY_LABELS[key as SpendingCategoryKey]} ${formatWon(v ?? 0)}`
+    );
+  if (drivers.length > 0) rows.push({ label: "많이 쓴 곳", value: drivers.join(" · ") });
+  return rows;
 }

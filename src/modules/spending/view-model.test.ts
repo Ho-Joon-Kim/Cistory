@@ -165,6 +165,7 @@ describe("hero", () => {
     perDay: Math.round(283_890 / 9),
     previous: previousMonth(bars, bars[bars.length - 1]),
     average: averageBaseline(bars),
+    sameDay: { previous: null, average: null },
   };
 
   it("compares the month to date with the average and last month", () => {
