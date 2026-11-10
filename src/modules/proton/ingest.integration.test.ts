@@ -354,7 +354,8 @@ describe("proton repository (real Postgres)", () => {
         { nodeUid: "fresh", captureTime: later, tags: [] },
         { nodeUid: "nsfw", captureTime: later, tags: [] },
       ],
-      new Set(["nsfw"])
+      new Set(["nsfw"]),
+      NOW
     );
 
     expect(await rowOf(db, user, "verified")).toMatchObject({
