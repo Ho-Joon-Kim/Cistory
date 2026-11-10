@@ -4,9 +4,10 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Sheet } from "@/components/ds";
+import { userErrorMessage } from "@/lib/user-error";
 import { cn } from "@/lib/utils";
 import type { SummaryAccount, SummaryPosition, TargetAllocation } from "../hooks";
-import { saveTargetAllocations } from "../hooks";
+import { SAVE_TARGETS_ERROR, saveTargetAllocations } from "../hooks";
 
 interface Props {
   open: boolean;
@@ -127,8 +128,10 @@ export function TargetAllocationEditor({
         onSaved();
         onOpenChange(false);
       } else {
-        toast.error(res.error ?? "목표 비중을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
+        toast.error(res.error ?? SAVE_TARGETS_ERROR);
       }
+    } catch (error) {
+      toast.error(userErrorMessage(error, SAVE_TARGETS_ERROR));
     } finally {
       setSaving(false);
     }

@@ -372,18 +372,24 @@ export function useReturns(params: { accountId?: string; from?: string; to?: str
   return { data, isLoading, error };
 }
 
+export const SAVE_TARGETS_ERROR = "목표 비중을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+
 export async function saveTargetAllocations(
   accountId: string,
   targets: TargetAllocation[]
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`/api/portfolio/accounts/${accountId}/targets`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ targets }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return { ok: false, error: data.error ?? "저장 실패" };
-  return { ok: true };
+  try {
+    const res = await fetch(`/api/portfolio/accounts/${accountId}/targets`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ targets }),
+    });
+    if (res.ok) return { ok: true };
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, error: userErrorMessage(data?.error, SAVE_TARGETS_ERROR) };
+  } catch (e) {
+    return { ok: false, error: userErrorMessage(e, SAVE_TARGETS_ERROR) };
+  }
 }
 
 export interface AccountTargets {

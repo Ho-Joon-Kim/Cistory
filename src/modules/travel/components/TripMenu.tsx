@@ -71,12 +71,16 @@ export function TripMenu({
   const [active, setActive] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // A Tab close has already moved focus on; Radix must not pull it back to ⋯.
+  const closedByTab = useRef(false);
   // Set when a sub-view's 취소 returns to the list, so focus lands back on its item.
   const refocusMenu = useRef(false);
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
     if (next) {
+      closedByTab.current = false;
       setView("menu");
       setName(tripName);
       setActive(0);
@@ -116,6 +120,15 @@ export function TripMenu({
   };
 
   const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // APG menu: Tab/Shift+Tab close the menu and focus moves on from the trigger.
+    // The trigger is focused first (no default prevented), so the browser's own
+    // Tab step continues from it rather than from the portaled menu.
+    if (event.key === "Tab") {
+      closedByTab.current = true;
+      triggerRef.current?.focus();
+      setOpen(false);
+      return;
+    }
     const step = MENU_KEYS[event.key];
     if (step === undefined) return;
     event.preventDefault();
@@ -155,6 +168,7 @@ export function TripMenu({
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <PopoverPrimitive.Trigger
+        ref={triggerRef}
         type="button"
         aria-label={`${tripLabel} 여행 메뉴`}
         className={cn(
@@ -176,6 +190,11 @@ export function TripMenu({
             if (!first) return;
             event.preventDefault();
             first.focus();
+          }}
+          onCloseAutoFocus={(event) => {
+            if (!closedByTab.current) return;
+            closedByTab.current = false;
+            event.preventDefault();
           }}
           aria-label={`${tripName} 메뉴`}
           className="ds-pop z-50 flex w-[260px] origin-(--radix-popover-content-transform-origin) flex-col rounded-xl bg-surface p-1.5 shadow-pop outline-none"
