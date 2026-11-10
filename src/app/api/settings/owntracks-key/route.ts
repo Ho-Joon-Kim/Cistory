@@ -13,4 +13,4 @@ const { POST, DELETE } = createApiKeyRoute({
   label: "OwnTracks",
 });
 
-export { POST, DELETE };
+export { DELETE, POST };

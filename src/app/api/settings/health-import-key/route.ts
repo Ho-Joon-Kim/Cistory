@@ -16,4 +16,4 @@ const { POST, DELETE } = createApiKeyRoute({
   label: "Health Import",
 });
 
-export { POST, DELETE };
+export { DELETE, POST };

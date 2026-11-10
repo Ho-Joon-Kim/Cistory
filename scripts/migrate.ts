@@ -25,9 +25,7 @@ const db = drizzle(pool);
 
 async function main() {
   console.log("Running migrations...");
-  console.log(
-    `(lock_timeout=${LOCK_TIMEOUT_MS}ms, statement_timeout=${STATEMENT_TIMEOUT_MS}ms)`
-  );
+  console.log(`(lock_timeout=${LOCK_TIMEOUT_MS}ms, statement_timeout=${STATEMENT_TIMEOUT_MS}ms)`);
   // Before the migrations, so every migration runs against SQL definitions
   // that match the image's PostGIS library. A no-op unless the postgres
   // container was recreated on a newer postgis/postgis image — see the header

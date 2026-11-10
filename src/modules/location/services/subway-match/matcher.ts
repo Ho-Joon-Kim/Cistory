@@ -17,11 +17,11 @@
 
 import { and, asc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getDb, locationPoints, subwayTripMatches, transportationSegments } from "@/db";
+import { distanceM } from "@/lib/geo";
 import { logger } from "@/lib/logger";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
 import { subwayMatchConfig as cfg, ELIGIBLE_MODES_FOR_MATCHING } from "./config";
 import { type ScorerPoint, scoreGpsGaps, scoreSpeedProfile } from "./scorers";
-import { distanceM } from "@/lib/geo";
 
 interface SegmentRow {
   id: string;

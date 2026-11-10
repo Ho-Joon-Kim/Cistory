@@ -91,15 +91,13 @@ describe("installed Better Auth against the 1.6 PostgreSQL schema", () => {
       'INSERT INTO "user" (id,name,email,"createdAt","updatedAt") VALUES ($1,$2,$3,now(),now())',
       [id, "Fixture", `${id}@example.test`]
     );
-    await injected
-      .db!.insert(schema.users)
-      .values({
-        id,
-        githubId: Math.floor(Math.random() * 2_000_000_000),
-        githubLogin: id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+    await injected.db!.insert(schema.users).values({
+      id,
+      githubId: Math.floor(Math.random() * 2_000_000_000),
+      githubLogin: id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
     return id;
   }
   async function device(userId: string) {

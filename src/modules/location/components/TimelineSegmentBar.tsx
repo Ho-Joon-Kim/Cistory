@@ -75,8 +75,7 @@ function distanceInKm(a: LocationData, b: LocationData): number {
   const deltaLat = lat2 - lat1;
   const deltaLon = ((b.lon - a.lon) * Math.PI) / 180;
   const haversine =
-    Math.sin(deltaLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+    Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
@@ -107,9 +106,9 @@ export function buildSpeedGradient(locations: LocationData[]): string {
       startIndex + 1,
       Math.floor(((bucketIndex + 1) * sorted.length) / bucketCount)
     );
-    const speeds = sorted.slice(startIndex, endIndex).map((_, offset) =>
-      getSpeed(sorted, startIndex + offset)
-    );
+    const speeds = sorted
+      .slice(startIndex, endIndex)
+      .map((_, offset) => getSpeed(sorted, startIndex + offset));
     const averageSpeed = speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length;
     const representativeIndex =
       bucketIndex === 0
@@ -131,7 +130,11 @@ export function buildSpeedGradient(locations: LocationData[]): string {
     return `linear-gradient(90deg, transparent 0%, transparent ${start}%, ${first.color} ${start}%, ${first.color} ${end}%, transparent ${end}%, transparent 100%)`;
   }
 
-  const stops = ["transparent 0%", `transparent ${first.percent}%`, `${first.color} ${first.percent}%`];
+  const stops = [
+    "transparent 0%",
+    `transparent ${first.percent}%`,
+    `${first.color} ${first.percent}%`,
+  ];
   for (const point of points.slice(1)) stops.push(`${point.color} ${point.percent}%`);
   stops.push(`${last.color} ${last.percent}%`, `transparent ${last.percent}%`, "transparent 100%");
   return `linear-gradient(90deg, ${stops.join(", ")})`;

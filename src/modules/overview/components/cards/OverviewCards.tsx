@@ -507,7 +507,11 @@ function PortfolioCards({ data }: { data: PortfolioAggregate }) {
             <Stat
               label="연환산"
               value={data.twr.days >= MIN_ANNUALIZE_DAYS ? percent(data.twr.annualizedReturn) : "—"}
-              tone={data.twr.days >= MIN_ANNUALIZE_DAYS ? returnTone(data.twr.annualizedReturn) : undefined}
+              tone={
+                data.twr.days >= MIN_ANNUALIZE_DAYS
+                  ? returnTone(data.twr.annualizedReturn)
+                  : undefined
+              }
               caption={
                 data.twr.days >= MIN_ANNUALIZE_DAYS
                   ? `${Math.round(data.twr.days)}일 기준`

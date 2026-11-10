@@ -53,10 +53,7 @@ async function verifyAccount(accountId: string, label: string) {
     })
     .from(holdingSnapshots)
     .where(
-      and(
-        eq(holdingSnapshots.accountId, accountId),
-        gte(holdingSnapshots.asOfDate, RETURNS_EPOCH)
-      )
+      and(eq(holdingSnapshots.accountId, accountId), gte(holdingSnapshots.asOfDate, RETURNS_EPOCH))
     )
     .orderBy(asc(holdingSnapshots.asOfDate));
 
@@ -155,9 +152,7 @@ async function verifyAccount(accountId: string, label: string) {
         (result.twr.totalReturn < 0 && result.xirr < 0) ||
         (result.twr.totalReturn === 0 && result.xirr === 0);
       console.log(
-        sameSign
-          ? `  ✓ TWR and XIRR have the same sign`
-          : `  ⚠ TWR and XIRR have different signs`
+        sameSign ? `  ✓ TWR and XIRR have the same sign` : `  ⚠ TWR and XIRR have different signs`
       );
     }
   }

@@ -11,14 +11,7 @@
  * Run from the project root, AFTER `next build`.
  */
 
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize, relative } from "node:path";
 
 const SERVER_DIR = ".next/server";
@@ -27,7 +20,9 @@ const NFT_FILE = `${SERVER_DIR}/instrumentation.js.nft.json`;
 const INSTR_FILE = `${SERVER_DIR}/instrumentation.js`;
 
 if (!existsSync(NFT_FILE)) {
-  console.error(`fix-standalone-instrumentation: ${NFT_FILE} not found — did you run \`next build\` first?`);
+  console.error(
+    `fix-standalone-instrumentation: ${NFT_FILE} not found — did you run \`next build\` first?`
+  );
   process.exit(1);
 }
 
