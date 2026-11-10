@@ -175,6 +175,12 @@ function DisclosureRow({
   children: ReactNode;
 }) {
   const panelId = `settings-${id}`;
+  // A closed panel is inert and collapsed, but its body still mounted — so every
+  // card's on-mount fetch (the location dry run alone scans millions of points)
+  // ran on page load for panels nobody opened. Mount on first open, then keep it
+  // mounted so closing animates and the card keeps its state.
+  const [everOpened, setEverOpened] = useState(open);
+  if (open && !everOpened) setEverOpened(true);
   return (
     <div className="scroll-mt-24 border-b border-line" id={`row-${id}`}>
       <button
@@ -210,7 +216,7 @@ function DisclosureRow({
         <Chevron />
       </button>
       <Disclosure open={open} id={panelId}>
-        <div className={cn("pb-5", icon && "pl-11", BARE)}>{children}</div>
+        <div className={cn("pb-5", icon && "pl-11", BARE)}>{everOpened ? children : null}</div>
       </Disclosure>
     </div>
   );
