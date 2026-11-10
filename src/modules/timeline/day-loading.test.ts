@@ -31,9 +31,11 @@ describe("daySections", () => {
     expect(daySections(settled, 0).list).toBe("empty");
   });
 
-  it("keeps the map's no-records pill back until locations and stays settle", () => {
+  it("keeps the map's pill and camera fit back until locations, stays and rides settle", () => {
     expect(daySections({ ...settled, locations: true }, 0).mapLoading).toBe(true);
     expect(daySections({ ...settled, stayPoints: true }, 0).mapLoading).toBe(true);
+    // Rides widen the day's bounds: fitting before them meant a second camera jump.
+    expect(daySections({ ...settled, tracks: true }, 0).mapLoading).toBe(true);
     expect(daySections({ ...settled, commits: true }, 0).mapLoading).toBe(false);
   });
 

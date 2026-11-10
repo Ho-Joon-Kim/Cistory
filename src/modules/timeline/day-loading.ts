@@ -23,7 +23,11 @@ export type DayListState = "loading" | "rows" | "empty";
 export interface DaySections {
   /** The timeline list: skeleton, rows, or the empty line. */
   list: DayListState;
-  /** The map may not show its "no location records" pill yet. */
+  /**
+   * The map's sources are still arriving: no "no location records" pill yet, and
+   * no camera fit either — rides (tracks) widen the stays' bounds, so framing
+   * before they land meant a second jump when they did.
+   */
   mapLoading: boolean;
   /**
    * The summary line, AI fact and body row are complete. They are held back
@@ -48,7 +52,7 @@ export function daySections(pending: DayPending, rowCount: number): DaySections 
         : "empty";
   return {
     list,
-    mapLoading: pending.locations || pending.stayPoints,
+    mapLoading: pending.locations || pending.stayPoints || pending.tracks,
     summaryReady: !coreLoading && !pending.health && !pending.distances && !pending.locations,
   };
 }

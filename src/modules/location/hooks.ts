@@ -1,8 +1,8 @@
 "use client";
 
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePageVisible } from "@/lib/hooks/usePageVisible";
-import { toLocalDateString } from "@/lib/utils";
+import { toKstCalendarDate } from "@/lib/date-key";
 
 export interface LocationData {
   lat: number;
@@ -20,9 +20,55 @@ interface LocationsResponse {
 }
 
 const POLL_INTERVAL_MS = 60_000;
+/** Today's records are still arriving; a past day only changes when the nightly pipeline reruns. */
+const TODAY_STALE_MS = 30_000;
+const PAST_STALE_MS = 5 * 60_000;
 
-function isToday(date: string): boolean {
-  return date === toLocalDateString(new Date());
+export type LocationDayKind = "points" | "stay-points" | "tracks" | "distances";
+
+/**
+ * Query options for one KST day of location data.
+ *
+ * These used to live in per-component `useRef` caches, so every visit to
+ * /dashboard (and every return from another page) started empty: the list fell
+ * back to its skeleton and the map was framed twice — once on the reused map's
+ * default view, again when the refetch landed. In the shared query cache a
+ * return renders the cached day at once and refreshes it in the background;
+ * structural sharing keeps an unchanged refetch from producing new arrays, so
+ * nothing downstream (the map in particular) re-renders. Polling stays
+ * today-only and pauses while the tab is hidden (react-query's default).
+ */
+export function locationDayOptions<T>(
+  kind: LocationDayKind,
+  from: string,
+  to: string,
+  fetcher: (signal: AbortSignal) => Promise<T>,
+  now: Date = new Date()
+) {
+  const todayKey = toKstCalendarDate(now);
+  const today = from <= todayKey && todayKey <= to;
+  return queryOptions({
+    queryKey: ["location", kind, from, to],
+    queryFn: ({ signal }) => fetcher(signal),
+    enabled: !!from && !!to,
+    staleTime: today ? TODAY_STALE_MS : PAST_STALE_MS,
+    refetchInterval: today ? POLL_INTERVAL_MS : false,
+    // A failed day settles to its error/empty state at once instead of holding
+    // the skeleton through a retry; today's poll (and 다시 시도) try again.
+    retry: false,
+  });
+}
+
+// Stable empties, so a pending or failed source doesn't hand out a new [] each render.
+const EMPTY_LOCATIONS: LocationData[] = [];
+const EMPTY_STAY_POINTS: StayPointData[] = [];
+const EMPTY_TRACKS: TrackData[] = [];
+const EMPTY_DISTANCES: Record<string, number> = {};
+
+async function getJson<T>(url: string, signal: AbortSignal, failure: string): Promise<T> {
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(failure);
+  return (await response.json()) as T;
 }
 
 export interface StayPointData {
@@ -44,76 +90,19 @@ interface StayPointsResponse {
 }
 
 export function useStayPoints(date: string) {
-  const [stayPoints, setStayPoints] = useState<StayPointData[]>([]);
-  // The key whose request has settled (data, error or cache hit). Loading is
-  // derived from it so the first render, a date change and an aborted request
-  // all read as loading — never as an empty day.
-  const [settledKey, setSettledKey] = useState<string | null>(null);
-  const cache = useRef<Map<string, StayPointData[]>>(new Map());
-  const visible = usePageVisible();
-
-  const fetchStayPoints = useCallback(
-    async (targetDate: string, signal: AbortSignal, silent = false) => {
-      if (!silent) {
-        const cached = cache.current.get(targetDate);
-        if (cached) {
-          setStayPoints(cached);
-          setSettledKey(targetDate);
-          return;
-        }
-      }
-
-      try {
-        const response = await fetch(`/api/timeline/locations/stay-points?date=${targetDate}`, {
-          signal,
-        });
-        if (!response.ok) throw new Error("Failed to fetch stay points");
-
-        const data = (await response.json()) as StayPointsResponse;
-
-        // Skip state update if data hasn't changed (prevents map re-render)
-        if (silent) {
-          const prev = cache.current.get(targetDate);
-          if (
-            prev &&
-            prev.length === data.stayPoints.length &&
-            prev.at(-1)?.endTime === data.stayPoints.at(-1)?.endTime
-          ) {
-            return;
-          }
-        }
-
-        cache.current.set(targetDate, data.stayPoints);
-        setStayPoints(data.stayPoints);
-      } catch (e) {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        if (!silent) setStayPoints([]);
-      } finally {
-        if (!silent && !signal.aborted) setSettledKey(targetDate);
-      }
-    },
-    []
+  const query = useQuery(
+    locationDayOptions("stay-points", date, date, async (signal) => {
+      const data = await getJson<StayPointsResponse>(
+        `/api/timeline/locations/stay-points?date=${date}`,
+        signal,
+        "Failed to fetch stay points"
+      );
+      return data.stayPoints ?? [];
+    })
   );
-
-  useEffect(() => {
-    if (!date) return;
-
-    const controller = new AbortController();
-    fetchStayPoints(date, controller.signal);
-
-    if (!isToday(date) || !visible) return () => controller.abort();
-
-    const interval = setInterval(() => {
-      fetchStayPoints(date, controller.signal, true);
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      controller.abort();
-      clearInterval(interval);
-    };
-  }, [date, visible, fetchStayPoints]);
-
-  return { stayPoints, isLoading: settledKey !== date };
+  // Loading means "nothing for this date yet" — a background refresh of a
+  // cached day is not loading, and a failure settles to no records.
+  return { stayPoints: query.data ?? EMPTY_STAY_POINTS, isLoading: query.isPending };
 }
 
 interface DailyDistancesResponse {
@@ -121,164 +110,45 @@ interface DailyDistancesResponse {
 }
 
 export function useDailyDistances(dateFrom: string, dateTo: string) {
-  const [distances, setDistances] = useState<Record<string, number>>({});
-  // The key whose request has settled (data, error or cache hit). Loading is
-  // derived from it so the first render, a date change and an aborted request
-  // all read as loading — never as an empty day.
-  const [settledKey, setSettledKey] = useState<string | null>(null);
-  const cache = useRef<Map<string, Record<string, number>>>(new Map());
-  const visible = usePageVisible();
-
-  const fetchDistances = useCallback(
-    async (from: string, to: string, signal: AbortSignal, silent = false) => {
-      const cacheKey = `${from}:${to}`;
-
-      if (!silent) {
-        const cached = cache.current.get(cacheKey);
-        if (cached) {
-          setDistances(cached);
-          setSettledKey(cacheKey);
-          return;
-        }
-      }
-
-      try {
-        const response = await fetch(`/api/timeline/locations/distances?from=${from}&to=${to}`, {
-          signal,
-        });
-        if (!response.ok) throw new Error("Failed to fetch distances");
-
-        const data = (await response.json()) as DailyDistancesResponse;
-
-        cache.current.set(cacheKey, data.distances);
-        setDistances(data.distances);
-      } catch (e) {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        if (!silent) setDistances({});
-      } finally {
-        if (!silent && !signal.aborted) setSettledKey(cacheKey);
-      }
-    },
-    []
+  const query = useQuery(
+    locationDayOptions("distances", dateFrom, dateTo, async (signal) => {
+      const data = await getJson<DailyDistancesResponse>(
+        `/api/timeline/locations/distances?from=${dateFrom}&to=${dateTo}`,
+        signal,
+        "Failed to fetch distances"
+      );
+      return data.distances ?? {};
+    })
   );
-
-  useEffect(() => {
-    if (!dateFrom || !dateTo) return;
-
-    const controller = new AbortController();
-    fetchDistances(dateFrom, dateTo, controller.signal);
-
-    // Poll if today is in range
-    const today = toLocalDateString(new Date());
-    if (visible && today >= dateFrom && today <= dateTo) {
-      const interval = setInterval(() => {
-        // Invalidate cache for polling
-        cache.current.delete(`${dateFrom}:${dateTo}`);
-        fetchDistances(dateFrom, dateTo, controller.signal, true);
-      }, POLL_INTERVAL_MS);
-
-      return () => {
-        controller.abort();
-        clearInterval(interval);
-      };
-    }
-
-    return () => controller.abort();
-  }, [dateFrom, dateTo, visible, fetchDistances]);
-
-  return { distances, isLoading: settledKey !== `${dateFrom}:${dateTo}` };
+  return { distances: query.data ?? EMPTY_DISTANCES, isLoading: query.isPending };
 }
 
 export function useLocations(date: string) {
-  const [locations, setLocations] = useState<LocationData[]>([]);
-  // The key whose request has settled (data, error or cache hit). Loading is
-  // derived from it so the first render, a date change and an aborted request
-  // all read as loading — never as an empty day.
-  const [settledKey, setSettledKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // The thrown value itself, so callers can tell a network failure from a 500.
-  const [failure, setFailure] = useState<unknown>(null);
-  const [attempt, setAttempt] = useState(0);
-  const cache = useRef<Map<string, LocationData[]>>(new Map());
-  const visible = usePageVisible();
-  const refresh = useCallback(() => setAttempt((n) => n + 1), []);
-
-  const fetchLocations = useCallback(
-    async (targetDate: string, signal: AbortSignal, silent = false) => {
-      if (!silent) {
-        const cached = cache.current.get(targetDate);
-        if (cached) {
-          setLocations(cached);
-          setSettledKey(targetDate);
-          setError(null);
-          setFailure(null);
-          return;
-        }
-      }
-
-      if (!silent) {
-        setError(null);
-        setFailure(null);
-      }
-
-      try {
-        const params = new URLSearchParams({ date: targetDate });
-        const response = await fetch(`/api/timeline/locations?${params}`, { signal });
-        if (!response.ok) throw new Error("Failed to fetch locations");
-
-        const data = (await response.json()) as LocationsResponse;
-        setError(null);
-        setFailure(null);
-
-        // Skip state update if data hasn't changed (prevents map re-render/re-animation)
-        if (silent) {
-          const prev = cache.current.get(targetDate);
-          if (
-            prev &&
-            prev.length === data.locations.length &&
-            prev.at(-1)?.timestamp === data.locations.at(-1)?.timestamp
-          ) {
-            return;
-          }
-        }
-
-        cache.current.set(targetDate, data.locations);
-        setLocations(data.locations);
-      } catch (e) {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        if (!silent) {
-          setError(e instanceof Error ? e.message : "Unknown error");
-          setFailure(e);
-          setLocations([]);
-        }
-      } finally {
-        if (!silent && !signal.aborted) setSettledKey(targetDate);
-      }
-    },
-    []
+  const query = useQuery(
+    locationDayOptions("points", date, date, async (signal) => {
+      const params = new URLSearchParams({ date });
+      const data = await getJson<LocationsResponse>(
+        `/api/timeline/locations?${params}`,
+        signal,
+        "Failed to fetch locations"
+      );
+      return data.locations ?? [];
+    })
   );
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` re-runs the fetch on retry
-  useEffect(() => {
-    if (!date) return;
-
-    const controller = new AbortController();
-    fetchLocations(date, controller.signal);
-
-    // Poll every minute when viewing today (only if tab is visible)
-    if (!isToday(date) || !visible) return () => controller.abort();
-
-    const interval = setInterval(() => {
-      fetchLocations(date, controller.signal, true);
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      controller.abort();
-      clearInterval(interval);
-    };
-  }, [date, visible, fetchLocations, attempt]);
-
-  return { locations, isLoading: settledKey !== date, error, failure, refresh };
+  const { refetch } = query;
+  const refresh = useCallback(() => {
+    void refetch();
+  }, [refetch]);
+  // A failed background refresh of a day already on screen keeps that day; only
+  // a day with nothing to show reports the failure (and its retry).
+  const failure: unknown = query.data === undefined ? query.error : null;
+  return {
+    locations: query.data ?? EMPTY_LOCATIONS,
+    isLoading: query.isPending,
+    error: failure instanceof Error ? failure.message : failure ? "Unknown error" : null,
+    failure,
+    refresh,
+  };
 }
 
 // ── Track Data ───────────────────────────────────────────────────────────────
@@ -328,75 +198,17 @@ interface TracksResponse {
 }
 
 export function useTracks(date: string) {
-  const [tracks, setTracks] = useState<TrackData[]>([]);
-  // The key whose request has settled (data, error or cache hit). Loading is
-  // derived from it so the first render, a date change and an aborted request
-  // all read as loading — never as an empty day.
-  const [settledKey, setSettledKey] = useState<string | null>(null);
-  const cache = useRef<Map<string, TrackData[]>>(new Map());
-  const visible = usePageVisible();
-
-  const fetchTracks = useCallback(
-    async (targetDate: string, signal: AbortSignal, silent = false) => {
-      if (!silent) {
-        const cached = cache.current.get(targetDate);
-        if (cached) {
-          setTracks(cached);
-          setSettledKey(targetDate);
-          return;
-        }
-      }
-
-      try {
-        const response = await fetch(`/api/timeline/locations/tracks?date=${targetDate}`, {
-          signal,
-        });
-        if (!response.ok) throw new Error("Failed to fetch tracks");
-
-        const data = (await response.json()) as TracksResponse;
-
-        if (silent) {
-          const prev = cache.current.get(targetDate);
-          if (
-            prev &&
-            prev.length === data.tracks.length &&
-            prev.at(-1)?.id === data.tracks.at(-1)?.id
-          ) {
-            return;
-          }
-        }
-
-        cache.current.set(targetDate, data.tracks);
-        setTracks(data.tracks);
-      } catch (e) {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        if (!silent) setTracks([]);
-      } finally {
-        if (!silent && !signal.aborted) setSettledKey(targetDate);
-      }
-    },
-    []
+  const query = useQuery(
+    locationDayOptions("tracks", date, date, async (signal) => {
+      const data = await getJson<TracksResponse>(
+        `/api/timeline/locations/tracks?date=${date}`,
+        signal,
+        "Failed to fetch tracks"
+      );
+      return data.tracks ?? [];
+    })
   );
-
-  useEffect(() => {
-    if (!date) return;
-
-    const controller = new AbortController();
-    fetchTracks(date, controller.signal);
-
-    if (!isToday(date) || !visible) return () => controller.abort();
-
-    const interval = setInterval(() => {
-      fetchTracks(date, controller.signal, true);
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      controller.abort();
-      clearInterval(interval);
-    };
-  }, [date, visible, fetchTracks]);
-
-  return { tracks, isLoading: settledKey !== date };
+  return { tracks: query.data ?? EMPTY_TRACKS, isLoading: query.isPending };
 }
 
 // ── Trip Data ────────────────────────────────────────────────────────────────
