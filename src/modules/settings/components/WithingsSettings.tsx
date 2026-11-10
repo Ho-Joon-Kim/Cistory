@@ -23,15 +23,15 @@ export function WithingsSettings({
   const handleDisconnect = async () => {
     if (
       !window.confirm(
-        "Withings 연결을 해제할까요? 저장된 인증 정보가 삭제되어 체성분 자동 동기화가 멈춥니다. 이미 수집한 기록은 남습니다."
+        "Withings 연결을 해제할까요? 저장된 인증 정보가 삭제되어 체성분 자동 동기화가 멈춰요. 이미 수집한 기록은 남아요."
       )
     )
       return;
     const success = await disconnect();
     if (success) {
-      toast.success("Withings 연결이 해제되었습니다.");
+      toast.success("Withings 연결이 해제됐어요.");
     } else {
-      toast.error("Withings 연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("Withings 연결을 해제하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 

@@ -30,7 +30,7 @@ export async function enqueueRecovery(
   now = new Date()
 ) {
   if (!RECOVERABLE_SOURCES.includes(source as RecoverableSource))
-    throw new ApiError(400, "이 소스는 서버에서 기간 재수집을 지원하지 않습니다.");
+    throw new ApiError(400, "이 소스는 서버에서 기간 재수집을 지원하지 않아요.");
   if (!validateStatusRange(from, to, now))
     throw new ApiError(400, "오늘까지 최대 31일의 유효한 기간을 선택해 주세요.");
   return db.transaction(async (tx) => {
@@ -50,7 +50,7 @@ export async function enqueueRecovery(
       )
       .limit(1);
     if (active[0])
-      throw new ApiError(409, "이 소스의 재수집이 이미 진행 중입니다.", "RECOVERY_ACTIVE");
+      throw new ApiError(409, "이 소스의 재수집이 이미 진행 중이에요.", "RECOVERY_ACTIVE");
     let connected = false;
     if (source === "wakatime") {
       const [row] = await tx
@@ -71,7 +71,7 @@ export async function enqueueRecovery(
         .where(eq(healthConnections.userId, userId));
       connected = row?.status === "active";
     }
-    if (!connected) throw new ApiError(409, "먼저 이 소스를 연결하거나 재인증해 주세요.");
+    if (!connected) throw new ApiError(409, "먼저 이 소스를 연결하거나 다시 연결해 주세요.");
     const [job] = await tx
       .insert(dataRecoveryJobs)
       .values({
@@ -138,7 +138,7 @@ export async function claimRecoveryDay(
       .update(dataRecoveryJobs)
       .set({
         status: "failed",
-        error: "작업이 반복해서 중단되었습니다. 다시 요청해 주세요.",
+        error: "작업이 반복해서 중단됐어요. 다시 요청해 주세요.",
         leaseToken: null,
         leaseExpiresAt: null,
         updatedAt: now,
@@ -273,7 +273,7 @@ export async function processRecoveryQueue(
       await recover(claim);
     } catch {
       error =
-        "해당 날짜를 다시 가져오지 못했습니다. 제공자의 보관 기간과 연결 상태를 확인한 뒤 다시 요청해 주세요.";
+        "해당 날짜를 다시 가져오지 못했어요. 서비스의 보관 기간과 연결 상태를 확인한 뒤 다시 요청해 주세요.";
       logger.warn("[Recovery] source/day failed", { jobId: claim.id, source: claim.source });
     } finally {
       clearInterval(timer);

@@ -5,16 +5,15 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toKstCalendarDate } from "@/lib/date-key";
+import { userErrorMessage } from "@/lib/user-error";
 import { TripDetectDialog } from "@/modules/location/components/TripDetectDialog";
 import { TripConfirmationError, useTripDetection } from "@/modules/location/hooks";
 
 export function getTripConfirmationErrorMessage(error: unknown): string {
   if (error instanceof TripConfirmationError && error.code === "STALE_DETECTION") {
-    return "여행 후보가 만료되었습니다. 취소한 뒤 여행을 다시 감지해 주세요.";
+    return "여행 후보가 만료됐어요. 취소한 뒤 여행을 다시 감지해 주세요.";
   }
-  return error instanceof Error
-    ? error.message
-    : "여행을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  return userErrorMessage(error, "여행을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
 }
 
 function SubHead({ title, text }: { title: string; text: string }) {
@@ -35,7 +34,7 @@ function TripRegenerationSection() {
 
   const handleRegenerate = async () => {
     const confirmed = window.confirm(
-      "2025-03-08 이후 자동 감지된 여행을 모두 최신 규칙으로 다시 만들까요? 기존 자동 여행은 삭제되고 새로 감지한 여행으로 바뀝니다. 직접 만든 여행은 유지됩니다."
+      "2025-03-08 이후 자동 감지된 여행을 모두 최신 규칙으로 다시 만들까요? 기존 자동 여행은 삭제되고 새로 감지한 여행으로 바뀌어요. 직접 만든 여행은 유지돼요."
     );
     if (!confirmed) return;
 
@@ -55,19 +54,19 @@ function TripRegenerationSection() {
       };
       if (!response.ok)
         throw new Error(
-          data.error ?? "자동 여행을 다시 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+          data.error ?? "자동 여행을 다시 만들지 못했어요. 잠시 후 다시 시도해 주세요."
         );
 
       const message = `자동 여행 ${data.inserted ?? 0}건을 생성하고 기존 ${
         data.replaced ?? 0
-      }건을 교체했습니다.${data.skipped ? ` 수동 여행과 겹친 ${data.skipped}건은 건너뛰었습니다.` : ""}`;
+      }건을 교체했어요.${data.skipped ? ` 수동 여행과 겹친 ${data.skipped}건은 건너뛰었어요.` : ""}`;
       setStatus({ kind: "success", message });
-      toast.success("자동 여행이 다시 만들어졌습니다.");
+      toast.success("자동 여행이 다시 만들어졌어요.");
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "자동 여행을 다시 만들지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      const message = userErrorMessage(
+        error,
+        "자동 여행을 다시 만들지 못했어요. 잠시 후 다시 시도해 주세요."
+      );
       setStatus({ kind: "error", message });
       toast.error(message);
     } finally {
@@ -84,7 +83,7 @@ function TripRegenerationSection() {
       <Button
         variant="outline"
         size="sm"
-        className="self-start text-gain hover:text-gain"
+        className="self-start text-danger hover:text-danger"
         disabled={isRegenerating}
         onClick={handleRegenerate}
       >
@@ -93,7 +92,7 @@ function TripRegenerationSection() {
       {status ? (
         <p
           className={
-            status.kind === "error" ? "m-0 text-[13px] text-gain" : "m-0 text-[13px] text-ink-2"
+            status.kind === "error" ? "m-0 text-[13px] text-danger" : "m-0 text-[13px] text-ink-2"
           }
           role={status.kind === "error" ? "alert" : "status"}
         >
@@ -128,7 +127,7 @@ export function TripDetectionCard() {
     if (results.length > 0) {
       setShowDialog(true);
     } else {
-      toast.info(`${currentYear}년에 감지된 여행이 없습니다.`);
+      toast.info(`${currentYear}년에 감지된 여행이 없어요.`);
     }
   };
 
@@ -137,7 +136,7 @@ export function TripDetectionCard() {
     try {
       const saved = await confirmTrips(trips);
       if (saved > 0) {
-        toast.success(`여행 ${saved}건이 저장되었습니다.`);
+        toast.success(`여행 ${saved}건이 저장됐어요.`);
       }
       setShowDialog(false);
     } catch (error) {
@@ -150,7 +149,7 @@ export function TripDetectionCard() {
   const handleReclassify = async () => {
     if (
       !window.confirm(
-        `${reclassifyFrom} ~ ${reclassifyTo} 기간의 교통수단을 다시 판정할까요? 이 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않습니다.`
+        `${reclassifyFrom} ~ ${reclassifyTo} 기간의 교통수단을 다시 판정할까요? 이 기간의 도로 경로 매칭과 지하철 매칭 결과가 삭제되며 자동으로 복구되지 않아요.`
       )
     )
       return;
@@ -172,20 +171,20 @@ export function TripDetectionCard() {
       if (!response.ok) {
         const progress = data.daysProcessed ? ` (${data.daysProcessed}일 처리 후 중단)` : "";
         throw new Error(
-          `${data.error ?? "교통수단을 다시 판정하지 못했습니다. 잠시 후 다시 시도해 주세요."}${progress}`
+          `${data.error ?? "교통수단을 다시 판정하지 못했어요. 잠시 후 다시 시도해 주세요."}${progress}`
         );
       }
 
       const message = `${data.daysProcessed ?? 0}일, 이동 ${data.trackCount ?? 0}건, 구간 ${
         data.segmentCount ?? 0
-      }건을 다시 판정했습니다.`;
+      }건을 다시 판정했어요.`;
       setReclassificationStatus({ kind: "success", message });
-      toast.success("교통수단 판정이 완료되었습니다.");
+      toast.success("교통수단 판정이 완료됐어요.");
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "교통수단을 다시 판정하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      const message = userErrorMessage(
+        error,
+        "교통수단을 다시 판정하지 못했어요. 잠시 후 다시 시도해 주세요."
+      );
       setReclassificationStatus({ kind: "error", message });
       toast.error(message);
     } finally {
@@ -223,7 +222,7 @@ export function TripDetectionCard() {
             }}
           />
           {confirmationError ? (
-            <p className="m-0 text-[13px] text-gain" role="alert">
+            <p className="m-0 text-[13px] text-danger" role="alert">
               {confirmationError}
             </p>
           ) : null}
@@ -270,7 +269,7 @@ export function TripDetectionCard() {
         <Button
           variant="outline"
           size="sm"
-          className="self-start text-gain hover:text-gain"
+          className="self-start text-danger hover:text-danger"
           disabled={
             isReclassifying || !reclassifyFrom || !reclassifyTo || reclassifyFrom > reclassifyTo
           }
@@ -282,7 +281,7 @@ export function TripDetectionCard() {
           <p
             className={
               reclassificationStatus.kind === "error"
-                ? "m-0 text-[13px] text-gain"
+                ? "m-0 text-[13px] text-danger"
                 : "m-0 text-[13px] text-ink-2"
             }
             role={reclassificationStatus.kind === "error" ? "alert" : "status"}

@@ -32,30 +32,28 @@ export function TossNotificationSettings({
     if (
       hasTossKey &&
       !window.confirm(
-        "Toss 알림 API 키를 재생성할까요? 기존 키는 즉시 사용할 수 없게 되어 MacroDroid 설정을 바꿔야 합니다."
+        "Toss 알림 API 키를 재생성할까요? 기존 키는 즉시 사용할 수 없게 되어 MacroDroid 설정을 바꿔야 해요."
       )
     )
       return;
     const success = await generate();
     if (success) {
-      toast.success("API 키가 생성되었습니다.");
+      toast.success("API 키가 생성됐어요.");
     } else {
-      toast.error("API 키를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("API 키를 생성하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
   const handleRevoke = async () => {
     if (
-      !window.confirm(
-        "Toss 알림 API 키를 삭제할까요? MacroDroid가 더 이상 알림을 보낼 수 없습니다."
-      )
+      !window.confirm("Toss 알림 API 키를 삭제할까요? MacroDroid가 더 이상 알림을 보낼 수 없어요.")
     )
       return;
     const success = await revoke();
     if (success) {
-      toast.success("API 키가 삭제되었습니다.");
+      toast.success("API 키가 삭제됐어요.");
     } else {
-      toast.error("API 키를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("API 키를 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 
@@ -64,9 +62,9 @@ export function TossNotificationSettings({
     const success = await onUpdateMyName(myName.trim() || null);
     setIsSavingName(false);
     if (success) {
-      toast.success(myName.trim() ? "내 이름이 저장되었습니다." : "내 이름이 삭제되었습니다.");
+      toast.success(myName.trim() ? "내 이름이 저장됐어요." : "내 이름이 삭제됐어요.");
     } else {
-      toast.error("내 이름을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      toast.error("내 이름을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   };
 

@@ -62,7 +62,7 @@ describe("buildSourceView", () => {
     expect(view.status).toBe("failed");
     expect(view.cells.every((c) => c.kind === "fail")).toBe(true);
     expect(view.daysSinceSuccess).toBe(63);
-    expect(rowSubline(view, NOW)).toEqual({ text: "미동기화 63일", tone: "gain" });
+    expect(rowSubline(view, NOW)).toEqual({ text: "미동기화 63일", tone: "danger" });
   });
 
   it("keeps a re-auth source in the amber state on its subline", () => {
@@ -90,7 +90,7 @@ describe("buildSourceView", () => {
       NOW
     );
     expect(renderTemplate(focusFact(expired, [expired], NOW)).text).toContain(
-      "제공자가 인증을 거부했어요"
+      "WakaTime 쪽에서 인증을 거부했어요"
     );
   });
 

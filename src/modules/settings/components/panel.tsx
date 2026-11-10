@@ -7,6 +7,7 @@ import * as SwitchPrimitive from "@radix-ui/react-switch";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { isQuantityText } from "@/lib/facts/face";
 import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -20,15 +21,15 @@ export function PanelNote({
   children,
   action,
 }: {
-  tone?: "ink" | "warn" | "gain" | "brand";
+  tone?: "ink" | "warn" | "danger" | "brand";
   children: ReactNode;
   action?: ReactNode;
 }) {
   const dot =
     tone === "warn"
       ? "bg-warn"
-      : tone === "gain"
-        ? "bg-gain"
+      : tone === "danger"
+        ? "bg-danger"
         : tone === "brand"
           ? "bg-brand"
           : "bg-ink-3";
@@ -72,7 +73,7 @@ export interface PanelStat {
   /** Numbers are grouped (12,581); strings render as given. */
   value: number | string;
   unit?: string;
-  tone?: "ink" | "warn" | "gain" | "muted";
+  tone?: "ink" | "warn" | "danger" | "muted";
 }
 
 /** Hairline row of figures (2 per line on phones, up to 4 from sm). */
@@ -97,11 +98,12 @@ export function PanelStats({ items }: { items: PanelStat[] }) {
           <dt className="text-label">{item.label}</dt>
           <dd
             className={cn(
-              "m-0 num text-lg leading-6 font-medium",
+              "m-0 text-lg leading-6 font-medium tabular-nums",
+              (typeof item.value === "number" || isQuantityText(item.value)) && "num",
               item.tone === "warn"
                 ? "text-warn"
-                : item.tone === "gain"
-                  ? "text-gain"
+                : item.tone === "danger"
+                  ? "text-danger"
                   : item.tone === "muted"
                     ? "text-ink-3"
                     : "text-ink"
@@ -205,7 +207,7 @@ export function PanelIconButton({
       className={cn(
         "grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] border-0 bg-transparent transition-[background-color,color,scale] duration-150 ease-out focus-ring active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 max-sm:size-11 [&_svg]:size-[15px]",
         danger
-          ? "text-ink-3 hover:bg-gain-soft hover:text-gain"
+          ? "text-ink-3 hover:bg-danger-soft hover:text-danger"
           : "text-ink-2 hover:bg-track hover:text-ink"
       )}
     >
@@ -291,7 +293,7 @@ export function ApiKeyPanel({
               size="sm"
               onClick={onRevoke}
               disabled={isRevoking}
-              className="text-gain hover:bg-gain-soft hover:text-gain"
+              className="text-danger hover:bg-danger-soft hover:text-danger"
             >
               {isRevoking ? "삭제 중…" : "키 삭제"}
             </Button>
@@ -372,7 +374,7 @@ export function OAuthPanel({
               size="sm"
               onClick={onDisconnect}
               disabled={isDisconnecting}
-              className="text-gain hover:bg-gain-soft hover:text-gain"
+              className="text-danger hover:bg-danger-soft hover:text-danger"
             >
               {isDisconnecting ? "해제 중…" : "연결 해제"}
             </Button>

@@ -31,8 +31,8 @@ export function reauthCopy(name: string, reason: ReauthReason | null | undefined
   }
   return {
     summary: "연결 인증이 끊겼어요. 지금까지 가져온 기록은 그대로 보관돼요.",
-    error: "제공자가 인증을 거부함 · 다시 연결 필요",
-    cause: "제공자가 인증을 거부했어요 — 다시 연결하면 동기화가 이어져요.",
-    panel: `${name} 인증이 만료돼 제공자가 요청을 거부하고 있어요. 다시 연결하면 동기화가 이어지고, 이미 가져온 기록은 그대로예요.`,
+    error: `${name} 쪽에서 인증을 거부함 · 다시 연결 필요`,
+    cause: `${name} 쪽에서 인증을 거부했어요 — 다시 연결하면 동기화가 이어져요.`,
+    panel: `${name} 인증이 만료돼 요청이 거부되고 있어요. 다시 연결하면 동기화가 이어지고, 이미 가져온 기록은 그대로예요.`,
   };
 }

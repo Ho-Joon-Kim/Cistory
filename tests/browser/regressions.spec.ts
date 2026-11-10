@@ -373,7 +373,7 @@ test("collection status retries errors and retains a queued recovery on reload",
     return route.fulfill({ status: 202, json: { job: { id: "job-fixture" } } });
   });
   await page.goto("/data-status");
-  await expect(page.locator("main [role=alert]")).toContainText("수집 상태를 불러오지 못했습니다");
+  await expect(page.locator("main [role=alert]")).toContainText("수집 상태를 불러오지 못했어요");
   statusFails = false;
   await page.getByRole("button", { name: "새로고침", exact: true }).click();
   const calendar = page.getByRole("list", { name: "WakaTime 날짜별 기록" });
@@ -445,7 +445,7 @@ for (const authenticated of [false, true]) {
     });
     await page.goto("/data-status");
     if (authenticated) {
-      await expect(page.locator("main [role=alert]")).toContainText("불러오지 못했습니다");
+      await expect(page.locator("main [role=alert]")).toContainText("불러오지 못했어요");
       await expect(page).toHaveURL(/\/data-status$/);
     } else {
       await expect(page).toHaveURL(/\/login$/);

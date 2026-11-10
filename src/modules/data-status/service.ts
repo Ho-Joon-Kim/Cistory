@@ -21,6 +21,7 @@ import { localDaySql } from "@/db/sql";
 import { ApiError } from "@/lib/api-handler";
 import { getKstDateWindow } from "@/lib/date-key";
 import { buildSourceDays, isSourceStale, validateStatusRange } from "./model";
+import { currentSourceError } from "./telemetry";
 import { type DataStatusResponse, type RecoveryJob, SOURCE_IDS, type SourceId } from "./types";
 
 const LABELS: Record<SourceId, string> = {
@@ -112,6 +113,14 @@ export async function retainedCounts(
   return Object.fromEntries(entries);
 }
 
+/** Job errors stored before the copy moved to 해요체, in their current wording. */
+const LEGACY_JOB_ERRORS: Record<string, string> = {
+  "작업이 반복해서 중단되었습니다. 다시 요청해 주세요.":
+    "작업이 반복해서 중단됐어요. 다시 요청해 주세요.",
+  "해당 날짜를 다시 가져오지 못했습니다. 제공자의 보관 기간과 연결 상태를 확인한 뒤 다시 요청해 주세요.":
+    "해당 날짜를 다시 가져오지 못했어요. 서비스의 보관 기간과 연결 상태를 확인한 뒤 다시 요청해 주세요.",
+};
+
 export function serializeRecoveryJob(row: typeof dataRecoveryJobs.$inferSelect): RecoveryJob {
   return {
     id: row.id,
@@ -120,7 +129,7 @@ export function serializeRecoveryJob(row: typeof dataRecoveryJobs.$inferSelect):
     toDate: row.toDate,
     nextDate: row.nextDate,
     status: row.status as RecoveryJob["status"],
-    error: row.error,
+    error: LEGACY_JOB_ERRORS[row.error ?? ""] ?? row.error,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -198,7 +207,7 @@ export async function getDataStatus(
         .limit(1),
     ]);
   const user = userRows[0];
-  if (!user) throw new ApiError(404, "사용자를 찾을 수 없습니다.");
+  if (!user) throw new ApiError(404, "사용자를 찾을 수 없어요.");
   const { start, end } = getKstDateWindow(from, to);
   // Timestamp columns store UTC wall time. Do not bind Date to raw SQL; use
   // ISO UTC strings with explicit timestamp casts independently of session TZ.
@@ -276,7 +285,7 @@ export async function getDataStatus(
       success[id] ? new Date(success[id]!) : null,
     ]);
     const error =
-      state?.error ??
+      currentSourceError(state?.error) ??
       (existingErrors[id]
         ? "최근 동기화에서 오류가 기록됐어요. 설정에서 연결 상태를 확인해 주세요."
         : null);

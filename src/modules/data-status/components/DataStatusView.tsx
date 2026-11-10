@@ -15,6 +15,7 @@ import {
   LoadingState,
   PageTitle,
   Segmented,
+  SOURCE_STATUS_LABELS,
   SourceTile,
   StatusBadge,
   useEvidence,
@@ -28,10 +29,13 @@ import {
   formatCount,
   formatDateRange,
   formatDateTime,
+  formatDay,
   formatMonthDay,
   formatRelative,
   formatTime,
 } from "@/lib/format";
+import { prefersReducedMotion } from "@/lib/hooks/usePrefersReducedMotion";
+import { GENERIC_ERROR_MESSAGE, sameErrorCopy, userErrorMessage } from "@/lib/user-error";
 import { cn } from "@/lib/utils";
 import {
   buildHero,
@@ -83,6 +87,39 @@ function withEvidence(fact: Fact | null, keys: string[]): Fact | null {
 const GRID =
   "lg:grid lg:grid-cols-[200px_80px_80px_minmax(0,1fr)_88px_24px] lg:items-center lg:gap-x-4 xl:grid-cols-[232px_88px_96px_minmax(0,1fr)_104px_32px] xl:gap-x-5";
 
+/**
+ * "공백 4일 · 10월 17일–19일, 22일" may wrap, but only at a " · " or ", "
+ * separator — never inside a date or a range.
+ */
+function UnbrokenRuns({ text }: { text: string }) {
+  const parts = text.split(/(\s·\s|,\s)/);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          part
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static split of one string
+          <span key={i} className="whitespace-nowrap">
+            {part}
+          </span>
+        )
+      )}
+    </>
+  );
+}
+
+/** Sources whose records carry a date but no time of day. */
+const DATE_ONLY_SOURCES: ReadonlySet<SourceId> = new Set<SourceId>(["kis"]);
+
+const LOAD_ERROR_TITLE = "수집 상태를 불러오지 못했어요";
+
+/** Sanitized cause under a fixed title; never a repeat of the title itself. */
+function errorDescription(reason: unknown, title: string): string {
+  const message = userErrorMessage(reason);
+  return sameErrorCopy(message, title) ? GENERIC_ERROR_MESSAGE : message;
+}
+
 export function DataStatusView({ enabled }: { enabled: boolean }) {
   const { data: session } = useSession();
   const client = useQueryClient();
@@ -98,7 +135,7 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
     enabled,
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/data-status?${new URLSearchParams(range)}`, { signal });
-      if (!response.ok) throw new Error("수집 상태를 불러오지 못했습니다.");
+      if (!response.ok) throw new Error(LOAD_ERROR_TITLE);
       return response.json();
     },
     refetchInterval: (q) => (q.state.data?.jobs.some(ACTIVE) ? 5_000 : 30_000),
@@ -116,7 +153,7 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
         body: JSON.stringify(input),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "재수집을 요청하지 못했습니다.");
+      if (!response.ok) throw new Error(result.error || "재수집을 요청하지 못했어요.");
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ["data-status"] }),
   });
@@ -138,11 +175,19 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
   };
   const openRow = (id: SourceId) => {
     setOpen((o) => ({ ...o, [id]: true }));
-    requestAnimationFrame(() =>
-      document
-        .getElementById(`source-${id}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" })
-    );
+    // Move the view *and* keyboard focus to the opened row: focus its toggle (now
+    // announced as "… 자세히 닫기", expanded) so the next Tab lands inside the panel.
+    // Jump instantly when the user asked the OS to reduce motion.
+    requestAnimationFrame(() => {
+      const row = document.getElementById(`source-${id}`);
+      row
+        ?.querySelector<HTMLButtonElement>("button[aria-controls]")
+        ?.focus({ preventScroll: true });
+      row?.scrollIntoView({
+        behavior: prefersReducedMotion() ? "auto" : "smooth",
+        block: "center",
+      });
+    });
   };
 
   const rangeText = formatDateRange(range.from, range.to, { now });
@@ -152,7 +197,10 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
       <div className="ds-enter flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="flex min-w-0 flex-col gap-1.5">
           <nav aria-label="위치" className="text-[13px] text-ink-3">
-            <Link href="/settings" className="text-ink-2 no-underline hover:text-ink">
+            <Link
+              href="/settings"
+              className="text-ink-2 underline underline-offset-[3px] hover:text-ink"
+            >
               설정
             </Link>
             <span aria-hidden="true" className="mx-1.5">
@@ -183,8 +231,11 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
       </div>
 
       {recovery.error ? (
-        <p role="alert" className="mt-4 text-sm text-gain">
-          {recovery.error.message}
+        <p role="alert" className="mt-4 text-sm text-danger">
+          {userErrorMessage(
+            recovery.error,
+            "재수집을 요청하지 못했어요. 잠시 후 다시 시도해 주세요."
+          )}
         </p>
       ) : null}
       {recovery.isSuccess ? (
@@ -196,8 +247,8 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
       {query.isError ? (
         <ErrorState
           className="mt-8"
-          title={query.error.message}
-          description="잠시 후 다시 시도해 주세요. 날짜는 한국 시간 기준입니다."
+          title={LOAD_ERROR_TITLE}
+          description={errorDescription(query.error, LOAD_ERROR_TITLE)}
           actions={
             <Button variant="outline" onClick={() => query.refetch()} disabled={query.isFetching}>
               새로고침
@@ -294,7 +345,7 @@ export function DataStatusView({ enabled }: { enabled: boolean }) {
 function meterColor(view: SourceView) {
   switch (view.status) {
     case "failed":
-      return "var(--up)";
+      return "var(--danger)";
     case "reauth":
     case "delayed":
       return "var(--warn)";
@@ -347,7 +398,7 @@ function HeroSummary({
               className={cn(
                 "-mt-0.5 overflow-hidden text-[11px] leading-[14px] whitespace-nowrap sm:text-ellipsis",
                 view.status === "failed"
-                  ? "text-gain"
+                  ? "text-danger"
                   : view.status === "reauth" || view.status === "delayed"
                     ? "text-warn"
                     : "text-ink-3"
@@ -359,7 +410,7 @@ function HeroSummary({
                 {SOURCE_NAMES[view.id].tiny}
               </span>
               <span className="max-sm:hidden">{SOURCE_NAMES[view.id].short}</span>
-              <span className="sr-only"> {view.status === "ok" ? "정상" : view.status}</span>
+              <span className="sr-only"> {SOURCE_STATUS_LABELS[view.status]}</span>
             </span>
           ))}
         </div>
@@ -458,7 +509,7 @@ function FocusPanel({
             <CountUp value={total} className="text-[22px] leading-7 font-medium" />
           </Kpi>
           <Kpi label="가장 최근 동기화" className="border-l border-line pl-4">
-            <span className="num text-[22px] leading-7 font-medium">
+            <span className="text-[22px] leading-7 font-medium tabular-nums">
               {latest ? formatRelative(latest, now) : "없음"}
             </span>
           </Kpi>
@@ -515,7 +566,7 @@ function FocusPanel({
             <CountUp
               value={failing ? (view.daysSinceSuccess ?? view.cells.length) : view.gaps.length}
             />
-            <span className="text-[0.45em] text-ink-3">일</span>
+            <span className="font-sans text-[0.45em] text-ink-3">일</span>
           </span>
         </Kpi>
         <Kpi
@@ -527,7 +578,7 @@ function FocusPanel({
               : "확인된 이력 없음"
           }
         >
-          <span className="num text-xl leading-7 font-medium whitespace-nowrap sm:text-[22px] lg:text-lg xl:text-[22px]">
+          <span className="text-xl leading-7 font-medium whitespace-nowrap tabular-nums sm:text-[22px] lg:text-lg xl:text-[22px]">
             {last ? `${formatMonthDay(last, { now })} ${formatTime(last)}` : "없음"}
           </span>
         </Kpi>
@@ -547,7 +598,12 @@ function FocusPanel({
             className="border-t border-line min-[360px]:border-l min-[360px]:pl-4 sm:border-t-0 sm:pl-5"
             sub={view.total > 0 ? `${recordDays}일치 · ${unit}` : `${unit} 0건`}
           >
-            <span className="num text-xl leading-7 font-medium whitespace-nowrap sm:text-[22px] lg:text-lg xl:text-[22px]">
+            <span
+              className={cn(
+                "text-xl leading-7 font-medium whitespace-nowrap tabular-nums sm:text-[22px] lg:text-lg xl:text-[22px]",
+                view.total > 0 && "num"
+              )}
+            >
               {view.total > 0 ? formatCount(view.total) : "없음"}
             </span>
           </Kpi>
@@ -651,7 +707,7 @@ function AxisLabels({ days, now }: { days: string[]; now: Date }) {
           <span
             key={day}
             className={cn(
-              "num overflow-visible text-[11px] whitespace-nowrap",
+              "overflow-visible text-[11px] whitespace-nowrap tabular-nums",
               i === n - 1 ? "font-semibold text-brand" : "font-medium text-ink-3"
             )}
           >
@@ -827,14 +883,14 @@ function SourceRow({
               <span
                 className={cn(
                   "text-xs leading-4 text-pretty",
-                  sub.tone === "gain"
-                    ? "text-gain"
+                  sub.tone === "danger"
+                    ? "text-danger"
                     : sub.tone === "warn"
                       ? "text-warn"
                       : "text-ink-3"
                 )}
               >
-                {sub.text}
+                <UnbrokenRuns text={sub.text} />
               </span>
             </span>
             <span className="lg:hidden">
@@ -861,14 +917,15 @@ function SourceRow({
               hovered={hoverIndex}
               onHover={onHover}
               onActivate={onToggle}
-              failTone={view.status === "reauth" ? "warn" : "up"}
+              failTone={view.status === "reauth" ? "warn" : "danger"}
               className="relative z-[1]"
             />
             {tooltip}
           </div>
           <span
             className={cn(
-              "num pointer-events-none relative hidden text-right text-[15px] font-medium lg:block",
+              "pointer-events-none relative hidden text-right text-[15px] font-medium tabular-nums lg:block",
+              view.total > 0 && "num",
               view.total > 0 ? "text-ink" : "text-ink-3"
             )}
           >
@@ -903,7 +960,12 @@ function SourceRow({
             <span className="text-xs leading-4 text-ink-3">
               마지막 성공 {last ? formatDateTime(last, { now }) : "확인된 이력 없음"}
               {lastRecord
-                ? ` · 마지막 기록 ${formatDateTime(lastRecord, { now })}`
+                ? ` · 마지막 기록 ${
+                    // KIS records are daily snapshots (a date, no time): show the day only.
+                    DATE_ONLY_SOURCES.has(view.id)
+                      ? formatDay(lastRecord, { now })
+                      : formatDateTime(lastRecord, { now })
+                  }`
                 : " · 이 기간 기록 없음"}
             </span>
             {jobs.length > 0 ? (
@@ -916,7 +978,9 @@ function SourceRow({
                       : job.status === "failed"
                         ? `${formatMonthDay(job.nextDate, { now })} 처리 실패`
                         : `${formatMonthDay(job.nextDate, { now })}부터 ${job.status === "running" ? "처리 중" : "대기 중"}`}
-                    {job.error ? <span className="text-gain"> · {job.error}</span> : null}
+                    {job.error ? (
+                      <span className="text-danger"> · {userErrorMessage(job.error)}</span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -978,7 +1042,7 @@ function CellTooltip({
         if (!c) return null;
         const tone =
           c.kind === "fail"
-            ? "text-gain"
+            ? "text-danger"
             : c.kind === "gap"
               ? "text-warn"
               : c.count === 0

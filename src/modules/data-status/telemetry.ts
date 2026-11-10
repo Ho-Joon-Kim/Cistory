@@ -2,6 +2,18 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { sourceSyncStates } from "@/db/schema";
 import { logger } from "@/lib/logger";
+
+/** The fixed message stored on a failed sync (never a provider payload). */
+export const SOURCE_SYNC_ERROR = "동기화하지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.";
+/** Rows written before the copy moved to 해요체 still hold this. */
+const LEGACY_SOURCE_SYNC_ERROR = "동기화하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.";
+
+/** Stored source error in the current wording (older rows predate the 해요체 copy). */
+export function currentSourceError(error: string | null | undefined): string | null {
+  if (!error) return null;
+  return error === LEGACY_SOURCE_SYNC_ERROR ? SOURCE_SYNC_ERROR : error;
+}
+
 import type { SourceId } from "./types";
 
 export async function trackSourceSync<T>(
@@ -36,10 +48,7 @@ export async function trackSourceSync<T>(
     return result;
   } catch (error) {
     // Never persist provider payloads, credentials, or private records in the UI error.
-    await db
-      .update(sourceSyncStates)
-      .set({ error: "동기화하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요." })
-      .where(ownAttempt);
+    await db.update(sourceSyncStates).set({ error: SOURCE_SYNC_ERROR }).where(ownAttempt);
     throw error;
   }
 }

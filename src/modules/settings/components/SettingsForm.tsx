@@ -35,6 +35,8 @@ import { shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import { diagnosis } from "@/lib/facts/helpers";
 import type { Fact } from "@/lib/facts/types";
 import { formatCount, formatMonthDay, formatRelative, formatShare, formatTime } from "@/lib/format";
+import { prefersReducedMotion } from "@/lib/hooks/usePrefersReducedMotion";
+import { userErrorMessage } from "@/lib/user-error";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/modules/auth/hooks";
 import { buildSourceView, focusFact, type SourceView } from "@/modules/data-status/insights";
@@ -60,24 +62,24 @@ import { WithingsSettings } from "./WithingsSettings";
 // ── OAuth callback toasts (unchanged behaviour) ─────────────────────────────
 
 const WITHINGS_ERROR_MESSAGES: Record<string, string> = {
-  denied: "Withings 연결이 취소되었습니다. 연결하려면 다시 시도해 주세요.",
-  state_invalid: "Withings 연결 요청이 만료되었습니다. 다시 연결해 주세요.",
-  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
-  exchange_failed: "Withings를 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+  denied: "Withings 연결이 취소됐어요. 연결하려면 다시 시도해 주세요.",
+  state_invalid: "Withings 연결 요청이 만료됐어요. 다시 연결해 주세요.",
+  rate_limited: "요청이 너무 많아요. 잠시 후 다시 시도해 주세요.",
+  exchange_failed: "Withings를 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
 };
 
 const HEALTH_ERROR_MESSAGES: Record<string, string> = {
-  denied: "Google Health (Fitbit) 연결이 취소되었습니다. 연결하려면 다시 시도해 주세요.",
-  state_invalid: "Google Health (Fitbit) 연결 요청이 만료되었습니다. 다시 연결해 주세요.",
-  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
-  exchange_failed: "Google Health (Fitbit)을 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+  denied: "Google Health (Fitbit) 연결이 취소됐어요. 연결하려면 다시 시도해 주세요.",
+  state_invalid: "Google Health (Fitbit) 연결 요청이 만료됐어요. 다시 연결해 주세요.",
+  rate_limited: "요청이 너무 많아요. 잠시 후 다시 시도해 주세요.",
+  exchange_failed: "Google Health (Fitbit)을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
 };
 
 const WAKATIME_ERROR_MESSAGES: Record<string, string> = {
-  denied: "WakaTime 연동이 취소되었습니다",
-  state_invalid: "WakaTime 연동 요청이 만료되었거나 유효하지 않습니다. 다시 시도해주세요",
-  rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
-  exchange_failed: "WakaTime 연동에 실패했습니다. 다시 시도해주세요",
+  denied: "WakaTime 연동이 취소됐어요",
+  state_invalid: "WakaTime 연동 요청이 만료되었거나 유효하지 않아요. 다시 시도해 주세요",
+  rate_limited: "요청이 너무 많아요. 잠시 후 다시 시도해 주세요",
+  exchange_failed: "WakaTime 연동에 실패했어요. 다시 시도해 주세요",
 };
 
 const OAUTH_PROVIDERS: {
@@ -88,21 +90,21 @@ const OAUTH_PROVIDERS: {
 }[] = [
   {
     param: "withings",
-    connectedMsg: "Withings가 연결되었습니다.",
+    connectedMsg: "Withings가 연결됐어요.",
     errors: WITHINGS_ERROR_MESSAGES,
-    fallback: "Withings를 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    fallback: "Withings를 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
   },
   {
     param: "health",
-    connectedMsg: "Google Health (Fitbit)이 연결되었습니다.",
+    connectedMsg: "Google Health (Fitbit)이 연결됐어요.",
     errors: HEALTH_ERROR_MESSAGES,
-    fallback: "Google Health (Fitbit)을 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    fallback: "Google Health (Fitbit)을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
   },
   {
     param: "wakatime",
-    connectedMsg: "WakaTime이 연결되었습니다",
+    connectedMsg: "WakaTime이 연결됐어요",
     errors: WAKATIME_ERROR_MESSAGES,
-    fallback: "WakaTime 연동에 실패했습니다",
+    fallback: "WakaTime 연동에 실패했어요",
   },
 ];
 
@@ -165,7 +167,7 @@ function DisclosureRow({
   id: string;
   title: ReactNode;
   meta?: ReactNode;
-  metaTone?: "ink3" | "warn" | "gain";
+  metaTone?: "ink3" | "warn" | "danger";
   icon?: SourceIconName;
   badge?: ReactNode;
   open: boolean;
@@ -192,7 +194,11 @@ function DisclosureRow({
             <span
               className={cn(
                 "truncate text-[13px] leading-[18px]",
-                metaTone === "warn" ? "text-warn" : metaTone === "gain" ? "text-gain" : "text-ink-3"
+                metaTone === "warn"
+                  ? "text-warn"
+                  : metaTone === "danger"
+                    ? "text-danger"
+                    : "text-ink-3"
               )}
             >
               {meta}
@@ -239,9 +245,13 @@ export function SettingsForm() {
   const toggle = (id: string) => () => setOpen((o) => ({ ...o, [id]: !o[id] }));
   const openAndScroll = (id: string) => {
     setOpen((o) => ({ ...o, [id]: true }));
-    requestAnimationFrame(() =>
-      document.getElementById(`row-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
-    );
+    // Focus follows the jump (the row's now-expanded toggle), and the scroll is
+    // instant when the user asked the OS to reduce motion.
+    requestAnimationFrame(() => {
+      const row = document.getElementById(`row-${id}`);
+      row?.querySelector<HTMLButtonElement>(":scope > button")?.focus({ preventScroll: true });
+      row?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+    });
   };
 
   useEffect(() => {
@@ -255,7 +265,7 @@ export function SettingsForm() {
       const response = await fetch(`/api/data-status?${new URLSearchParams({ from, to: today })}`, {
         signal,
       });
-      if (!response.ok) throw new Error("수집 상태를 불러오지 못했습니다.");
+      if (!response.ok) throw new Error("수집 상태를 불러오지 못했어요.");
       return response.json();
     },
   });
@@ -444,9 +454,9 @@ export function SettingsForm() {
                   value={String(settings.syncIntervalHours)}
                   onChange={async (v) => {
                     const ok = await updateSettings({ syncIntervalHours: Number(v) });
-                    if (ok) toast.success("동기화 간격이 변경되었습니다.");
+                    if (ok) toast.success("동기화 간격이 변경됐어요.");
                     else
-                      toast.error("동기화 간격을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+                      toast.error("동기화 간격을 변경하지 못했어요. 잠시 후 다시 시도해 주세요.");
                   }}
                   ariaLabel="동기화 간격"
                   fullWidth="always"
@@ -494,7 +504,7 @@ const REAUTH_HREF: Partial<Record<SourceId, string>> = {
 interface Todo {
   id: string;
   icon: SourceIconName;
-  tone: "gain" | "warn" | "ink";
+  tone: "danger" | "warn" | "ink";
   title: string;
   meta: string;
   big: number;
@@ -520,7 +530,7 @@ function sourceTodos(all: SourceView[], now: Date): Todo[] {
       icon: "alert",
       // Same severity colors as the status badges: re-auth is amber, a real
       // failure red.
-      tone: view.status === "delayed" ? "ink" : view.status === "reauth" ? "warn" : "gain",
+      tone: view.status === "delayed" ? "ink" : view.status === "reauth" ? "warn" : "danger",
       title: `${view.name} ${STATUS_TITLE[view.status]}`,
       meta: last
         ? `마지막 성공 ${formatMonthDay(last, { now })} ${formatTime(last)}`
@@ -677,8 +687,8 @@ function TodoSection({
               <span
                 className={cn(
                   "grid size-8 flex-none place-items-center rounded-[9px] bg-sunken",
-                  todo.tone === "gain"
-                    ? "text-gain"
+                  todo.tone === "danger"
+                    ? "text-danger"
                     : todo.tone === "warn"
                       ? "text-warn"
                       : "text-ink-2"
@@ -705,8 +715,8 @@ function TodoSection({
               <span
                 className={cn(
                   "num text-[22px] leading-7 font-medium whitespace-nowrap",
-                  todo.tone === "gain"
-                    ? "text-gain"
+                  todo.tone === "danger"
+                    ? "text-danger"
                     : todo.tone === "warn"
                       ? "text-warn"
                       : "text-ink"
@@ -1162,21 +1172,21 @@ async function regenerateTrips() {
     inserted?: number;
     replaced?: number;
   };
-  if (!response.ok) throw new Error(data.error ?? "자동 여행을 다시 만들지 못했습니다.");
+  if (!response.ok) throw new Error(data.error ?? "자동 여행을 다시 만들지 못했어요.");
   toast.success(
-    `자동 여행 ${data.inserted ?? 0}건을 만들고 기존 ${data.replaced ?? 0}건을 교체했습니다.`
+    `자동 여행 ${data.inserted ?? 0}건을 만들고 기존 ${data.replaced ?? 0}건을 교체했어요.`
   );
 }
 
 async function deleteAccount() {
   const response = await fetch("/api/auth/disconnect", { method: "DELETE" });
-  if (!response.ok) throw new Error("계정을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  if (!response.ok) throw new Error("계정을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.");
   await authClient.signOut().catch(() => undefined);
   window.location.assign("/login");
 }
 
 const DANGER_BTN =
-  "h-10 w-full justify-center bg-transparent text-gain shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--up)_36%,transparent)] hover:bg-gain-soft hover:text-gain";
+  "h-10 w-full justify-center bg-transparent text-danger shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--danger)_36%,transparent)] hover:bg-danger-soft hover:text-danger";
 
 function DangerZone({
   hasOwnTracksKey,
@@ -1194,8 +1204,8 @@ function DangerZone({
     setBusy(true);
     try {
       if (pending === "owntracks") {
-        if (!(await owntracks.revoke())) throw new Error("API 키를 삭제하지 못했습니다.");
-        toast.success("OwnTracks 키가 삭제되었습니다.");
+        if (!(await owntracks.revoke())) throw new Error("API 키를 삭제하지 못했어요.");
+        toast.success("OwnTracks 키가 삭제됐어요.");
         onChanged();
       } else if (pending === "trips") {
         await regenerateTrips();
@@ -1205,7 +1215,7 @@ function DangerZone({
       }
       setPending(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "요청을 처리하지 못했습니다.");
+      toast.error(userErrorMessage(error, "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
     } finally {
       setBusy(false);
     }

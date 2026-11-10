@@ -58,7 +58,7 @@ describe("groupByDay", () => {
     const [group] = groupByDay(items)[0].rows;
     if (group.kind !== "commits") throw new Error("expected group");
     expect(renderTemplate(commitGroupFact(group)!).text).toBe(
-      "5건 중 대부분 성능 작업(perf 4건)이에요."
+      "5건 중 대부분 성능 작업(4건)이에요."
     );
     const [small] = groupByDay(items.slice(0, 3))[0].rows;
     if (small.kind !== "commits") throw new Error("expected group");
@@ -89,7 +89,7 @@ describe("commit group line over the whole day's group", () => {
     ])[0].rows;
     if (group.kind !== "commits") throw new Error("expected group");
     expect(renderTemplate(commitGroupFact(group)!).text).toBe(
-      "23건 중 절반 넘게 성능 작업(perf 12건)이에요."
+      "23건 중 절반 넘게 성능 작업(12건)이에요."
     );
   });
 
@@ -99,9 +99,7 @@ describe("commit group line over the whole day's group", () => {
     );
     const [group] = groupByDay(items)[0].rows;
     if (group.kind !== "commits") throw new Error("expected group");
-    expect(renderTemplate(commitGroupFact(group)!).text).toBe(
-      "5건 모두 성능 작업(perf 5건)이에요."
-    );
+    expect(renderTemplate(commitGroupFact(group)!).text).toBe("5건 모두 성능 작업이에요.");
   });
 });
 
@@ -117,9 +115,7 @@ describe("commit group line without a majority type", () => {
 
   it("names the leading conventional type, never other/merge", () => {
     const g = group({ other: 17, fix: 11, feat: 5, docs: 3, test: 2 }, 38);
-    expect(renderTemplate(commitGroupFact(g)!).text).toBe(
-      "38건 중 수정 작업이 가장 많아요(fix 11건)."
-    );
+    expect(renderTemplate(commitGroupFact(g)!).text).toBe("38건 중 수정 작업이 가장 많아요(11건).");
   });
 
   it("stays silent on a tie at the top or a lead under three", () => {

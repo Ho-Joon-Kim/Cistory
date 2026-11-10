@@ -293,7 +293,7 @@ export function LocationImport() {
 
       {state?.phase === "error" && (
         <div role="alert">
-          <PanelNote tone="gain">{state.error} 파일을 다시 골라 주세요.</PanelNote>
+          <PanelNote tone="danger">{state.error} 파일을 다시 골라 주세요.</PanelNote>
         </div>
       )}
 
