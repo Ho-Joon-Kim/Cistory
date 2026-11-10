@@ -14,13 +14,17 @@ import {
 import type { Database } from "@/db";
 import { type ProtonConnection, photoBlocks, photos, protonConnections } from "@/db/schema";
 import { decryptSecret } from "@/lib/crypto";
+import { lockProtonTokens } from "./token";
 import { PROTON_MAX_DETAILS_ATTEMPTS } from "./types";
 
 /**
  * Anything that can run Drizzle statements: the root db or a transaction.
  * The ingest writes always run in the caller's transaction.
  */
-export type ProtonDbExecutor = Pick<Database, "select" | "insert" | "update" | "delete">;
+export type ProtonDbExecutor = Pick<
+  Database,
+  "select" | "insert" | "update" | "delete" | "execute"
+>;
 
 /** Rows per multi-row upsert, well under Postgres' 65,535 bind-parameter limit. */
 const UPSERT_CHUNK = 1000;
@@ -201,6 +205,15 @@ export async function softDeleteUnlisted(
     );
 }
 
+/** Rows a listing reconcile could soft-delete (live, not yet deleted). */
+export async function countLivePhotos(db: ProtonDbExecutor, userId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(photos)
+    .where(and(eq(photos.userId, userId), isNull(photos.deletedAt)));
+  return Number(row?.n ?? 0);
+}
+
 /** Stores the backfill's baseline event cursor; never overwrites one already stored. */
 export async function saveBaselineCursor(
   tx: ProtonDbExecutor,
@@ -280,20 +293,33 @@ export function connectionFence(connection: ProtonConnection): ProtonTickFence {
 }
 
 /**
- * Locks the connection row for the rest of `tx` and throws
- * `ProtonConnectionChangedError` unless it is still the active connection the
- * tick started with. Call it first in every write transaction.
+ * Fences a sync write transaction. Call it first in every one.
+ *
+ * Takes the `proton-token` advisory lock — the same lock, in the same order,
+ * as connect completion, reconnect and disconnect — then re-reads the
+ * connection row. Throws `ProtonConnectionChangedError` (rolling `tx` back)
+ * unless it is still the active connection the tick started with. Holding the
+ * advisory lock until commit means a disconnect or volume switch either ran
+ * before (and this throws) or waits and then deletes everything this
+ * transaction wrote; a row lock alone would not do that, because disconnect
+ * deletes `photos` before it touches the connection row and cannot see this
+ * transaction's uncommitted inserts. No network call ever runs in `tx`, so
+ * holding the lock cannot stall the refresher behind a Proton request.
+ *
+ * Returns the row's `timeline_listed_at` as read under the lock.
  */
 export async function assertConnectionUnchanged(
   tx: ProtonDbExecutor,
   userId: string,
   fence: ProtonTickFence
-): Promise<void> {
+): Promise<{ timelineListedAt: Date | null }> {
+  await lockProtonTokens(tx, userId);
   const [row] = await tx
     .select({
       status: protonConnections.status,
       volumeId: protonConnections.volumeId,
       uidEnc: protonConnections.uidEnc,
+      timelineListedAt: protonConnections.timelineListedAt,
     })
     .from(protonConnections)
     .where(eq(protonConnections.userId, userId))
@@ -305,4 +331,5 @@ export async function assertConnectionUnchanged(
   ) {
     throw new ProtonConnectionChangedError();
   }
+  return { timelineListedAt: row.timelineListedAt };
 }

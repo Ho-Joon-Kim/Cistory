@@ -15,8 +15,10 @@ import {
   runDetailsStage,
   runTimelineListing,
 } from "./backfill";
+import { ProtonConnectionService } from "./connection";
 import type { PhotoClassifier } from "./nsfw/classifier";
 import {
+  assertConnectionUnchanged,
   countPendingDetails,
   ProtonConnectionChangedError,
   type ProtonTickFence,
@@ -186,7 +188,88 @@ describe("proton backfill against PostgreSQL", () => {
     expect((await rowOf(user, "a")).deletedAt).toBeNull();
   });
 
-  it("an empty listing soft-deletes nothing and stays unlisted (C12)", async () => {
+  it("an empty listing with no live rows marks the timeline listed (C12 refinement)", async () => {
+    const user = await newConnectedUser();
+    await seed(user, "old", { deletedAt: EARLIER });
+
+    await runTimelineListing(db, timelineApi([]).api, user, FENCE, NOW);
+
+    expect((await connectionOf(user)).timelineListedAt).toEqual(NOW);
+    expect(nextBackfillStep(await connectionOf(user), 0)).toBe("complete");
+  });
+
+  it("a disconnect racing a fenced sync transaction leaves no orphan rows", async () => {
+    // Sync first: the disconnect must wait for the sync to commit, then delete it all.
+    const user = await newConnectedUser();
+    const service = new ProtonConnectionService(db, { revoke: vi.fn(async () => true) });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fenced!: () => void;
+    const fencedYet = new Promise<void>((resolve) => {
+      fenced = resolve;
+    });
+    const sync = db.transaction(async (tx) => {
+      await assertConnectionUnchanged(tx, user, FENCE);
+      await tx.insert(photos).values({
+        userId: user,
+        nodeUid: "synced",
+        capturedAt: CAPTURED,
+        detailsSyncedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      await tx
+        .insert(photoBlocks)
+        .values({ userId: user, nodeUid: "blocked", blockedAt: NOW, modelVersion: "m" });
+      fenced();
+      await gate;
+    });
+    await fencedYet;
+    let disconnected = false;
+    const disconnect = service.disconnect(user).then((r) => {
+      disconnected = true;
+      return r;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(disconnected).toBe(false); // blocked on the proton-token lock
+    release();
+    await sync;
+    await disconnect;
+
+    const left = await pool.query(
+      `SELECT (SELECT count(*) FROM photos WHERE user_id = $1)::int AS photos,
+              (SELECT count(*) FROM photo_blocks WHERE user_id = $1)::int AS blocks,
+              (SELECT count(*) FROM proton_connections WHERE user_id = $1)::int AS conns`,
+      [user]
+    );
+    expect(left.rows[0]).toEqual({ photos: 0, blocks: 0, conns: 0 });
+
+    // Disconnect first: the next fenced write aborts and writes nothing.
+    await expect(runTimelineListing(db, timelineApi(["late"]).api, user, FENCE, NOW)).resolves.toBe(
+      0
+    );
+    const user2 = await newConnectedUser();
+    const listedBefore = (await connectionOf(user2)).timelineListedAt;
+    expect(listedBefore).toBeNull();
+    await service.disconnect(user2);
+    await expect(
+      db.transaction(async (tx) => {
+        await assertConnectionUnchanged(tx, user2, FENCE);
+        await tx.insert(photos).values({
+          userId: user2,
+          nodeUid: "late",
+          capturedAt: CAPTURED,
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+      })
+    ).rejects.toBeInstanceOf(ProtonConnectionChangedError);
+    expect(await rowOf(user2, "late")).toBeUndefined();
+  });
+
+  it("an empty listing while live rows exist soft-deletes nothing and stays unlisted (C12)", async () => {
     const user = await newConnectedUser();
     await seed(user, "a", { detailsSyncedAt: EARLIER });
 

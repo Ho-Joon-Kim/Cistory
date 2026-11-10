@@ -23,6 +23,7 @@ import { applyIngest, INGEST_CHUNK, prepareIngest } from "./ingest";
 import type { PhotoClassifier } from "./nsfw/classifier";
 import {
   assertConnectionUnchanged,
+  countLivePhotos,
   countPendingDetails,
   loadBlockedUids,
   markBackfillComplete,
@@ -83,9 +84,11 @@ type TimelineItem = { nodeUid: string; captureTime: Date; tags: number[] };
  * the listing no longer has, then stamp `timeline_listed_at`. Returns the
  * number of distinct listed nodes.
  *
- * Runs only while `timeline_listed_at IS NULL`. An empty listing or one that
- * throws writes nothing (C12): it may be a partial answer, and reconciling
- * against it would soft-delete live photos.
+ * Runs only while `timeline_listed_at IS NULL`, re-checked under the fence
+ * lock. A listing that throws writes nothing (C12). An empty listing marks
+ * the timeline listed only when the user has no live rows (nothing it could
+ * wrongly delete); with live rows it may be a partial answer, so it writes
+ * nothing and the next tick lists again (C12 refinement).
  */
 export async function runTimelineListing(
   db: Database,
@@ -103,7 +106,6 @@ export async function runTimelineListing(
   // Last occurrence wins; one statement must never upsert the same key twice.
   const items = new Map<string, TimelineItem>();
   for await (const item of api.iterateTimeline()) items.set(item.nodeUid, item);
-  if (items.size === 0) return 0;
 
   const listed = [...items.keys()];
   // A node with an unusable capture time is still listed (so it is not
@@ -111,7 +113,12 @@ export async function runTimelineListing(
   const storable = [...items.values()].filter((i) => !Number.isNaN(i.captureTime.getTime()));
 
   await db.transaction(async (tx) => {
-    await assertConnectionUnchanged(tx, userId, fence);
+    const { timelineListedAt } = await assertConnectionUnchanged(tx, userId, fence);
+    if (timelineListedAt) return; // listed meanwhile: list once, never reconcile twice
+    if (listed.length === 0) {
+      if ((await countLivePhotos(tx, userId)) === 0) await markTimelineListed(tx, userId, now);
+      return;
+    }
     const blocked = await loadBlockedUids(tx, userId);
     await upsertTimelineItems(tx, userId, storable, blocked, now);
     await softDeleteUnlisted(tx, userId, listed, now);

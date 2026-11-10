@@ -29,6 +29,10 @@ interface Responders {
   connection?: { timelineListedAt?: Date | null; status?: string; volumeId?: string; uid?: string };
   /** Node uids `selectDetailsBatch` hands out. */
   pending?: string[];
+  /** `timeline_listed_at` as the fenced (locked) re-read sees it; defaults to the pre-check value. */
+  lockedListedAt?: Date | null;
+  /** Answer to `SELECT count(*) FROM photos`. */
+  photoCount?: number;
 }
 
 /**
@@ -43,24 +47,25 @@ function recordingDb(log: LogEntry[], responders: Responders = {}) {
     uid: FENCE.uid,
     ...responders.connection,
   };
+  const lockedListedAt =
+    responders.lockedListedAt === undefined ? conn.timelineListedAt : responders.lockedListedAt;
+  // First matching pattern answers; everything else returns no rows.
+  const answers: [RegExp, () => unknown[][]][] = [
+    [
+      /^select .* from "proton_connections".*for update/is,
+      () => [[conn.status, conn.volumeId, encryptSecret(conn.uid), lockedListedAt]],
+    ],
+    [/^select .* from "proton_connections"/i, () => [[conn.timelineListedAt]]],
+    [/^select count\(\*\) from "photos"/i, () => [[responders.photoCount ?? 0]]],
+    [/^select "node_uid" from "photos"/i, () => (responders.pending ?? []).map((uid) => [uid])],
+    [/^insert into "photos".*returning/is, () => [["photo-id-1"]]],
+  ];
   const client = {
     query: async (config: { text: string } | string, values?: unknown[]) => {
       const text = typeof config === "string" ? config : config.text;
       log.push({ kind: "sql", text, values: values ?? [] });
-      const ok = (rows: unknown[][]) => ({ rows, rowCount: rows.length, fields: [] });
-      if (/^select .* from "proton_connections"/i.test(text)) {
-        if (/for update/i.test(text)) {
-          return ok([[conn.status, conn.volumeId, encryptSecret(conn.uid)]]);
-        }
-        return ok([[conn.timelineListedAt]]);
-      }
-      if (/^select "node_uid" from "photos"/i.test(text)) {
-        return ok((responders.pending ?? []).map((uid) => [uid]));
-      }
-      if (/^insert into "photos"/i.test(text) && /returning/i.test(text)) {
-        return ok([["photo-id-1"]]);
-      }
-      return ok([]);
+      const rows = answers.find(([pattern]) => pattern.test(text))?.[1]() ?? [];
+      return { rows, rowCount: rows.length, fields: [] };
     },
   };
   return drizzle({ client: client as never, schema }) as unknown as Database;
@@ -132,15 +137,44 @@ describe("runTimelineListing", () => {
     }
   });
 
-  it("an empty listing deletes nothing and records nothing as listed (C12)", async () => {
+  it("an empty listing while live rows exist deletes nothing and records nothing as listed (C12)", async () => {
     const log: LogEntry[] = [];
-    const db = recordingDb(log);
+    const db = recordingDb(log, { photoCount: 3 });
     const api = fakeApi(log, { iterateTimeline: async function* () {} });
 
     await expect(runTimelineListing(db, api, USER, FENCE, NOW)).resolves.toBe(0);
 
     expect(writes(log)).toEqual([]);
-    expect(sql(log).some((e) => /^begin/i.test(e.text))).toBe(false);
+  });
+
+  it("an empty listing with no live rows marks the timeline listed (C12 refinement)", async () => {
+    const log: LogEntry[] = [];
+    const db = recordingDb(log, { photoCount: 0 });
+    const api = fakeApi(log, { iterateTimeline: async function* () {} });
+
+    await expect(runTimelineListing(db, api, USER, FENCE, NOW)).resolves.toBe(0);
+
+    const w = writes(log);
+    expect(w).toHaveLength(1);
+    expect(w[0].text).toMatch(/^update "proton_connections" set "timeline_listed_at"/i);
+    const texts = sql(log).map((e) => e.text);
+    const begin = texts.findIndex((t) => /^begin/i.test(t));
+    expect(texts[begin + 1]).toMatch(/pg_advisory_xact_lock/i);
+    expect(texts[begin + 2]).toMatch(/for update/i);
+  });
+
+  it("does not reconcile when the locked re-read finds the timeline already listed", async () => {
+    const log: LogEntry[] = [];
+    const db = recordingDb(log, { lockedListedAt: NOW });
+    const api = fakeApi(log, {
+      iterateTimeline: async function* () {
+        yield { nodeUid: "a", captureTime: NOW, tags: [] };
+      },
+    });
+
+    await runTimelineListing(db, api, USER, FENCE, NOW);
+
+    expect(writes(log)).toEqual([]);
   });
 
   it("a listing that throws midway deletes nothing and records nothing as listed (C12)", async () => {
@@ -174,7 +208,9 @@ describe("runTimelineListing", () => {
     const texts = sql(log).map((e) => e.text);
     const begin = texts.findIndex((t) => /^begin/i.test(t));
     const commit = texts.findIndex((t) => /^commit/i.test(t));
-    expect(texts[begin + 1]).toMatch(/from "proton_connections".*for update/is);
+    // Same lock order as connect/disconnect: proton-token advisory lock, then the row.
+    expect(texts[begin + 1]).toMatch(/pg_advisory_xact_lock/i);
+    expect(texts[begin + 2]).toMatch(/from "proton_connections".*for update/is);
     const inTx = writes(log).map((w) => texts.indexOf(w.text));
     expect(inTx.every((i) => i > begin && i < commit)).toBe(true);
     expect(writes(log).map((w) => w.text.split(" ").slice(0, 3).join(" "))).toEqual([
@@ -264,7 +300,9 @@ describe("runDetailsStage", () => {
     // Every transaction starts with the fence check.
     const texts = sql(log).map((e) => e.text);
     texts.forEach((t, i) => {
-      if (/^begin/i.test(t)) expect(texts[i + 1]).toMatch(/for update/i);
+      if (!/^begin/i.test(t)) return;
+      expect(texts[i + 1]).toMatch(/pg_advisory_xact_lock/i);
+      expect(texts[i + 2]).toMatch(/for update/i);
     });
   });
 
