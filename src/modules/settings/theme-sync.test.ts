@@ -35,3 +35,28 @@ describe("isThemePreference", () => {
     expect(isThemePreference(1)).toBe(false);
   });
 });
+
+describe("themeToApplyFromServer — cross-device sync", () => {
+  it("adopts a server value another device changed since this browser last saw it", () => {
+    // This browser chose dark and last saw dark on the server; the phone picked light.
+    expect(themeToApplyFromServer("light", "dark", "dark")).toBe("light");
+    expect(themeToApplyFromServer("system", "light", "dark")).toBe("system");
+  });
+
+  it("ignores a server copy that only lags this browser's own toggle", () => {
+    // Header toggle wrote "dark" locally; the background PUT has not landed, so the
+    // server (and what this browser last saw there) still say "light".
+    expect(themeToApplyFromServer("light", "dark", "light")).toBeNull();
+  });
+
+  it("does nothing when the server already matches the stored choice", () => {
+    expect(themeToApplyFromServer("dark", "dark", "light")).toBeNull();
+  });
+
+  it("never switches a browser that predates the last-seen marker", () => {
+    // First load after this shipped: no marker yet, so the stored choice wins and
+    // the caller only records what the server says.
+    expect(themeToApplyFromServer("light", "dark", null)).toBeNull();
+    expect(themeToApplyFromServer("light", "dark", "garbage")).toBeNull();
+  });
+});
