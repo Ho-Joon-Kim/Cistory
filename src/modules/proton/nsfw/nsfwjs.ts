@@ -42,6 +42,8 @@ export interface LoadedNsfwModel {
 export interface NsfwjsClassifier extends PhotoClassifier {
   /** `null` until the model has loaded. Cron logs a `cpu` fallback from this. */
   readonly backend: string | null;
+  /** Loads the model now (cron warm-up) and resolves to its backend. */
+  load(): Promise<string>;
 }
 
 export type NsfwModelLoader = () => Promise<LoadedNsfwModel>;
@@ -218,6 +220,9 @@ export function buildNsfwjsClassifier(load: NsfwModelLoader): NsfwjsClassifier {
     modelVersion: NSFW_MODEL_VERSION,
     get backend() {
       return current?.backend ?? null;
+    },
+    async load() {
+      return (await getModel()).backend;
     },
     async classify(jpeg) {
       // Decode first: a bad image is a per-photo failure even when the model

@@ -62,6 +62,21 @@ describe("buildNsfwjsClassifier load lifecycle", () => {
     expect(classifier.backend).toBe("cpu");
   });
 
+  it("load() loads once, shares the model with classify and reports its backend", async () => {
+    let calls = 0;
+    const classifier = buildNsfwjsClassifier(async () => {
+      calls++;
+      if (calls === 1) throw new Error("wasm missing");
+      return fakeModel(undefined, "wasm");
+    });
+
+    await expect(classifier.load()).rejects.toBeInstanceOf(ClassifierUnavailableError);
+    await expect(classifier.load()).resolves.toBe("wasm");
+    await classifier.classify(grayJpeg(16));
+    expect(calls).toBe(2);
+    expect(classifier.backend).toBe("wasm");
+  });
+
   it("does not load the model for an undecodable image", async () => {
     let calls = 0;
     const classifier = buildNsfwjsClassifier(async () => {

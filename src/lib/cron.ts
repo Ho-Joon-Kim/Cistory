@@ -21,6 +21,7 @@ import {
   registerOverviewPrecomputeTask,
 } from "@/modules/overview/cron";
 import { createPortfolioSyncService } from "@/modules/portfolio/service";
+import { registerProtonPhotosTask } from "@/modules/proton/cron";
 import { createExpenseCategoryService } from "@/modules/spending/category-classifier";
 import { refreshAllSubwaySystems, seedSubwaySystemsIfEmpty } from "@/modules/subway/service";
 import { createSummaryService, SummaryService } from "@/modules/summary/service";
@@ -583,6 +584,7 @@ export async function reparseTodayNotifications() {
  */
 let dataRecoveryTask: ReturnType<typeof registerDataRecoveryTask> | null = null;
 let healthWebhookTask: ReturnType<typeof registerHealthWebhookTask> = null;
+let protonPhotosTask: ReturnType<typeof registerProtonPhotosTask> | null = null;
 
 export function initializeCron() {
   if (isInitialized) {
@@ -610,6 +612,8 @@ export function initializeCron() {
   dataRecoveryTask = registerDataRecoveryTask(cron.schedule, TZ);
   // Google Health webhook consumer — gated by GOOGLE_HEALTH_WEBHOOKS_ENABLED.
   healthWebhookTask = registerHealthWebhookTask(cron.schedule, TZ);
+  // Proton Drive Photos sync; also warms up the crypto runtime + NSFW model once.
+  protonPhotosTask = registerProtonPhotosTask(cron.schedule, TZ);
 
   cronTask = cron.schedule(
     CRON_SCHEDULE,
@@ -773,6 +777,8 @@ export async function stopCron() {
   dataRecoveryTask = null;
   healthWebhookTask?.stop();
   healthWebhookTask = null;
+  protonPhotosTask?.stop();
+  protonPhotosTask = null;
   if (cronTask) {
     cronTask.stop();
     cronTask = null;
