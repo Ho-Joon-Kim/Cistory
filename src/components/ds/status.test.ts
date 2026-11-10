@@ -5,7 +5,7 @@ const now = new Date("2026-11-09T13:00:00Z");
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
 
 describe("deriveSourceStatus", () => {
-  it("applies the precedence 미연결 > 재인증 > 실패 > 지연 > 정상", () => {
+  it("applies the precedence 미연결 > 다시 연결 > 실패 > 지연 > 정상", () => {
     expect(deriveSourceStatus({ connected: false, needsReauth: true, now })).toBe("disconnected");
     expect(deriveSourceStatus({ connected: true, needsReauth: true, lastError: "x", now })).toBe(
       "reauth"
@@ -25,7 +25,7 @@ describe("deriveSourceStatus", () => {
       "정상",
       "지연",
       "실패",
-      "재인증 필요",
+      "다시 연결 필요",
       "미연결",
     ]);
   });

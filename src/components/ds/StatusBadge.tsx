@@ -2,9 +2,9 @@ import { cn } from "@/lib/utils";
 import { SOURCE_STATUS_LABELS, type SourceStatus } from "./status";
 
 /**
- * 정상 · 지연 · 실패 · 재인증 필요 · 미연결. A dot + label; only 실패 and 재인증 필요
+ * 정상 · 지연 · 실패 · 다시 연결 필요 · 미연결. A dot + label; only 실패 and 다시 연결 필요
  * carry a stroke icon. Same colors everywhere: 정상 brand dot, 지연 warn dot, 실패
- * gain (red) text, 재인증 warn text, 미연결 hollow dot in --ink3.
+ * danger (red) text, 다시 연결 warn text, 미연결 hollow dot in --ink3.
  */
 export function StatusBadge({
   status,
@@ -21,7 +21,7 @@ export function StatusBadge({
       className={cn(
         "inline-flex h-6 items-center gap-1.5 rounded-full bg-surface px-[9px] text-xs font-medium whitespace-nowrap",
         status === "failed"
-          ? "text-gain shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--up)_30%,transparent)]"
+          ? "text-danger shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--danger)_30%,transparent)]"
           : "shadow-[inset_0_0_0_1px_var(--line)]",
         status === "reauth" && "text-warn",
         status === "disconnected" && "text-ink-3",

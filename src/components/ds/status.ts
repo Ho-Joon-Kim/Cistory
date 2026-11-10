@@ -5,7 +5,7 @@ export const SOURCE_STATUS_LABELS: Record<SourceStatus, string> = {
   ok: "정상",
   delayed: "지연",
   failed: "실패",
-  reauth: "재인증 필요",
+  reauth: "다시 연결 필요",
   disconnected: "미연결",
 };
 
@@ -14,7 +14,7 @@ export const STALE_AFTER_MS = 48 * 60 * 60 * 1000;
 
 /**
  * Status precedence: never connected → 미연결; provider rejected the token →
- * 재인증 필요; last attempt errored → 실패; no success within 48h → 지연; else 정상.
+ * 다시 연결 필요; last attempt errored → 실패; no success within 48h → 지연; else 정상.
  */
 export function deriveSourceStatus(input: {
   connected: boolean;

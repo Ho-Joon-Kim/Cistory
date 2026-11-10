@@ -22,6 +22,7 @@
  *      --gain(-soft)     --up(-soft)          text-gain / bg-gain-soft
  *      --loss(-soft)     --down(-soft)        text-loss / bg-loss-soft
  *      --warn(-soft)     --warn(-soft)        text-warn / bg-warn-soft
+ *      (error/destroy)   --danger(-soft)      text-danger / bg-danger-soft / bg-destructive
  *      (success)         --ok(-soft)          text-ok / bg-ok-soft
  *      --place --health  --place --health     text-place / text-health
  *      --bar(-dim)       --bar(-dim)          bg-bar / bg-bar-dim
@@ -56,6 +57,10 @@
   --brand-soft: #E3F0E8;
   --up: #C6352A;
   --up-soft: #FBEAE8;
+  /* Errors, failed states and destructive actions. Same values as --up today, but a
+   * separate role: --up means "price went up", never "something broke". */
+  --danger: #C6352A;
+  --danger-soft: #FBEAE8;
   --down: #1F5DC0;
   --down-soft: #E7EEFA;
   --warn: #8F5300;
@@ -166,6 +171,8 @@
   --brand-soft: #12291E;
   --up: #FF7366;
   --up-soft: #2C1513;
+  --danger: #FF7366;
+  --danger-soft: #2C1513;
   --down: #74A9FF;
   --down-soft: #14213A;
   --warn: #F2B655;
@@ -256,7 +263,7 @@
   --color-muted-foreground: hsl(var(--muted-foreground));
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-destructive: hsl(var(--destructive));
+  --color-destructive: var(--danger);
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-success: hsl(var(--success));
   --color-success-foreground: hsl(var(--success-foreground));
@@ -284,6 +291,8 @@
   --color-brand-soft: var(--brand-soft);
   --color-gain-soft: var(--up-soft);
   --color-loss-soft: var(--down-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-ok: var(--ok);

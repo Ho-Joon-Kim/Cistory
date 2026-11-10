@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
+import { sameErrorCopy, userErrorMessage } from "@/lib/user-error";
 import { cn } from "@/lib/utils";
+
+/** Titles are labels, not sentences: no trailing period ("…없어요", not "…없어요."). */
+function titleText(title: ReactNode): ReactNode {
+  return typeof title === "string" ? title.replace(/\s*\.$/, "") : title;
+}
 
 /**
  * Missing data is never drawn as 0. Empty: a neutral icon tile, a title that
@@ -25,28 +31,53 @@ export function EmptyState({
           {icon}
         </span>
       ) : null}
-      <span className="text-[15px] leading-[22px] font-semibold text-ink">{title}</span>
+      <span className="text-[15px] leading-[22px] font-semibold text-ink">{titleText(title)}</span>
       {description ? <span className="text-[13px] leading-5 text-ink-2">{description}</span> : null}
       {action ? <div className="mt-1 flex gap-2">{action}</div> : null}
     </div>
   );
 }
 
-/** Error: red title with a stroke alert icon, what failed and since when, then actions. */
+const ERROR_TITLE_FALLBACK = "문제가 생겼어요";
+
+/**
+ * Error: red title with a stroke alert icon, what failed and since when, then actions.
+ *
+ * Raw error text never renders: string titles/descriptions and `error` all pass
+ * through {@link userErrorMessage} (Korean kept, a network TypeError mapped,
+ * anything else replaced), and a description that only repeats the title is dropped.
+ * Pass the caught value as `error` and a fixed Korean `title` naming what failed.
+ */
 export function ErrorState({
   title,
   description,
+  error,
   actions,
   className,
 }: {
   title: ReactNode;
   description?: ReactNode;
+  /** The caught value; becomes the description (sanitized) when none is given. */
+  error?: unknown;
   actions?: ReactNode;
   className?: string;
 }) {
+  const shownTitle =
+    typeof title === "string" ? titleText(userErrorMessage(title, ERROR_TITLE_FALLBACK)) : title;
+  let shownDescription: ReactNode =
+    typeof description === "string"
+      ? userErrorMessage(description)
+      : (description ?? (error !== undefined ? userErrorMessage(error) : null));
+  if (
+    typeof shownTitle === "string" &&
+    typeof shownDescription === "string" &&
+    sameErrorCopy(shownTitle, shownDescription)
+  ) {
+    shownDescription = null;
+  }
   return (
     <div role="alert" className={cn("flex flex-col items-start gap-2.5", className)}>
-      <span className="flex items-center gap-2 text-[15px] leading-[22px] font-semibold text-gain">
+      <span className="flex items-center gap-2 text-[15px] leading-[22px] font-semibold text-danger">
         <svg
           aria-hidden="true"
           width="16"
@@ -61,9 +92,11 @@ export function ErrorState({
           <path d="M12 7.5v5" />
           <path d="M12 16.2v.3" />
         </svg>
-        {title}
+        {shownTitle}
       </span>
-      {description ? <span className="text-[13px] leading-5 text-ink-2">{description}</span> : null}
+      {shownDescription ? (
+        <span className="text-[13px] leading-5 text-ink-2">{shownDescription}</span>
+      ) : null}
       {actions ? <div className="mt-1 flex flex-wrap gap-2">{actions}</div> : null}
     </div>
   );

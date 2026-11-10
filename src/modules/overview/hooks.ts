@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePageVisible } from "@/lib/hooks/usePageVisible";
+import { userErrorMessage } from "@/lib/user-error";
 import { toLocalDateString } from "@/lib/utils";
 import type { SearchResponse } from "@/modules/search/types";
 import type { OverviewHistoryResponse } from "./history";
@@ -209,17 +210,12 @@ export async function recomputeResponseJson(
   return body;
 }
 
-const HANGUL = /[\uAC00-\uD7A3]/;
-
 /**
- * Message safe to show under an overview error state. Our own throws and the API's `error`
- * bodies are Korean; anything else (a TypeError "Failed to fetch (host)", a JSON SyntaxError,
- * an English provider string) is raw platform text and is replaced by Korean copy.
+ * Message safe to show under an overview error state — the shared
+ * {@link userErrorMessage} with an overview-specific fallback.
  */
 export function overviewErrorMessage(reason: unknown, fallback: string): string {
-  if (reason instanceof Error && HANGUL.test(reason.message)) return reason.message;
-  if (reason instanceof TypeError) return "네트워크 연결을 확인한 뒤 다시 시도해 주세요.";
-  return fallback;
+  return userErrorMessage(reason, fallback);
 }
 
 export function abortableDelay(signal: AbortSignal, intervalMs: number) {
