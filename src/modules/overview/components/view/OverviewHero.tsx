@@ -170,7 +170,7 @@ export function OverviewHero({ hero, ctx }: { hero: HeroModel; ctx: PeriodContex
                   value={body.steps.average}
                   countUp
                   format={formatCount}
-                  unit="보"
+                  unit="걸음"
                 />
               </div>
               {body.steps.delta ? (

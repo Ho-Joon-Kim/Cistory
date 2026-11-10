@@ -5,12 +5,18 @@ import { formatMonthDay } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CashPair, MiniBar, NetBar, WeightPoint } from "@/modules/overview/view/hero";
 import { wonColumn } from "@/modules/overview/view/sections";
+import { faceClass } from "./face-class";
 import { useMeasuredWidth } from "./useMeasuredWidth";
 import { useTaggedEvidence } from "./useTaggedEvidence";
 
 function Tip({ children }: { children: string }) {
   return (
-    <span className="num pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 rounded-[7px] bg-surface px-2 py-1 text-xs leading-4 whitespace-nowrap text-ink shadow-pop">
+    <span
+      className={cn(
+        "pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 rounded-[7px] bg-surface px-2 py-1 text-xs leading-4 whitespace-nowrap text-ink shadow-pop",
+        faceClass(children)
+      )}
+    >
       {children}
     </span>
   );
@@ -93,7 +99,10 @@ export function MiniBars({
             {showLabels ? (
               <span
                 aria-hidden="true"
-                className="num text-[11px] leading-3 whitespace-nowrap text-ink-3"
+                className={cn(
+                  "text-[11px] leading-3 whitespace-nowrap text-ink-3",
+                  faceClass(bar.label)
+                )}
               >
                 {(bars.length - 1 - i) % every === 0 ? bar.label : "\u00a0"}
               </span>
@@ -186,7 +195,10 @@ export function NetBars({ bars, label }: { bars: NetBar[]; label: string }) {
             />
             <span
               aria-hidden="true"
-              className="num absolute inset-x-0 -bottom-0.5 text-center text-[11px] text-ink-3"
+              className={cn(
+                "absolute inset-x-0 -bottom-0.5 text-center text-[11px] text-ink-3",
+                faceClass(bar.label)
+              )}
             >
               {bar.label}
             </span>
@@ -288,7 +300,7 @@ export function WeightLine({
                 dx="4"
                 fontSize="11"
                 fill="var(--ink2)"
-                className="num"
+                className="tabular-nums"
               >
                 정점 {peak.weight.toFixed(1)}
               </text>

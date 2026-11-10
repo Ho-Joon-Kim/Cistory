@@ -212,7 +212,7 @@ function OverviewContent() {
 
   return (
     <SyncStatusProvider>
-      <div className="min-h-screen bg-page text-ink [--bar2:#8D948F] dark:[--bar2:#5F6862]">
+      <div className="min-h-screen bg-page text-ink">
         <Header />
         <PageContainer>
           <PageTitle

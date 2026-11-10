@@ -103,7 +103,7 @@ export function LocationImport() {
         phase: "error",
         progress: 0,
         detail: "",
-        error: data.error ?? "파일을 가져오지 못했습니다.",
+        error: data.error ?? "파일을 가져오지 못했어요.",
       });
     }
   }, []);
@@ -123,7 +123,7 @@ export function LocationImport() {
             phase: "error",
             progress: 0,
             detail: "",
-            error: errBody.error ?? `진행 상태를 확인하지 못했습니다 (HTTP ${res.status}).`,
+            error: errBody.error ?? "진행 상태를 확인하지 못했어요.",
           });
           return;
         }
@@ -184,25 +184,25 @@ export function LocationImport() {
             if (xhr.status >= 400) {
               try {
                 const err = JSON.parse(xhr.responseText);
-                reject(new Error(err.error ?? "파일을 업로드하지 못했습니다."));
+                reject(new Error(err.error ?? "파일을 업로드하지 못했어요."));
               } catch {
-                reject(new Error(`파일을 업로드하지 못했습니다 (HTTP ${xhr.status}).`));
+                reject(new Error("파일을 업로드하지 못했어요."));
               }
               return;
             }
             try {
               const body = JSON.parse(xhr.responseText) as { jobId?: string };
               if (!body.jobId) {
-                reject(new Error("서버 응답을 확인하지 못했습니다."));
+                reject(new Error("서버 응답을 확인하지 못했어요."));
                 return;
               }
               resolve(body.jobId);
             } catch {
-              reject(new Error("서버 응답을 확인하지 못했습니다."));
+              reject(new Error("서버 응답을 확인하지 못했어요."));
             }
           });
 
-          xhr.addEventListener("error", () => reject(new Error("네트워크에 연결하지 못했습니다.")));
+          xhr.addEventListener("error", () => reject(new Error("네트워크에 연결하지 못했어요.")));
           xhr.addEventListener("abort", () => reject(new Error("취소됨")));
 
           xhr.open("POST", "/api/timeline/locations/import");
@@ -225,7 +225,7 @@ export function LocationImport() {
           phase: "error",
           progress: 0,
           detail: "",
-          error: e instanceof Error ? e.message : "파일을 가져오지 못했습니다.",
+          error: e instanceof Error ? e.message : "파일을 가져오지 못했어요.",
         });
       }
     },

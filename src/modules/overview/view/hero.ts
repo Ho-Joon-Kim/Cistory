@@ -705,12 +705,12 @@ function stepsBlock(
           other: otherPeriod ? seriesTitle(otherPeriod, ctx.now) : "",
         },
         rows: [
-          { label: `${ctx.label} 하루 평균`, value: `${formatCount(average)}보` },
+          { label: `${ctx.label} 하루 평균`, value: `${formatCount(average)}걸음` },
           ...(otherPeriod
             ? [
                 {
                   label: `${seriesTitle(otherPeriod, ctx.now)} 하루 평균`,
-                  value: `${formatCount(other.value)}보`,
+                  value: `${formatCount(other.value)}걸음`,
                 },
               ]
             : []),
@@ -723,7 +723,7 @@ function stepsBlock(
     average,
     delta,
     fact: tagFact(fact, "steps"),
-    bars: seriesBars(series, ctx, avgOf, (v) => `하루 ${formatCount(v)}보`),
+    bars: seriesBars(series, ctx, avgOf, (v) => `하루 ${formatCount(v)}걸음`),
   };
 }
 

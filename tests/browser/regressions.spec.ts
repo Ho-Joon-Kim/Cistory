@@ -280,7 +280,7 @@ test("a sheet opened without a trigger returns focus to its opener", async ({ pa
 test("zero GitHub commits still shows the daily life timeline", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(
-    page.getByText("아직 동기화된 커밋이 없습니다. 생활 기록은 아래에서 확인하세요.")
+    page.getByText("아직 동기화된 커밋이 없어요. 생활 기록은 아래에서 확인하세요.")
   ).toBeVisible();
   await expect(page.locator(".timeline-scroll-container")).toBeVisible();
   await expect(page.locator(".timeline-scroll-container")).not.toBeEmpty();

@@ -61,6 +61,7 @@ export function MoveSection({ move }: { move: MoveModel }) {
               name={p.name}
               shortName={p.shortName}
               flag={p.flag}
+              flagTone="place"
               value={formatHours(p.seconds)}
               trailing={`${p.visits}회`}
               share={p.share}
@@ -193,7 +194,7 @@ function HourPanel({ tab }: { tab: DetailTab }) {
             onMouseLeave={() => setHover(null)}
           >
             {hover === h.hour ? (
-              <span className="num pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 rounded-[7px] bg-surface px-2 py-1 text-xs whitespace-nowrap text-ink shadow-pop">
+              <span className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 rounded-[7px] bg-surface px-2 py-1 text-xs whitespace-nowrap text-ink tabular-nums shadow-pop">
                 {h.hour}시 · {h.value.toLocaleString("ko-KR")}
               </span>
             ) : null}
