@@ -396,13 +396,18 @@ export function rowSubline(
   if (view.status === "disconnected") return { text: "연결 안 됨", tone: "ink3" };
   if (view.status === "failed" || view.status === "reauth") {
     const n = view.daysSinceSuccess;
+    const unsynced = n !== null && n > 0 ? `미동기화 ${n}일` : null;
     return {
+      // The row badge already says "다시 연결 필요"; the sub-line gives the cause and how long.
       text:
         view.status === "reauth"
-          ? "다시 연결 필요"
-          : n !== null && n > 0
-            ? `미동기화 ${n}일`
-            : "동기화 실패",
+          ? [
+              view.source.reauthReason === "legacy_key" ? "API 키 읽기 중단됨" : "인증 만료",
+              unsynced,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : (unsynced ?? "동기화 실패"),
       // One severity per state: re-authorization is the amber state everywhere
       // (badge, meter, strip), only a real failure is red.
       tone: view.status === "reauth" ? "warn" : "danger",

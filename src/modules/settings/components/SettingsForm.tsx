@@ -191,9 +191,10 @@ function DisclosureRow({
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-[15px] leading-[22px] font-semibold">{title}</span>
           {meta ? (
+            // Wraps instead of truncating: on a 320 row a cut "계정 …" had no way to be read.
             <span
               className={cn(
-                "truncate text-[13px] leading-[18px]",
+                "text-[13px] leading-[18px] text-pretty",
                 metaTone === "warn"
                   ? "text-warn"
                   : metaTone === "danger"
@@ -793,7 +794,7 @@ function buildConnections(
           ? join("인증 만료", lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`)
           : join(lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`, "계정 연결됨")
         : wakaLegacy
-          ? // Action first: on narrow rows the tail truncates, and the action matters more.
+          ? // Action first: it is what the row is asking for.
             join("다시 연결 필요", lastText(waka, now) && `마지막 성공 ${lastText(waka, now)}`)
           : "연결 안 됨",
       body: () => (
