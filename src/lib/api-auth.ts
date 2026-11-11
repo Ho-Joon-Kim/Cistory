@@ -103,7 +103,8 @@ function sweepExpiredBuckets(now: number): void {
 }
 
 /**
- * Token-bucket style limiter: 60 requests / 60s per (key-prefix, IP).
+ * Token-bucket style limiter: 60 requests / 60s per (key-prefix, IP) unless the
+ * caller passes its own `maxRequests`.
  *
  * Single-process deployment assumption (production runs one standalone
  * Next.js web container — see CLAUDE.md; adding replicas multiplies the
@@ -113,7 +114,8 @@ function sweepExpiredBuckets(now: number): void {
  */
 export function enforceRateLimit(
   request: NextRequest,
-  bucketKey: string
+  bucketKey: string,
+  maxRequests: number = RATE_LIMIT_MAX_REQUESTS
 ): { allowed: true } | { allowed: false; retryAfterMs: number } {
   const ip = clientIp(request);
   const key = `${bucketKey}:${ip}`;
@@ -127,7 +129,7 @@ export function enforceRateLimit(
     return { allowed: true };
   }
 
-  if (bucket.count >= RATE_LIMIT_MAX_REQUESTS) {
+  if (bucket.count >= maxRequests) {
     return { allowed: false, retryAfterMs: bucket.resetAt - now };
   }
 
