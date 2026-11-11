@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ persist: vi.fn(), update: vi.fn() }));
+const mocks = vi.hoisted(() => ({ persist: vi.fn(), update: vi.fn(), rate: vi.fn() }));
 vi.mock("@/db", () => ({
   getDb: () => ({
     insert: () => ({ values: () => ({ onConflictDoNothing: mocks.persist }) }),
@@ -11,7 +11,7 @@ vi.mock("@/db", () => ({
 vi.mock("@/lib/api-auth", () => ({
   checkBodySize: () => ({ ok: true }),
   bodyExceedsLimit: () => false,
-  enforceRateLimit: () => ({ allowed: true }),
+  enforceRateLimit: mocks.rate,
   verifyApiKey: vi.fn(),
   logIngestionFailure: vi.fn(),
 }));
@@ -29,6 +29,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.persist.mockResolvedValue(undefined);
   mocks.update.mockResolvedValue(undefined);
+  mocks.rate.mockReturnValue({ allowed: true });
   vi.mocked(verifyApiKey).mockResolvedValue({ id: "u1", tossMyName: null });
 });
 describe("OwnTracks receipt telemetry", () => {
@@ -57,5 +58,16 @@ describe("OwnTracks receipt telemetry", () => {
     mocks.persist.mockRejectedValueOnce(new Error("fixture failure"));
     expect(await (await POST(request())).json()).toEqual([]);
     expect(recordSourceSuccess).not.toHaveBeenCalled();
+  });
+  it("answers 429 when rate limited so the app keeps the message queued", async () => {
+    mocks.rate.mockReturnValueOnce({ allowed: false, retryAfterMs: 12_300 });
+    const response = await POST(request());
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("13");
+    expect(mocks.persist).not.toHaveBeenCalled();
+  });
+  it("uses a quota above the shared 60/min so a backlog flush can drain", async () => {
+    await POST(request());
+    expect(mocks.rate).toHaveBeenCalledWith(expect.anything(), "owntracks", 600);
   });
 });

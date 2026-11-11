@@ -4,7 +4,9 @@
  * POST /api/owntracks?apikey={key}
  * Receives location data from OwnTracks app.
  * Authentication via API key in query parameter.
- * Always returns [] per OwnTracks protocol (silent on auth failure).
+ * Returns [] per OwnTracks protocol (silent on auth failure), except when rate
+ * limited: a 2xx acknowledges the message and the app deletes it, so throttled
+ * requests answer 429 and stay queued on the phone for a retry.
  */
 
 import { eq } from "drizzle-orm";
@@ -41,6 +43,12 @@ interface OwnTracksPayload {
 // the message indefinitely. Always build a fresh response per request.
 const emptyResponse = () => NextResponse.json([]);
 
+// The app sends one HTTP request per queued message and drains a backlog (e.g.
+// a night offline) at several requests per second. At the shared 60/min quota
+// the 2026-11-11 morning flush lost about half of a three-hour backlog, so this
+// route gets a higher quota sized for draining at that pace.
+const OWNTRACKS_RATE_LIMIT_PER_MINUTE = 600;
+
 export async function POST(request: NextRequest) {
   try {
     const body = checkBodySize(request);
@@ -50,10 +58,14 @@ export async function POST(request: NextRequest) {
       return emptyResponse();
     }
 
-    const rate = enforceRateLimit(request, "owntracks");
+    const rate = enforceRateLimit(request, "owntracks", OWNTRACKS_RATE_LIMIT_PER_MINUTE);
     if (!rate.allowed) {
       logIngestionFailure("owntracks", "rate_limited", request);
-      return emptyResponse();
+      // Not [] — a 2xx would make the app drop the message instead of retrying it.
+      return NextResponse.json([], {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil(rate.retryAfterMs / 1000)) },
+      });
     }
 
     const apikey = request.nextUrl.searchParams.get("apikey");
