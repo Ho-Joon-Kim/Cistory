@@ -33,7 +33,7 @@ services:
     container_name: cistory
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000" # loopback only: cloudflared reaches it on localhost; MCP trusts CF-* headers
     env_file:
       - .env
     environment:

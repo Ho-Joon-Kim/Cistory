@@ -249,7 +249,7 @@ pipeline {
                         -e TZ=Asia/Seoul \
                         -e DISABLE_CRON=true \
                         -e DATABASE_URL=postgresql://cistory:cistory@cistory-db:5432/cistory \
-                        -p ${APP_PORT}:3000 \
+                        -p 127.0.0.1:${APP_PORT}:3000 \
                         --log-driver json-file \
                         --log-opt max-size=50m \
                         --log-opt max-file=5 \
