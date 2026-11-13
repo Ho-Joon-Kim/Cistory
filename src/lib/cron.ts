@@ -16,6 +16,7 @@ import { compactPendingSamples } from "@/modules/health/compaction";
 import { createHealthSyncService } from "@/modules/health/service";
 import { registerHealthWebhookTask } from "@/modules/health/webhook-cron";
 import { processYesterdayLocations } from "@/modules/location/cron-processing";
+import { pruneExpiredIdempotencyKeys } from "@/modules/mcp/idempotency";
 import {
   precomputeOverviewSnapshots,
   registerOverviewPrecomputeTask,
@@ -489,6 +490,17 @@ async function _syncAllUsersInner() {
       }
     } catch (error) {
       logger.error("[Cron] Failed to cleanup old sync jobs", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // Expired MCP write idempotency keys (24h). Reads already ignore them;
+    // this only bounds the table.
+    try {
+      const pruned = await pruneExpiredIdempotencyKeys(db);
+      if (pruned > 0) logger.info(`[Cron] Pruned ${pruned} expired MCP idempotency key(s)`);
+    } catch (error) {
+      logger.error("[Cron] Failed to prune MCP idempotency keys", {
         error: error instanceof Error ? error.message : String(error),
       });
     }

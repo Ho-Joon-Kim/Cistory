@@ -109,4 +109,48 @@ describe("Sentry v11 hook wiring", () => {
     expect(event.extra).toEqual({ rawJson: "[scrubbed:health]" });
     expect(event.user).toBeUndefined();
   });
+  it("keeps MCP bearer tokens, tool arguments and Telegram bot tokens out of what is sent", async () => {
+    sent.length = 0;
+    const bot = "https://api.telegram.org/bot987654:AAH-hook-secret/sendMessage";
+    Sentry.startSpan(
+      {
+        name: "POST /api/mcp",
+        forceTransaction: true,
+        attributes: {
+          "url.full": "https://cistory.hojoon.dev/api/mcp",
+          "http.request.header.authorization": ["Bearer cmcp_abcdef012345_mcp-hook-secret"],
+        },
+      },
+      () => {
+        Sentry.startSpan({ name: `POST ${bot}`, attributes: { "url.full": bot } }, () => undefined);
+      }
+    );
+    Sentry.addBreadcrumb({ category: "fetch", data: { url: bot, method: "POST" } });
+    Sentry.captureEvent({
+      message: "mcp tool failed",
+      request: {
+        url: "https://cistory.hojoon.dev/api/mcp",
+        method: "POST",
+        headers: { authorization: "Bearer cmcp_abcdef012345_mcp-hook-secret" },
+        data: '{"params":{"arguments":{"q":"args-hook-secret"}}}',
+      },
+      extra: {
+        args: { q: "args-hook-secret" },
+        structuredContent: { merchant: "result-hook-secret" },
+      },
+    });
+    await Sentry.flush(2000);
+
+    const payload = sent.join("\n");
+    expect(payload).toContain("/api/mcp");
+    expect(payload).toContain("api.telegram.org/bot[scrubbed]");
+    for (const secret of [
+      "mcp-hook-secret",
+      "args-hook-secret",
+      "result-hook-secret",
+      "AAH-hook-secret",
+    ]) {
+      expect(payload).not.toContain(secret);
+    }
+  });
 });

@@ -296,3 +296,67 @@ describe("Proton Drive Photos scrubbing", () => {
     });
   });
 });
+
+describe("MCP and Telegram scrubbing", () => {
+  const BOT_URL = "https://api.telegram.org/bot123456:AAH-secret_Token/sendMessage";
+
+  it("drops the bearer token, body and query of an /api/mcp request", () => {
+    const event: ScrubbableEvent = {
+      request: {
+        url: "https://cistory.example/api/mcp?debug=1",
+        data: '{"method":"tools/call","params":{"name":"search","arguments":{"q":"배달"}}}',
+        headers: { authorization: "Bearer cmcp_abcdef012345_deadbeef", "user-agent": "agent" },
+      },
+    };
+    scrubHealthData(event);
+    expect(event.request).toEqual({
+      url: "https://cistory.example/api/mcp",
+      data: undefined,
+      query_string: undefined,
+      headers: { "user-agent": "agent" },
+    });
+  });
+
+  it("scrubs authorization, args and structuredContent extra keys", () => {
+    const event: ScrubbableEvent = {
+      extra: {
+        authorization: "Bearer x",
+        args: { q: "배달" },
+        structuredContent: { rows: [] },
+        tool: "search",
+      },
+    };
+    scrubHealthData(event);
+    expect(event.extra).toEqual({
+      authorization: "[scrubbed:health]",
+      args: "[scrubbed:health]",
+      structuredContent: "[scrubbed:health]",
+      tool: "search",
+    });
+  });
+
+  it("redacts the Telegram bot token from breadcrumbs, messages and exceptions", () => {
+    const event: ScrubbableEvent = {
+      message: `fetch failed for ${BOT_URL}`,
+      exception: { values: [{ value: `request to ${BOT_URL} failed` }] },
+      breadcrumbs: [{ message: "fetch", data: { url: BOT_URL, method: "POST", body: "chat" } }],
+    };
+    scrubHealthData(event);
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain("AAH-secret_Token");
+    expect(serialized).toContain("api.telegram.org/bot[scrubbed]/sendMessage");
+    expect(event.breadcrumbs?.[0].data).toEqual({
+      url: "https://api.telegram.org/bot[scrubbed]/sendMessage",
+      method: "POST",
+    });
+  });
+
+  it("redacts the Telegram bot token from span names and attributes", () => {
+    const span = scrubHealthSpan({
+      name: `POST ${BOT_URL}`,
+      attributes: { "url.full": BOT_URL, "http.request.header.authorization": ["Bearer x"] },
+    });
+    expect(JSON.stringify(span)).not.toContain("AAH-secret_Token");
+    expect(span.attributes?.["http.request.header.authorization"]).toBe("[scrubbed:health]");
+  });
+});
