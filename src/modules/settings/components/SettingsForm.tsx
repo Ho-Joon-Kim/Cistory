@@ -54,6 +54,8 @@ import { DbBenchmarkCard } from "./DbBenchmarkCard";
 import { HealthImportSettings } from "./HealthImportSettings";
 import { HealthSettings } from "./HealthSettings";
 import { LocationBackfillCard } from "./LocationBackfillCard";
+import { McpAuditLog } from "./McpAuditLog";
+import { lockWarnings, McpTokensCard, useMcpTokens } from "./McpTokensCard";
 import { OwnTracksSettings } from "./OwnTracksSettings";
 import { SummaryStats } from "./SummaryStats";
 import { TossNotificationSettings } from "./TossNotificationSettings";
@@ -272,6 +274,7 @@ export function SettingsForm() {
   const retrySummaries = useRetryFailedSummaries();
   const usage = useDataUsage();
   const manage = useManageStatus(!!session, settings?.hasTossKey ?? false);
+  const mcpTokens = useMcpTokens();
 
   const views = useMemo(() => {
     const map = new Map<SourceId, SourceView>();
@@ -452,6 +455,27 @@ export function SettingsForm() {
               onToggle={toggle("summaries")}
             >
               <SummaryStats />
+            </DisclosureRow>
+            <DisclosureRow
+              id="mcp"
+              title="MCP 토큰"
+              meta={
+                mcpMeta(mcpTokens.data, now)?.text ?? "에이전트 접속 토큰 · 스코프 · IP·국가 잠금"
+              }
+              metaTone={mcpMeta(mcpTokens.data, now)?.warn ? "warn" : "ink3"}
+              open={!!open.mcp}
+              onToggle={toggle("mcp")}
+            >
+              <McpTokensCard />
+            </DisclosureRow>
+            <DisclosureRow
+              id="mcp-audit"
+              title="MCP 감사 로그"
+              meta="토큰 · 도구 · 결과 · 기간별 호출 기록"
+              open={!!open["mcp-audit"]}
+              onToggle={toggle("mcp-audit")}
+            >
+              <McpAuditLog />
             </DisclosureRow>
             <DisclosureRow
               id="sync"
@@ -1306,6 +1330,34 @@ function DangerZone({
       </Dialog>
     </section>
   );
+}
+
+/** 관리 row subtitle for MCP tokens: active count + latest use, warn when one is unlocked. */
+function mcpMeta(
+  tokens: ReturnType<typeof useMcpTokens>["data"],
+  now: Date
+): { text: string; warn: boolean } | null {
+  if (!tokens) return null;
+  const active = tokens.filter((t) => t.status === "active");
+  if (active.length === 0) return { text: "사용 중인 토큰 없음", warn: false };
+  const unlocked = active.filter(
+    (t) =>
+      lockWarnings({ scopes: t.scopes, cidrs: t.allowedCidrs, countries: t.allowedCountries })
+        .noLock
+  ).length;
+  const lastUsed = active
+    .map((t) => t.lastUsedAt)
+    .filter((v): v is string => !!v)
+    .sort()
+    .at(-1);
+  return {
+    text: join(
+      `사용 중 ${formatCount(active.length)}개`,
+      lastUsed ? `마지막 사용 ${formatRelative(lastUsed, now)}` : "아직 사용 안 함",
+      unlocked > 0 && `잠금 없는 토큰 ${formatCount(unlocked)}개`
+    ),
+    warn: unlocked > 0,
+  };
 }
 
 // ── 관리 live status ────────────────────────────────────────────────────────
