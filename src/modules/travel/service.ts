@@ -662,3 +662,29 @@ export async function updateTrip(
     database
   );
 }
+
+/**
+ * Deletes the owner's trip (manual or auto-detected) under the trip write lock
+ * and re-queues the overview snapshots of its date range. Returns the deleted
+ * row, or null when the trip doesn't exist (or isn't theirs).
+ */
+export async function deleteTrip(
+  userId: string,
+  tripId: string,
+  { inTx = noopTripHook, database = getDb() }: WriteOptions<TripRow> = {}
+): Promise<TripRow | null> {
+  return withTripWriteLock(
+    userId,
+    async (tx) => {
+      const [deleted] = await tx
+        .delete(trips)
+        .where(and(eq(trips.id, tripId), eq(trips.userId, userId)))
+        .returning();
+      if (!deleted) return null;
+      await inTx(tx, { before: deleted, after: null });
+      await invalidateOverviewDays(tx, userId, [tripRange(deleted)]);
+      return deleted;
+    },
+    database
+  );
+}

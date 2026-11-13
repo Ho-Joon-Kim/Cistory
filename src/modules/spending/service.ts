@@ -528,7 +528,9 @@ export async function correctTransaction(
 ): Promise<TransactionRow | null> {
   return database.transaction(async (tx) => {
     const where = and(eq(transactions.id, transactionId), eq(transactions.userId, userId));
-    const [before] = await tx.select().from(transactions).where(where);
+    // FOR UPDATE: a concurrent correction waits here and then reads this one's
+    // committed value, so an MCP expectedCurrent check can't pass twice.
+    const [before] = await tx.select().from(transactions).where(where).for("update");
     if (!before) return null;
     const [after] = await tx.update(transactions).set(update).where(where).returning();
     if (!after) return null;

@@ -18,12 +18,14 @@ import {
 import { insertTestUser } from "@/db/testing/fixtures";
 import { createSavedPlace } from "@/modules/location/saved-places";
 import { getPeriodKey } from "@/modules/overview/period";
+import { correctTransaction, parseTransactionCorrection } from "@/modules/spending/service";
 import { type McpToolContext, runTool, writeAuditHook } from "./server";
 import { issueToken, revokeToken } from "./tokens";
 import {
   savedPlaceCreateTool,
   transactionCorrectTool,
   tripCreateTool,
+  tripDeleteTool,
   tripMarkNotATripTool,
 } from "./tools/writes";
 
@@ -231,6 +233,59 @@ describe("MCP write tools against PostgreSQL", () => {
     expect(await snapshotStatus(ctx.userId)).toEqual({ "month:2026-06": "ready" });
   });
 
+  it("trip_delete removes any owned trip, audits it and re-queues its range", async () => {
+    const ctx = await setup();
+    const now = new Date();
+    const [trip] = await db
+      .insert(trips)
+      .values({
+        userId: ctx.userId,
+        name: "직접 만든 여행",
+        startDate: "2026-05-01",
+        endDate: "2026-05-02",
+        notes: "메모는 감사에 남지 않는다",
+        isOverseas: false,
+        autoDetected: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    await seedSnapshots(ctx.userId, [
+      ["month", "2026-05"],
+      ["month", "2026-06"],
+    ]);
+
+    const conflict = await runTool(tripDeleteTool, ctx, {
+      tripId: trip.id,
+      expectedCurrent: { name: "다른 이름" },
+    });
+    expect(conflict.isError).toBe(true);
+    expect(await db.select().from(trips).where(eq(trips.id, trip.id))).toHaveLength(1);
+
+    const result = await runTool(tripDeleteTool, ctx, {
+      tripId: trip.id,
+      expectedCurrent: { name: "직접 만든 여행" },
+    });
+    expect(result.structuredContent).toMatchObject({ status: "done", trip: { id: trip.id } });
+    expect(await db.select().from(trips).where(eq(trips.id, trip.id))).toHaveLength(0);
+    expect(await snapshotStatus(ctx.userId)).toEqual({
+      "month:2026-05": "pending",
+      "month:2026-06": "ready",
+    });
+    const ok = (await auditRows(ctx.userId)).find((r) => r.outcome === "ok");
+    expect(ok).toMatchObject({ tool: "trip_delete", writeAfter: null });
+    expect(ok?.writeBefore).toEqual({
+      id: trip.id,
+      name: "직접 만든 여행",
+      startDate: "2026-05-01",
+      endDate: "2026-05-02",
+      autoDetected: false,
+    });
+
+    const again = await runTool(tripDeleteTool, ctx, { tripId: trip.id });
+    expect(again.structuredContent).toMatchObject({ status: "already_processed" });
+  });
+
   it("a category correction is manual and re-queues only that KST day's periods", async () => {
     const ctx = await setup();
     const now = new Date();
@@ -305,6 +360,74 @@ describe("MCP write tools against PostgreSQL", () => {
       expect(JSON.stringify(r)).not.toContain("통장");
       expect(JSON.stringify(r)).not.toContain("4,500");
     }
+  });
+
+  it("concurrent corrections serialize on the row: the second sees the first's value and conflicts", async () => {
+    const ctx = await setup();
+    const now = new Date();
+    const [log] = await db
+      .insert(notificationLogs)
+      .values({ userId: ctx.userId, rawPayload: "{}", receivedAt: now })
+      .returning();
+    const [tx] = await db
+      .insert(transactions)
+      .values({
+        userId: ctx.userId,
+        notificationLogId: log.id,
+        type: "withdrawal",
+        amount: 4500,
+        merchant: "카페",
+        accountName: "통장",
+        rawTitle: "토스",
+        rawText: "카페 4,500원",
+        transactedAt: new Date("2026-11-12T03:00:00Z"),
+        createdAt: now,
+        category: "food",
+        categorySource: "ai",
+      })
+      .returning();
+
+    const parsed = parseTransactionCorrection({ category: "cafe" });
+    if (!("value" in parsed)) throw new Error(parsed.error);
+    let reached!: () => void;
+    const hookReached = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // First correction: holds its transaction (and the row lock) open after the update.
+    const first = correctTransaction(ctx.userId, tx.id, parsed.value, {
+      database: db,
+      inTx: async () => {
+        reached();
+        await gate;
+      },
+    });
+    await hookReached;
+
+    // Second correction with the same (now stale) expectedCurrent.
+    const second = runTool(transactionCorrectTool, ctx, {
+      transactionId: tx.id,
+      category: "shopping",
+      expectedCurrent: { category: "food" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const waiting = await pool.query(
+      `SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND query ILIKE 'select %"transactions"%for update%'`
+    );
+    expect(waiting.rows[0].n).toBeGreaterThanOrEqual(1);
+
+    release();
+    await first;
+    const result = await second;
+
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toContain("expectedCurrent");
+    const [row] = await db.select().from(transactions).where(eq(transactions.id, tx.id));
+    expect(row).toMatchObject({ category: "cafe", categorySource: "manual" });
   });
 
   it("the same idempotency key creates one row and replays the first result", async () => {

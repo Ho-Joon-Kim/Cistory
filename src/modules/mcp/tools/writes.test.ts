@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   correctTransaction: vi.fn(),
   createManualTrip: vi.fn(),
   updateTrip: vi.fn(),
+  deleteTrip: vi.fn(),
   markTripNotATrip: vi.fn(),
 }));
 
@@ -40,6 +41,7 @@ vi.mock("@/modules/travel/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/modules/travel/service")>()),
   createManualTrip: mocks.createManualTrip,
   updateTrip: mocks.updateTrip,
+  deleteTrip: mocks.deleteTrip,
 }));
 vi.mock("@/modules/travel/not-a-trip", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/modules/travel/not-a-trip")>()),
@@ -60,6 +62,7 @@ import {
   savedPlaceUpdateTool,
   transactionCorrectTool,
   tripCreateTool,
+  tripDeleteTool,
   tripMarkNotATripTool,
   tripUpdateTool,
   WRITE_TOOLS,
@@ -156,7 +159,7 @@ beforeEach(() => {
 });
 
 describe("WRITE_TOOLS registry", () => {
-  it("lists the seven write tools, all scope write with explicit annotations", () => {
+  it("lists the eight write tools, all scope write with explicit annotations", () => {
     expect(WRITE_TOOLS.map((tool) => tool.name)).toEqual([
       "saved_place_create",
       "saved_place_update",
@@ -165,6 +168,7 @@ describe("WRITE_TOOLS registry", () => {
       "trip_create",
       "trip_update",
       "trip_mark_not_a_trip",
+      "trip_delete",
     ]);
     for (const tool of WRITE_TOOLS) {
       expect(tool.kind).toBe("write");
@@ -175,10 +179,11 @@ describe("WRITE_TOOLS registry", () => {
     const destructive = WRITE_TOOLS.filter((tool) => tool.annotations.destructiveHint).map(
       (tool) => tool.name
     );
-    expect(destructive).toEqual(["saved_place_delete", "trip_mark_not_a_trip"]);
+    expect(destructive).toEqual(["saved_place_delete", "trip_mark_not_a_trip", "trip_delete"]);
     expect(savedPlaceCreateTool.annotations.idempotentHint).toBe(false);
     expect(tripCreateTool.annotations.idempotentHint).toBe(false);
     expect(tripMarkNotATripTool.annotations.idempotentHint).toBe(true);
+    expect(tripDeleteTool.annotations.idempotentHint).toBe(true);
   });
 });
 
@@ -526,6 +531,63 @@ describe("trip_mark_not_a_trip", () => {
       "방문 기록이 없어요"
     );
     mocks.markTripNotATrip.mockRejectedValueOnce(new TripIsManualError());
-    expect(errorText(await call(tripMarkNotATripTool, { tripId: TRIP_ID }))).toContain("삭제");
+    expect(errorText(await call(tripMarkNotATripTool, { tripId: TRIP_ID }))).toContain(
+      "trip_delete"
+    );
+    expect(tripMarkNotATripTool.description).toContain("trip_delete");
+  });
+});
+
+describe("trip_delete", () => {
+  it("deletes any owned trip through the service and audits the notes-free projection", async () => {
+    mocks.deleteTrip.mockImplementation(runsHook(trip, null, trip));
+    const ctx = context();
+    const result = structured(await call(tripDeleteTool, { tripId: TRIP_ID }, ctx));
+
+    expect(mocks.deleteTrip).toHaveBeenCalledWith(
+      "user-1",
+      TRIP_ID,
+      expect.objectContaining({ database: ctx.db })
+    );
+    expect(result).toEqual({
+      status: "done",
+      trip: {
+        id: TRIP_ID,
+        name: "부산 여행",
+        startDate: "2026-07-15",
+        endDate: "2026-07-18",
+        autoDetected: true,
+      },
+    });
+    expect(mocks.writeAuditHook).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({
+        tool: "trip_delete",
+        fields: ["id", "name", "startDate", "endDate", "autoDetected"],
+      })
+    );
+    expect(mocks.audit).toHaveBeenCalledWith(TX, {
+      before: expect.objectContaining({ id: TRIP_ID, name: "부산 여행", autoDetected: true }),
+      after: null,
+      resultCount: 1,
+    });
+    expect(JSON.stringify(mocks.audit.mock.calls)).not.toContain("비밀 메모");
+  });
+
+  it("an expectedCurrent.name mismatch throws inside the hook before auditing", async () => {
+    mocks.deleteTrip.mockImplementation(runsHook(trip, null, trip));
+    const text = errorText(
+      await call(tripDeleteTool, { tripId: TRIP_ID, expectedCurrent: { name: "다른 여행" } })
+    );
+    expect(text).toContain("name");
+    expect(text).not.toContain("부산 여행");
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
+
+  it("a missing or already-deleted trip is an idempotent no-op success", async () => {
+    mocks.deleteTrip.mockResolvedValue(null);
+    const result = structured(await call(tripDeleteTool, { tripId: TRIP_ID }));
+    expect(result).toMatchObject({ status: "already_processed", tripId: TRIP_ID });
+    expect(mocks.audit).toHaveBeenCalledWith(TX, { before: null, after: null, resultCount: 0 });
   });
 });

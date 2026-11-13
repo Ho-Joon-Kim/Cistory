@@ -40,7 +40,7 @@ import {
   TripIsManualError,
   TripNotFoundError,
 } from "@/modules/travel/not-a-trip";
-import { createManualTrip, type TripRow, updateTrip } from "@/modules/travel/service";
+import { createManualTrip, deleteTrip, type TripRow, updateTrip } from "@/modules/travel/service";
 import type { ArgRules } from "../audit";
 import { McpInputError, McpToolError } from "../errors";
 import {
@@ -639,7 +639,7 @@ export const tripMarkNotATripTool = defineTool({
   scope: "write",
   title: "여행 아님 처리",
   description:
-    "자동 감지된 여행이 여행이 아니라고 표시합니다. 웹과 같이 여행지 주변을 저장 장소(여행 제외)로 만들고 여행을 지웁니다. 직접 만든 여행은 처리하지 않습니다(삭제하세요).",
+    "자동 감지된 여행이 여행이 아니라고 표시합니다. 웹과 같이 여행지 주변을 저장 장소(여행 제외)로 만들고 여행을 지웁니다. 직접 만든 여행은 처리하지 않습니다(trip_delete로 삭제하세요).",
   annotations: { ...WRITE, destructiveHint: true, idempotentHint: true },
   inputSchema: z.object({ tripId: uuid("tripId") }),
   argRules: NOT_A_TRIP_ARG_RULES,
@@ -680,10 +680,63 @@ export const tripMarkNotATripTool = defineTool({
         throw new McpToolError(error.message, "trip_has_no_visits");
       }
       if (error instanceof TripIsManualError) {
-        throw new McpToolError(error.message, "trip_is_manual");
+        throw new McpToolError(
+          "직접 만든 여행은 '여행 아님'으로 처리할 수 없어요. trip_delete로 삭제하세요.",
+          "trip_is_manual"
+        );
       }
       throw error;
     }
+  },
+});
+
+const TRIP_DELETE_ARG_RULES: ArgRules = { tripId: "keep", expectedCurrent: "drop" };
+const TRIP_ALREADY_DELETED = "이미 처리됨: 이 여행은 이미 삭제되었거나 없습니다.";
+
+export const tripDeleteTool = defineTool({
+  name: "trip_delete",
+  kind: "write",
+  scope: "write",
+  title: "여행 삭제",
+  description:
+    "여행을 지웁니다(웹의 여행 삭제와 같음, 직접 만든 여행과 자동 감지 여행 모두). 되돌릴 수 없습니다. 자동 감지 여행은 지워도 다음 감지 때 다시 생길 수 있으니, 여행이 아니라면 trip_mark_not_a_trip을 쓰세요. expectedCurrent.name을 주면 현재 이름이 다를 때 충돌로 거부합니다.",
+  annotations: { ...WRITE, destructiveHint: true, idempotentHint: true },
+  inputSchema: z.object({
+    tripId: uuid("tripId"),
+    expectedCurrent: z
+      .object({ name: z.string().optional() })
+      .optional()
+      .describe("지우려는 여행의 현재 이름. 다르면 충돌로 거부합니다."),
+  }),
+  argRules: TRIP_DELETE_ARG_RULES,
+  run: async (ctx, input) => {
+    const spec = {
+      tool: "trip_delete",
+      args: input,
+      argRules: TRIP_DELETE_ARG_RULES,
+      fields: TRIP_FIELDS,
+    };
+    const deleted = await deleteTrip(ctx.userId, input.tripId, {
+      database: ctx.db,
+      inTx: mcpWriteHook<TripRow>(ctx, {
+        ...spec,
+        project: projectTrip,
+        check: ({ before }) => assertExpectedCurrent(input.expectedCurrent, before),
+      }),
+    });
+    if (!deleted) {
+      // Idempotent: a retry after a successful delete is a no-op success.
+      await auditNoChange(ctx, spec);
+      return {
+        structured: {
+          status: "already_processed",
+          tripId: input.tripId,
+          message: TRIP_ALREADY_DELETED,
+        },
+        count: 0,
+      };
+    }
+    return { structured: { status: "done", trip: projectTrip(deleted) }, count: 1 };
   },
 });
 
@@ -695,4 +748,5 @@ export const WRITE_TOOLS: McpTool[] = [
   tripCreateTool,
   tripUpdateTool,
   tripMarkNotATripTool,
+  tripDeleteTool,
 ];

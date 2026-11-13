@@ -25,7 +25,7 @@ vi.mock("@/modules/location/services/trip-writer", () => ({
   withTripWriteLock: mocks.withTripWriteLock,
 }));
 
-import { GET, PUT } from "./route";
+import { DELETE, GET, PUT } from "./route";
 
 function request() {
   return new NextRequest("http://localhost/api/trips/trip-1");
@@ -104,5 +104,55 @@ describe("PUT /api/trips/:id", () => {
       expect.objectContaining({ status: "pending" }),
       expect.objectContaining({ status: "pending" }),
     ]);
+  });
+});
+
+describe("DELETE /api/trips/:id", () => {
+  function deleteTx(rows: Record<string, unknown>[]) {
+    const updates: Record<string, unknown>[] = [];
+    const tx = {
+      delete: () => ({ where: () => ({ returning: async () => rows }) }),
+      update: () => ({
+        set: (value: Record<string, unknown>) => {
+          updates.push(value);
+          return { where: async () => [] };
+        },
+      }),
+    };
+    return { tx, updates };
+  }
+
+  beforeEach(() => {
+    mocks.getAuthenticatedUser.mockResolvedValue({ user: { id: "user-1" }, error: null });
+  });
+
+  it("deletes under the write lock and re-queues the trip's overview range", async () => {
+    const { tx, updates } = deleteTx([
+      { id: "trip-1", startDate: "2026-01-10", endDate: "2026-01-12" },
+    ]);
+    mocks.withTripWriteLock.mockImplementation(async (_userId, operation) => operation(tx));
+    const response = await DELETE(
+      new NextRequest("http://localhost/api/trips/trip-1", { method: "DELETE" }),
+      context()
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ message: "여행이 삭제됐어요" });
+    expect(mocks.withTripWriteLock).toHaveBeenCalledWith(
+      "user-1",
+      expect.any(Function),
+      expect.anything()
+    );
+    expect(updates).toEqual([expect.objectContaining({ status: "pending" })]);
+  });
+
+  it("returns 404 for a missing or cross-user trip without invalidating", async () => {
+    const { tx, updates } = deleteTx([]);
+    mocks.withTripWriteLock.mockImplementation(async (_userId, operation) => operation(tx));
+    const response = await DELETE(
+      new NextRequest("http://localhost/api/trips/other", { method: "DELETE" }),
+      context("other")
+    );
+    expect(response.status).toBe(404);
+    expect(updates).toEqual([]);
   });
 });

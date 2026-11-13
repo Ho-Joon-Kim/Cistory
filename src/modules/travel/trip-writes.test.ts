@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMockDb } from "@/db/testing/mock-db";
-import { createManualTrip, updateTrip } from "./service";
+import { createManualTrip, deleteTrip, updateTrip } from "./service";
 
 describe("createManualTrip", () => {
   it("inserts a manual trip under the lock and hands the row to inTx", async () => {
@@ -112,5 +112,33 @@ describe("updateTrip", () => {
     const fake = createMockDb([[], [{ id: "trip-1" }], [{ id: "trip-1" }]]);
     await updateTrip("user-1", "trip-1", { notes: null }, { database: fake.db });
     expect(fake.writes("set")[0]).toMatchObject({ notes: null });
+  });
+});
+
+describe("deleteTrip", () => {
+  it("deletes the owner's trip under the lock, hands it to inTx and re-queues its range", async () => {
+    const row = { id: "trip-1", name: "제주", startDate: "2026-11-01", endDate: "2026-11-03" };
+    const fake = createMockDb([[], [row], []]);
+    const inTx = vi.fn(async () => {});
+    const deleted = await deleteTrip("user-1", "trip-1", { inTx, database: fake.db });
+    expect(deleted).toEqual(row);
+    expect(fake.executeParams()[0]).toEqual(["trip-write:user-1"]);
+    expect(fake.calls[1].op).toBe("delete");
+    expect(fake.whereParams()[0]).toEqual(["trip-1", "user-1"]);
+    expect(inTx).toHaveBeenCalledWith(fake.db, { before: row, after: null });
+    expect(pendingRanges(fake)).toHaveLength(1);
+    expect((fake.whereParams().at(-1) as unknown[]).slice(0, 3)).toEqual([
+      "user-1",
+      "2026-11-01",
+      "2026-11-16",
+    ]);
+  });
+
+  it("returns null for a missing or foreign trip without invalidating", async () => {
+    const fake = createMockDb([[], []]);
+    const inTx = vi.fn(async () => {});
+    expect(await deleteTrip("user-2", "trip-1", { inTx, database: fake.db })).toBe(null);
+    expect(inTx).not.toHaveBeenCalled();
+    expect(pendingRanges(fake)).toHaveLength(0);
   });
 });
