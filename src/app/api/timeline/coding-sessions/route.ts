@@ -5,13 +5,11 @@
  * Returns coding sessions for a given date, ordered by startedAt.
  */
 
-import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/db";
-import { codingSessions } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { endOfLocalDay, startOfLocalDay } from "@/lib/utils";
+import { listCodingSessions } from "@/modules/timeline/work-queries";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,8 +24,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const db = getDb();
-
     // Use server-local day window (KST in production). The `tz` query param is
     // deprecated — the client-supplied timezone offset previously diverged from
     // server TZ when the backing record already lives in KST, corrupting edge
@@ -35,37 +31,7 @@ export async function GET(request: NextRequest) {
     const dayStart = startOfLocalDay(dateParam);
     const dayEnd = endOfLocalDay(dateParam);
 
-    const rows = await db
-      .select({
-        id: codingSessions.id,
-        project: codingSessions.project,
-        startedAt: codingSessions.startedAt,
-        durationSeconds: codingSessions.durationSeconds,
-        humanAdditions: codingSessions.humanAdditions,
-        humanDeletions: codingSessions.humanDeletions,
-        aiAdditions: codingSessions.aiAdditions,
-        aiDeletions: codingSessions.aiDeletions,
-      })
-      .from(codingSessions)
-      .where(
-        and(
-          eq(codingSessions.userId, user.id),
-          gte(codingSessions.startedAt, dayStart),
-          lt(codingSessions.startedAt, dayEnd)
-        )
-      )
-      .orderBy(asc(codingSessions.startedAt));
-
-    const sessions = rows.map((r) => ({
-      id: r.id,
-      project: r.project,
-      startedAt: r.startedAt.toISOString(),
-      durationSeconds: r.durationSeconds,
-      humanAdditions: r.humanAdditions,
-      humanDeletions: r.humanDeletions,
-      aiAdditions: r.aiAdditions,
-      aiDeletions: r.aiDeletions,
-    }));
+    const sessions = await listCodingSessions(user.id, { start: dayStart, end: dayEnd });
 
     return NextResponse.json({
       sessions,

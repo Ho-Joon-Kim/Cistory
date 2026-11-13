@@ -7,12 +7,11 @@
  * and returns enriched stay point data.
  */
 
-import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, visits } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
-import { endOfLocalDay, startOfLocalDay, toLocalDateString } from "@/lib/utils";
+import { toLocalDateString } from "@/lib/utils";
+import { getPersistedDayVisits } from "@/modules/location/queries";
 import {
   detectAndPersistVisits,
   type EnrichedVisit,
@@ -44,35 +43,7 @@ export async function GET(request: NextRequest) {
     if (isToday) {
       enrichedVisits = await detectAndPersistVisits(user.id, dateParam);
     } else {
-      const db = getDb();
-      const dayStart = startOfLocalDay(dateParam);
-      const dayEnd = endOfLocalDay(dateParam);
-      const rows = await db
-        .select()
-        .from(visits)
-        .where(
-          and(
-            eq(visits.userId, user.id),
-            gte(visits.startTime, dayStart),
-            lt(visits.startTime, dayEnd)
-          )
-        )
-        .orderBy(asc(visits.startTime));
-      enrichedVisits = rows.map((v) => ({
-        centerLat: v.centerLat,
-        centerLon: v.centerLon,
-        radiusM: v.radiusM,
-        startTime: v.startTime.toISOString(),
-        endTime: v.endTime.toISOString(),
-        durationMinutes: Math.round(v.durationSeconds / 60),
-        pointCount: 0,
-        placeName: v.placeName,
-        address: v.address,
-        category: v.category,
-        city: v.city,
-        countryName: v.countryName,
-        savedPlaceId: v.savedPlaceId ?? undefined,
-      }));
+      enrichedVisits = await getPersistedDayVisits(user.id, dateParam);
     }
 
     const stayPoints = enrichedVisits.map((v) => ({

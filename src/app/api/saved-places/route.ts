@@ -1,42 +1,18 @@
-import { desc, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, savedPlaces } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import {
-  isKoreanAddress,
-  nearestKoreanAddresses,
-} from "@/modules/location/services/saved-place-address";
+  createSavedPlace,
+  listSavedPlaces,
+  parseSavedPlaceCreate,
+} from "@/modules/location/saved-places";
 
 export async function GET(request: NextRequest) {
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError) return authError;
 
-    const db = getDb();
-    const places = await db
-      .select()
-      .from(savedPlaces)
-      .where(eq(savedPlaces.userId, user.id))
-      .orderBy(desc(savedPlaces.updatedAt));
-
-    // Romanized geocodes ("Nonhyeon-dong, 06112, Gangnam-gu, …") read badly in a
-    // Korean UI: offer the nearest Korean address already cached within ~200 m.
-    const romanized = places.filter((p) => !isKoreanAddress(p.address));
-    const korean = await nearestKoreanAddresses(
-      db,
-      user.id,
-      romanized.map((p) => p.id)
-    );
-
-    return NextResponse.json({
-      places: places.map((p) => ({
-        ...p,
-        displayAddress: isKoreanAddress(p.address)
-          ? p.address
-          : (korean.get(p.id) ?? p.address ?? null),
-      })),
-    });
+    return NextResponse.json({ places: await listSavedPlaces(user.id) });
   } catch (error) {
     logger.error("Saved places GET error", {
       error: error instanceof Error ? error.message : String(error),
@@ -54,34 +30,12 @@ export async function POST(request: NextRequest) {
     if (authError) return authError;
 
     const body = await request.json();
-    const { name, lat, lon, radiusM, category, address } = body;
-
-    if (!name || typeof name !== "string" || name.length < 1 || name.length > 100) {
-      return NextResponse.json({ error: "이름은 1~100자 사이여야 합니다" }, { status: 400 });
+    const parsed = parseSavedPlaceCreate(body);
+    if ("error" in parsed) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
-    if (typeof lat !== "number" || typeof lon !== "number") {
-      return NextResponse.json({ error: "위도와 경도가 필요합니다" }, { status: 400 });
-    }
-
-    const radius = typeof radiusM === "number" ? Math.min(500, Math.max(50, radiusM)) : 100;
-    const now = new Date();
-
-    const db = getDb();
-    const [place] = await db
-      .insert(savedPlaces)
-      .values({
-        userId: user.id,
-        name: name.trim(),
-        lat,
-        lon,
-        radiusM: radius,
-        category: category || null,
-        address: address || null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
+    const place = await createSavedPlace(user.id, parsed.value);
 
     return NextResponse.json({ place }, { status: 201 });
   } catch (error) {

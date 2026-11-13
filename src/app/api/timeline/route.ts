@@ -1,10 +1,8 @@
-import { and, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/db";
-import { commitSummaries, commits } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { parseDateLocal, parseDateLocalEnd } from "@/lib/utils";
+import { listCommits } from "@/modules/timeline/work-queries";
 
 /** One busy day fits in a single page, so the dashboard never chains requests. */
 const MAX_PER_PAGE = 200;
@@ -13,7 +11,6 @@ export async function GET(request: NextRequest) {
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError) return authError;
-    const db = getDb();
 
     // Query parameters
     const searchParams = request.nextUrl.searchParams;
@@ -24,15 +21,10 @@ export async function GET(request: NextRequest) {
     const fromDate = searchParams.get("from");
     const toDate = searchParams.get("to");
 
-    // Build conditions
-    const conditions = [eq(commits.userId, user.id)];
-
-    if (reposParam) {
-      const repoNames = reposParam.split(",").filter(Boolean);
-      if (repoNames.length > 0) {
-        conditions.push(inArray(commits.repoFullName, repoNames));
-      }
-    }
+    const repos = reposParam ? reposParam.split(",").filter(Boolean) : [];
+    let after: Date | null = null;
+    let from: Date | null = null;
+    let to: Date | null = null;
 
     if (afterDate) {
       const parsed = parseDateLocal(afterDate);
@@ -42,7 +34,7 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         );
       }
-      conditions.push(gt(commits.committedAt, parsed));
+      after = parsed;
     }
 
     if (fromDate) {
@@ -53,7 +45,7 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         );
       }
-      conditions.push(gte(commits.committedAt, parsed));
+      from = parsed;
     }
 
     if (toDate) {
@@ -62,84 +54,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "'to' 날짜 형식이 유효하지 않습니다" }, { status: 400 });
       }
       // Include the entire "to" day (date-only → end of that local day)
-      conditions.push(lte(commits.committedAt, parsed));
+      to = parsed;
     }
 
-    // Get total count
-    const countQuery = db
-      .select({ count: sql<number>`count(*)` })
-      .from(commits)
-      .where(and(...conditions));
+    const result = await listCommits(user.id, { page, perPage, repos, after, from, to });
 
-    const offset = (page - 1) * perPage;
-
-    // Get commits with summaries (independent of the count — run both at once)
-    const pageQuery = db
-      .select({
-        id: commits.id,
-        sha: commits.sha,
-        message: commits.message,
-        authorName: commits.authorName,
-        authorAvatarUrl: commits.authorAvatarUrl,
-        committedAt: commits.committedAt,
-        additions: commits.additions,
-        deletions: commits.deletions,
-        changedFilesCount: commits.changedFilesCount,
-        isMergeCommit: commits.isMergeCommit,
-        repoFullName: commits.repoFullName,
-        repoId: commits.repoId,
-        repoIsPrivate: commits.repoIsPrivate,
-        summaryId: commitSummaries.id,
-        summaryStatus: commitSummaries.status,
-        summary: commitSummaries.summary,
-      })
-      .from(commits)
-      .leftJoin(commitSummaries, eq(commits.id, commitSummaries.commitId))
-      .where(and(...conditions))
-      .orderBy(desc(commits.committedAt))
-      .limit(perPage)
-      .offset(offset);
-
-    const [countResult, timelineCommits] = await Promise.all([countQuery, pageQuery]);
-    const total = countResult[0]?.count ?? 0;
-    const totalPages = Math.ceil(total / perPage);
-
-    // Format response
-    const formattedCommits = timelineCommits.map((c) => ({
-      id: c.id,
-      sha: c.sha,
-      message: c.message,
-      authorName: c.authorName,
-      authorAvatarUrl: c.authorAvatarUrl,
-      committedAt: c.committedAt,
-      additions: c.additions,
-      deletions: c.deletions,
-      changedFilesCount: c.changedFilesCount,
-      isMergeCommit: c.isMergeCommit,
-      repository: {
-        fullName: c.repoFullName,
-        id: c.repoId,
-        isPrivate: c.repoIsPrivate,
-      },
-      summary: c.summaryId
-        ? {
-            status: c.summaryStatus,
-            summary: c.summary,
-          }
-        : null,
-    }));
-
-    return NextResponse.json({
-      commits: formattedCommits,
-      pagination: {
-        page,
-        perPage,
-        total,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1,
-      },
-    });
+    return NextResponse.json(result);
   } catch (error) {
     logger.error("Get timeline error", {
       error: error instanceof Error ? error.message : String(error),

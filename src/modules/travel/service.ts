@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gte, lt, lte, or, type SQL, sql } from "drizzle-orm";
-import type { Database } from "@/db";
+import { type Database, getDb } from "@/db";
 import {
   accountRoles,
   codingDailyStats,
@@ -14,6 +14,8 @@ import {
 } from "@/db/schema";
 import { timestampFromDriver } from "@/db/sql";
 import { getKstDateWindow, shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
+import type { InTxHook, WriteOptions } from "@/lib/write-hook";
+import { withTripWriteLock } from "@/modules/location/services/trip-writer";
 import { accountRolesJoinOn, bucketSql } from "@/modules/spending/classify";
 import { ROUTINE_PLACE_LABELS } from "./routine-places";
 
@@ -555,4 +557,96 @@ export class TravelService {
       spendingSince,
     };
   }
+}
+
+// ── Trip writes ─────────────────────────────────────────────────────────────
+
+export type TripRow = typeof trips.$inferSelect;
+
+const noopTripHook: InTxHook<TripRow> = async () => {};
+
+export interface ManualTripInput {
+  name: string;
+  startDate: string;
+  endDate: string;
+  notes?: string | null;
+}
+
+/** Creates a user-authored (`autoDetected = false`) trip under the trip write lock. */
+export async function createManualTrip(
+  userId: string,
+  input: ManualTripInput,
+  { inTx = noopTripHook, database = getDb() }: WriteOptions<TripRow> = {}
+): Promise<TripRow> {
+  const now = new Date();
+  return withTripWriteLock(
+    userId,
+    async (tx) => {
+      const [row] = await tx
+        .insert(trips)
+        .values({
+          userId,
+          name: input.name,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          notes: input.notes ?? null,
+          isOverseas: false,
+          autoDetected: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+      await inTx(tx, { before: null, after: row ?? null });
+      return row;
+    },
+    database
+  );
+}
+
+export interface TripUpdateInput {
+  /** Applied when not null/undefined. */
+  name?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  /** Applied when not undefined (null clears it). */
+  notes?: string | null;
+}
+
+/**
+ * Renames / re-dates / annotates the owner's trip under the trip write lock.
+ * Any edit promotes the trip to manual so automatic redetection keeps it.
+ * Returns null when the trip doesn't exist (or isn't theirs).
+ */
+export async function updateTrip(
+  userId: string,
+  tripId: string,
+  input: TripUpdateInput,
+  { inTx = noopTripHook, database = getDb() }: WriteOptions<TripRow> = {}
+): Promise<TripRow | null> {
+  return withTripWriteLock(
+    userId,
+    async (tx) => {
+      const where = and(eq(trips.id, tripId), eq(trips.userId, userId));
+      const [before] = await tx.select().from(trips).where(where);
+      if (!before) return null;
+
+      const [row] = await tx
+        .update(trips)
+        .set({
+          ...(input.name != null ? { name: input.name } : {}),
+          ...(input.startDate != null ? { startDate: input.startDate } : {}),
+          ...(input.endDate != null ? { endDate: input.endDate } : {}),
+          ...(input.notes !== undefined ? { notes: input.notes } : {}),
+          // User edits become authoritative and survive automatic redetection.
+          autoDetected: false,
+          updatedAt: new Date(),
+        })
+        .where(where)
+        .returning();
+      if (!row) return null;
+      await inTx(tx, { before, after: row });
+      return row;
+    },
+    database
+  );
 }

@@ -1,5 +1,14 @@
 import { parseKstDate } from "./utils";
 
+/**
+ * Feature launched 2026-05-12. Earlier snapshots (5/7~5/11) have a deposit value
+ * that includes pre-settlement KIS receivables, which inflates the starting
+ * total asset and produces misleading TWR. Every account's return calculation
+ * is anchored here so the baseline is a fully settled, steady state.
+ * (Shared by modules/portfolio/queries.ts and scripts/verify-returns.ts.)
+ */
+export const RETURNS_EPOCH = "2026-05-12";
+
 export interface ReturnSnapshot {
   asOfDate: string;
   totalEvalAmount: number;

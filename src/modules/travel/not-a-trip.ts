@@ -2,6 +2,7 @@ import { and, eq, gte, lt } from "drizzle-orm";
 import { type Database, getDb, savedPlaces, trips, visits } from "@/db";
 import { getKstDateWindow } from "@/lib/date-key";
 import { distanceM } from "@/lib/geo";
+import type { InTxHook } from "@/lib/write-hook";
 import {
   resolveTripHomeLocation,
   TRIP_HOME_DISTANCE_THRESHOLD_M,
@@ -111,21 +112,31 @@ function exclusionPlaceName(
   return `${tripName} 정기 방문지`;
 }
 
+/**
+ * State a not-a-trip correction touches: the trip (deleted) and the saved place
+ * that excludes its destination (created, or an existing one updated).
+ */
+export interface NotATripState {
+  trip: typeof trips.$inferSelect | null;
+  place: typeof savedPlaces.$inferSelect | null;
+}
+
+export interface MarkTripNotATripOptions {
+  /** Runs inside the write-lock transaction after the delete, before commit. */
+  inTx?: InTxHook<NotATripState>;
+}
+
 export async function markTripNotATrip(
   userId: string,
   tripId: string,
-  database: Database = getDb()
+  database: Database = getDb(),
+  options: MarkTripNotATripOptions = {}
 ) {
   return withTripWriteLock(
     userId,
     async (tx) => {
       const [trip] = await tx
-        .select({
-          id: trips.id,
-          startDate: trips.startDate,
-          endDate: trips.endDate,
-          name: trips.name,
-        })
+        .select()
         .from(trips)
         .where(and(eq(trips.id, tripId), eq(trips.userId, userId)));
       if (!trip) throw new TripNotFoundError();
@@ -207,6 +218,11 @@ export async function markTripNotATrip(
         .where(and(eq(trips.id, tripId), eq(trips.userId, userId)))
         .returning({ id: trips.id });
       if (!deleted) throw new TripNotFoundError();
+
+      await options.inTx?.(tx, {
+        before: { trip, place: existingPlace ?? null },
+        after: { trip: null, place },
+      });
 
       return { tripId, place, reusedPlace: Boolean(existingPlace) };
     },

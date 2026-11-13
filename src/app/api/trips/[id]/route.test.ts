@@ -13,7 +13,8 @@ vi.mock("@/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/db")>();
   return { ...actual, getDb: mocks.getDb };
 });
-vi.mock("@/modules/travel/service", () => ({
+vi.mock("@/modules/travel/service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/modules/travel/service")>()),
   TravelService: class {
     getTripDetail = mocks.getTripDetail;
   },
@@ -82,7 +83,11 @@ describe("PUT /api/trips/:id", () => {
       context()
     );
     expect(response.status).toBe(200);
-    expect(mocks.withTripWriteLock).toHaveBeenCalledWith("user-1", expect.any(Function));
+    expect(mocks.withTripWriteLock).toHaveBeenCalledWith(
+      "user-1",
+      expect.any(Function),
+      expect.anything()
+    );
     expect(values[0]).toMatchObject({ name: "내 여행", notes: "기억할 메모", autoDetected: false });
   });
 });

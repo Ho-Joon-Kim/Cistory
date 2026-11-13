@@ -266,4 +266,29 @@ describe("markTripNotATrip", () => {
     expect(fake.events).not.toContain("delete-trip");
     expect(fake.events.at(-1)).toBe("rollback");
   });
+
+  it("inTx는 삭제 뒤 같은 transaction 안에서 전/후 상태를 받고, 실패하면 rollback한다", async () => {
+    const fake = fakeDatabase();
+    const inTx = vi.fn(async () => {
+      fake.events.push("in-tx");
+    });
+
+    const result = await markTripNotATrip("user-1", "trip-1", fake.db, { inTx });
+
+    expect(fake.events.slice(-3)).toEqual(["delete-trip", "in-tx", "commit"]);
+    expect(inTx).toHaveBeenCalledWith(expect.anything(), {
+      before: { trip: expect.objectContaining({ id: "trip-1" }), place: null },
+      after: { trip: null, place: result.place },
+    });
+
+    const failing = fakeDatabase();
+    await expect(
+      markTripNotATrip("user-1", "trip-1", failing.db, {
+        inTx: async () => {
+          throw new Error("token revoked");
+        },
+      })
+    ).rejects.toThrow("token revoked");
+    expect(failing.events.at(-1)).toBe("rollback");
+  });
 });

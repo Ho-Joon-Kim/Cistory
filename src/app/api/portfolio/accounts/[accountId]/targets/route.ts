@@ -1,53 +1,25 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { brokerageAccounts, brokerageTargetAllocations, getDb } from "@/db";
+import { brokerageTargetAllocations, getDb } from "@/db";
 import { ApiError, withAuth, withValidation } from "@/lib/api-handler";
+import { getTargetAllocations, isAccountOwned } from "@/modules/portfolio/queries";
 
 interface RouteParams {
   params: Promise<{ accountId: string }>;
 }
 
 async function assertAccountOwned(userId: string, accountId: string): Promise<void> {
-  const db = getDb();
-  const rows = await db
-    .select({ id: brokerageAccounts.id })
-    .from(brokerageAccounts)
-    .where(and(eq(brokerageAccounts.id, accountId), eq(brokerageAccounts.userId, userId)))
-    .limit(1);
-  if (rows.length === 0) {
+  if (!(await isAccountOwned(userId, accountId))) {
     throw new ApiError(404, "계좌를 찾을 수 없어요", "NOT_FOUND");
   }
 }
 
 export const GET = withAuth<RouteParams>(async ({ user }, { params }) => {
   const { accountId } = await params;
-  await assertAccountOwned(user.id, accountId);
-
-  const db = getDb();
-  const rows = await db
-    .select({
-      ticker: brokerageTargetAllocations.ticker,
-      name: brokerageTargetAllocations.name,
-      targetWeight: brokerageTargetAllocations.targetWeight,
-      updatedAt: brokerageTargetAllocations.updatedAt,
-    })
-    .from(brokerageTargetAllocations)
-    .where(eq(brokerageTargetAllocations.accountId, accountId));
-
-  const updatedAt =
-    rows.length > 0
-      ? rows.reduce((m, r) => (r.updatedAt > m ? r.updatedAt : m), rows[0].updatedAt)
-      : null;
-
-  return NextResponse.json({
-    targets: rows.map((r) => ({
-      ticker: r.ticker,
-      name: r.name,
-      targetWeight: Number(r.targetWeight),
-    })),
-    updatedAt: updatedAt?.toISOString() ?? null,
-  });
+  const result = await getTargetAllocations(user.id, accountId);
+  if (!result) throw new ApiError(404, "계좌를 찾을 수 없어요", "NOT_FOUND");
+  return NextResponse.json(result);
 });
 
 const PutBody = z

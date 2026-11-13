@@ -14,8 +14,8 @@ import { getDb, trips } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { toKstCalendarDate } from "@/lib/date-key";
 import { logger } from "@/lib/logger";
-import { withTripWriteLock } from "@/modules/location/services/trip-writer";
 import {
+  createManualTrip,
   DEFAULT_TRIP_LIST_LIMIT,
   decodeTripCursor,
   MAX_TRIP_LIST_LIMIT,
@@ -103,24 +103,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "name, startDate, endDate는 필수예요" }, { status: 400 });
     }
 
-    const now = new Date();
-    const created = await withTripWriteLock(user.id, async (tx) => {
-      const [row] = await tx
-        .insert(trips)
-        .values({
-          userId: user.id,
-          name,
-          startDate,
-          endDate,
-          notes: notes ?? null,
-          isOverseas: false,
-          autoDetected: false,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
-      return row;
-    });
+    const created = await createManualTrip(user.id, { name, startDate, endDate, notes });
 
     return NextResponse.json({ trip: created }, { status: 201 });
   } catch (error) {

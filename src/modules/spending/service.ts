@@ -1,12 +1,14 @@
-import { and, eq, gte, lt, sql } from "drizzle-orm";
-import type { Database } from "@/db";
+import { and, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
+import { type Database, getDb } from "@/db";
 import { accountRoles, transactions, users } from "@/db/schema";
 import { localDaySql } from "@/db/sql";
 import { toKstCalendarDate } from "@/lib/date-key";
-import type { CategoryTotals, SpendingCategoryKey } from "./categories";
-import { accountRolesJoinOn, bucketSql } from "./classify";
+import type { InTxHook, WriteOptions } from "@/lib/write-hook";
+import { type CategoryTotals, isExpenseCategory, type SpendingCategoryKey } from "./categories";
+import { accountRolesJoinOn, type Bucket, bucketSql } from "./classify";
 import { forecastMonthEnd } from "./forecast";
 import { buildReferenceCurves, REFERENCE_AVERAGE_MONTHS } from "./reference";
+import { refundSql, selectIncomeGroups, summarizeIncomeFlow } from "./refund";
 import type {
   CumulativeDataPoint,
   DailySpending,
@@ -288,4 +290,247 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 export function createSpendingTrendService(db: Database) {
   return new SpendingTrendService(db);
+}
+
+// ── Period query (GET /api/spending) ────────────────────────────────────────
+
+export interface SpendingPeriodQuery {
+  /** Inclusive start day, `YYYY-MM-DD` (server-local). */
+  from?: string | null;
+  /** Inclusive end day, `YYYY-MM-DD` (server-local). */
+  to?: string | null;
+  /** Legacy raw-type filter. */
+  type?: string | null;
+  /** Bucket filter: spending | income | ignore. */
+  bucket?: string | null;
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Transactions in a period with bucket totals, the spending category
+ * breakdown and the income flow split. Each row carries its `bucket` and an
+ * `isRefund` flag (see refund.ts). This is exactly the GET /api/spending body.
+ */
+export async function getSpendingPeriod(
+  userId: string,
+  query: SpendingPeriodQuery,
+  database: Database = getDb()
+) {
+  const { from, to, type, bucket: bucketFilter, limit, offset } = query;
+  const [userRow] = await database
+    .select({ tossMyName: users.tossMyName })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const tossMyName = userRow?.tossMyName ?? null;
+  const bucket = bucketSql(tossMyName);
+  const isRefund = refundSql(bucket);
+
+  const conditions = [eq(transactions.userId, userId)];
+  if (from) {
+    const [fy, fm, fd] = from.split("-").map(Number);
+    conditions.push(gte(transactions.transactedAt, new Date(fy, fm - 1, fd)));
+  }
+  if (to) {
+    const [ty, tm, td] = to.split("-").map(Number);
+    conditions.push(lte(transactions.transactedAt, new Date(ty, tm - 1, td + 1)));
+  }
+  if (type === "withdrawal" || type === "deposit") {
+    conditions.push(eq(transactions.type, type));
+  }
+  const categoryConditions = [...conditions, sql`${bucket} = 'spending'`];
+  const incomeWhere = and(...conditions);
+  if (bucketFilter === "spending" || bucketFilter === "income" || bucketFilter === "ignore") {
+    conditions.push(sql`${bucket} = ${bucketFilter}`);
+  }
+
+  const where = and(...conditions);
+
+  const [rows, summaryRows, categoryRows, incomeRows] = await Promise.all([
+    database
+      .select({
+        id: transactions.id,
+        type: transactions.type,
+        amount: transactions.amount,
+        merchant: transactions.merchant,
+        accountName: transactions.accountName,
+        rawTitle: transactions.rawTitle,
+        rawText: transactions.rawText,
+        transactedAt: transactions.transactedAt,
+        spendingOverride: transactions.spendingOverride,
+        overrideNote: transactions.overrideNote,
+        category: transactions.category,
+        categorySource: transactions.categorySource,
+        categoryConfidence: transactions.categoryConfidence,
+        bucket: bucket.as("bucket"),
+        isRefund: isRefund.as("is_refund"),
+      })
+      .from(transactions)
+      .leftJoin(accountRoles, accountRolesJoinOn)
+      .where(where)
+      .orderBy(desc(transactions.transactedAt))
+      .limit(limit + 1)
+      .offset(offset),
+    database
+      .select({
+        bucket: bucket.as("bucket"),
+        total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
+        count: sql<number>`count(*)`.as("count"),
+      })
+      .from(transactions)
+      .leftJoin(accountRoles, accountRolesJoinOn)
+      .where(where)
+      .groupBy(sql`"bucket"`),
+    database
+      .select({
+        category: transactions.category,
+        total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
+        count: sql<number>`count(*)`.as("count"),
+      })
+      .from(transactions)
+      .leftJoin(accountRoles, accountRolesJoinOn)
+      .where(and(...categoryConditions))
+      .groupBy(transactions.category)
+      .orderBy(sql`sum(${transactions.amount}) desc`),
+    selectIncomeGroups(database, incomeWhere, bucket),
+  ]);
+
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+
+  const summary = {
+    // Bucket-based totals
+    totalSpending: 0,
+    totalIncome: 0,
+    totalIgnored: 0,
+    spendingCount: 0,
+    incomeCount: 0,
+    ignoredCount: 0,
+    // Legacy aliases (kept so existing UI keeps rendering totals)
+    totalWithdrawal: 0,
+    totalDeposit: 0,
+    withdrawalCount: 0,
+    depositCount: 0,
+    categoryBreakdown: categoryRows.map((row) => ({
+      category: row.category,
+      total: Number(row.total),
+      count: Number(row.count),
+    })),
+    flow: summarizeIncomeFlow(incomeRows),
+  };
+
+  for (const row of summaryRows) {
+    const b = row.bucket as Bucket;
+    const total = Number(row.total);
+    const count = Number(row.count);
+    if (b === "spending") {
+      summary.totalSpending = total;
+      summary.spendingCount = count;
+    } else if (b === "income") {
+      summary.totalIncome = total;
+      summary.incomeCount = count;
+    } else {
+      summary.totalIgnored = total;
+      summary.ignoredCount = count;
+    }
+  }
+  summary.totalWithdrawal = summary.totalSpending;
+  summary.withdrawalCount = summary.spendingCount;
+  summary.totalDeposit = summary.totalIncome;
+  summary.depositCount = summary.incomeCount;
+
+  return {
+    transactions: items.map((row) => ({ ...row, isRefund: Boolean(row.isRefund) })),
+    summary,
+    hasMore,
+    count: items.length,
+    limit,
+    offset,
+  };
+}
+
+// ── Transaction correction (PATCH /api/spending/transactions/:id) ───────────
+
+export type TransactionRow = typeof transactions.$inferSelect;
+export type TransactionCorrection = Partial<typeof transactions.$inferInsert>;
+
+const ALLOWED_OVERRIDES = new Set(["include", "exclude"]);
+
+/**
+ * Validates a correction body — `spendingOverride` (include | exclude | null),
+ * `overrideNote` (≤500 chars) and `category` (an expense category, or null to
+ * send it back to AI classification) — into the column update. An empty
+ * update is an error.
+ */
+export function parseTransactionCorrection(body: {
+  spendingOverride?: unknown;
+  overrideNote?: unknown;
+  category?: unknown;
+}): { value: TransactionCorrection } | { error: string } {
+  const update: TransactionCorrection = {};
+
+  if ("spendingOverride" in body) {
+    const v = body.spendingOverride;
+    if (v === null) {
+      update.spendingOverride = null;
+    } else if (typeof v === "string" && ALLOWED_OVERRIDES.has(v)) {
+      update.spendingOverride = v;
+    } else {
+      return { error: "잘못된 spendingOverride 값" };
+    }
+  }
+
+  if ("overrideNote" in body) {
+    const note = body.overrideNote;
+    update.overrideNote = note === null || note === undefined ? null : String(note).slice(0, 500);
+  }
+
+  if ("category" in body) {
+    const category = body.category;
+    if (category === null) {
+      update.category = null;
+      update.categorySource = null;
+      update.categoryConfidence = null;
+      update.categoryModel = null;
+      update.categoryAttempts = 0;
+      update.categoryError = null;
+      update.categorizedAt = null;
+    } else if (isExpenseCategory(category)) {
+      update.category = category;
+      update.categorySource = "manual";
+      update.categoryConfidence = null;
+      update.categoryModel = null;
+      update.categoryError = null;
+      update.categorizedAt = new Date();
+    } else {
+      return { error: "잘못된 category 값" };
+    }
+  }
+
+  if (Object.keys(update).length === 0) return { error: "변경할 필드가 없습니다" };
+  return { value: update };
+}
+
+const noopTransactionHook: InTxHook<TransactionRow> = async () => {};
+
+/**
+ * Applies a parsed correction to the owner's transaction in one transaction.
+ * Returns the updated row, or null when it doesn't exist (or isn't theirs).
+ */
+export async function correctTransaction(
+  userId: string,
+  transactionId: string,
+  update: TransactionCorrection,
+  { inTx = noopTransactionHook, database = getDb() }: WriteOptions<TransactionRow> = {}
+): Promise<TransactionRow | null> {
+  return database.transaction(async (tx) => {
+    const where = and(eq(transactions.id, transactionId), eq(transactions.userId, userId));
+    const [before] = await tx.select().from(transactions).where(where);
+    if (!before) return null;
+    const [after] = await tx.update(transactions).set(update).where(where).returning();
+    if (!after) return null;
+    await inTx(tx, { before, after });
+    return after;
+  });
 }

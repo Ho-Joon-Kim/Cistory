@@ -18,6 +18,7 @@ import { Pool } from "pg";
 import { brokerageAccounts, brokerageExecutions, holdingSnapshots } from "../src/db/schema";
 import {
   computeReturns,
+  RETURNS_EPOCH,
   type ReturnExecution,
   type ReturnSnapshot,
 } from "../src/modules/portfolio/returns";
@@ -27,8 +28,6 @@ const pool = new Pool({
     process.env.DATABASE_URL || "postgresql://cistory:cistory@100.103.66.56:5432/cistory",
 });
 const db = drizzle(pool);
-
-const RETURNS_EPOCH = "2026-05-12";
 
 function fmtPct(v: number | null): string {
   if (v === null) return "—";
