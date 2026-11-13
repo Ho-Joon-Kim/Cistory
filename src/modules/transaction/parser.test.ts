@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTossNotification } from "./parser";
+import { isPersonalTransfer, parseTossNotification } from "./parser";
 
 describe("parseTossNotification", () => {
   it("parses a basic withdrawal (계좌 → 가맹점)", () => {
@@ -221,5 +221,69 @@ describe("parseTossNotification", () => {
 
   it("does not parse an amount-less 결제 취소 that cannot be matched to a payment", () => {
     expect(parseTossNotification("결제 취소", "계좌 | 한국철도공사_토스 원클릭결제")).toBeNull();
+  });
+});
+
+describe("isPersonalTransfer", () => {
+  it("flags a received transfer (송금 수신)", () => {
+    expect(
+      isPersonalTransfer({ rawTitle: "김철수님이 300,000원을 보냈어요", rawText: "메모" })
+    ).toBe(true);
+  });
+
+  it("flags an auto-transfer (자동이체) to a person", () => {
+    expect(
+      isPersonalTransfer({
+        rawTitle: "200,000원 자동이체",
+        rawText: "홍금숙님에게 200,000원이 자동이체되었어요.",
+      })
+    ).toBe(true);
+  });
+
+  it("flags a deposit into my own account (→ 내 … 통장)", () => {
+    expect(isPersonalTransfer({ rawTitle: "1원 입금", rawText: "홍길동 → 내 토스뱅크 통장" })).toBe(
+      true
+    );
+    expect(
+      isPersonalTransfer({ rawTitle: "50,000원 출금", rawText: "내 토스뱅크 통장 → 내 저축 통장" })
+    ).toBe(true);
+  });
+
+  it("flags anything stored as a self transfer", () => {
+    expect(
+      isPersonalTransfer({
+        rawTitle: "6,900원 출금",
+        rawText: "내 통장 → 쿠팡",
+        isSelfTransfer: true,
+      })
+    ).toBe(true);
+  });
+
+  it("does not flag card payments", () => {
+    expect(
+      isPersonalTransfer({
+        rawTitle: "13,900원 결제",
+        rawText: "토스페이머니 | 주식회사 우아한형제들",
+      })
+    ).toBe(false);
+    expect(
+      isPersonalTransfer({
+        rawTitle: "12,800원 결제 취소",
+        rawText: "토스뱅크 체크카드 | 카카오T택시_가승인 잔액 1,000원",
+      })
+    ).toBe(false);
+  });
+
+  it("does not flag bill payments or withdrawals to a merchant", () => {
+    expect(
+      isPersonalTransfer({ rawTitle: "요금납부 31,980원 출금", rawText: "내 토스뱅크 통장 → KT" })
+    ).toBe(false);
+    expect(
+      isPersonalTransfer({ rawTitle: "6,900원 출금", rawText: "내 토스뱅크 통장 → 쿠팡" })
+    ).toBe(false);
+  });
+
+  it("does not flag rows without a raw title", () => {
+    expect(isPersonalTransfer({})).toBe(false);
   });
 });
