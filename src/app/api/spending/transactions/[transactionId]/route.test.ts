@@ -51,6 +51,20 @@ describe("PATCH /api/spending/transactions/:id", () => {
     expect(fake.whereParams().at(-1)).toEqual(["tx-1", "user-1"]);
   });
 
+  it("re-queues the overview snapshots of the transaction's KST day (web PATCH)", async () => {
+    // 2026-11-12T16:30Z is 2026-11-13 01:30 KST.
+    const after = { id: "tx-1", transactedAt: new Date("2026-11-12T16:30:00Z") };
+    const fake = createMockDb([[{ id: "tx-1" }], [after], []]);
+    mocks.getDb.mockReturnValue(fake.db);
+
+    const res = await patch({ category: "cafe" });
+
+    expect(res.status).toBe(200);
+    expect(fake.writes("set").at(-1)).toMatchObject({ status: "pending", attemptCount: 0 });
+    const params = fake.whereParams().at(-1) as unknown[];
+    expect(params.slice(0, 2)).toEqual(["user-1", "2026-11-13"]);
+  });
+
   it("clears the category back to unclassified", async () => {
     const fake = createMockDb([[{ id: "tx-1" }], [{ id: "tx-1" }]]);
     mocks.getDb.mockReturnValue(fake.db);

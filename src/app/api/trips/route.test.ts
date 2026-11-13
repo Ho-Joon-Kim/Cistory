@@ -163,6 +163,18 @@ describe("POST /api/trips", () => {
     });
   });
 
+  it("re-queues the overview snapshots of the new trip's range", async () => {
+    const row = { id: "trip-new", startDate: "2026-11-01", endDate: "2026-11-03" };
+    const fake = createMockDb([[], [row], []]);
+    mocks.getDb.mockReturnValue(fake.db);
+
+    const response = await post({ name: "제주", startDate: "2026-11-01", endDate: "2026-11-03" });
+
+    expect(response.status).toBe(201);
+    expect(fake.writes("set").at(-1)).toMatchObject({ status: "pending" });
+    expect((fake.whereParams().at(-1) as unknown[]).slice(0, 2)).toEqual(["user-1", "2026-11-01"]);
+  });
+
   it("requires name, startDate and endDate", async () => {
     mocks.getDb.mockReturnValue(createMockDb().db);
     expect((await post({ name: "제주" })).status).toBe(400);

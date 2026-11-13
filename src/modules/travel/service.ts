@@ -16,6 +16,7 @@ import { timestampFromDriver } from "@/db/sql";
 import { getKstDateWindow, shiftDateKey, toKstCalendarDate } from "@/lib/date-key";
 import type { InTxHook, WriteOptions } from "@/lib/write-hook";
 import { withTripWriteLock } from "@/modules/location/services/trip-writer";
+import { invalidateOverviewDays } from "@/modules/overview/write-invalidation";
 import { accountRolesJoinOn, bucketSql } from "@/modules/spending/classify";
 import { ROUTINE_PLACE_LABELS } from "./routine-places";
 
@@ -565,6 +566,10 @@ export type TripRow = typeof trips.$inferSelect;
 
 const noopTripHook: InTxHook<TripRow> = async () => {};
 
+function tripRange(trip: Pick<TripRow, "startDate" | "endDate">) {
+  return { from: trip.startDate, to: trip.endDate };
+}
+
 export interface ManualTripInput {
   name: string;
   startDate: string;
@@ -572,7 +577,10 @@ export interface ManualTripInput {
   notes?: string | null;
 }
 
-/** Creates a user-authored (`autoDetected = false`) trip under the trip write lock. */
+/**
+ * Creates a user-authored (`autoDetected = false`) trip under the trip write
+ * lock and re-queues the overview snapshots of its date range.
+ */
 export async function createManualTrip(
   userId: string,
   input: ManualTripInput,
@@ -597,6 +605,7 @@ export async function createManualTrip(
         })
         .returning();
       await inTx(tx, { before: null, after: row ?? null });
+      if (row) await invalidateOverviewDays(tx, userId, [tripRange(row)]);
       return row;
     },
     database
@@ -615,6 +624,7 @@ export interface TripUpdateInput {
 /**
  * Renames / re-dates / annotates the owner's trip under the trip write lock.
  * Any edit promotes the trip to manual so automatic redetection keeps it.
+ * Re-queues the overview snapshots of both the old and the new date range.
  * Returns null when the trip doesn't exist (or isn't theirs).
  */
 export async function updateTrip(
@@ -645,6 +655,8 @@ export async function updateTrip(
         .returning();
       if (!row) return null;
       await inTx(tx, { before, after: row });
+      // Both ranges: days that left the trip and days that joined it.
+      await invalidateOverviewDays(tx, userId, [tripRange(before), tripRange(row)]);
       return row;
     },
     database

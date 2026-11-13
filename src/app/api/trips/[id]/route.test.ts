@@ -66,11 +66,21 @@ describe("PUT /api/trips/:id", () => {
     mocks.getAuthenticatedUser.mockResolvedValue({ user: { id: "user-1" }, error: null });
     const values: Record<string, unknown>[] = [];
     const tx = {
-      select: () => ({ from: () => ({ where: async () => [{ id: "trip-1" }] }) }),
+      select: () => ({
+        from: () => ({
+          where: async () => [{ id: "trip-1", startDate: "2026-01-10", endDate: "2026-01-12" }],
+        }),
+      }),
       update: () => ({
         set: (value: Record<string, unknown>) => {
           values.push(value);
-          return { where: () => ({ returning: async () => [{ id: "trip-1", ...value }] }) };
+          return {
+            where: () => ({
+              returning: async () => [
+                { id: "trip-1", startDate: "2026-03-01", endDate: "2026-03-02", ...value },
+              ],
+            }),
+          };
         },
       }),
     };
@@ -89,5 +99,10 @@ describe("PUT /api/trips/:id", () => {
       expect.anything()
     );
     expect(values[0]).toMatchObject({ name: "내 여행", notes: "기억할 메모", autoDetected: false });
+    // Overview re-queue for the old and the new date range (disjoint here).
+    expect(values.slice(1)).toEqual([
+      expect.objectContaining({ status: "pending" }),
+      expect.objectContaining({ status: "pending" }),
+    ]);
   });
 });

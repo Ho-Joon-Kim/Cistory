@@ -19,6 +19,61 @@ describe("createManualTrip", () => {
   });
 });
 
+function pendingRanges(fake: ReturnType<typeof createMockDb>) {
+  return fake.calls.filter(
+    (call) =>
+      call.op === "update" &&
+      call.chain.some(
+        (step) =>
+          step.method === "set" && (step.args[0] as { status?: string }).status === "pending"
+      )
+  );
+}
+
+describe("trip write overview invalidation", () => {
+  it("re-queues the created trip's range", async () => {
+    const row = { id: "trip-1", startDate: "2026-11-01", endDate: "2026-11-03" };
+    const fake = createMockDb([[], [row], []]);
+    await createManualTrip(
+      "user-1",
+      { name: "제주", startDate: "2026-11-01", endDate: "2026-11-03" },
+      { database: fake.db }
+    );
+    expect(pendingRanges(fake)).toHaveLength(1);
+    const params = fake.whereParams().at(-1) as unknown[];
+    // recent keys run from the first day to 13 days past the last (their 14-day window).
+    expect(params.slice(0, 3)).toEqual(["user-1", "2026-11-01", "2026-11-16"]);
+  });
+
+  it("re-queues both the old and the new range of an edited trip", async () => {
+    const before = { id: "trip-1", startDate: "2026-01-10", endDate: "2026-01-12" };
+    const after = { id: "trip-1", startDate: "2026-03-01", endDate: "2026-03-02" };
+    const fake = createMockDb([[], [before], [after], [], []]);
+    await updateTrip(
+      "user-1",
+      "trip-1",
+      { startDate: "2026-03-01", endDate: "2026-03-02" },
+      { database: fake.db }
+    );
+    expect(pendingRanges(fake)).toHaveLength(2);
+    const [oldRange, newRange] = fake.whereParams().slice(-2) as unknown[][];
+    expect(oldRange.slice(1, 3)).toEqual(["2026-01-10", "2026-01-25"]);
+    expect(newRange.slice(1, 3)).toEqual(["2026-03-01", "2026-03-15"]);
+  });
+
+  it("merges overlapping old/new ranges into one re-queue", async () => {
+    const before = { id: "trip-1", startDate: "2026-03-01", endDate: "2026-03-03" };
+    const after = { id: "trip-1", startDate: "2026-03-02", endDate: "2026-03-05" };
+    const fake = createMockDb([[], [before], [after], []]);
+    await updateTrip("user-1", "trip-1", { endDate: "2026-03-05" }, { database: fake.db });
+    expect(pendingRanges(fake)).toHaveLength(1);
+    expect((fake.whereParams().at(-1) as unknown[]).slice(1, 3)).toEqual([
+      "2026-03-01",
+      "2026-03-18",
+    ]);
+  });
+});
+
 describe("updateTrip", () => {
   it("only sets provided fields, promotes to manual, and passes before/after", async () => {
     const before = { id: "trip-1", name: "old", autoDetected: true };

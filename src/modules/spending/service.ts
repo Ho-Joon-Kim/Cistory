@@ -4,6 +4,7 @@ import { accountRoles, transactions, users } from "@/db/schema";
 import { localDaySql } from "@/db/sql";
 import { toKstCalendarDate } from "@/lib/date-key";
 import type { InTxHook, WriteOptions } from "@/lib/write-hook";
+import { invalidateOverviewDays, transactionDayRange } from "@/modules/overview/write-invalidation";
 import { type CategoryTotals, isExpenseCategory, type SpendingCategoryKey } from "./categories";
 import { accountRolesJoinOn, type Bucket, bucketSql } from "./classify";
 import { forecastMonthEnd } from "./forecast";
@@ -517,6 +518,7 @@ const noopTransactionHook: InTxHook<TransactionRow> = async () => {};
 /**
  * Applies a parsed correction to the owner's transaction in one transaction.
  * Returns the updated row, or null when it doesn't exist (or isn't theirs).
+ * Re-queues the overview snapshots of the transaction's KST day.
  */
 export async function correctTransaction(
   userId: string,
@@ -531,6 +533,8 @@ export async function correctTransaction(
     const [after] = await tx.update(transactions).set(update).where(where).returning();
     if (!after) return null;
     await inTx(tx, { before, after });
+    // Same transaction: the correction and the overview re-queue commit together.
+    await invalidateOverviewDays(tx, userId, transactionDayRange(after.transactedAt));
     return after;
   });
 }

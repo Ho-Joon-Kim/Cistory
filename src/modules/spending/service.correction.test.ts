@@ -37,6 +37,25 @@ describe("correctTransaction", () => {
     ]);
   });
 
+  it("re-queues the overview snapshots of the transaction's KST day in the same transaction", async () => {
+    // 2026-11-12T16:30Z is 2026-11-13 01:30 KST.
+    const after = { id: "tx-1", category: "cafe", transactedAt: new Date("2026-11-12T16:30:00Z") };
+    const fake = createMockDb([[{ id: "tx-1" }], [after], []]);
+    await correctTransaction("user-1", "tx-1", { category: "cafe" }, { database: fake.db });
+    const invalidation = fake.calls.find(
+      (call) =>
+        call.op === "update" &&
+        call.chain.some(
+          (s) => s.method === "set" && (s.args[0] as { status?: string }).status === "pending"
+        )
+    );
+    expect(invalidation).toBeDefined();
+    const params = fake.whereParams().at(-1) as unknown[];
+    expect(params).toContain("user-1");
+    expect(params).toContain("2026-11-13");
+    expect(params).not.toContain("2026-11-12");
+  });
+
   it("does not update or call inTx for a foreign transaction", async () => {
     const fake = createMockDb([[]]);
     const inTx = vi.fn(async () => {});
