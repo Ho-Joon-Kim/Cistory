@@ -289,11 +289,22 @@ describe("MCP write tools against PostgreSQL", () => {
       "month:2026-10": "ready",
     });
     const audit = await auditRows(ctx.userId);
-    expect(audit).toHaveLength(1);
-    expect(audit[0].writeBefore).toMatchObject({ category: "food", categorySource: "ai" });
-    expect(audit[0].writeAfter).toMatchObject({ category: "cafe", categorySource: "manual" });
-    expect(JSON.stringify(audit[0])).not.toContain("통장");
-    expect(JSON.stringify(audit[0])).not.toContain("4,500");
+    expect(audit).toHaveLength(2);
+    // The rolled-back conflict leaves one error row with only its code (R28).
+    const failed = audit.find((r) => r.outcome === "error");
+    expect(failed).toMatchObject({
+      tool: "transaction_correct",
+      errorCode: "conflict",
+      writeBefore: null,
+      writeAfter: null,
+    });
+    const ok = audit.find((r) => r.outcome === "ok");
+    expect(ok?.writeBefore).toMatchObject({ category: "food", categorySource: "ai" });
+    expect(ok?.writeAfter).toMatchObject({ category: "cafe", categorySource: "manual" });
+    for (const r of audit) {
+      expect(JSON.stringify(r)).not.toContain("통장");
+      expect(JSON.stringify(r)).not.toContain("4,500");
+    }
   });
 
   it("the same idempotency key creates one row and replays the first result", async () => {

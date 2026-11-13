@@ -14,6 +14,7 @@ vi.mock("@/modules/location/travel-time", async (importOriginal) => ({
   computeTravelTimes,
 }));
 
+import { type Journey, summarizeByMode } from "@/modules/location/travel-time";
 import { summarizeArgs } from "../audit";
 import { McpInputError, McpToolError } from "../errors";
 import type { McpToolContext } from "../server";
@@ -163,6 +164,60 @@ describe("travel_time", () => {
     });
     expect(out.structured.message).toBe("기록 없음");
     expect(JSON.stringify(out.structured)).not.toMatch(/37\.5|127/);
+  });
+
+  it("reports a walking-dominant track with a subway leg under subway, with its lines", async () => {
+    const visit = {
+      centerLat: 37.5,
+      centerLon: 127,
+      startTime: new Date("2026-11-03T07:00:00+09:00"),
+      endTime: new Date("2026-11-03T08:00:00+09:00"),
+      savedPlaceId: null,
+    };
+    const journey = (trackId: string, minutes: number): Journey => ({
+      trackId,
+      startTime: new Date("2026-11-03T08:00:00+09:00"),
+      endTime: new Date(Date.parse("2026-11-03T08:00:00+09:00") + minutes * 60_000),
+      durationSeconds: minutes * 60,
+      mode: "walking",
+      origin: visit,
+      destination: visit,
+    });
+    const modes = summarizeByMode([journey("commute", 42), journey("stroll", 15)], {
+      linesByTrack: new Map([["commute", [{ lineId: "l2", ref: "2", name: "2호선" }]]]),
+    });
+    computeTravelTimes.mockResolvedValue({
+      status: "ok",
+      message: null,
+      origin: { lat: 37.5, lon: 127, radiusM: 300, savedPlaceId: PLACE, name: "집" },
+      destination: { lat: 37.49, lon: 127.02, radiusM: 300, savedPlaceId: null, name: null },
+      since: new Date("2025-11-13T00:00:00Z"),
+      until: new Date("2026-11-13T00:00:00Z"),
+      hours: null,
+      dataThrough: "2026-11-12",
+      totalJourneys: 2,
+      modes,
+      scannedTracks: 2,
+      tracksWithoutAdjacentVisits: 0,
+      truncated: false,
+    });
+    const out = await travelTimeTool.run(ctx(), {
+      originPlaceId: PLACE,
+      destinationLat: 37.49,
+      destinationLon: 127.02,
+    });
+    const outModes = out.structured.modes as {
+      mode: string;
+      label: string;
+      count: number;
+      mainLines: unknown[];
+    }[];
+    expect(outModes.find((m) => m.mode === "subway")).toMatchObject({
+      label: "지하철",
+      count: 1,
+      mainLines: [{ ref: "2", name: "2호선", journeys: 1 }],
+    });
+    expect(outModes.find((m) => m.mode === "walking")).toMatchObject({ count: 1, mainLines: [] });
   });
 
   it("rejects a half-specified hour window", async () => {

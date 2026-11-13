@@ -15,6 +15,7 @@ import {
   recordReadCall,
   recordUnauthenticatedDenial,
   recordWriteAudit,
+  recordWriteFailure,
 } from "./audit";
 import { pruneExpiredIdempotencyKeys } from "./idempotency";
 import { issueToken } from "./tokens";
@@ -280,6 +281,27 @@ describe("MCP audit log against PostgreSQL", () => {
     const [row] = await db.select().from(mcpAuditLog).where(eq(mcpAuditLog.userId, userId));
     expect(row.writeBefore).toEqual({ name: "회사" });
     expect(row.writeAfter).toEqual({ name: "사무실" });
+  });
+
+  it("records a failed write as one error row with its code and no write payload", async () => {
+    const { userId, tokenId, ctx } = await userWithToken();
+    const written = await recordWriteFailure(db, ctx, {
+      tool: "rename_saved_place",
+      argsSummary: { placeId: "3f2b8c1e-1d2a-4b3c-9d8e-112233445566" },
+      errorCode: "conflict",
+    });
+    expect(written).toBe(true);
+    const rows = await db.select().from(mcpAuditLog).where(eq(mcpAuditLog.userId, userId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tokenId,
+      tool: "rename_saved_place",
+      outcome: "error",
+      errorCode: "conflict",
+      denyReason: null,
+      writeBefore: null,
+      writeAfter: null,
+    });
   });
 
   it("prunes idempotency keys older than 24 hours", async () => {

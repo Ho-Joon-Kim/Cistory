@@ -138,7 +138,7 @@ describe("visitMatchesEndpoint", () => {
 });
 
 describe("summarizeByMode", () => {
-  it("F1: five subway journeys give median 38 and p80 41.4", () => {
+  it("F1: five train journeys (no subway match) give median 38 and p80 41.4", () => {
     const modes = summarizeByMode([30, 35, 38, 40, 47].map((m) => journey("train", m)));
     const train = modes.find((m) => m.mode === "train");
     expect(train).toMatchObject({
@@ -163,7 +163,8 @@ describe("summarizeByMode", () => {
       ])
     );
     const modes = summarizeByMode(list, { linesByTrack });
-    expect(modes[0].mode).toBe("train");
+    expect(modes[0].mode).toBe("subway");
+    expect(modes[0].label).toBe("지하철");
     expect(modes[0].count).toBe(40);
     expect(modes[0].status).toBe("ok");
     expect(modes[0].mainLines.map((l) => [l.ref, l.journeys])).toEqual([
@@ -219,5 +220,25 @@ describe("summarizeByMode", () => {
       ]),
     });
     expect(modes[0].mainLines).toEqual([{ lineId: "l2", ref: "2", name: "2호선", journeys: 1 }]);
+  });
+
+  it("a dominant-mode walking track with a subway leg counts under subway", () => {
+    const commute = journey("walking", 42);
+    const stroll = journey("walking", 15);
+    const modes = summarizeByMode([commute, stroll], {
+      linesByTrack: new Map([[commute.trackId, [{ lineId: "l2", ref: "2", name: "2호선" }]]]),
+    });
+    const subway = modes.find((m) => m.mode === "subway");
+    expect(subway).toMatchObject({ count: 1, label: "지하철", durationsMinutes: [42] });
+    expect(subway?.mainLines).toEqual([{ lineId: "l2", ref: "2", name: "2호선", journeys: 1 }]);
+    const walking = modes.find((m) => m.mode === "walking");
+    expect(walking).toMatchObject({ count: 1, durationsMinutes: [15], mainLines: [] });
+  });
+
+  it("an empty line list for a track keeps its dominant mode", () => {
+    const j = journey("bus", 20);
+    const modes = summarizeByMode([j], { linesByTrack: new Map([[j.trackId, []]]) });
+    expect(modes.find((m) => m.mode === "bus")?.count).toBe(1);
+    expect(modes.find((m) => m.mode === "subway")?.count).toBe(0);
   });
 });

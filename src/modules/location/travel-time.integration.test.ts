@@ -183,12 +183,13 @@ describe("computeTravelTimes against real Postgres", () => {
       })
       .returning({ id: savedPlaces.id });
 
+    // Long station walks make this subway commute dominant-mode walking.
     const withLine = await insertCommute(
       db,
       userId,
       kst("2026-11-03", "08:10"),
       40,
-      "train",
+      "walking",
       place.id
     );
     // A track with no visit next to it on either side.
@@ -263,9 +264,10 @@ describe("computeTravelTimes against real Postgres", () => {
     expect(result.totalJourneys).toBe(1);
     expect(result.dataThrough).toBe("2026-11-08");
     expect(result.origin.name).toBe("집");
-    const train = result.modes.find((m) => m.mode === "train");
-    expect(train).toMatchObject({ count: 1, durationsMinutes: [40] });
-    expect(train?.mainLines).toEqual([{ lineId: line.id, ref: "2", name: "2호선", journeys: 1 }]);
+    const subway = result.modes.find((m) => m.mode === "subway");
+    expect(subway).toMatchObject({ count: 1, label: "지하철", durationsMinutes: [40] });
+    expect(subway?.mainLines).toEqual([{ lineId: line.id, ref: "2", name: "2호선", journeys: 1 }]);
+    // Counted under subway, not under its dominant mode.
     expect(result.modes.find((m) => m.mode === "walking")?.message).toBe("기록 없음");
   });
 

@@ -1,6 +1,8 @@
 /**
  * `travel_time`: the owner's own past journey durations between two places,
- * per transport mode (count, median, p80, main subway lines). Never an
+ * per transport mode (count, median, p80, main subway lines). A journey whose
+ * track matched a subway line is grouped as `subway` even when its dominant
+ * mode is walking (long station walks); others by dominant mode. Never an
  * estimate: a pair or mode without records is reported as "기록 없음" so the
  * agent falls back to its own routing tool.
  *
@@ -90,7 +92,8 @@ export const travelTimeTool = defineTool({
   description:
     "출발지와 도착지(저장 장소 id 또는 위도·경도)를 받아, 최근 기록된 실제 이동 중 그 구간에 해당하는 " +
     "것만 골라 수단별 횟수·중앙값(medianMinutes)·느린 경우(p80Minutes)·주 이용 지하철 노선을 돌려줍니다. " +
-    "각 이동의 출발·도착은 이동 직전·직후의 머문 장소로 판정합니다. fromHour/toHour(한국 시간, 출발 시각 " +
+    "각 이동의 출발·도착은 이동 직전·직후의 머문 장소로 판정합니다. 지하철 노선이 확인된 이동은 역까지 걷는 " +
+    "구간이 길어도 subway(지하철)로 묶고, 그 밖의 이동은 가장 오래 쓴 수단으로 묶습니다. fromHour/toHour(한국 시간, 출발 시각 " +
     `기준, 22→3처럼 자정을 넘길 수 있음)로 시간대를 좁힐 수 있습니다. 표본이 ${TRAVEL_TIME_MIN_SAMPLES}건 ` +
     "미만인 수단은 개별 소요시간만 줍니다. status가 no_records인 수단은 '기록 없음'이며 추정치가 아닙니다. " +
     "dataThrough 이후의 이동은 아직 처리되지 않았습니다.",

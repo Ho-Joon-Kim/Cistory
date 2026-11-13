@@ -14,7 +14,9 @@
  *    `inTx` hook from `writeAuditHook`, which re-checks the token under
  *    `FOR SHARE` and records the before/after audit inside the write's own
  *    transaction (U9). A revocation seen there aborts the transaction and the
- *    wrapper records a separate `revoked_midflight` denial.
+ *    wrapper records a separate `revoked_midflight` denial. Any other failure
+ *    (after the rollback) gets one `error` row with the summarized args and a
+ *    code, never the message (`recordWriteFailure`, R28).
  *
  * Errors: `McpToolError` (and 4xx `ApiError` from services) become
  * `isError: true` results with their Korean message; anything else becomes a
@@ -38,6 +40,7 @@ import {
   McpAuditError,
   recordDenial,
   recordWriteAudit,
+  recordWriteFailure,
   summarizeArgs,
 } from "./audit";
 import { McpToolError, RevokedMidflightError } from "./errors";
@@ -196,6 +199,18 @@ function toErrorResult(error: unknown, tool: McpTool): CallToolResult {
 }
 
 /**
+ * The audit code for a failed write: only codes we assign ourselves (tool
+ * errors, 4xx ApiError codes, the audit failure). Any other error — notably a
+ * DB/driver error, whose `code` is a SQLSTATE — is recorded as `tool_error`.
+ */
+function writeErrorCode(error: unknown): string {
+  if (error instanceof McpToolError) return error.code;
+  if (error instanceof McpAuditError) return "audit_failed";
+  if (error instanceof ApiError && error.status < 500) return error.code ?? `http_${error.status}`;
+  return "tool_error";
+}
+
+/**
  * The tool wrapper. Never throws: every failure is an `isError` result, so the
  * SDK's own catch (which would echo `error.message`) is never reached.
  */
@@ -231,7 +246,20 @@ export async function runTool(
       );
       return result;
     }
-    return finalize(await tool.run(ctx, input)).result;
+    let output: McpToolOutput;
+    try {
+      output = await tool.run(ctx, input);
+    } catch (error) {
+      if (!(error instanceof RevokedMidflightError)) {
+        await recordWriteFailure(ctx.db, auditContext(ctx), {
+          tool: tool.name,
+          argsSummary: summarizeArgs(input, tool.argRules),
+          errorCode: writeErrorCode(error),
+        });
+      }
+      throw error;
+    }
+    return finalize(output).result;
   } catch (error) {
     if (error instanceof RevokedMidflightError) return denyRevokedMidflight(tool, ctx, input);
     return toErrorResult(error, tool);

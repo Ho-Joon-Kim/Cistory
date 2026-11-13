@@ -308,6 +308,50 @@ export async function recordWriteAudit(
 }
 
 /**
+ * A write tool call that failed (its transaction rolled back, so the
+ * in-transaction write audit never landed). Records one `error` row with the
+ * summarized args and a code — never the error message. Runs in its own
+ * statement and never throws: on failure it logs one structured line instead.
+ * Returns whether the row was written.
+ */
+export async function recordWriteFailure(
+  db: Inserter,
+  ctx: McpAuditContext,
+  failure: {
+    tool: string;
+    argsSummary: Record<string, unknown>;
+    errorCode: string;
+    at?: Date;
+  }
+): Promise<boolean> {
+  const errorCode = failure.errorCode.slice(0, 64);
+  try {
+    await db.insert(mcpAuditLog).values({
+      userId: ctx.userId,
+      tokenId: ctx.tokenId,
+      at: failure.at ?? new Date(),
+      tool: failure.tool,
+      outcome: "error",
+      errorCode,
+      argsSummary: failure.argsSummary,
+      ip: ctx.ip,
+      country: ctx.country,
+    });
+    return true;
+  } catch (error) {
+    logger.warn("[MCP] write failed (audit write failed)", {
+      tool: failure.tool,
+      tokenId: ctx.tokenId,
+      errorCode,
+      ip: ctx.ip,
+      country: ctx.country,
+      code: pgCode(error),
+    });
+    return false;
+  }
+}
+
+/**
  * Per-request denial by a recognized token (lock, scope, revoked/expired,
  * revoked mid-flight). Never throws: on failure it logs one structured line
  * instead. Returns whether the row was written.

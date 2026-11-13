@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { mcpAuditLog, mcpTokens } from "@/db/schema";
 import { ApiError } from "@/lib/api-handler";
+import { logger } from "@/lib/logger";
 import { McpInputError, McpToolError, RevokedMidflightError } from "./errors";
+import { IdempotencyConflictError } from "./idempotency";
 import {
   buildMcpServer,
   defineTool,
@@ -388,5 +390,72 @@ describe("write tools and writeAuditHook", () => {
       denyReason: "revoked_midflight",
       tool: "fake_write",
     });
+    expect(auditInserts(queries)).toHaveLength(1);
+  });
+
+  it.each([
+    ["conflict", new McpToolError("이미 변경되었습니다.", "conflict"), "conflict"],
+    ["not_found", new McpToolError("찾을 수 없습니다.", "not_found"), "not_found"],
+    ["idempotency", new IdempotencyConflictError(), "idempotency_conflict"],
+    ["4xx ApiError", new ApiError(400, "잘못된 요청", "BAD_INPUT"), "BAD_INPUT"],
+  ])("records an error audit row when a write fails with %s", async (_label, error, code) => {
+    const { db, queries } = fakeDb();
+    const tool = writeTool(async () => {
+      throw error;
+    });
+    const result = await runTool(tool, context(db, { scopes: ["write"] }), { name: "회사" });
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toBe((error as Error).message);
+    const rows = auditInserts(queries);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].values).toMatchObject({
+      outcome: "error",
+      errorCode: code,
+      tool: "fake_write",
+      tokenId: "22222222-2222-4222-8222-222222222222",
+      argsSummary: { name: { len: 2 } },
+    });
+  });
+
+  it("records a generic code and no message for an unexpected write failure", async () => {
+    const { db, queries } = fakeDb();
+    const dbError = Object.assign(new Error('insert into "places" values ($1) 비밀주소'), {
+      code: "23505",
+    });
+    const tool = writeTool(async () => {
+      throw dbError;
+    });
+    const result = await runTool(tool, context(db, { scopes: ["write"] }), { name: "회사" });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("비밀주소");
+    const [row] = auditInserts(queries);
+    expect(row.values).toMatchObject({ outcome: "error", errorCode: "tool_error" });
+    expect(JSON.stringify(row.values)).not.toContain("비밀주소");
+    expect(JSON.stringify(row.values)).not.toContain("23505");
+  });
+
+  it("still returns the original error when the failure audit insert fails", async () => {
+    const { db } = fakeDb((q) => {
+      if (q.op === "insert") throw new Error("audit table down");
+      return [];
+    });
+    const tool = writeTool(async () => {
+      throw new McpToolError("이미 변경되었습니다.", "conflict");
+    });
+    const result = await runTool(tool, context(db, { scopes: ["write"] }), { name: "x" });
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toBe("이미 변경되었습니다.");
+    expect(logger.warn).toHaveBeenCalledWith(
+      "[MCP] write failed (audit write failed)",
+      expect.objectContaining({ tool: "fake_write", errorCode: "conflict" })
+    );
+  });
+
+  it("does not record an error row for a successful write", async () => {
+    const { db, queries } = fakeDb();
+    const tool = writeTool(async () => ({ structured: { ok: true } }));
+    const result = await runTool(tool, context(db, { scopes: ["write"] }), { name: "x" });
+    expect(result.isError).toBeUndefined();
+    expect(auditInserts(queries)).toHaveLength(0);
   });
 });

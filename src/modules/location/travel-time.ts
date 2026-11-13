@@ -13,10 +13,14 @@
  * A journey matches when its origin visit lies within the radius of the
  * requested origin and its destination visit within the radius of the
  * requested destination (or the visit is pinned to the requested saved
- * place). Matches are grouped by `tracks.dominant_mode`; per mode we report
- * count, median and p80 (linear interpolation, R-7), and the subway lines the
- * group rode (`subway_trip_matches`). Under MIN_SAMPLES a mode only lists its
- * raw durations. A mode with zero matches is "기록 없음".
+ * place). A journey whose track has any `subway_trip_matches` leg is grouped
+ * as `subway` whatever its `tracks.dominant_mode` — the walks to and from the
+ * stations often outlast the ride, so a subway commute is frequently
+ * dominant-mode walking. Every other journey is grouped by
+ * `tracks.dominant_mode`. Per mode we report count, median and p80 (linear
+ * interpolation, R-7), and the subway lines the group rode. Under
+ * MIN_SAMPLES a mode only lists its raw durations. A mode with zero matches
+ * is "기록 없음".
  *
  * Bounded work: one range scan of `tracks` on idx_track_user_start and one of
  * `visits` on idx_visit_user_start over at most TRAVEL_TIME_LOOKBACK_DAYS,
@@ -65,7 +69,17 @@ const DAY_MS = 86_400_000;
 const KST_OFFSET_MS = 9 * 3_600_000;
 
 /** Modes always reported, so "no walking records" is explicit (AE4). */
-export const TRAVEL_TIME_BASE_MODES = ["walking", "cycling", "driving", "bus", "train"] as const;
+export const TRAVEL_TIME_BASE_MODES = [
+  "walking",
+  "cycling",
+  "driving",
+  "bus",
+  "subway",
+  "train",
+] as const;
+
+/** Group for journeys whose track matched a subway line (see the header). */
+export const SUBWAY_MODE = "subway";
 
 export const TRAVEL_MODE_LABELS: Record<string, string> = {
   walking: "도보",
@@ -74,6 +88,9 @@ export const TRAVEL_MODE_LABELS: Record<string, string> = {
   driving: "자동차",
   motorcycle: "오토바이",
   bus: "버스",
+  subway: "지하철",
+  // A train-mode track with no subway match: a train, or a subway ride the
+  // matcher couldn't place (no line data for that city, too few points).
   train: "지하철·기차",
   boat: "배",
   flying: "비행기",
@@ -315,9 +332,15 @@ function modeStats(
   };
 }
 
+/** The group a journey is counted under: `subway` when its track rode a matched line. */
+export function journeyGroupMode(journey: Journey, linesByTrack?: LinesByTrack): string {
+  return (linesByTrack?.get(journey.trackId)?.length ?? 0) > 0 ? SUBWAY_MODE : journey.mode;
+}
+
 /**
  * Per-mode statistics. `linesByTrack` maps a track id to the subway lines its
- * segments matched. Base modes with no journey are listed as "기록 없음".
+ * segments matched; such a journey counts under `subway` regardless of its
+ * dominant mode. Base modes with no journey are listed as "기록 없음".
  */
 export function summarizeByMode(
   journeys: readonly Journey[],
@@ -326,9 +349,10 @@ export function summarizeByMode(
   const groups = new Map<string, Journey[]>();
   for (const mode of options.baseModes ?? TRAVEL_TIME_BASE_MODES) groups.set(mode, []);
   for (const j of journeys) {
-    const list = groups.get(j.mode);
+    const mode = journeyGroupMode(j, options.linesByTrack);
+    const list = groups.get(mode);
     if (list) list.push(j);
-    else groups.set(j.mode, [j]);
+    else groups.set(mode, [j]);
   }
 
   const result = [...groups].map(([mode, list]) =>
