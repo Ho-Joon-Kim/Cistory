@@ -72,9 +72,12 @@ export function evaluateLock(lock: McpTokenLock, location: ClientLocation): Lock
 
 // ── Rate limiting ────────────────────────────────────────────────────────────
 
-/** Authenticated calls: one bucket per token (lock check runs after this). */
+/** Authenticated calls that passed the lock: one bucket per token. */
 export const MCP_TOKEN_BUCKET = "mcp-token";
-/** Rejected/unrecognized tokens: one bucket per CF-Connecting-IP. */
+/**
+ * Rejected/unrecognized tokens and lock-denied requests: one bucket per
+ * CF-Connecting-IP, so a flood from outside a token's lock never drains it.
+ */
 export const MCP_UNAUTH_BUCKET = "mcp-unauth";
 export const MCP_RATE_LIMIT_MAX = 60;
 

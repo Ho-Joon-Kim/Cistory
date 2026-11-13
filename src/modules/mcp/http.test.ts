@@ -6,7 +6,12 @@ import { z } from "zod";
 import { DELETE, GET } from "@/app/api/mcp/route";
 import { type McpScope, mcpAuditLog, mcpTokens, users } from "@/db/schema";
 import { onDenied } from "./alerts-hook";
-import { handleMcpPost, MCP_MAX_BODY_BYTES, type McpHttpDeps } from "./http";
+import {
+  handleMcpPost,
+  MCP_MAX_BATCH_MESSAGES,
+  MCP_MAX_BODY_BYTES,
+  type McpHttpDeps,
+} from "./http";
 import { defineTool, type McpTool } from "./server";
 import { generateRawToken, hashSecret } from "./tokens";
 import { whoamiTool } from "./tools/meta";
@@ -281,6 +286,23 @@ describe("gate", () => {
     expect(audits()[0]).toMatchObject({ denyReason: "ip_unknown" });
   });
 
+  it("lock-denied flood is charged per IP, never to the token's bucket", async () => {
+    const { deps, raw, audits } = setup({ cidrs: ["198.51.100.0/24"] });
+    const blocked = { authorization: `Bearer ${raw}`, "cf-connecting-ip": "192.0.2.77" };
+    for (let i = 0; i < 60; i++) {
+      const denied = await handleMcpPost(post(rpc("ping", {}, i), blocked), deps);
+      expect(denied.status).toBe(403);
+    }
+    const flood = await handleMcpPost(post(rpc("ping"), blocked), deps);
+    expect(flood.status).toBe(429);
+    expect(audits()).toHaveLength(60);
+    expect(onDenied).toHaveBeenCalledTimes(60);
+
+    const owner = await handleMcpPost(post(rpc("tools/list"), auth(raw)), deps);
+    expect(owner.status).toBe(200);
+    expect((await owner.json()).result.tools).toBeDefined();
+  });
+
   it("answers an unparseable body with a JSON-RPC parse error", async () => {
     const { deps, raw } = setup();
     const response = await handleMcpPost(post(null, auth(raw), "{not json"), deps);
@@ -342,6 +364,69 @@ describe("scope (AE2)", () => {
     expect(body.error ?? body.result?.isError).toBeTruthy();
     expect(audits()).toEqual([]);
     expect(onDenied).not.toHaveBeenCalled();
+  });
+
+  it("a batch of 50 denied calls writes one audit row and fires one alert", async () => {
+    const { deps, raw, audits, row } = setup({ scopes: ["read"] });
+    const batch = Array.from({ length: 50 }, (_, i) =>
+      rpc("tools/call", { name: i % 2 ? "fake_write" : "fake_sensitive", arguments: {} }, i)
+    );
+    const response = await handleMcpPost(post(batch, auth(raw)), deps);
+    const body = await response.json();
+    expect(body).toHaveLength(50);
+    expect(
+      body.every(
+        (m: { error?: { data?: { reason?: string } } }) => m.error?.data?.reason === "scope_denied"
+      )
+    ).toBe(true);
+    expect(audits()).toEqual([
+      expect.objectContaining({
+        tokenId: row.id,
+        denyReason: "scope_denied",
+        tool: null,
+        argsSummary: {
+          batch: true,
+          deniedCount: 50,
+          deniedTools: ["fake_sensitive", "fake_write"],
+          deniedToolsTruncated: false,
+        },
+      }),
+    ]);
+    expect(onDenied).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(onDenied).mock.calls[0][0]).not.toHaveProperty("argsSummary");
+  });
+
+  it("rejects an oversized batch before any scope audit", async () => {
+    const { deps, raw, audits } = setup({ scopes: ["read"] });
+    const batch = Array.from({ length: MCP_MAX_BATCH_MESSAGES + 1 }, (_, i) =>
+      rpc("tools/call", { name: "fake_write", arguments: {} }, i)
+    );
+    const response = await handleMcpPost(post(batch, auth(raw)), deps);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ id: null, error: { code: -32600 } });
+    expect(audits()).toEqual([]);
+    expect(onDenied).not.toHaveBeenCalled();
+  });
+
+  it("a mixed batch answers every id: scope_denied for denied calls, rejection for the rest", async () => {
+    const { deps, raw, audits } = setup({ scopes: ["read"] });
+    const batch = [
+      rpc("tools/call", { name: "whoami", arguments: {} }, "a"),
+      rpc("tools/call", { name: "fake_write", arguments: {} }, "b"),
+      rpc("tools/list", {}, 3),
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+    ];
+    const response = await handleMcpPost(post(batch, auth(raw)), deps);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.map((m: { id: unknown }) => m.id)).toEqual(["a", "b", 3]);
+    expect(body[1].error.data.reason).toBe("scope_denied");
+    for (const answer of [body[0], body[2]]) {
+      expect(answer.result).toBeUndefined();
+      expect(answer.error.data.reason).toBe("batch_rejected");
+    }
+    expect(audits()).toEqual([expect.objectContaining({ tool: "fake_write" })]);
+    expect(onDenied).toHaveBeenCalledTimes(1);
   });
 
   it("a write-scoped token can call the write tool", async () => {
