@@ -1,14 +1,15 @@
 /**
- * HOOK POINT FOR U10 (owner alerts). Every MCP denial by a recognized token —
+ * Hook point for owner alerts (U10). Every MCP denial by a recognized token —
  * lock violation (ip/country), revoked/expired token use, scope denial,
  * revoked mid-flight — calls `onDenied` after its audit row is written.
  *
- * Today it is a no-op. U10 replaces the body with the Telegram alert
- * (debounced in `mcp_alert_state`, sent after the response). It must stay
+ * It hands the event to `alerts.ts`, which sends a Telegram alert (debounced
+ * in `mcp_alert_state`) after the current request's work. It must stay
  * fire-and-forget: never throw, never await on the request path, and never
  * put arguments or data in the message.
  */
 
+import { scheduleMcpAlert } from "./alerts";
 import type { McpDenyReason } from "./audit";
 
 export interface McpDeniedEvent {
@@ -21,6 +22,10 @@ export interface McpDeniedEvent {
   tool?: string | null;
 }
 
-export function onDenied(_event: McpDeniedEvent): void {
-  // U10: Telegram alert goes here.
+export function onDenied(event: McpDeniedEvent): void {
+  try {
+    scheduleMcpAlert(event);
+  } catch {
+    // Alerts are best-effort; a denial response must never fail because of them.
+  }
 }
