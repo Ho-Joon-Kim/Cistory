@@ -1,7 +1,7 @@
 ---
 title: "feat: Cistory MCP 서버 (토큰 스코프·IP/국가 잠금·감사 로그)"
 type: feat
-status: active
+status: completed
 date: 2026-11-13
 origin: docs/brainstorms/2026-11-13-mcp-server-requirements.md
 ---
