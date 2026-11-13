@@ -15,7 +15,7 @@ import { getDb } from "@/db";
 import { transactions } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
-import { isExpenseCategory } from "@/modules/spending/categories";
+import { correctTransaction, parseTransactionCorrection } from "@/modules/spending/service";
 
 export async function DELETE(
   request: NextRequest,
@@ -51,8 +51,6 @@ export async function DELETE(
   }
 }
 
-const ALLOWED_OVERRIDES = new Set(["include", "exclude"]);
-
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ transactionId: string }> }
@@ -68,58 +66,14 @@ export async function PATCH(
       category?: string | null;
     };
 
-    const update: Partial<typeof transactions.$inferInsert> = {};
-
-    if ("spendingOverride" in body) {
-      const v = body.spendingOverride;
-      if (v === null) {
-        update.spendingOverride = null;
-      } else if (typeof v === "string" && ALLOWED_OVERRIDES.has(v)) {
-        update.spendingOverride = v;
-      } else {
-        return NextResponse.json({ error: "잘못된 spendingOverride 값" }, { status: 400 });
-      }
+    const parsed = parseTransactionCorrection(body);
+    if ("error" in parsed) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
+    const update = parsed.value;
 
-    if ("overrideNote" in body) {
-      const note = body.overrideNote;
-      update.overrideNote = note === null || note === undefined ? null : String(note).slice(0, 500);
-    }
-
-    if ("category" in body) {
-      const category = body.category;
-      if (category === null) {
-        update.category = null;
-        update.categorySource = null;
-        update.categoryConfidence = null;
-        update.categoryModel = null;
-        update.categoryAttempts = 0;
-        update.categoryError = null;
-        update.categorizedAt = null;
-      } else if (isExpenseCategory(category)) {
-        update.category = category;
-        update.categorySource = "manual";
-        update.categoryConfidence = null;
-        update.categoryModel = null;
-        update.categoryError = null;
-        update.categorizedAt = new Date();
-      } else {
-        return NextResponse.json({ error: "잘못된 category 값" }, { status: 400 });
-      }
-    }
-
-    if (Object.keys(update).length === 0) {
-      return NextResponse.json({ error: "변경할 필드가 없습니다" }, { status: 400 });
-    }
-
-    const db = getDb();
-    const updated = await db
-      .update(transactions)
-      .set(update)
-      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, user.id)))
-      .returning({ id: transactions.id });
-
-    if (updated.length === 0) {
+    const updated = await correctTransaction(user.id, transactionId, update);
+    if (!updated) {
       return NextResponse.json({ error: "거래를 찾을 수 없습니다" }, { status: 404 });
     }
 

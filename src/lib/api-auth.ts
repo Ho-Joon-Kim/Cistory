@@ -104,7 +104,12 @@ function sweepExpiredBuckets(now: number): void {
 
 /**
  * Token-bucket style limiter: 60 requests / 60s per (key-prefix, IP) unless the
- * caller passes its own `maxRequests`.
+ * caller passes its own `maxRequests`. `clientKey` replaces the IP half of the
+ * bucket key when the caller has a better identity — e.g. the MCP route keys
+ * authenticated calls by token id and unauthenticated ones by CF-Connecting-IP,
+ * because behind Cloudflare Tunnel the X-Forwarded-For tail can be the
+ * cloudflared address, which would put every caller in one bucket. Omitted, it
+ * defaults to `clientIp(request)` exactly as before.
  *
  * Single-process deployment assumption (production runs one standalone
  * Next.js web container — see CLAUDE.md; adding replicas multiplies the
@@ -115,10 +120,10 @@ function sweepExpiredBuckets(now: number): void {
 export function enforceRateLimit(
   request: NextRequest,
   bucketKey: string,
-  maxRequests: number = RATE_LIMIT_MAX_REQUESTS
+  maxRequests: number = RATE_LIMIT_MAX_REQUESTS,
+  clientKey?: string
 ): { allowed: true } | { allowed: false; retryAfterMs: number } {
-  const ip = clientIp(request);
-  const key = `${bucketKey}:${ip}`;
+  const key = `${bucketKey}:${clientKey ?? clientIp(request)}`;
   const now = Date.now();
 
   sweepExpiredBuckets(now);

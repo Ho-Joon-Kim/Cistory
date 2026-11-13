@@ -31,6 +31,7 @@ describe("PUT /api/saved-places/:id", () => {
     mocks.withTripWriteLock.mockImplementation(
       async (_userId: string, operation: (tx: Record<string, unknown>) => Promise<unknown>) => {
         const tx = {
+          select: () => ({ from: () => ({ where: async () => [{ id: "place-1" }] }) }),
           update: () => ({
             set: (updates: Record<string, unknown>) => ({
               where: () => ({ returning: async () => [{ id: "place-1", ...updates }] }),
@@ -49,7 +50,11 @@ describe("PUT /api/saved-places/:id", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.withTripWriteLock).toHaveBeenCalledWith("user-1", expect.any(Function));
+    expect(mocks.withTripWriteLock).toHaveBeenCalledWith(
+      "user-1",
+      expect.any(Function),
+      expect.anything()
+    );
     expect(await response.json()).toMatchObject({
       place: { excludeFromTrips: true, tripExclusionRadiusM: 15_000 },
     });

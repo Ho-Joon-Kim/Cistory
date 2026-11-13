@@ -1,7 +1,7 @@
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "@/db";
-import { users } from "@/db/schema";
+import { mcpAuditLog, users } from "@/db/schema";
 import { deleteAccount } from "./account-deletion";
 
 const dialect = new PgDialect();
@@ -18,6 +18,8 @@ it("deletes all user sessions and OAuth credentials with application data in one
   await deleteAccount(db as unknown as Database, "user-to-delete");
   expect(db.transaction).toHaveBeenCalledOnce();
   expect(tx.delete).toHaveBeenCalledWith(users);
+  // Unattributed MCP denials (user_id NULL) go with the account too.
+  expect(tx.delete).toHaveBeenCalledWith(mcpAuditLog);
   expect(statements.map((statement) => statement.sql)).toEqual([
     'DELETE FROM "session" WHERE "userId" = $1',
     'DELETE FROM "account" WHERE "userId" = $1',

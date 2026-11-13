@@ -1450,3 +1450,141 @@ export const sourceSyncStates = pgTable(
   },
   (t) => [uniqueIndex("idx_source_sync_user_source").on(t.userId, t.source)]
 );
+
+// ============ MCP server (0050) ============
+// Hash-stored access tokens for the owner's own agents (`/api/mcp`). The raw
+// token (`cmcp_<lookupId>_<secret>`) is shown once at issue time and never
+// stored: `lookupId` finds the row, `secretHash` (SHA-256 hex of the secret) is
+// compared with timingSafeEqual. Every timestamp below is UTC wall time written
+// through the query builder — no `DEFAULT now()` (it would land as KST wall
+// time, see src/db/sql.ts).
+export type McpScope = "read" | "sensitive-read" | "write";
+
+export const mcpTokens = pgTable(
+  "mcp_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    lookupId: text("lookup_id").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    scopes: text("scopes").array().$type<McpScope[]>().notNull(),
+    // Normalized CIDRs (IPv4-mapped IPv6 folded to IPv4). Empty = no IP lock.
+    allowedCidrs: text("allowed_cidrs").array().notNull().default(sql`'{}'::text[]`),
+    // ISO 3166-1 alpha-2, upper case. Empty = no country lock.
+    allowedCountries: text("allowed_countries").array().notNull().default(sql`'{}'::text[]`),
+    expiresAt: timestamp("expires_at"),
+    revokedAt: timestamp("revoked_at"),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_mcp_tokens_lookup_id").on(t.lookupId),
+    index("idx_mcp_tokens_user").on(t.userId),
+  ]
+);
+
+// One row per MCP call or denial. `userId` is nullable only for unrecognized-
+// token denials (attributed to the sole owner when there is exactly one user,
+// else NULL — account deletion removes the NULL rows too). Those denials are
+// aggregated: one row per (ip, denyReason, 15-minute `windowStart`) whose
+// `hitCount` increments, so a token-guessing flood can't grow the table per
+// request. Every other row has `windowStart` NULL and `hitCount` 1.
+// `argsSummary` is a normalized summary (dates/ids/counts; free text only as
+// {len, sha256 prefix}) — never raw arguments, never returned data.
+export const mcpAuditLog = pgTable(
+  "mcp_audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    tokenId: uuid("token_id").references(() => mcpTokens.id, { onDelete: "set null" }),
+    at: timestamp("at").notNull(),
+    tool: text("tool"),
+    // ok | error | denied
+    outcome: text("outcome").$type<"ok" | "error" | "denied">().notNull(),
+    denyReason: text("deny_reason"),
+    errorCode: text("error_code"),
+    argsSummary: jsonb("args_summary"),
+    resultCount: integer("result_count"),
+    ip: text("ip"),
+    country: text("country"),
+    writeBefore: jsonb("write_before"),
+    writeAfter: jsonb("write_after"),
+    hitCount: integer("hit_count").notNull().default(1),
+    windowStart: timestamp("window_start"),
+  },
+  (t) => [
+    index("idx_mcp_audit_user_at").on(t.userId, t.at),
+    index("idx_mcp_audit_user_token_at").on(t.userId, t.tokenId, t.at),
+    uniqueIndex("idx_mcp_audit_unauth_window")
+      .on(t.ip, t.denyReason, t.windowStart)
+      .where(sql`${t.windowStart} IS NOT NULL`),
+  ]
+);
+
+// Write idempotency: a retried create with the same (token, key) returns the
+// first result. Rows older than 24h are ignored by reads and pruned by cron.
+export const mcpIdempotency = pgTable(
+  "mcp_idempotency",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenId: uuid("token_id")
+      .notNull()
+      .references(() => mcpTokens.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    tool: text("tool").notNull(),
+    argsHash: text("args_hash").notNull(),
+    result: jsonb("result").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_mcp_idempotency_token_key").on(t.tokenId, t.key),
+    index("idx_mcp_idempotency_created").on(t.createdAt),
+  ]
+);
+
+// Owner-alert debounce: one row per (user, token, reason, ip, 15-minute window).
+// Only the request that inserts the row sends the alert; later hits in the
+// window just increment `hitCount`. `tokenKey` is the token id or '' so the key
+// fits a plain unique index (token_id itself is nullable/set-null).
+export const mcpAlertState = pgTable(
+  "mcp_alert_state",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenId: uuid("token_id").references(() => mcpTokens.id, { onDelete: "set null" }),
+    tokenKey: text("token_key").notNull().default(""),
+    reason: text("reason").notNull(),
+    ip: text("ip").notNull(),
+    windowStart: timestamp("window_start").notNull(),
+    hitCount: integer("hit_count").notNull().default(1),
+    sentAt: timestamp("sent_at"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_mcp_alert_state_window").on(
+      t.userId,
+      t.tokenKey,
+      t.reason,
+      t.ip,
+      t.windowStart
+    ),
+    index("idx_mcp_alert_state_user_sent").on(t.userId, t.sentAt),
+  ]
+);
+
+export type McpToken = typeof mcpTokens.$inferSelect;
+export type NewMcpToken = typeof mcpTokens.$inferInsert;
+export type McpAuditLogRow = typeof mcpAuditLog.$inferSelect;
+export type NewMcpAuditLogRow = typeof mcpAuditLog.$inferInsert;
+export type McpIdempotencyRow = typeof mcpIdempotency.$inferSelect;
+export type McpAlertStateRow = typeof mcpAlertState.$inferSelect;

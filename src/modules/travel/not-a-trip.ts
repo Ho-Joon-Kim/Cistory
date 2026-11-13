@@ -2,11 +2,13 @@ import { and, eq, gte, lt } from "drizzle-orm";
 import { type Database, getDb, savedPlaces, trips, visits } from "@/db";
 import { getKstDateWindow } from "@/lib/date-key";
 import { distanceM } from "@/lib/geo";
+import type { InTxHook } from "@/lib/write-hook";
 import {
   resolveTripHomeLocation,
   TRIP_HOME_DISTANCE_THRESHOLD_M,
 } from "@/modules/location/services/trip-home";
 import { withTripWriteLock } from "@/modules/location/services/trip-writer";
+import { invalidateOverviewDays } from "@/modules/overview/write-invalidation";
 
 const DEFAULT_EXCLUSION_RADIUS_M = 10_000;
 const SAVED_PLACE_PIN_RADIUS_M = 100;
@@ -22,6 +24,14 @@ export class TripHasNoVisitsError extends Error {
   constructor() {
     super("여행 기간에 제외 장소를 만들 방문 기록이 없어요");
     this.name = "TripHasNoVisitsError";
+  }
+}
+
+/** A user-created trip is not a detection false positive; delete it instead. */
+export class TripIsManualError extends Error {
+  constructor() {
+    super("직접 만든 여행은 '여행 아님'으로 처리할 수 없어요. 여행을 삭제하세요");
+    this.name = "TripIsManualError";
   }
 }
 
@@ -111,24 +121,37 @@ function exclusionPlaceName(
   return `${tripName} 정기 방문지`;
 }
 
+/**
+ * State a not-a-trip correction touches: the trip (deleted) and the saved place
+ * that excludes its destination (created, or an existing one updated).
+ */
+export interface NotATripState {
+  trip: typeof trips.$inferSelect | null;
+  place: typeof savedPlaces.$inferSelect | null;
+}
+
+export interface MarkTripNotATripOptions {
+  /** Runs inside the write-lock transaction after the delete, before commit. */
+  inTx?: InTxHook<NotATripState>;
+  /** Refuse (TripIsManualError) when the trip is user-created (`autoDetected = false`). */
+  rejectManual?: boolean;
+}
+
 export async function markTripNotATrip(
   userId: string,
   tripId: string,
-  database: Database = getDb()
+  database: Database = getDb(),
+  options: MarkTripNotATripOptions = {}
 ) {
   return withTripWriteLock(
     userId,
     async (tx) => {
       const [trip] = await tx
-        .select({
-          id: trips.id,
-          startDate: trips.startDate,
-          endDate: trips.endDate,
-          name: trips.name,
-        })
+        .select()
         .from(trips)
         .where(and(eq(trips.id, tripId), eq(trips.userId, userId)));
       if (!trip) throw new TripNotFoundError();
+      if (options.rejectManual && !trip.autoDetected) throw new TripIsManualError();
 
       const window = getKstDateWindow(trip.startDate, trip.endDate);
 
@@ -207,6 +230,13 @@ export async function markTripNotATrip(
         .where(and(eq(trips.id, tripId), eq(trips.userId, userId)))
         .returning({ id: trips.id });
       if (!deleted) throw new TripNotFoundError();
+
+      await options.inTx?.(tx, {
+        before: { trip, place: existingPlace ?? null },
+        after: { trip: null, place },
+      });
+      // The deleted trip's days leave the overview's trip/travel figures.
+      await invalidateOverviewDays(tx, userId, [{ from: trip.startDate, to: trip.endDate }]);
 
       return { tripId, place, reusedPlace: Boolean(existingPlace) };
     },

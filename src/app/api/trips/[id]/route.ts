@@ -6,13 +6,11 @@
  * DELETE /api/trips/:id  — Delete trip
  */
 
-import { and, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, trips } from "@/db";
+import { getDb } from "@/db";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
-import { withTripWriteLock } from "@/modules/location/services/trip-writer";
-import { TravelService } from "@/modules/travel/service";
+import { deleteTrip, TravelService, updateTrip } from "@/modules/travel/service";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -47,27 +45,11 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     const { id } = await context.params;
     const body = await request.json();
-    const updated = await withTripWriteLock(user.id, async (tx) => {
-      const [existing] = await tx
-        .select({ id: trips.id })
-        .from(trips)
-        .where(and(eq(trips.id, id), eq(trips.userId, user.id)));
-      if (!existing) return null;
-
-      const [row] = await tx
-        .update(trips)
-        .set({
-          ...(body.name != null ? { name: body.name } : {}),
-          ...(body.startDate != null ? { startDate: body.startDate } : {}),
-          ...(body.endDate != null ? { endDate: body.endDate } : {}),
-          ...(body.notes !== undefined ? { notes: body.notes } : {}),
-          // User edits become authoritative and survive automatic redetection.
-          autoDetected: false,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(trips.id, id), eq(trips.userId, user.id)))
-        .returning();
-      return row ?? null;
+    const updated = await updateTrip(user.id, id, {
+      name: body.name,
+      startDate: body.startDate,
+      endDate: body.endDate,
+      notes: body.notes,
     });
 
     if (!updated) {
@@ -92,15 +74,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     if (authError) return authError;
 
     const { id } = await context.params;
-    const deleted = await withTripWriteLock(user.id, async (tx) => {
-      const [existing] = await tx
-        .select({ id: trips.id })
-        .from(trips)
-        .where(and(eq(trips.id, id), eq(trips.userId, user.id)));
-      if (!existing) return false;
-      await tx.delete(trips).where(and(eq(trips.id, id), eq(trips.userId, user.id)));
-      return true;
-    });
+    const deleted = await deleteTrip(user.id, id);
 
     if (!deleted) {
       return NextResponse.json({ error: "여행을 찾을 수 없어요" }, { status: 404 });

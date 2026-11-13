@@ -22,18 +22,67 @@ const TYPE_RE = String.raw`^(\w+)(?:\([^)]*\))?!?:`;
 /** Commits per (day, repository) shown in the mixed "전체" view. */
 const COLLAPSED_COMMITS = 3;
 
+/** Literal ILIKE pattern for `q` (`\\`, `%`, `_` escaped). */
+function likePattern(q: string): string {
+  return `%${q.replace(/[\\%_]/g, "\\$&")}%`;
+}
+
+/** The search window as UTC wall-time strings, cast `::timestamp` at each use. */
+function searchBounds(input: Pick<SearchInput, "from" | "to">) {
+  const { start, end } = getKstDateWindow(input.from, input.to);
+  // App timestamps are UTC stored in timestamp WITHOUT time zone. Explicit
+  // casts avoid interpreting parameters in the connection's session timezone.
+  return { lower: start.toISOString(), upper: end.toISOString() };
+}
+
+export interface SearchOptions {
+  /**
+   * Transaction ids the spending branch must leave out of both the page and
+   * `counts`. Opt-in for the MCP search tool, which drops personal transfers
+   * when `q` is set so a masked counterparty name can't decide whether a row
+   * matches; the web never passes it.
+   */
+  excludeSpendingIds?: readonly string[];
+}
+
+/**
+ * Raw notification evidence of the transactions `q` matches in the window —
+ * the same rows the spending branch would match before its category/hour
+ * filters. Used with `excludeSpendingIds`; empty when `q` is empty.
+ */
+export async function findSpendingMatchEvidence(
+  db: Database,
+  userId: string,
+  input: Pick<SearchInput, "q" | "from" | "to">
+): Promise<
+  { id: string; rawTitle: string | null; rawText: string | null; isSelfTransfer: boolean | null }[]
+> {
+  if (!input.q) return [];
+  const { lower, upper } = searchBounds(input);
+  const pattern = likePattern(input.q);
+  const result = await db.execute<{
+    id: string;
+    rawTitle: string | null;
+    rawText: string | null;
+    isSelfTransfer: boolean | null;
+  }>(sql`SELECT id::text AS id, raw_title AS "rawTitle", raw_text AS "rawText",
+      is_self_transfer AS "isSelfTransfer"
+    FROM transactions WHERE user_id = ${userId} AND transacted_at >= ${lower}::timestamp
+    AND transacted_at < ${upper}::timestamp
+    AND (merchant ILIKE ${pattern} OR category ILIKE ${pattern} OR override_note ILIKE ${pattern})`);
+  return result.rows;
+}
+
 /** Read only, owner-scoped search. PostgreSQL applies filtering and pagination. */
 export async function searchRecords(
   db: Database,
   userId: string,
-  input: SearchInput
+  input: SearchInput,
+  options: SearchOptions = {}
 ): Promise<SearchResponse> {
-  const { start, end } = getKstDateWindow(input.from, input.to);
-  // App timestamps are UTC stored in timestamp WITHOUT time zone. Explicit
-  // casts avoid interpreting parameters in the connection's session timezone.
-  const lower = start.toISOString();
-  const upper = end.toISOString();
-  const pattern = `%${input.q.replace(/[\\%_]/g, "\\$&")}%`;
+  const { lower, upper } = searchBounds(input);
+  const pattern = likePattern(input.q);
+  const excluded = options.excludeSpendingIds ?? [];
   const match = (fields: SQL[]) =>
     input.q
       ? sql`(${sql.join(
@@ -57,7 +106,8 @@ export async function searchRecords(
       FROM transactions WHERE user_id = ${userId} AND transacted_at >= ${lower}::timestamp
       AND transacted_at < ${upper}::timestamp
       AND ${match([sql`merchant`, sql`category`, sql`override_note`])}
-      ${input.category ? sql`AND category = ${input.category}` : sql``}`,
+      ${input.category ? sql`AND category = ${input.category}` : sql``}
+      ${excluded.length > 0 ? sql`AND id::text <> ALL(${sql.param([...excluded])}::text[])` : sql``}`,
     visit: sql`SELECT v.id::text, 'visit'::text AS source,
       left(coalesce(p.name, v.place_name, v.address, '방문 기록'), 300) AS title,
       left(CASE

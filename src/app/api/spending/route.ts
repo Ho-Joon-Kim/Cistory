@@ -14,14 +14,10 @@
  * refunds and other money received, for the page's net-spending view.
  */
 
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/db";
-import { accountRoles, transactions, users } from "@/db/schema";
 import { getAuthenticatedUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
-import { accountRolesJoinOn, type Bucket, bucketSql } from "@/modules/spending/classify";
-import { refundSql, selectIncomeGroups, summarizeIncomeFlow } from "@/modules/spending/refund";
+import { getSpendingPeriod } from "@/modules/spending/service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,144 +25,16 @@ export async function GET(request: NextRequest) {
     if (error) return error;
 
     const params = request.nextUrl.searchParams;
-    const from = params.get("from");
-    const to = params.get("to");
-    const type = params.get("type"); // 'withdrawal' | 'deposit' | null (legacy)
-    const bucketFilter = params.get("bucket"); // 'spending' | 'income' | 'ignore' | null
-    const limit = Math.min(Number(params.get("limit")) || 30, 200);
-    const offset = Number(params.get("offset")) || 0;
-
-    const db = getDb();
-    const [userRow] = await db
-      .select({ tossMyName: users.tossMyName })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .limit(1);
-    const tossMyName = userRow?.tossMyName ?? null;
-    const bucket = bucketSql(tossMyName);
-    const isRefund = refundSql(bucket);
-
-    const conditions = [eq(transactions.userId, user.id)];
-    if (from) {
-      const [fy, fm, fd] = from.split("-").map(Number);
-      conditions.push(gte(transactions.transactedAt, new Date(fy, fm - 1, fd)));
-    }
-    if (to) {
-      const [ty, tm, td] = to.split("-").map(Number);
-      conditions.push(lte(transactions.transactedAt, new Date(ty, tm - 1, td + 1)));
-    }
-    if (type === "withdrawal" || type === "deposit") {
-      conditions.push(eq(transactions.type, type));
-    }
-    const categoryConditions = [...conditions, sql`${bucket} = 'spending'`];
-    const incomeWhere = and(...conditions);
-    if (bucketFilter === "spending" || bucketFilter === "income" || bucketFilter === "ignore") {
-      conditions.push(sql`${bucket} = ${bucketFilter}`);
-    }
-
-    const where = and(...conditions);
-
-    const [rows, summaryRows, categoryRows, incomeRows] = await Promise.all([
-      db
-        .select({
-          id: transactions.id,
-          type: transactions.type,
-          amount: transactions.amount,
-          merchant: transactions.merchant,
-          accountName: transactions.accountName,
-          rawTitle: transactions.rawTitle,
-          rawText: transactions.rawText,
-          transactedAt: transactions.transactedAt,
-          spendingOverride: transactions.spendingOverride,
-          overrideNote: transactions.overrideNote,
-          category: transactions.category,
-          categorySource: transactions.categorySource,
-          categoryConfidence: transactions.categoryConfidence,
-          bucket: bucket.as("bucket"),
-          isRefund: isRefund.as("is_refund"),
-        })
-        .from(transactions)
-        .leftJoin(accountRoles, accountRolesJoinOn)
-        .where(where)
-        .orderBy(desc(transactions.transactedAt))
-        .limit(limit + 1)
-        .offset(offset),
-      db
-        .select({
-          bucket: bucket.as("bucket"),
-          total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
-          count: sql<number>`count(*)`.as("count"),
-        })
-        .from(transactions)
-        .leftJoin(accountRoles, accountRolesJoinOn)
-        .where(where)
-        .groupBy(sql`"bucket"`),
-      db
-        .select({
-          category: transactions.category,
-          total: sql<number>`coalesce(sum(${transactions.amount}), 0)`.as("total"),
-          count: sql<number>`count(*)`.as("count"),
-        })
-        .from(transactions)
-        .leftJoin(accountRoles, accountRolesJoinOn)
-        .where(and(...categoryConditions))
-        .groupBy(transactions.category)
-        .orderBy(sql`sum(${transactions.amount}) desc`),
-      selectIncomeGroups(db, incomeWhere, bucket),
-    ]);
-
-    const hasMore = rows.length > limit;
-    const items = hasMore ? rows.slice(0, limit) : rows;
-
-    const summary = {
-      // Bucket-based totals
-      totalSpending: 0,
-      totalIncome: 0,
-      totalIgnored: 0,
-      spendingCount: 0,
-      incomeCount: 0,
-      ignoredCount: 0,
-      // Legacy aliases (kept so existing UI keeps rendering totals)
-      totalWithdrawal: 0,
-      totalDeposit: 0,
-      withdrawalCount: 0,
-      depositCount: 0,
-      categoryBreakdown: categoryRows.map((row) => ({
-        category: row.category,
-        total: Number(row.total),
-        count: Number(row.count),
-      })),
-      flow: summarizeIncomeFlow(incomeRows),
-    };
-
-    for (const row of summaryRows) {
-      const b = row.bucket as Bucket;
-      const total = Number(row.total);
-      const count = Number(row.count);
-      if (b === "spending") {
-        summary.totalSpending = total;
-        summary.spendingCount = count;
-      } else if (b === "income") {
-        summary.totalIncome = total;
-        summary.incomeCount = count;
-      } else {
-        summary.totalIgnored = total;
-        summary.ignoredCount = count;
-      }
-    }
-    summary.totalWithdrawal = summary.totalSpending;
-    summary.withdrawalCount = summary.spendingCount;
-    summary.totalDeposit = summary.totalIncome;
-    summary.depositCount = summary.incomeCount;
-
-    return NextResponse.json({
-      transactions: items.map((row) => ({ ...row, isRefund: Boolean(row.isRefund) })),
-      summary,
-      hasMore,
-      count: items.length,
-      limit,
-      offset,
+    const result = await getSpendingPeriod(user.id, {
+      from: params.get("from"),
+      to: params.get("to"),
+      type: params.get("type"), // 'withdrawal' | 'deposit' | null (legacy)
+      bucket: params.get("bucket"), // 'spending' | 'income' | 'ignore' | null
+      limit: Math.min(Number(params.get("limit")) || 30, 200),
+      offset: Number(params.get("offset")) || 0,
     });
+
+    return NextResponse.json(result);
   } catch (error) {
     const cause = error instanceof Error ? (error as Error & { cause?: unknown }).cause : undefined;
     const pg = (cause ?? error) as {

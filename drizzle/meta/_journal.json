@@ -351,6 +351,13 @@
       "when": 1794304100713,
       "tag": "0049_proton_original_exif",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794538566498,
+      "tag": "0050_mcp",
+      "breakpoints": true
     }
   ]
 }

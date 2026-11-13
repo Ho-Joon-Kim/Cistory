@@ -5,6 +5,7 @@ import {
   findDominantVisitCenter,
   markTripNotATrip,
   TripHasNoVisitsError,
+  TripIsManualError,
   TripNotFoundError,
 } from "./not-a-trip";
 
@@ -47,7 +48,13 @@ describe("findDominantVisitCenter", () => {
 });
 
 interface FakeOptions {
-  trip?: { id: string; startDate: string; endDate: string; name: string } | null;
+  trip?: {
+    id: string;
+    startDate: string;
+    endDate: string;
+    name: string;
+    autoDetected?: boolean;
+  } | null;
   visits?: Visit[];
   places?: Array<Record<string, unknown>>;
   failDelete?: boolean;
@@ -79,6 +86,7 @@ function fakeDatabase(options: FakeOptions = {}) {
   const userPlaces = [...places, homePlace];
   const createdPlaces: Array<Record<string, unknown>> = [];
   const updatedPlaces: Array<Record<string, unknown>> = [];
+  const invalidations: Array<Record<string, unknown>> = [];
   let selectCall = 0;
 
   const tx = {
@@ -112,6 +120,12 @@ function fakeDatabase(options: FakeOptions = {}) {
     update: vi.fn(() => ({
       set: (updates: Record<string, unknown>) => ({
         where: () => ({
+          // biome-ignore lint/suspicious/noThenProperty: awaited without returning() = overview re-queue.
+          then: (resolve: (value: unknown) => void) => {
+            events.push("invalidate-overview");
+            invalidations.push(updates);
+            resolve([]);
+          },
           returning: async () => {
             events.push("update-place");
             const updated = { ...places[0], ...updates };
@@ -145,7 +159,7 @@ function fakeDatabase(options: FakeOptions = {}) {
     }),
   } as unknown as Database;
 
-  return { db, events, createdPlaces, updatedPlaces };
+  return { db, events, createdPlaces, updatedPlaces, invalidations };
 }
 
 describe("markTripNotATrip", () => {
@@ -169,8 +183,27 @@ describe("markTripNotATrip", () => {
       "visits",
       "create-place",
       "delete-trip",
+      "invalidate-overview",
       "commit",
     ]);
+    expect(fake.invalidations).toEqual([expect.objectContaining({ status: "pending" })]);
+  });
+
+  it("rejectManual이면 직접 만든 여행을 건드리지 않고 거부한다", async () => {
+    const fake = fakeDatabase({
+      trip: {
+        id: "trip-1",
+        startDate: "2026-07-15",
+        endDate: "2026-07-18",
+        name: "직접 만든 여행",
+        autoDetected: false,
+      },
+    });
+
+    await expect(
+      markTripNotATrip("user-1", "trip-1", fake.db, { rejectManual: true })
+    ).rejects.toBeInstanceOf(TripIsManualError);
+    expect(fake.events).toEqual(["begin", "lock", "trip", "rollback"]);
   });
 
   it("10km 안의 기존 장소를 재사용해 중복 생성을 막는다", async () => {
@@ -265,5 +298,35 @@ describe("markTripNotATrip", () => {
     expect(fake.events).not.toContain("create-place");
     expect(fake.events).not.toContain("delete-trip");
     expect(fake.events.at(-1)).toBe("rollback");
+  });
+
+  it("inTx는 삭제 뒤 같은 transaction 안에서 전/후 상태를 받고, 실패하면 rollback한다", async () => {
+    const fake = fakeDatabase();
+    const inTx = vi.fn(async () => {
+      fake.events.push("in-tx");
+    });
+
+    const result = await markTripNotATrip("user-1", "trip-1", fake.db, { inTx });
+
+    expect(fake.events.slice(-4)).toEqual([
+      "delete-trip",
+      "in-tx",
+      "invalidate-overview",
+      "commit",
+    ]);
+    expect(inTx).toHaveBeenCalledWith(expect.anything(), {
+      before: { trip: expect.objectContaining({ id: "trip-1" }), place: null },
+      after: { trip: null, place: result.place },
+    });
+
+    const failing = fakeDatabase();
+    await expect(
+      markTripNotATrip("user-1", "trip-1", failing.db, {
+        inTx: async () => {
+          throw new Error("token revoked");
+        },
+      })
+    ).rejects.toThrow("token revoked");
+    expect(failing.events.at(-1)).toBe("rollback");
   });
 });

@@ -59,6 +59,9 @@ describe("installed Better Auth against the 1.6 PostgreSQL schema", () => {
       CREATE TABLE verification (id text PRIMARY KEY, identifier text NOT NULL, value text NOT NULL,
         "expiresAt" timestamptz NOT NULL, "createdAt" timestamptz NOT NULL, "updatedAt" timestamptz NOT NULL);
       CREATE TABLE users (LIKE public.users INCLUDING ALL);
+      -- deleteAccount also clears unattributed MCP denials (user_id NULL); keep
+      -- that DELETE inside this namespace instead of the shared public table.
+      CREATE TABLE mcp_audit_log (LIKE public.mcp_audit_log INCLUDING ALL);
     `);
     auth = (await import("./auth")).auth;
   });

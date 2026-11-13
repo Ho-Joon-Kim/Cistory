@@ -176,3 +176,43 @@ export function parseTossNotification(
     isSelfTransfer: Boolean(options?.myName && result.merchant === options.myName),
   };
 }
+
+// ── Personal-transfer detection (MCP privacy) ───────────────────────────────
+
+/** Pattern 1 text whose destination is one of the user's own accounts: "… → 내 토스뱅크 통장". */
+const TO_OWN_ACCOUNT_TEXT_PATTERN = /→\s*내\s[^→]*통장\s*$/;
+
+export interface TransferEvidence {
+  rawTitle?: string | null;
+  rawText?: string | null;
+  isSelfTransfer?: boolean | null;
+}
+
+/**
+ * Whether a stored transaction is a person-to-person transfer, i.e. its
+ * `merchant` holds a person's name rather than a business. Recognised from the
+ * raw notification with the parser's own patterns:
+ *
+ *  - Pattern 2 송금 수신 ("김철수님이 300,000원을 보냈어요"),
+ *  - Pattern 4 자동이체 ("200,000원 자동이체" — the text names the recipient),
+ *  - Pattern 1 입출금 into one of the user's own accounts ("**** → 내 토스뱅크 통장",
+ *    where the source is the sender); 요금납부 (bill payment) is never a transfer,
+ *
+ * OR'd with the stored `isSelfTransfer` flag. Card payments (Pattern 3/3b/5)
+ * and bill payments are not transfers. Pure; used by the MCP serializer to
+ * hide counterparty names from tokens without `sensitive-read`.
+ */
+export function isPersonalTransfer(row: TransferEvidence): boolean {
+  if (row.isSelfTransfer) return true;
+  const title = (row.rawTitle ?? "").trim();
+  const text = (row.rawText ?? "").trim();
+  if (!title) return false;
+  if (TRANSFER_RECEIVED_PATTERN.test(title)) return true;
+  // The title alone is distinctive; the text only names the recipient.
+  if (AUTO_TRANSFER_TITLE_PATTERN.test(title)) return true;
+  return (
+    BASIC_PATTERN.test(title) &&
+    !title.startsWith("요금납부") &&
+    TO_OWN_ACCOUNT_TEXT_PATTERN.test(text)
+  );
+}

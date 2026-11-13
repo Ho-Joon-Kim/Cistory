@@ -87,6 +87,8 @@ export const TABLE_DEFS: TableDef[] = [
     ownedVia: { parent: "photos", fk: "photo_id" },
   },
   { category: "system", table: "sync_jobs" },
+  // MCP call/denial audit log (its unattributed user_id NULL rows aren't counted).
+  { category: "system", table: "mcp_audit_log" },
 ];
 
 /**

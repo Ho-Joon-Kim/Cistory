@@ -25,7 +25,8 @@ vi.mock("@/modules/travel/service", async (importOriginal) => {
 });
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn() } }));
 
-import { GET } from "./route";
+import { createMockDb } from "@/db/testing/mock-db";
+import { GET, POST } from "./route";
 
 function request(query = "") {
   return new NextRequest(`http://localhost/api/trips${query}`);
@@ -127,5 +128,55 @@ describe("GET /api/trips", () => {
 
     expect(response.status).toBe(401);
     expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/trips", () => {
+  beforeEach(() => {
+    mocks.getAuthenticatedUser.mockResolvedValue({ user: { id: "user-1" }, error: null });
+  });
+
+  function post(body: unknown) {
+    return POST(
+      new NextRequest("http://localhost/api/trips", { method: "POST", body: JSON.stringify(body) })
+    );
+  }
+
+  it("creates a manual trip under the write lock and returns 201", async () => {
+    // advisory lock, insert
+    const fake = createMockDb([[], [{ id: "trip-new", name: "제주" }]]);
+    mocks.getDb.mockReturnValue(fake.db);
+
+    const response = await post({ name: "제주", startDate: "2026-11-01", endDate: "2026-11-03" });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ trip: { id: "trip-new", name: "제주" } });
+    expect(fake.calls[0].op).toBe("execute");
+    expect(fake.writes("values")[0]).toMatchObject({
+      userId: "user-1",
+      name: "제주",
+      startDate: "2026-11-01",
+      endDate: "2026-11-03",
+      notes: null,
+      isOverseas: false,
+      autoDetected: false,
+    });
+  });
+
+  it("re-queues the overview snapshots of the new trip's range", async () => {
+    const row = { id: "trip-new", startDate: "2026-11-01", endDate: "2026-11-03" };
+    const fake = createMockDb([[], [row], []]);
+    mocks.getDb.mockReturnValue(fake.db);
+
+    const response = await post({ name: "제주", startDate: "2026-11-01", endDate: "2026-11-03" });
+
+    expect(response.status).toBe(201);
+    expect(fake.writes("set").at(-1)).toMatchObject({ status: "pending" });
+    expect((fake.whereParams().at(-1) as unknown[]).slice(0, 2)).toEqual(["user-1", "2026-11-01"]);
+  });
+
+  it("requires name, startDate and endDate", async () => {
+    mocks.getDb.mockReturnValue(createMockDb().db);
+    expect((await post({ name: "제주" })).status).toBe(400);
   });
 });

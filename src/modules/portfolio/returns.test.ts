@@ -12,7 +12,7 @@ import {
 
 // Expected values here are derived by hand from the documented mechanics, not
 // captured from current output — a snapshot would only prove "changed", not
-// "correct". RETURNS_EPOCH (2026-05-12) is applied in the returns route's
+// "correct". RETURNS_EPOCH (2026-05-12) is applied in queries.ts's
 // snapshot filter, not in these pure functions, so no epoch offset applies.
 
 function snap(

@@ -15,6 +15,8 @@ describe("account deletion against PostgreSQL", () => {
     "commit_summaries",
     "coding_sessions",
     "health_webhook_events",
+    "mcp_tokens",
+    "mcp_audit_log",
   ];
   const tables = [...appTables, "user", "account", "session"];
   let admin: Pool;
@@ -140,6 +142,26 @@ describe("account deletion against PostgreSQL", () => {
       rangeEnd: now,
       receivedAt: now,
     });
+    // MCP token + an attributed audit row cascade with the user.
+    const [token] = await db
+      .insert(schema.mcpTokens)
+      .values({
+        userId: id,
+        name: "agent",
+        lookupId: id.replaceAll("-", "").slice(0, 12),
+        secretHash: "fixture-hash",
+        scopes: ["read"],
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: schema.mcpTokens.id });
+    await db.insert(schema.mcpAuditLog).values({
+      userId: id,
+      tokenId: token.id,
+      at: now,
+      tool: "spending",
+      outcome: "ok",
+    });
     return id;
   }
 
@@ -162,6 +184,21 @@ describe("account deletion against PostgreSQL", () => {
     expect(otherRecords.session).toHaveLength(2);
     expect(otherRecords.account).toHaveLength(2);
     expect(otherRecords.commit_summaries).toHaveLength(1);
+  });
+
+  it("also removes unattributed (user_id NULL) MCP denials", async () => {
+    const removed = await seedUser();
+    await db.insert(schema.mcpAuditLog).values({
+      userId: null,
+      at: new Date(),
+      outcome: "denied",
+      denyReason: "token_unrecognized",
+      ip: "198.51.100.7",
+      windowStart: new Date(),
+    });
+    await deleteAccount(db, removed);
+    expect((await pool.query('SELECT * FROM "mcp_audit_log"')).rows).toEqual([]);
+    expect((await pool.query('SELECT * FROM "mcp_tokens"')).rows).toEqual([]);
   });
 
   it("rolls back sessions, OAuth credentials and cascaded app data if final auth-user deletion fails", async () => {

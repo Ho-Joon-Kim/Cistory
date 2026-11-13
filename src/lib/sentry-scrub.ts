@@ -18,7 +18,21 @@ const HEALTH_URL_MARKERS = [
   "proton.me",
   "/api/proton",
   "/api/photos",
+  // MCP endpoint: bearer tokens and tool arguments/results (personal data).
+  "/api/mcp",
+  // MCP owner alerts: the bot token is part of the URL *path*
+  // (/bot<token>/sendMessage), so it is also redacted by `redactTelegramToken`.
+  "api.telegram.org",
 ];
+
+// `https://api.telegram.org/bot<token>/…` — the credential sits in the path,
+// where query-stripping can't reach it.
+const TELEGRAM_BOT_PATH = /(api\.telegram\.org\/(?:file\/)?bot)[^/\s?#"']+/g;
+
+/** Replace a Telegram bot token embedded in any URL/message text. */
+export function redactTelegramToken(value: string): string {
+  return value.replace(TELEGRAM_BOT_PATH, "$1[scrubbed]");
+}
 
 // Breadcrumb data fields worth keeping on a health request (no health values).
 const BREADCRUMB_KEEP_KEYS = new Set(["url", "method", "status_code"]);
@@ -64,10 +78,16 @@ const HEALTH_EXTRA_KEY_DENYLIST = [
   "image_direction",
   "utcoffset",
   "utc_offset",
+  // MCP: bearer tokens, tool arguments and tool results (structuredContent).
+  "authorization",
+  "args",
+  "structuredcontent",
 ];
 
 /** Structural subset of a Sentry event — only the fields we scrub. */
 export interface ScrubbableEvent {
+  message?: string;
+  exception?: { values?: Array<{ value?: string }> };
   breadcrumbs?: Array<{ message?: string; data?: Record<string, unknown> }>;
   request?: {
     url?: string;
@@ -85,8 +105,16 @@ function isHealthUrl(value: unknown): boolean {
 
 /** Drop the payload of any http/fetch crumb to a health endpoint, keeping only
  *  url/method/status_code. */
+function redactCrumbTelegram(crumb: NonNullable<ScrubbableEvent["breadcrumbs"]>[number]): void {
+  if (typeof crumb.message === "string") crumb.message = redactTelegramToken(crumb.message);
+  for (const [key, value] of Object.entries(crumb.data ?? {})) {
+    if (typeof value === "string" && crumb.data) crumb.data[key] = redactTelegramToken(value);
+  }
+}
+
 function scrubBreadcrumbs(breadcrumbs: NonNullable<ScrubbableEvent["breadcrumbs"]>): void {
   for (const crumb of breadcrumbs) {
+    redactCrumbTelegram(crumb);
     const url = typeof crumb.data?.url === "string" ? crumb.data.url : undefined;
     if (!crumb.data || !(isHealthUrl(url) || isHealthUrl(crumb.message))) continue;
     for (const key of Object.keys(crumb.data)) {
@@ -99,6 +127,7 @@ function scrubBreadcrumbs(breadcrumbs: NonNullable<ScrubbableEvent["breadcrumbs"
  *  — drop them and any auth-bearing headers. */
 function scrubRequest(request: NonNullable<ScrubbableEvent["request"]>): void {
   if (!isHealthUrl(request.url)) return;
+  if (typeof request.url === "string") request.url = redactTelegramToken(request.url);
   // The OAuth callback URL carries ?code=…&state=… in the querystring — keep only
   // the path so the grant code never lands in Sentry via request.url.
   if (typeof request.url === "string") {
@@ -131,6 +160,11 @@ function scrubExtra(extra: NonNullable<ScrubbableEvent["extra"]>): void {
  * data (no-op). On a health request it also drops auth/cookie headers.
  */
 export function scrubHealthData<T extends ScrubbableEvent>(event: T): T {
+  // A failed fetch to the Telegram API can quote its URL in the error text.
+  if (typeof event.message === "string") event.message = redactTelegramToken(event.message);
+  for (const value of event.exception?.values ?? []) {
+    if (typeof value.value === "string") value.value = redactTelegramToken(value.value);
+  }
   if (event.breadcrumbs) scrubBreadcrumbs(event.breadcrumbs);
   if (event.request) scrubRequest(event.request);
   if (event.extra) scrubExtra(event.extra);
@@ -182,7 +216,7 @@ const HEALTH_SPAN_DROP_HEADER =
   /^http\.(?:request|response)\.header\.(?:authorization|cookie|set-cookie|x-pm-uid)$/;
 
 function stripHealthQuery(value: string): string {
-  return isHealthUrl(value) ? value.replace(/\?[^\s]*/g, "") : value;
+  return isHealthUrl(value) ? redactTelegramToken(value.replace(/\?[^\s]*/g, "")) : value;
 }
 
 function scrubHealthAttributes(
