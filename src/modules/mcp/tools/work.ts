@@ -108,11 +108,14 @@ export const workTool = defineTool({
       accessFromScopes(ctx.scopes)
     );
     const totalCodingSeconds = codingDays.reduce((n, d) => n + d.totalSeconds, 0);
+    // pg returns count(*) (bigint) as a string. The web /api/timeline response has
+    // always carried it that way, so it is converted here rather than in listCommits.
+    const totalCommits = Number(commitPage.pagination.total);
     return {
       structured: {
         range: rangeOutput(range),
         commits,
-        totalCommits: commitPage.pagination.total,
+        totalCommits,
         coding: {
           totalSeconds: totalCodingSeconds,
           days: codingDays.map((d) => ({
@@ -132,7 +135,7 @@ export const workTool = defineTool({
             aiAdditions: s.aiAdditions,
             aiDeletions: s.aiDeletions,
           })) ?? null,
-        message: commitPage.pagination.total === 0 && codingDays.length === 0 ? NO_RECORDS : null,
+        message: totalCommits === 0 && codingDays.length === 0 ? NO_RECORDS : null,
         nextCursor: commitPage.pagination.hasNext ? encodeOffsetCursor(page * perPage) : null,
       },
       count: commits.length,

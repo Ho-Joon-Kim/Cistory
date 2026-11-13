@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   enqueueSnapshot: vi.fn(),
   narrativeFind: vi.fn(),
   searchRecords: vi.fn(),
+  findSpendingMatchEvidence: vi.fn(),
   loadTransferEvidence: vi.fn(),
 }));
 vi.mock("@/modules/overview/service", async (importOriginal) => {
@@ -25,7 +26,10 @@ vi.mock("@/modules/overview/narrative", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/modules/overview/narrative")>();
   return { ...actual, createDatabaseNarrativeStore: () => ({ find: mocks.narrativeFind }) };
 });
-vi.mock("@/modules/search/service", () => ({ searchRecords: mocks.searchRecords }));
+vi.mock("@/modules/search/service", () => ({
+  searchRecords: mocks.searchRecords,
+  findSpendingMatchEvidence: mocks.findSpendingMatchEvidence,
+}));
 vi.mock("./data", () => ({ loadTransferEvidence: mocks.loadTransferEvidence }));
 
 const envelope = (data: unknown) => ({
@@ -148,24 +152,111 @@ describe("search tool", () => {
     );
   });
 
+  const transferEvidence = {
+    id: "tx1",
+    rawTitle: "김철수님이 30,000원을 보냈어요",
+    rawText: "",
+    isSelfTransfer: false,
+  };
+  const cardEvidence = {
+    id: "tx2",
+    rawTitle: "5,000원 결제",
+    rawText: "카드 | 스타벅스",
+    isSelfTransfer: false,
+  };
+  const withoutTransfer = () => ({
+    items: [
+      {
+        id: "tx2",
+        source: "spending",
+        title: "스타벅스",
+        description: "5000원",
+        date: "2026-11-12",
+        href: "/x",
+        occurredAt: "2026-11-12T03:00:00.000Z",
+        amount: 5000,
+        category: "cafe",
+      },
+    ],
+    hasMore: false,
+    page: 1,
+    counts: { commit: 0, spending: 1, visit: 0, trip: 0 },
+  });
+
   it("uses the web search parser defaults and masks transfer counterparties", async () => {
-    const out = await callTool(searchTool, { q: "커피" });
-    expect(mocks.searchRecords).toHaveBeenCalledWith(expect.anything(), TEST_USER_ID, {
-      q: "커피",
-      from: "2026-10-15",
-      to: "2026-11-13",
-      source: "all",
-      page: 1,
-    });
+    const out = await callTool(searchTool, {});
+    expect(mocks.searchRecords).toHaveBeenCalledWith(
+      expect.anything(),
+      TEST_USER_ID,
+      { q: "", from: "2026-10-15", to: "2026-11-13", source: "all", page: 1 },
+      { excludeSpendingIds: [] }
+    );
+    // No query: nothing can match on the merchant, so rows stay (masked).
+    expect(mocks.findSpendingMatchEvidence).not.toHaveBeenCalled();
     const items = out.structured.items as Record<string, unknown>[];
     expect(items.map((i) => i.title)).toEqual([MASK, "스타벅스", "fix: bug"]);
     expect(items[0].occurredAt).toBe("2026-11-12T12:00:00+09:00");
     expect(items[0]).not.toHaveProperty("href");
+    expect(out.structured.counts).toEqual({ commit: 1, spending: 2, visit: 0, trip: 0 });
   });
 
-  it("shows counterparties to a sensitive-read token", async () => {
-    const out = await callTool(searchTool, {}, toolContext(["read", "sensitive-read"]));
+  it("a read token searching a counterparty's name gets no spending rows and count 0", async () => {
+    mocks.findSpendingMatchEvidence.mockResolvedValue([transferEvidence]);
+    mocks.searchRecords.mockResolvedValue({
+      items: [],
+      hasMore: false,
+      page: 1,
+      counts: { commit: 0, spending: 0, visit: 0, trip: 0 },
+    });
+    const out = await callTool(searchTool, { q: "김철수" });
+    expect(mocks.findSpendingMatchEvidence).toHaveBeenCalledWith(
+      expect.anything(),
+      TEST_USER_ID,
+      expect.objectContaining({ q: "김철수" })
+    );
+    expect(mocks.searchRecords.mock.calls[0][3]).toEqual({ excludeSpendingIds: ["tx1"] });
+    expect(out.structured.items).toEqual([]);
+    expect((out.structured.counts as { spending: number }).spending).toBe(0);
+    expect(JSON.stringify(out.structured)).not.toContain("김철수");
+  });
+
+  it("drops a personal transfer that slipped past the exclusion, and uncounts it", async () => {
+    // e.g. inserted between the evidence query and the search.
+    mocks.findSpendingMatchEvidence.mockResolvedValue([]);
+    const out = await callTool(searchTool, { q: "김" });
+    const items = out.structured.items as { id: string }[];
+    expect(items.map((i) => i.id)).toEqual(["tx2", "c1"]);
+    expect((out.structured.counts as { spending: number }).spending).toBe(1);
+  });
+
+  it("drops a spending row whose evidence can't be loaded (fail closed)", async () => {
+    mocks.findSpendingMatchEvidence.mockResolvedValue([]);
+    mocks.loadTransferEvidence.mockResolvedValue(new Map());
+    mocks.searchRecords.mockResolvedValue(withoutTransfer());
+    const out = await callTool(searchTool, { q: "스타" });
+    expect(out.structured.items).toEqual([]);
+    expect((out.structured.counts as { spending: number }).spending).toBe(0);
+  });
+
+  it("leaves card merchant search unaffected", async () => {
+    mocks.findSpendingMatchEvidence.mockResolvedValue([cardEvidence]);
+    mocks.searchRecords.mockResolvedValue(withoutTransfer());
+    const out = await callTool(searchTool, { q: "스타벅스" });
+    expect(mocks.searchRecords.mock.calls[0][3]).toEqual({ excludeSpendingIds: [] });
+    expect((out.structured.items as { title: string }[]).map((i) => i.title)).toEqual(["스타벅스"]);
+    expect((out.structured.counts as { spending: number }).spending).toBe(1);
+  });
+
+  it("shows counterparties to a sensitive-read token, query or not", async () => {
+    const out = await callTool(
+      searchTool,
+      { q: "김철수" },
+      toolContext(["read", "sensitive-read"])
+    );
     expect((out.structured.items as { title: string }[])[0].title).toBe("김철수");
+    expect((out.structured.counts as { spending: number }).spending).toBe(2);
+    expect(mocks.searchRecords.mock.calls[0][3]).toEqual({ excludeSpendingIds: [] });
+    expect(mocks.findSpendingMatchEvidence).not.toHaveBeenCalled();
     expect(mocks.loadTransferEvidence).not.toHaveBeenCalled();
   });
 

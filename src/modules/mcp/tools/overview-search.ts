@@ -9,6 +9,10 @@
  *
  * `search` parses its arguments with the web's `parseSearchInput` (same
  * defaults and limits) and masks the counterparty of personal transfers.
+ * Without `sensitive-read`, a non-empty `q` also leaves personal transfers out
+ * of the results and `counts.spending` entirely: otherwise `q` would still
+ * ILIKE-match the masked merchant, and whether a masked row came back would
+ * confirm a counterparty's name.
  */
 
 import { z } from "zod";
@@ -20,9 +24,10 @@ import {
   type OverviewSnapshotDomains,
 } from "@/modules/overview/service";
 import { parseSearchInput } from "@/modules/search/input";
-import { searchRecords } from "@/modules/search/service";
+import { findSpendingMatchEvidence, searchRecords } from "@/modules/search/service";
 import { SEARCH_SOURCES, type SearchItem } from "@/modules/search/types";
 import { EXPENSE_CATEGORIES } from "@/modules/spending/categories";
+import { isPersonalTransfer } from "@/modules/transaction/parser";
 import { accessFromScopes } from "../serialize";
 import { defineTool, type McpTool } from "../server";
 import { dayRangeFields, kstIso, NO_RECORDS, READ_ANNOTATIONS } from "./common";
@@ -175,35 +180,59 @@ export const searchTool = defineTool({
     if (input.page) params.set("page", String(input.page));
     // ApiError(400) with a Korean message → the wrapper returns it as isError.
     const parsed = parseSearchInput(params, ctx.now);
-    const result = await searchRecords(ctx.db, ctx.userId, parsed);
-
     const access = accessFromScopes(ctx.scopes);
+    // Name-oracle guard: with a query and no sensitive-read, personal transfers
+    // are excluded in SQL (page and counts alike) before they can match.
+    const hideTransfers = !access.sensitive && parsed.q !== "";
+    const excludeSpendingIds = hideTransfers
+      ? (await findSpendingMatchEvidence(ctx.db, ctx.userId, parsed))
+          .filter((row) => isPersonalTransfer(row))
+          .map((row) => row.id)
+      : [];
+    const result = await searchRecords(ctx.db, ctx.userId, parsed, { excludeSpendingIds });
+
     const spendingIds = result.items.filter((i) => i.source === "spending").map((i) => i.id);
     const evidence = access.sensitive
       ? new Map()
       : await loadTransferEvidence(ctx.db, ctx.userId, spendingIds);
 
-    const items = result.items.map((item: SearchItem) => ({
-      id: item.id,
-      source: item.source,
-      title:
-        item.source === "spending"
-          ? maskIfPersonalTransfer(item.title, evidence.get(item.id), access)
-          : item.title,
-      description: item.description,
-      date: item.date,
-      occurredAt: kstIso(item.occurredAt),
-      amount: item.amount ?? null,
-      category: item.category ?? null,
-      repository: item.repository ?? null,
-      groupTotal: item.groupTotal ?? null,
-    }));
+    // Fail closed for a row that appeared between the two queries: a personal
+    // transfer (or one whose evidence is gone) is dropped and uncounted.
+    const leaked = hideTransfers
+      ? new Set(
+          spendingIds.filter((id) => {
+            const row = evidence.get(id);
+            return !row || isPersonalTransfer(row);
+          })
+        )
+      : new Set<string>();
+    const counts = result.counts
+      ? { ...result.counts, spending: Math.max(0, result.counts.spending - leaked.size) }
+      : null;
+
+    const items = result.items
+      .filter((item) => !(item.source === "spending" && leaked.has(item.id)))
+      .map((item: SearchItem) => ({
+        id: item.id,
+        source: item.source,
+        title:
+          item.source === "spending"
+            ? maskIfPersonalTransfer(item.title, evidence.get(item.id), access)
+            : item.title,
+        description: item.description,
+        date: item.date,
+        occurredAt: kstIso(item.occurredAt),
+        amount: item.amount ?? null,
+        category: item.category ?? null,
+        repository: item.repository ?? null,
+        groupTotal: item.groupTotal ?? null,
+      }));
 
     return {
       structured: {
         query: { from: parsed.from, to: parsed.to, source: parsed.source, page: parsed.page },
         items,
-        counts: result.counts ?? null,
+        counts,
         hasMore: result.hasMore,
         nextPage: result.hasMore ? parsed.page + 1 : null,
         message: items.length === 0 ? NO_RECORDS : null,

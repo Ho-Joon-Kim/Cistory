@@ -146,6 +146,15 @@ export interface HealthSummary {
   metrics: HealthSummaryMetric[];
   workouts: HealthWorkout[];
   sleepSessions: HealthSleepSession[];
+  /**
+   * Only with an explicit `period` (never on the /health page's response): how
+   * many deduped workouts / nights the period holds before the
+   * `PERIOD_LIST_LIMIT` cut, so a caller can tell a capped list from a complete one.
+   */
+  periodListTotals?: {
+    workouts: { total: number; truncated: boolean };
+    sleepSessions: { total: number; truncated: boolean };
+  };
 }
 
 interface SummaryWindow {
@@ -416,6 +425,39 @@ export async function getHealthSummary(
       nap: isNap(r.valueJson),
     }));
 
+  // The list query above is row-capped, so count the period's distinct nights
+  // separately (no stage payloads) to report how many the cut left out.
+  let periodListTotals: HealthSummary["periodListTotals"];
+  if (window.period) {
+    const nightRows = await database
+      .select({
+        sampleAt: healthSamples.sampleAt,
+        source: healthSamples.source,
+        minutes: healthSamples.value,
+      })
+      .from(healthSamples)
+      .where(
+        and(
+          eq(healthSamples.userId, userId),
+          eq(healthSamples.metric, SLEEP_METRIC),
+          ...sampleRange
+        )
+      );
+    const nights = dedupeSessions(
+      nightRows.map((r) => ({ sampleAt: r.sampleAt, source: r.source, minutes: r.minutes ?? 0 }))
+    ).length;
+    periodListTotals = {
+      workouts: {
+        total: dedupedWorkouts.length,
+        truncated: dedupedWorkouts.length > workouts.length,
+      },
+      sleepSessions: {
+        total: Math.max(nights, sleepSessions.length),
+        truncated: nights > sleepSessions.length,
+      },
+    };
+  }
+
   const rhythm = await readRhythm(database, userId, conn?.scope ?? null);
 
   return {
@@ -428,5 +470,6 @@ export async function getHealthSummary(
     metrics,
     workouts,
     sleepSessions,
+    ...(periodListTotals ? { periodListTotals } : {}),
   };
 }

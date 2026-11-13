@@ -125,6 +125,43 @@ describe("health tool", () => {
     ).toEqual([{ x: 1 }]);
   });
 
+  it("reports a capped workout/sleep list with its total and a Korean hint", async () => {
+    mocks.getHealthSummary.mockResolvedValue({
+      ...summary(),
+      periodListTotals: {
+        workouts: { total: 140, truncated: true },
+        sleepSessions: { total: 1, truncated: false },
+      },
+    });
+    const out = await callTool(healthTool, {});
+    expect(out.structured.lists).toEqual({
+      workouts: { total: 140, truncated: true },
+      sleepSessions: { total: 1, truncated: false },
+    });
+    expect(out.structured.message).toMatch(/운동 기록은 기간 안 140건 중 최근 1건.*기간을 좁혀/);
+  });
+
+  it("reports complete lists without a message", async () => {
+    const out = await callTool(healthTool, {});
+    expect(out.structured.lists).toMatchObject({ workouts: { truncated: false } });
+    expect(out.structured.message).toBeNull();
+  });
+
+  it("bounds the range by how many metrics are requested", async () => {
+    await expect(callTool(healthTool, { from: "2026-07-01", to: "2026-11-13" })).rejects.toThrow(
+      /최대 84일.*metrics로 지표를 줄이면/
+    );
+    await callTool(healthTool, { from: "2025-11-14", to: "2026-11-13", metrics: ["steps"] });
+    await callTool(healthTool, {
+      from: "2025-11-14",
+      to: "2026-11-13",
+      metrics: ["steps", "heart_rate", "hrv"],
+    });
+    await expect(
+      callTool(healthTool, { from: "2026-10-01", to: "2026-11-13", includeSleepSegments: true })
+    ).rejects.toThrow(/31일/);
+  });
+
   it("rejects the rhythm metrics as a requested filter", () => {
     expect(healthTool.inputSchema.safeParse({ metrics: ["ecg"] }).success).toBe(false);
   });

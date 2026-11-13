@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { commits, notificationLogs, savedPlaces, transactions, trips, visits } from "@/db/schema";
 import { insertTestUser } from "@/db/testing/fixtures";
 import { useTransactionalDb } from "@/db/testing/transactional-db";
-import { searchRecords } from "./service";
+import { findSpendingMatchEvidence, searchRecords } from "./service";
 import type { SearchInput } from "./types";
 
 const input: SearchInput = { from: "2026-09-02", to: "2026-09-02", q: "", source: "all", page: 1 };
@@ -270,5 +270,53 @@ describe("unified record search against PostgreSQL", () => {
     });
     const result = await searchRecords(db, owner, { ...input, source: "visit" });
     expect(result.items[0].description).toBe("서울 강남구 논현동");
+  });
+  it("excludes opted-out spending ids from the page and counts, owner-scoped evidence", async () => {
+    const db = ctx.db();
+    const owner = await insertTestUser(db);
+    const other = await insertTestUser(db);
+    const tx = async (userId: string, merchant: string, rawTitle: string) => {
+      const [log] = await db
+        .insert(notificationLogs)
+        .values({ userId, rawPayload: "{}", receivedAt: now })
+        .returning();
+      const [row] = await db
+        .insert(transactions)
+        .values({
+          userId,
+          notificationLogId: log.id,
+          type: "deposit",
+          amount: 30000,
+          merchant,
+          accountName: "fixture",
+          rawTitle,
+          rawText: "",
+          transactedAt: now,
+          createdAt: now,
+        })
+        .returning();
+      return row.id;
+    };
+    const transfer = await tx(owner, "김철수", "김철수님이 30,000원을 보냈어요");
+    const card = await tx(owner, "김밥천국", "30,000원 결제");
+    await tx(other, "김영희", "김영희님이 30,000원을 보냈어요");
+
+    const evidence = await findSpendingMatchEvidence(db, owner, { ...input, q: "김" });
+    expect(evidence.map((e) => e.id).sort()).toEqual([transfer, card].sort());
+    expect(evidence.find((e) => e.id === transfer)?.rawTitle).toBe(
+      "김철수님이 30,000원을 보냈어요"
+    );
+    expect(await findSpendingMatchEvidence(db, owner, input)).toEqual([]);
+
+    const all = await searchRecords(db, owner, { ...input, q: "김" });
+    expect(all.counts?.spending).toBe(2);
+    const hidden = await searchRecords(
+      db,
+      owner,
+      { ...input, q: "김" },
+      { excludeSpendingIds: [transfer] }
+    );
+    expect(hidden.items.map((i) => i.id)).toEqual([card]);
+    expect(hidden.counts?.spending).toBe(1);
   });
 });

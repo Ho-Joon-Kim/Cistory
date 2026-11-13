@@ -28,7 +28,8 @@ describe("work tool", () => {
           summary: { status: "completed", summary: "기능 추가" },
         },
       ],
-      pagination: { page: 1, perPage: 1, total: 2, totalPages: 2, hasNext: true, hasPrev: false },
+      // pg hands count(*) back as a string; the tool must not pass it through.
+      pagination: { page: 1, perPage: 1, total: "2", totalPages: 2, hasNext: true, hasPrev: false },
     });
     mocks.getCodingStats.mockResolvedValue([
       {
@@ -53,6 +54,8 @@ describe("work tool", () => {
       "2026-11-13",
       expect.anything()
     );
+    expect(out.structured.totalCommits).toBe(2);
+    expect(out.structured.message).toBeNull();
     const [commit] = out.structured.commits as Record<string, unknown>[];
     expect(commit).toMatchObject({
       repository: "me/repo",
@@ -70,5 +73,23 @@ describe("work tool", () => {
       cursor: out.structured.nextCursor,
     });
     expect(mocks.listCommits.mock.calls[1][1].page).toBe(2);
+  });
+
+  it("reports an empty range as no records when pg returns the count as a string", async () => {
+    mocks.listCommits.mockResolvedValue({
+      commits: [],
+      pagination: {
+        page: 1,
+        perPage: 100,
+        total: "0",
+        totalPages: 0,
+        hasNext: false,
+        hasPrev: false,
+      },
+    });
+    mocks.getCodingStats.mockResolvedValue([]);
+    const out = await callTool(workTool, { from: "2026-11-12", to: "2026-11-13" });
+    expect(out.structured.totalCommits).toBe(0);
+    expect(out.structured.message).toBe("기록 없음");
   });
 });
